@@ -9,7 +9,15 @@ DATABASE_URL = os.environ.get(
     "postgresql+asyncpg://re:re@localhost:5432/regression_eye",
 )
 
-engine = create_async_engine(DATABASE_URL, echo=False)
+# SQLite 需要额外的连接参数
+if DATABASE_URL.startswith("sqlite"):
+    engine = create_async_engine(
+        DATABASE_URL, echo=False,
+        connect_args={"check_same_thread": False},
+    )
+else:
+    engine = create_async_engine(DATABASE_URL, echo=False)
+
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
