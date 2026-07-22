@@ -1,4 +1,4 @@
-name: RegressionEye Tests
+name: AutoTest
 
 on:
   pull_request:
@@ -59,7 +59,7 @@ jobs:
         run: |
           python -c "
           import json, httpx, os
-          url = os.environ.get('REGRESSION_EYE_URL', '')
+          url = os.environ.get('AUTO_TEST_URL', '')
           token = os.environ.get('RE_TOKEN', '')
           if url and token and os.path.exists('report.json'):
               report = json.load(open('report.json'))
@@ -68,7 +68,7 @@ jobs:
                   json=report, timeout=30)
           "
         env:
-          REGRESSION_EYE_URL: ${{ secrets.REGRESSION_EYE_URL }}
+          AUTO_TEST_URL: ${{ secrets.AUTO_TEST_URL }}
           RE_TOKEN: ${{ secrets.RE_TOKEN }}
 
       - name: 上传截图

@@ -1,5 +1,5 @@
 # engine/reporter.py
-"""自定义 pytest Reporter：实时推送测试进度到 RegressionEye 后端"""
+"""自定义 pytest Reporter：实时推送测试进度到 AutoTest 后端"""
 import json
 from datetime import datetime
 from pathlib import Path
@@ -7,7 +7,7 @@ from typing import Optional
 import httpx
 
 
-class RegressionEyeReporter:
+class AutoTestReporter:
     """pytest 插件：在每条用例开始/结束时推送状态到后端 API"""
 
     def __init__(self, run_id: int, backend_url: str = "http://localhost:8000"):

@@ -16,7 +16,7 @@ async def lifespan(app: FastAPI):
     await close_db()
 
 
-app = FastAPI(title="RegressionEye API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="AutoTest API", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

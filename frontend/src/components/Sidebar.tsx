@@ -14,7 +14,7 @@ export default function Sidebar() {
       <div className="p-4 border-b border-gray-700">
         <div className="flex items-center gap-2">
           <Eye className="w-6 h-6 text-green-400" />
-          <span className="font-bold text-lg">RegressionEye</span>
+          <span className="font-bold text-lg">AutoTest</span>
         </div>
       </div>
       <nav className="flex-1 p-2">

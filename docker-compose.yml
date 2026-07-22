@@ -4,7 +4,7 @@ services:
     ports:
       - "5432:5432"
     environment:
-      POSTGRES_DB: regression_eye
+      POSTGRES_DB: auto_test
       POSTGRES_USER: re
       POSTGRES_PASSWORD: re
     volumes:
@@ -17,7 +17,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: postgresql+asyncpg://re:re@db:5432/regression_eye
+      DATABASE_URL: postgresql+asyncpg://re:re@db:5432/auto_test
       SCREENSHOTS_DIR: /screenshots
     volumes:
       - screenshots:/screenshots

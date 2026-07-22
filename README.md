@@ -1,4 +1,4 @@
-# RegressionEye
+# AutoTest
 
 UI 自动化回归测试平台
 
@@ -52,7 +52,7 @@ pytest tests/suites/test_login.py -v
 ## 项目结构
 
 ```
-RegressionEye/
+AutoTest/
 ├── tests/          # Playwright 测试用例（POM 模式）
 ├── engine/         # 测试执行引擎
 ├── backend/        # FastAPI 后端
