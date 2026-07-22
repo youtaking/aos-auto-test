@@ -1,0 +1,143 @@
+# engine/runner.py
+"""测试执行引擎：调度 pytest 运行，收集结果"""
+import json
+import subprocess
+import sys
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
+from typing import Optional, List
+
+
+@dataclass
+class CaseResult:
+    """单条用例运行结果"""
+    suite_name: str
+    case_name: str
+    file_path: str
+    function_name: str
+    status: str  # passed / failed / skipped / error
+    duration_ms: int = 0
+    error_message: Optional[str] = None
+    stack_trace: Optional[str] = None
+    screenshot_path: Optional[str] = None
+
+
+@dataclass
+class RunResult:
+    """一次完整运行的结果"""
+    started_at: datetime = field(default_factory=datetime.utcnow)
+    finished_at: Optional[datetime] = None
+    results: List[CaseResult] = field(default_factory=list)
+    status: str = "pending"
+
+    @property
+    def total(self) -> int:
+        return len(self.results)
+
+    @property
+    def passed(self) -> int:
+        return sum(1 for r in self.results if r.status == "passed")
+
+    @property
+    def failed(self) -> int:
+        return sum(1 for r in self.results if r.status in ("failed", "error"))
+
+    @property
+    def skipped(self) -> int:
+        return sum(1 for r in self.results if r.status == "skipped")
+
+
+class TestRunner:
+    """测试运行器：调用 pytest 并解析结果"""
+
+    __test__ = False  # 防止 pytest 误收集此类为测试类
+
+    def __init__(self, test_dir: str = "tests/suites"):
+        self.test_dir = test_dir
+
+    def collect_tests(self) -> list[dict]:
+        """通过 pytest --collect-only 扫描所有测试用例"""
+        result = subprocess.run(
+            [sys.executable, "-m", "pytest", self.test_dir, "--collect-only", "-q"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+        )
+
+        stdout = result.stdout or ""
+        collected = []
+        for line in stdout.splitlines():
+            line = line.strip()
+            if "::" not in line:
+                continue
+            # 过滤掉非测试行（如 "no tests ran", warnings 等）
+            if line.startswith(("tests/", ".")):
+                parts = line.split("::")
+                if len(parts) >= 2:
+                    file_path = parts[0]
+                    func_name = parts[-1]
+                    suite_name = Path(file_path).stem.replace("test_", "")
+                    collected.append({
+                        "suite_name": suite_name,
+                        "file_path": file_path,
+                        "function_name": func_name,
+                    })
+        return collected
+
+    def run(
+        self,
+        suite_names: Optional[list[str]] = None,
+        report_path: str = "report.json",
+    ) -> RunResult:
+        """执行 pytest 并生成 JSON 报告"""
+        run_result = RunResult(started_at=datetime.utcnow())
+
+        cmd = [
+            sys.executable, "-m", "pytest", self.test_dir,
+            "-v", "--tb=short",
+            f"--json-report", f"--json-report-file={report_path}",
+        ]
+
+        if suite_names:
+            for name in suite_names:
+                cmd.append(f"test_{name}.py")
+
+        proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+
+        run_result.finished_at = datetime.utcnow()
+
+        report_file = Path(report_path)
+        if report_file.exists():
+            with open(report_file, "r", encoding="utf-8") as f:
+                report_data = json.load(f)
+
+            for test in report_data.get("tests", []):
+                nodeid = test.get("nodeid", "")
+                parts = nodeid.split("::")
+                file_path = parts[0] if parts else ""
+                func_name = parts[1] if len(parts) > 1 else ""
+                suite_name = Path(file_path).stem.replace("test_", "")
+
+                status_map = {
+                    "passed": "passed",
+                    "failed": "failed",
+                    "skipped": "skipped",
+                    "error": "error",
+                }
+                outcome = test.get("outcome", "error")
+                call_info = test.get("call", {})
+                duration_ms = int(call_info.get("duration", 0) * 1000)
+                longrepr = call_info.get("longrepr", "")
+
+                run_result.results.append(CaseResult(
+                    suite_name=suite_name,
+                    case_name=func_name,
+                    file_path=file_path,
+                    function_name=func_name,
+                    status=status_map.get(outcome, "error"),
+                    duration_ms=duration_ms,
+                    error_message=str(longrepr)[:500] if longrepr else None,
+                    stack_trace=str(longrepr) if longrepr else None,
+                ))
+
+        run_result.status = "passed" if run_result.failed == 0 else "failed"
+        return run_result
