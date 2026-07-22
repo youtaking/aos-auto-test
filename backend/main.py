@@ -4,7 +4,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.db.config import init_db, close_db
-from backend.api import projects, suites, runs, cases
+from backend.api import projects, suites, runs, cases, dashboard
+from backend import ws as ws_module
 
 
 @asynccontextmanager
@@ -29,6 +30,8 @@ app.include_router(projects.router, prefix="/api", tags=["projects"])
 app.include_router(suites.router, prefix="/api", tags=["suites"])
 app.include_router(runs.router, prefix="/api", tags=["runs"])
 app.include_router(cases.router, prefix="/api", tags=["cases"])
+app.include_router(dashboard.router, prefix="/api", tags=["dashboard"])
+app.include_router(ws_module.router, tags=["websocket"])
 
 
 @app.get("/api/health")
