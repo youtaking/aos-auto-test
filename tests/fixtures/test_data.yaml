@@ -1,0 +1,11 @@
+# 测试数据配置
+fenixagent:
+  url: "http://localhost:3001"
+  admin:
+    email: "admin@fenix.com"
+    password: "admin123"
+
+test_users:
+  - email: "test@example.com"
+    password: "test123"
+    role: "user"

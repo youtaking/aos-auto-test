@@ -1,0 +1,17 @@
+fastapi==0.115.12
+uvicorn[standard]==0.34.2
+sqlalchemy[asyncio]==2.0.41
+asyncpg==0.30.0
+alembic==1.16.2
+pydantic==2.11.4
+pydantic-settings==2.10.1
+python-multipart==0.0.20
+websockets==15.0.1
+httpx==0.28.1
+playwright==1.53.0
+pytest==8.4.1
+pytest-playwright==0.7.0
+pytest-asyncio==1.0.0
+pyyaml==6.0.2
+python-dotenv==1.1.1
+pytest-json-report==1.5.0

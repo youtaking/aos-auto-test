@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+.venv/
+venv/
+dist/
+*.egg-info/
+.pytest_cache/
+test-results/
+screenshots/
+*.png
+*.webm
+node_modules/
+frontend/dist/
+frontend/.vite/
+report.json
