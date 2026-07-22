@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.db.config import init_db, close_db
-from backend.api import projects, suites
+from backend.api import projects, suites, runs, cases
 
 
 @asynccontextmanager
@@ -27,6 +27,8 @@ app.add_middleware(
 
 app.include_router(projects.router, prefix="/api", tags=["projects"])
 app.include_router(suites.router, prefix="/api", tags=["suites"])
+app.include_router(runs.router, prefix="/api", tags=["runs"])
+app.include_router(cases.router, prefix="/api", tags=["cases"])
 
 
 @app.get("/api/health")
