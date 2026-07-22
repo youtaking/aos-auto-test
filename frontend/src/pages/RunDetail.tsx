@@ -1,0 +1,67 @@
+import { useEffect, useState } from "react";
+import { useParams } from "react-router-dom";
+import { getRun, getRunResults } from "../api/runs";
+import type { TestRun, TestResult } from "../api/types";
+
+const statusIcon: Record<string, string> = {
+  passed: "✅", failed: "❌", skipped: "⏭️", error: "⚠️", running: "🔄",
+};
+
+export default function RunDetail() {
+  const { id } = useParams<{ id: string }>();
+  const [run, setRun] = useState<TestRun | null>(null);
+  const [results, setResults] = useState<TestResult[]>([]);
+
+  useEffect(() => {
+    if (!id) return;
+    const runId = Number(id);
+    getRun(runId).then(setRun).catch(console.error);
+    getRunResults(runId).then(setResults).catch(console.error);
+  }, [id]);
+
+  if (!run) return <div className="p-8 text-gray-500">加载中...</div>;
+
+  return (
+    <div className="space-y-6">
+      <h1 className="text-2xl font-bold">运行 #{run.id}</h1>
+      <div className="grid grid-cols-5 gap-4">
+        {[
+          { label: "总计", value: run.total, color: "" },
+          { label: "通过", value: run.passed, color: "text-green-600" },
+          { label: "失败", value: run.failed, color: "text-red-600" },
+          { label: "跳过", value: run.skipped, color: "text-gray-500" },
+          { label: "耗时", value: `${(run.duration_ms / 1000).toFixed(1)}s`, color: "" },
+        ].map((item) => (
+          <div key={item.label} className="bg-white rounded-xl p-4 shadow-sm text-center">
+            <div className="text-sm text-gray-500">{item.label}</div>
+            <div className={`text-xl font-bold ${item.color}`}>{item.value}</div>
+          </div>
+        ))}
+      </div>
+      <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+        <table className="w-full">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">状态</th>
+              <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">用例名</th>
+              <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">套件</th>
+              <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">耗时</th>
+              <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">错误</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {results.map((r) => (
+              <tr key={r.id} className="hover:bg-gray-50">
+                <td className="px-4 py-3">{statusIcon[r.status] ?? "❓"}</td>
+                <td className="px-4 py-3 text-sm font-mono">{r.case_name}</td>
+                <td className="px-4 py-3 text-sm">{r.suite_name}</td>
+                <td className="px-4 py-3 text-sm">{r.duration_ms}ms</td>
+                <td className="px-4 py-3 text-sm text-red-600 max-w-xs truncate">{r.error_message ?? "-"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}

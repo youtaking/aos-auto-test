@@ -1,14 +1,10 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Layout from "./components/Layout";
-
-function Placeholder({ name }: { name: string }) {
-  return (
-    <div className="p-8">
-      <h1 className="text-2xl font-bold">{name}</h1>
-      <p className="mt-2 text-gray-500">页面建设中...</p>
-    </div>
-  );
-}
+import Dashboard from "./pages/Dashboard";
+import Runs from "./pages/Runs";
+import RunDetail from "./pages/RunDetail";
+import Cases from "./pages/Cases";
+import Settings from "./pages/Settings";
 
 export default function App() {
   return (
@@ -16,11 +12,11 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Layout />}>
           <Route index element={<Navigate to="/dashboard" replace />} />
-          <Route path="dashboard" element={<Placeholder name="总览" />} />
-          <Route path="runs" element={<Placeholder name="运行记录" />} />
-          <Route path="runs/:id" element={<Placeholder name="运行详情" />} />
-          <Route path="cases" element={<Placeholder name="用例管理" />} />
-          <Route path="settings" element={<Placeholder name="设置" />} />
+          <Route path="dashboard" element={<Dashboard />} />
+          <Route path="runs" element={<Runs />} />
+          <Route path="runs/:id" element={<RunDetail />} />
+          <Route path="cases" element={<Cases />} />
+          <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>
     </BrowserRouter>
