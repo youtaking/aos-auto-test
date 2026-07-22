@@ -10,5 +10,42 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
 
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://re:re@db:5432/regression_eye
+      SCREENSHOTS_DIR: /screenshots
+    volumes:
+      - screenshots:/screenshots
+    depends_on:
+      - db
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+  runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.runner
+    environment:
+      BACKEND_URL: http://backend:8000
+    volumes:
+      - screenshots:/screenshots
+    profiles:
+      - runner
+    depends_on:
+      - backend
+
 volumes:
   pgdata:
+  screenshots:
