@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { getSummary, getTrend } from "../api/dashboard";
 import { triggerRun } from "../api/runs";
 import { listProjects } from "../api/projects";
@@ -8,9 +9,13 @@ import {
 } from "recharts";
 
 export default function Dashboard() {
+  const navigate = useNavigate();
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [trend, setTrend] = useState<TrendItem[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [running, setRunning] = useState(false);
+  const [headed, setHeaded] = useState(true);
+  const [stepDelay, setStepDelay] = useState(0);
 
   useEffect(() => {
     getSummary().then(setSummary).catch(console.error);
@@ -19,9 +24,16 @@ export default function Dashboard() {
   }, []);
 
   const handleRunAll = async () => {
-    if (projects.length === 0) return;
-    await triggerRun(projects[0].id, "manual");
-    window.location.href = "/runs";
+    const activeProject = projects.find((p) => p.is_active) ?? projects[0];
+    if (!activeProject || running) return;
+    setRunning(true);
+    try {
+      const run = await triggerRun(activeProject.id, "manual", headed, stepDelay);
+      navigate(`/runs/${run.id}`);
+    } catch (e) {
+      console.error(e);
+      setRunning(false);
+    }
   };
 
   const statusColor = summary?.latest_run_status === "passed" ? "bg-green-500" : "bg-red-500";
@@ -65,10 +77,38 @@ export default function Dashboard() {
           </LineChart>
         </ResponsiveContainer>
       </div>
-      <div className="flex gap-3">
-        <button onClick={handleRunAll} className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
-          运行全部测试
+      <div className="flex items-center gap-4 flex-wrap">
+        <button
+          onClick={handleRunAll}
+          disabled={running}
+          className={`px-4 py-2 text-white rounded-lg transition-colors ${
+            running ? "bg-gray-400 cursor-not-allowed" : "bg-green-600 hover:bg-green-700"
+          }`}
+        >
+          {running ? "正在触发..." : "运行全部测试"}
         </button>
+        <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={headed}
+            onChange={(e) => setHeaded(e.target.checked)}
+            className="w-4 h-4 rounded"
+          />
+          显示浏览器窗口
+        </label>
+        <div className="flex items-center gap-2 text-sm text-gray-600">
+          <span>操作延迟:</span>
+          <input
+            type="range"
+            min={0}
+            max={5}
+            step={0.5}
+            value={stepDelay}
+            onChange={(e) => setStepDelay(Number(e.target.value))}
+            className="w-28"
+          />
+          <span className="w-8 text-center font-mono">{stepDelay}s</span>
+        </div>
       </div>
     </div>
   );

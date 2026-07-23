@@ -15,6 +15,7 @@ class Project(Base):
     name = Column(String(200), nullable=False)
     url = Column(String(500), nullable=False)
     description = Column(Text, default="")
+    is_active = Column(Integer, default=0)  # 1=激活, 0=未激活
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

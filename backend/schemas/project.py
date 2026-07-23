@@ -22,6 +22,7 @@ class ProjectResponse(BaseModel):
     name: str
     url: str
     description: str
+    is_active: int
     created_at: datetime
 
     model_config = {"from_attributes": True}

@@ -59,19 +59,39 @@ class TestRunner:
     def collect_tests(self) -> list[dict]:
         """通过 pytest --collect-only 扫描所有测试用例"""
         result = subprocess.run(
-            [sys.executable, "-m", "pytest", self.test_dir, "--collect-only", "-q"],
+            [sys.executable, "-m", "pytest", self.test_dir, "--collect-only", "-q",
+             "--no-header", "-p", "no:cacheprovider"],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
         )
 
         stdout = result.stdout or ""
         collected = []
+
+        # 兼容 pytest 8.x 树形输出和旧版扁平输出
+        current_file = ""
         for line in stdout.splitlines():
-            line = line.strip()
-            if "::" not in line:
+            line_stripped = line.strip()
+
+            # 树形格式：<Module test_login.py>
+            if "<Module " in line_stripped:
+                module_name = line_stripped.split("<Module ")[-1].rstrip(">").strip()
+                current_file = f"tests/suites/{module_name}"
                 continue
-            # 过滤掉非测试行（如 "no tests ran", warnings 等）
-            if line.startswith(("tests/", ".")):
-                parts = line.split("::")
+
+            # 树形格式：<Function test_xxx>
+            if "<Function " in line_stripped and current_file:
+                func_name = line_stripped.split("<Function ")[-1].rstrip(">").strip()
+                suite_name = Path(current_file).stem.replace("test_", "")
+                collected.append({
+                    "suite_name": suite_name,
+                    "file_path": current_file,
+                    "function_name": func_name,
+                })
+                continue
+
+            # 旧版扁平格式：tests/suites/test_login.py::test_xxx
+            if "::" in line_stripped and line_stripped.startswith(("tests/", ".")):
+                parts = line_stripped.split("::")
                 if len(parts) >= 2:
                     file_path = parts[0]
                     func_name = parts[-1]
@@ -81,6 +101,7 @@ class TestRunner:
                         "file_path": file_path,
                         "function_name": func_name,
                     })
+
         return collected
 
     def run(

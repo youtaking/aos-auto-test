@@ -1,0 +1,278 @@
+# tests/pages/sites_page.py
+"""Agent Sites 页面 Page Object（列表管理 + 建站助手对话）"""
+from playwright.sync_api import Page
+
+
+class SitesListPage:
+    """Agent Sites 列表页 /ctrl/agent/sites"""
+
+    def __init__(self, page: Page, base_url: str):
+        self.page = page
+        self.base_url = base_url
+        self.url = f"{base_url}/ctrl/agent/sites"
+
+    def goto(self):
+        self.page.goto(self.url)
+        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_timeout(1000)
+
+    def is_loaded(self) -> bool:
+        return self.page.locator("h1").filter(has_text="Agent Sites").count() > 0
+
+    # === 列表基础 ===
+
+    def has_table(self) -> bool:
+        return self.page.locator("table").count() > 0
+
+    def get_app_count(self) -> int:
+        return self.page.locator("table tbody tr").count()
+
+    def get_app_names(self) -> list[str]:
+        names = []
+        for row in self.page.locator("table tbody tr").all():
+            name_btn = row.locator("td").first.locator("button")
+            if name_btn.count() > 0:
+                names.append(name_btn.inner_text().strip())
+        return names
+
+    def has_app(self, name: str) -> bool:
+        return name in self.get_app_names()
+
+    def get_table_headers(self) -> list[str]:
+        return self.page.locator("table thead th").all_text_contents()
+
+    # === 搜索 & Tab ===
+
+    def search(self, keyword: str):
+        inp = self.page.locator("input[placeholder*='搜索 app'], input[placeholder*='搜索app']")
+        if inp.count() > 0:
+            inp.first.fill(keyword)
+            self.page.wait_for_timeout(500)
+
+    def clear_search(self):
+        inp = self.page.locator("input[placeholder*='搜索 app'], input[placeholder*='搜索app']")
+        if inp.count() > 0:
+            inp.first.fill("")
+            self.page.wait_for_timeout(500)
+
+    def get_filter_tabs(self) -> list[str]:
+        return [t.strip() for t in self.page.locator("[role='tab']").all_text_contents() if t.strip()]
+
+    def click_filter_tab(self, tab_name: str):
+        tab = self.page.locator("[role='tab']").filter(has_text=tab_name)
+        if tab.count() > 0:
+            tab.first.click()
+            self.page.wait_for_timeout(500)
+
+    # === 创建者列 ===
+
+    def get_creator_text(self, app_name: str) -> str:
+        """获取某应用的创建者列文本"""
+        for row in self.page.locator("table tbody tr").all():
+            name_btn = row.locator("td").first.locator("button")
+            if name_btn.count() > 0 and name_btn.inner_text().strip() == app_name:
+                return row.locator("td").nth(3).inner_text().strip()
+        return ""
+
+    def get_all_creator_texts(self) -> list[str]:
+        """获取所有应用的创建者文本"""
+        creators = []
+        for row in self.page.locator("table tbody tr").all():
+            creators.append(row.locator("td").nth(3).inner_text().strip())
+        return creators
+
+    def click_creator(self, app_name: str):
+        """点击某应用的创建者名称"""
+        for row in self.page.locator("table tbody tr").all():
+            name_btn = row.locator("td").first.locator("button")
+            if name_btn.count() > 0 and name_btn.inner_text().strip() == app_name:
+                creator_td = row.locator("td").nth(3)
+                link = creator_td.locator("a, button").first
+                if link.count() > 0:
+                    link.click()
+                    self.page.wait_for_timeout(1000)
+                return
+
+    def has_creator_link(self, app_name: str) -> bool:
+        """某应用的创建者列是否有可点击链接"""
+        for row in self.page.locator("table tbody tr").all():
+            name_btn = row.locator("td").first.locator("button")
+            if name_btn.count() > 0 and name_btn.inner_text().strip() == app_name:
+                creator_td = row.locator("td").nth(3)
+                return creator_td.locator("a, button").count() > 0
+        return False
+
+    # === 打开应用（独立 URL）===
+
+    def get_open_url(self, app_name: str) -> str | None:
+        """获取某应用的打开 URL（不点击）"""
+        for row in self.page.locator("table tbody tr").all():
+            name_btn = row.locator("td").first.locator("button")
+            if name_btn.count() > 0 and name_btn.inner_text().strip() == app_name:
+                open_btn = row.locator("button[title='打开']")
+                if open_btn.count() > 0:
+                    # 从 href 或 data 属性获取 URL
+                    href = open_btn.get_attribute("href")
+                    if href:
+                        return href
+        return None
+
+    def open_app_in_new_tab(self, app_name: str):
+        """点击打开按钮，在新标签页打开应用"""
+        for row in self.page.locator("table tbody tr").all():
+            name_btn = row.locator("td").first.locator("button")
+            if name_btn.count() > 0 and name_btn.inner_text().strip() == app_name:
+                open_btn = row.locator("button[title='打开']")
+                if open_btn.count() > 0:
+                    with self.page.context.expect_page() as new_page_info:
+                        open_btn.click()
+                    new_page = new_page_info.value
+                    new_page.wait_for_load_state("networkidle")
+                    return new_page
+        return None
+
+    # === 编辑 ===
+
+    def open_edit_dialog(self, app_name: str):
+        """点击应用名打开编辑对话框"""
+        for row in self.page.locator("table tbody tr").all():
+            name_btn = row.locator("td").first.locator("button")
+            if name_btn.count() > 0 and name_btn.inner_text().strip() == app_name:
+                name_btn.click()
+                self.page.wait_for_timeout(1000)
+                return
+
+    def is_edit_dialog_open(self) -> bool:
+        dialog = self.page.locator("[role='dialog']")
+        if dialog.count() == 0:
+            return False
+        return dialog.get_by_text("编辑").count() > 0 or dialog.locator("input").count() > 0
+
+    def edit_app_name(self, new_name: str):
+        """在编辑对话框中修改名称"""
+        dialog = self.page.locator("[role='dialog']")
+        name_input = dialog.locator("input").first
+        name_input.fill(new_name)
+
+    def edit_app_description(self, desc: str):
+        """在编辑对话框中修改描述"""
+        dialog = self.page.locator("[role='dialog']")
+        textarea = dialog.locator("textarea").first
+        textarea.fill(desc)
+
+    def save_edit(self):
+        dialog = self.page.locator("[role='dialog']")
+        dialog.get_by_role("button", name="保存").click()
+        self.page.wait_for_timeout(1500)
+
+    def cancel_edit(self):
+        dialog = self.page.locator("[role='dialog']")
+        cancel = dialog.get_by_role("button", name="取消")
+        if cancel.count() > 0:
+            cancel.first.click()
+            self.page.wait_for_timeout(500)
+
+    # === 删除（三点菜单）===
+
+    def open_row_menu(self, app_name: str):
+        """打开某应用的三点菜单"""
+        for row in self.page.locator("table tbody tr").all():
+            name_btn = row.locator("td").first.locator("button")
+            if name_btn.count() > 0 and name_btn.inner_text().strip() == app_name:
+                # 第三个 button 是三点菜单
+                btns = row.locator("button")
+                if btns.count() >= 3:
+                    btns.nth(2).click()
+                    self.page.wait_for_timeout(500)
+                    return
+
+    def delete_app(self, app_name: str):
+        """通过三点菜单删除应用"""
+        self.open_row_menu(app_name)
+        delete_item = self.page.get_by_role("menuitem", name="删除")
+        if delete_item.count() > 0:
+            delete_item.click()
+            self.page.wait_for_timeout(500)
+
+            # 确认删除 — alertdialog 优先
+            alert_confirm = self.page.locator("[role='alertdialog']").get_by_role("button", name="确认")
+            dialog_confirm = self.page.locator("[role='dialog']").get_by_role("button", name="确认")
+            confirm_btn = self.page.get_by_role("button", name="确认").or_(
+                self.page.get_by_role("button", name="确定")
+            )
+
+            if alert_confirm.count() > 0:
+                alert_confirm.first.click()
+            elif dialog_confirm.count() > 0:
+                dialog_confirm.first.click()
+            elif confirm_btn.count() > 0:
+                confirm_btn.first.click()
+
+            # 等待删除完成：对话框关闭 + 列表更新
+            self.page.wait_for_timeout(3000)
+
+            # 等待对话框消失（确认删除成功）
+            for _ in range(5):
+                remaining = self.page.locator("[role='alertdialog'], [role='dialog']")
+                if remaining.count() == 0 or not remaining.first.is_visible():
+                    break
+                self.page.wait_for_timeout(1000)
+
+    def get_menu_items(self, app_name: str) -> list[str]:
+        """获取某应用的菜单项列表"""
+        self.open_row_menu(app_name)
+        items = [m.strip() for m in self.page.locator("[role='menuitem']").all_text_contents()]
+        self.page.keyboard.press("Escape")
+        self.page.wait_for_timeout(300)
+        return items
+
+
+class SiteBuilderChatPage:
+    """建站助手对话页"""
+
+    def __init__(self, page: Page, base_url: str):
+        self.page = page
+        self.base_url = base_url
+
+    def goto_builder_chat(self):
+        """进入建站助手对话页"""
+        # 先到首页
+        self.page.goto(f"{self.base_url}/ctrl/agent/home")
+        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_timeout(2000)
+
+        # 滚动侧边栏找到建站助手
+        builder_card = self.page.locator("button.agent-sidebar-agent-card").filter(
+            has_text="建站助手"
+        )
+        if builder_card.count() > 0:
+            builder_card.first.scroll_into_view_if_needed()
+            self.page.wait_for_timeout(300)
+            builder_card.first.click()
+            self.page.wait_for_timeout(3000)
+
+    def is_chat_loaded(self) -> bool:
+        """对话页是否加载"""
+        return "/chat/" in self.page.url
+
+    def has_textarea(self) -> bool:
+        """是否有消息输入框"""
+        return self.page.locator("textarea").count() > 0
+
+    def has_artifacts_panel(self) -> bool:
+        """是否有 ArtifactsPanel（iframe 预览区）"""
+        return self.page.locator("iframe").count() > 0
+
+    def get_iframe_src(self) -> str:
+        """获取 iframe 的 src"""
+        iframe = self.page.locator("iframe").first
+        if iframe.count() > 0:
+            return iframe.get_attribute("src") or ""
+        return ""
+
+    def has_view_site_button(self) -> bool:
+        """是否有「查看站点」按钮"""
+        return self.page.get_by_role("button", name="查看站点").count() > 0
+
+    def get_chat_url(self) -> str:
+        return self.page.url

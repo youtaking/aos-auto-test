@@ -9,6 +9,7 @@ export interface Project {
   name: string;
   url: string;
   description: string;
+  is_active: number;
   created_at: string;
 }
 

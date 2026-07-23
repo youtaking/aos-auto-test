@@ -49,10 +49,9 @@ jobs:
         run: |
           pytest tests/suites/ \
             -v --tb=short \
+            --base-url "${{ secrets.FENIXAGENT_URL || 'https://fenix-agent-ver.pazhoulab-huangpu.com' }}" \
             --json-report --json-report-file=report.json \
             ${{ github.event.inputs.suite && format('-k {0}', github.event.inputs.suite) || '' }}
-        env:
-          FENIXAGENT_URL: ${{ secrets.FENIXAGENT_URL }}
 
       - name: 上报结果到看板
         if: always()

@@ -7,14 +7,14 @@ class DashboardPage:
     def __init__(self, page: Page, base_url: str):
         self.page = page
         self.base_url = base_url
-        self.url = f"{base_url}/agent/dashboard"
+        self.url = f"{base_url}/ctrl/agent/dashboard"
 
     def goto(self):
         self.page.goto(self.url)
         self.page.wait_for_load_state("networkidle")
 
     def is_loaded(self) -> bool:
-        return "dashboard" in self.page.url.lower() or self.page.locator("main").is_visible()
+        return "dashboard" in self.page.url.lower() and self.page.locator("div.agent-panel-body").is_visible()
 
     def has_sidebar(self) -> bool:
         return self.page.locator("nav, aside, [class*='sidebar']").first.is_visible()

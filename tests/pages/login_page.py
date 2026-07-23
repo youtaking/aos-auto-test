@@ -7,26 +7,32 @@ class LoginPage:
     def __init__(self, page: Page, base_url: str):
         self.page = page
         self.base_url = base_url
-        self.url = f"{base_url}/login"
+        self.url = f"{base_url}/ctrl/login"
 
     def goto(self):
         self.page.goto(self.url)
         self.page.wait_for_load_state("networkidle")
 
     def login(self, email: str, password: str):
-        self.page.fill('input[name="email"], input[type="email"]', email)
-        self.page.fill('input[name="password"], input[type="password"]', password)
-        self.page.click('button[type="submit"]')
-        self.page.wait_for_load_state("networkidle")
+        self.page.fill("#auth-email", email)
+        self.page.fill("#auth-password", password)
+        self.page.click("button.auth-light-submit")
+        # 等待 SPA 导航完成，URL 不再是登录页
+        try:
+            self.page.wait_for_url(
+                lambda url: "/ctrl/login" not in url, timeout=10000
+            )
+        except Exception:
+            pass
 
     def is_logged_in(self) -> bool:
-        return "/login" not in self.page.url
+        return "/ctrl/login" not in self.page.url
 
     def get_error_message(self) -> str:
-        error = self.page.locator('[role="alert"], .error-message, .text-red-500').first
+        error = self.page.locator(".auth-light-error").first
         if error.is_visible():
             return error.text_content() or ""
         return ""
 
     def is_on_login_page(self) -> bool:
-        return "/login" in self.page.url
+        return "/ctrl/login" in self.page.url

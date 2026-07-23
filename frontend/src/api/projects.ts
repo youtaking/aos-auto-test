@@ -7,6 +7,8 @@ export const createProject = (data: { name: string; url: string; description?: s
 export const updateProject = (id: number, data: Partial<Project>) =>
   put<Project>(`/projects/${id}`, data);
 export const deleteProject = (id: number) => del(`/projects/${id}`);
+export const activateProject = (id: number) =>
+  post<Project>(`/projects/${id}/activate`);
 
 export const listSuites = (projectId: number) =>
   get<TestSuite[]>(`/projects/${projectId}/suites`);

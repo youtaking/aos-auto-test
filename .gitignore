@@ -9,9 +9,36 @@ dist/
 .pytest_cache/
 test-results/
 screenshots/
-*.png
 *.webm
 node_modules/
 frontend/dist/
 frontend/.vite/
 report.json
+
+# 数据库
+*.db
+
+# 测试报告
+allure-report/
+allure-results/
+
+# 临时脚本
+dump_*.py
+
+# Vite 缓存
+.vite/
+
+# 调试截图
+debug_*.png
+
+# Excel 用例文件（仅保留最新版本入库）
+testcases.xlsx
+testcases_updated.xlsx
+Fenix_AI_Agent_测试用例_V2.xlsx
+
+# 本地开发脚本
+*.bat
+report_*.json
+
+# 归档目录
+docs/archive/

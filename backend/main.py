@@ -10,8 +10,79 @@ from backend import ws as ws_module
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """应用生命周期：启动时建表，关闭时释放连接"""
+    """应用生命周期：启动时建表 + 自动发现用例，关闭时释放连接"""
     await init_db()
+    # 启动时自动扫描并注册测试用例
+    try:
+        from engine.runner import TestRunner
+        from backend.db.config import async_session
+        from backend.db.models import TestCase, TestSuite, Project
+        from sqlalchemy import select
+
+        runner = TestRunner()
+        collected = runner.collect_tests()
+
+        if collected:
+            async with async_session() as db:
+                # 获取激活项目
+                result = await db.execute(select(Project).where(Project.is_active == 1))
+                project = result.scalar_one_or_none()
+                if not project:
+                    result = await db.execute(select(Project).limit(1))
+                    project = result.scalar_one_or_none()
+
+                if project:
+                    result = await db.execute(
+                        select(TestSuite).where(TestSuite.project_id == project.id)
+                    )
+                    suites = {s.name: s for s in result.scalars().all()}
+
+                    SUITE_LABELS = {
+                        "login": "登录/认证", "dashboard": "Dashboard",
+                        "agent": "Agent 管理", "chat": "Chat 对话",
+                        "workflow": "智能体编排", "memory": "记忆",
+                        "knowledge": "知识库", "tasks": "定时任务",
+                        "organization": "组织", "apikey": "API Key",
+                        "sidebar": "侧边栏导航", "sites": "Agent Sites",
+                        "chat_v2": "对话聊天", "skills_v2": "技能管理",
+                    }
+
+                    new_cases = 0
+                    for item in collected:
+                        suite_key = item["suite_name"]
+                        func_name = item["function_name"]
+                        suite_label = SUITE_LABELS.get(suite_key, suite_key.title())
+
+                        if suite_label not in suites:
+                            suite = TestSuite(
+                                project_id=project.id, name=suite_label,
+                                description=f"自动发现的 {suite_key} 测试套件", tags=suite_key,
+                            )
+                            db.add(suite)
+                            await db.flush()
+                            suites[suite_label] = suite
+
+                        suite = suites[suite_label]
+                        existing = await db.execute(
+                            select(TestCase).where(TestCase.function_name == func_name)
+                        )
+                        if existing.scalar_one_or_none():
+                            continue
+
+                        priority = "P0" if any(t in func_name for t in ["login", "auth", "redirect", "page_loads"]) else "P1"
+                        db.add(TestCase(
+                            suite_id=suite.id,
+                            name=func_name.replace("test_", "").replace("_", " ").title(),
+                            file_path=item["file_path"], function_name=func_name,
+                            tags=f"{priority.lower()},{suite_key}", priority=priority, timeout=30,
+                        ))
+                        new_cases += 1
+
+                    await db.commit()
+                    print(f"[AutoDiscover] 发现 {len(collected)} 条用例，新增 {new_cases} 条")
+    except Exception as e:
+        print(f"[AutoDiscover] 用例发现失败: {e}")
+
     yield
     await close_db()
 

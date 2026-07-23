@@ -57,3 +57,22 @@ async def delete_project(project_id: int, db: AsyncSession = Depends(get_async_s
     await db.delete(project)
     await db.commit()
     return ApiResponse(data={"deleted": True})
+
+
+@router.post("/projects/{project_id}/activate", response_model=ApiResponse)
+async def activate_project(project_id: int, db: AsyncSession = Depends(get_async_session)):
+    """激活项目（同时取消其他项目的激活状态）"""
+    project = await db.get(Project, project_id)
+    if not project:
+        return ApiResponse(success=False, error="项目不存在")
+
+    # 先全部取消激活
+    result = await db.execute(select(Project))
+    for p in result.scalars().all():
+        p.is_active = 0
+
+    # 激活目标项目
+    project.is_active = 1
+    await db.commit()
+    await db.refresh(project)
+    return ApiResponse(data=ProjectResponse.model_validate(project))

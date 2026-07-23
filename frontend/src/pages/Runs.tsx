@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Link } from "react-router-dom";
 import { listRuns } from "../api/runs";
 import type { TestRun } from "../api/types";
@@ -13,9 +13,24 @@ const statusBadge: Record<string, string> = {
 
 export default function Runs() {
   const [runs, setRuns] = useState<TestRun[]>([]);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    listRuns().then(setRuns).catch(console.error);
+    const fetch = () => {
+      listRuns().then((data) => {
+        setRuns(data);
+        const hasActive = data.some((r) => r.status === "pending" || r.status === "running");
+        if (hasActive && !timerRef.current) {
+          timerRef.current = setInterval(fetch, 2000);
+        } else if (!hasActive && timerRef.current) {
+          clearInterval(timerRef.current);
+          timerRef.current = null;
+        }
+      }).catch(console.error);
+    };
+
+    fetch();
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, []);
 
   return (

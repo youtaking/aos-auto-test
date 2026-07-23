@@ -1,29 +1,62 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { getRun, getRunResults } from "../api/runs";
 import type { TestRun, TestResult } from "../api/types";
 
 const statusIcon: Record<string, string> = {
-  passed: "✅", failed: "❌", skipped: "⏭️", error: "⚠️", running: "🔄",
+  passed: "✅", failed: "❌", skipped: "⏭️", error: "⚠️", running: "🔄", pending: "⏳",
 };
 
 export default function RunDetail() {
   const { id } = useParams<{ id: string }>();
   const [run, setRun] = useState<TestRun | null>(null);
   const [results, setResults] = useState<TestResult[]>([]);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     if (!id) return;
     const runId = Number(id);
-    getRun(runId).then(setRun).catch(console.error);
-    getRunResults(runId).then(setResults).catch(console.error);
+
+    const fetch = () => {
+      getRun(runId).then((r) => {
+        setRun(r);
+        if (r.status !== "pending" && r.status !== "running") {
+          if (timerRef.current) clearInterval(timerRef.current);
+        }
+      }).catch(console.error);
+      getRunResults(runId).then(setResults).catch(console.error);
+    };
+
+    fetch();
+    timerRef.current = setInterval(fetch, 2000);
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [id]);
 
   if (!run) return <div className="p-8 text-gray-500">加载中...</div>;
 
+  const isFinished = run.status !== "pending" && run.status !== "running";
+  const allureUrl = `/api/runs/${run.id}/allure`;
+
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">运行 #{run.id}</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold">
+          运行 #{run.id}
+          {run.status === "running" && (
+            <span className="ml-3 text-sm font-normal text-blue-500 animate-pulse">运行中...</span>
+          )}
+        </h1>
+        {isFinished && (
+          <a
+            href={allureUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors text-sm"
+          >
+            Allure 报告
+          </a>
+        )}
+      </div>
       <div className="grid grid-cols-5 gap-4">
         {[
           { label: "总计", value: run.total, color: "" },

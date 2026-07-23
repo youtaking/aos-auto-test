@@ -4,15 +4,7 @@ import pytest
 from tests.pages.dashboard_page import DashboardPage
 
 
-@pytest.fixture
-def logged_in_page(page, login_page, test_config):
-    """已登录的页面"""
-    admin = test_config["fenixagent"]["admin"]
-    login_page.goto()
-    login_page.login(admin["email"], admin["password"])
-    return page
-
-
+@pytest.mark.order(5)
 @pytest.mark.p0
 def test_dashboard_loads(logged_in_page, base_url):
     """Dashboard 页面能正常加载"""
@@ -21,9 +13,11 @@ def test_dashboard_loads(logged_in_page, base_url):
     assert dashboard.is_loaded()
 
 
+@pytest.mark.order(5)
 @pytest.mark.p0
-def test_dashboard_has_sidebar(logged_in_page, base_url):
-    """Dashboard 包含侧边栏导航"""
+def test_dashboard_has_title(logged_in_page, base_url):
+    """Dashboard 显示「系统概览」标题"""
     dashboard = DashboardPage(logged_in_page, base_url)
     dashboard.goto()
-    assert dashboard.has_sidebar()
+    title = logged_in_page.locator("div.agent-panel-body").locator("h1, h2").filter(has_text="系统概览")
+    assert title.count() > 0

@@ -4,6 +4,16 @@ from datetime import datetime
 from pydantic import BaseModel
 
 
+class CaseCreate(BaseModel):
+    suite_id: int
+    name: str
+    file_path: str
+    function_name: str
+    tags: str = ""
+    priority: str = "P1"
+    timeout: int = 30
+
+
 class CaseResponse(BaseModel):
     id: int
     suite_id: int

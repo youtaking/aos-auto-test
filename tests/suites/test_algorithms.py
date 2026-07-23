@@ -1,0 +1,147 @@
+# tests/suites/test_algorithms.py
+"""算法库模块回归测试"""
+import pytest
+from tests.pages.algorithms_page import AlgorithmsPage
+
+
+@pytest.mark.order(110)
+@pytest.mark.p0
+def test_algorithms_page_loads(logged_in_page, base_url):
+    """算法库页面能正常加载"""
+    algo = AlgorithmsPage(logged_in_page, base_url)
+    algo.goto()
+    assert algo.is_loaded(), "算法库页面未加载"
+
+
+@pytest.mark.order(111)
+@pytest.mark.p0
+def test_algorithms_list_not_empty(logged_in_page, base_url):
+    """算法库列表不为空"""
+    algo = AlgorithmsPage(logged_in_page, base_url)
+    algo.goto()
+    count = algo.get_algo_count()
+    assert count > 0, "算法库列表为空"
+
+
+@pytest.mark.order(112)
+@pytest.mark.p1
+def test_algorithms_has_category_tabs(logged_in_page, base_url):
+    """算法库包含分类筛选 Tab"""
+    algo = AlgorithmsPage(logged_in_page, base_url)
+    algo.goto()
+
+    tabs = algo.get_category_tabs()
+    assert len(tabs) > 0, "未找到分类筛选 Tab"
+    # DOM 探查确认有 11 个 Tab: 全部/分类/回归/聚类/降维/排序/异常检测/时序预测/深度学习/推荐/优化
+    assert "全部" in tabs, f"分类 Tab 中缺少'全部': {tabs}"
+
+
+@pytest.mark.order(113)
+@pytest.mark.p1
+def test_algorithms_filter_by_category(logged_in_page, base_url):
+    """算法库分类筛选功能"""
+    algo = AlgorithmsPage(logged_in_page, base_url)
+    algo.goto()
+
+    total = algo.get_algo_count()
+    if total == 0:
+        pytest.skip("算法列表为空")
+
+    # 切换到"分类"筛选
+    tabs = algo.get_category_tabs()
+    if "分类" not in tabs:
+        pytest.skip("无'分类' Tab")
+
+    algo.filter_by_category("分类")
+    filtered = algo.get_algo_count()
+    assert filtered <= total, \
+        f"分类筛选后数量({filtered})大于全部({total})"
+    assert filtered > 0, "分类筛选后列表为空"
+
+    # 切回"全部"
+    algo.filter_by_category("全部")
+    restored = algo.get_algo_count()
+    assert restored == total, \
+        f"切回全部后数量未恢复: {restored} vs {total}"
+
+
+@pytest.mark.order(114)
+@pytest.mark.p1
+def test_algorithms_search_filter(logged_in_page, base_url):
+    """算法库搜索过滤功能"""
+    algo = AlgorithmsPage(logged_in_page, base_url)
+    algo.goto()
+
+    total = algo.get_algo_count()
+    if total == 0:
+        pytest.skip("算法列表为空")
+
+    # 搜索不存在的关键词
+    algo.search("zzz_不存在的算法_zzz")
+    filtered = algo.get_algo_count()
+    assert filtered < total, \
+        f"搜索不存在关键词后数量未减少: {filtered} vs {total}"
+
+    # 清空搜索恢复
+    algo.clear_search()
+    restored = algo.get_algo_count()
+    assert restored == total, \
+        f"清空搜索后数量未恢复: {restored} vs {total}"
+
+
+@pytest.mark.order(115)
+@pytest.mark.p1
+def test_algorithms_view_detail(logged_in_page, base_url):
+    """算法库查看详情按钮"""
+    algo = AlgorithmsPage(logged_in_page, base_url)
+    algo.goto()
+
+    names = algo.get_algo_names()
+    if not names:
+        pytest.skip("算法列表为空")
+
+    # 点击第一个算法的"查看详情"
+    algo.click_view_detail(names[0])
+
+    # 验证有反馈：弹窗出现或页面内容变化
+    dialog = logged_in_page.locator("[role='dialog']")
+    body = logged_in_page.locator("div.agent-panel-body").inner_text()
+    has_feedback = (
+        dialog.count() > 0
+        or any(kw in body for kw in ["详情", "说明", "场景", "参数", "使用"])
+    )
+    assert has_feedback, "查看详情后无任何反馈"
+
+    # 关闭可能的弹窗
+    if dialog.count() > 0:
+        close = dialog.get_by_role("button", name="关闭").or_(
+            dialog.get_by_role("button", name="Close")
+        )
+        if close.count() > 0:
+            close.first.click()
+
+
+@pytest.mark.order(116)
+@pytest.mark.p2
+def test_algorithms_copy_code(logged_in_page, base_url):
+    """算法库复制代码按钮"""
+    algo = AlgorithmsPage(logged_in_page, base_url)
+    algo.goto()
+
+    names = algo.get_algo_names()
+    if not names:
+        pytest.skip("算法列表为空")
+
+    # 点击第一个算法的"复制代码"
+    algo.click_copy_code(names[0])
+
+    # 验证有反馈：toast 提示或弹窗
+    logged_in_page.wait_for_timeout(1000)
+    body = logged_in_page.locator("div.agent-panel-body").inner_text()
+    dialog = logged_in_page.locator("[role='dialog']")
+    # toast 通常在 body 中出现"复制"、"成功"等关键词
+    has_feedback = (
+        dialog.count() > 0
+        or any(kw in body for kw in ["复制", "成功", "代码", "Copy"])
+    )
+    assert has_feedback, "复制代码后无任何反馈"

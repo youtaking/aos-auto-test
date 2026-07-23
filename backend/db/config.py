@@ -6,7 +6,7 @@ from backend.db.base import Base
 
 DATABASE_URL = os.environ.get(
     "DATABASE_URL",
-    "postgresql+asyncpg://re:re@localhost:5432/auto_test",
+    "postgresql+asyncpg://re:re@192.168.10.25:5432/auto_test",
 )
 
 # SQLite 需要额外的连接参数

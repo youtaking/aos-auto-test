@@ -1,9 +1,9 @@
 # 测试数据配置
 fenixagent:
-  url: "http://localhost:3001"
+  url: "https://fenix-agent-ver.pazhoulab-huangpu.com"
   admin:
-    email: "admin@fenix.com"
-    password: "admin123"
+    email: "xiaochun@agent.com"
+    password: "12345678"
 
 test_users:
   - email: "test@example.com"
