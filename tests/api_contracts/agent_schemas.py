@@ -1,45 +1,60 @@
 # tests/api_contracts/agent_schemas.py
-"""Agent 接口响应 JSON Schema 定义"""
+"""Agent 接口响应 JSON Schema 定义
 
-AGENT_SCHEMA = {
+基于 /api/agents 实际响应格式（非 /web/* 包装格式）。
+列表接口返回分页结构 {items, total, page, pageSize}，
+详情/创建/更新接口直接返回 Agent 对象。
+"""
+
+AGENT_LIST_ITEM = {
     "type": "object",
     "required": ["id", "name"],
     "properties": {
         "id": {"type": "string"},
         "name": {"type": "string"},
-        "description": {"type": ["string", "null"]},
-        "avatar": {"type": ["string", "null"]},
+        "builtIn": {"type": "boolean"},
         "model": {"type": ["string", "null"]},
-        "systemPrompt": {"type": ["string", "null"]},
-        "createdAt": {"type": "string"},
-        "updatedAt": {"type": ["string", "null"]},
+        "modelId": {"type": ["string", "null"]},
+        "description": {"type": ["string", "null"]},
+        "machineId": {"type": ["string", "null"]},
+        "knowledgeBaseCount": {"type": "integer"},
+        "resourceAccess": {"type": "object"},
+    },
+    "additionalProperties": True,
+}
+
+AGENT_DETAIL = {
+    "type": "object",
+    "required": ["id", "name"],
+    "properties": {
+        "id": {"type": "string"},
+        "name": {"type": "string"},
+        "builtIn": {"type": "boolean"},
+        "model": {"type": ["string", "null"]},
+        "modelId": {"type": ["string", "null"]},
+        "prompt": {"type": ["string", "null"]},
+        "description": {"type": ["string", "null"]},
+        "extra": {},
+        "knowledge": {},
+        "skillIds": {"type": "array"},
+        "mcpIds": {"type": "array"},
+        "machineId": {"type": ["string", "null"]},
+        "resourceAccess": {"type": "object"},
     },
     "additionalProperties": True,
 }
 
 AGENT_LIST_RESPONSE = {
     "type": "object",
-    "required": ["success", "data"],
+    "required": ["items", "total"],
     "properties": {
-        "success": {"type": "boolean"},
-        "data": {"type": "array", "items": AGENT_SCHEMA},
+        "items": {"type": "array", "items": AGENT_LIST_ITEM},
+        "total": {"type": "integer"},
+        "page": {"type": "integer"},
+        "pageSize": {"type": "integer"},
     },
 }
 
-AGENT_DETAIL_RESPONSE = {
-    "type": "object",
-    "required": ["success", "data"],
-    "properties": {
-        "success": {"type": "boolean"},
-        "data": AGENT_SCHEMA,
-    },
-}
+AGENT_DETAIL_RESPONSE = AGENT_DETAIL
 
-CREATE_AGENT_RESPONSE = {
-    "type": "object",
-    "required": ["success", "data"],
-    "properties": {
-        "success": {"type": "boolean"},
-        "data": AGENT_SCHEMA,
-    },
-}
+CREATE_AGENT_RESPONSE = AGENT_DETAIL
