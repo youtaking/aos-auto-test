@@ -4,7 +4,7 @@ fenixagent:
   admin:
     email: "xiaochun@agent.com"
     password: "12345678"
-  api_key: "test-api-key-placeholder"
+  api_key: "rcs_pHZNlWrcfHKTdTUdqrxOYRZgrtzEvKOuSxthmnOWVwwjPWaryeugTFqYORZCxZRW"
 
 test_users:
   - email: "test@example.com"
