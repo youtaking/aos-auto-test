@@ -19,6 +19,7 @@ export interface TestSuite {
   name: string;
   description: string;
   tags: string;
+  test_type: string;
   created_at: string;
 }
 
