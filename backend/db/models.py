@@ -31,6 +31,7 @@ class TestSuite(Base):
     name = Column(String(200), nullable=False)
     description = Column(Text, default="")
     tags = Column(String(500), default="")
+    test_type = Column(String(20), default="ui")  # "ui" 或 "api"
     created_at = Column(DateTime, default=datetime.utcnow)
 
     project = relationship("Project", back_populates="suites")
