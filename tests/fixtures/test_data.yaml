@@ -1,9 +1,10 @@
 # 测试数据配置
 fenixagent:
-  url: "https://fenix-agent-ver.pazhoulab-huangpu.com"
+  url: "http://100.105.9.16:38879"
   admin:
     email: "xiaochun@agent.com"
     password: "12345678"
+  api_key: "test-api-key-placeholder"
 
 test_users:
   - email: "test@example.com"
