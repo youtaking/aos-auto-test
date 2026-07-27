@@ -104,6 +104,54 @@ class TestRunner:
 
         return collected
 
+    def collect_tests_api(self, test_dir: str = "tests/api_suites") -> list[dict]:
+        """扫描 api_suites 目录的测试用例"""
+        return self._collect_from_dir(test_dir)
+
+    def _collect_from_dir(self, test_dir: str) -> list[dict]:
+        """从指定目录收集测试用例"""
+        result = subprocess.run(
+            [sys.executable, "-m", "pytest", test_dir, "--collect-only", "-q",
+             "--no-header", "-p", "no:cacheprovider"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+        )
+
+        stdout = result.stdout or ""
+        collected = []
+        current_file = ""
+
+        for line in stdout.splitlines():
+            line_stripped = line.strip()
+
+            if "<Module " in line_stripped:
+                module_name = line_stripped.split("<Module ")[-1].rstrip(">").strip()
+                current_file = f"{test_dir}/{module_name}"
+                continue
+
+            if "<Function " in line_stripped and current_file:
+                func_name = line_stripped.split("<Function ")[-1].rstrip(">").strip()
+                suite_name = Path(current_file).stem.replace("test_", "")
+                collected.append({
+                    "suite_name": suite_name,
+                    "file_path": current_file,
+                    "function_name": func_name,
+                })
+                continue
+
+            if "::" in line_stripped and line_stripped.startswith(("tests/", ".")):
+                parts = line_stripped.split("::")
+                if len(parts) >= 2:
+                    file_path = parts[0]
+                    func_name = parts[-1]
+                    suite_name = Path(file_path).stem.replace("test_", "")
+                    collected.append({
+                        "suite_name": suite_name,
+                        "file_path": file_path,
+                        "function_name": func_name,
+                    })
+
+        return collected
+
     def run(
         self,
         suite_names: Optional[list[str]] = None,

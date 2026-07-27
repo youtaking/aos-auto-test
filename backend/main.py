@@ -80,6 +80,52 @@ async def lifespan(app: FastAPI):
 
                     await db.commit()
                     print(f"[AutoDiscover] 发现 {len(collected)} 条用例，新增 {new_cases} 条")
+
+                    # ── 接口测试用例自动发现 ──
+                    try:
+                        api_collected = runner.collect_tests_api()
+                        if api_collected:
+                            api_new = 0
+                            for item in api_collected:
+                                suite_key = item["suite_name"]
+                                func_name = item["function_name"]
+                                suite_label = SUITE_LABELS.get(suite_key, suite_key.title()) + " (API)"
+
+                                if suite_label not in suites:
+                                    suite = TestSuite(
+                                        project_id=project.id,
+                                        name=suite_label,
+                                        description=f"自动发现的 {suite_key} 接口测试套件",
+                                        tags=suite_key,
+                                        test_type="api",
+                                    )
+                                    db.add(suite)
+                                    await db.flush()
+                                    suites[suite_label] = suite
+
+                                suite = suites[suite_label]
+                                existing = await db.execute(
+                                    select(TestCase).where(TestCase.function_name == func_name)
+                                )
+                                if existing.scalar_one_or_none():
+                                    continue
+
+                                db.add(TestCase(
+                                    suite_id=suite.id,
+                                    name=func_name.replace("test_", "").replace("_", " ").title(),
+                                    file_path=item["file_path"],
+                                    function_name=func_name,
+                                    tags=f"api,{suite_key}",
+                                    priority="P0",
+                                    timeout=15,
+                                ))
+                                api_new += 1
+
+                            await db.commit()
+                            print(f"[AutoDiscover] 接口测试：发现 {len(api_collected)} 条用例，新增 {api_new} 条")
+                    except Exception as e:
+                        print(f"[AutoDiscover] 接口测试用例发现失败: {e}")
+
     except Exception as e:
         print(f"[AutoDiscover] 用例发现失败: {e}")
 
