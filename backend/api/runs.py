@@ -14,6 +14,7 @@ from backend.db.config import get_async_session, async_session
 from backend.db.models import TestRun, TestResult, TestCase, Project
 from backend.schemas.run import RunResponse, RunReport, ResultResponse
 from backend.schemas.common import ApiResponse
+from backend import ws as ws_module
 
 router = APIRouter()
 
@@ -42,8 +43,8 @@ def _parse_pytest_line(line: str) -> dict | None:
     }
 
 
-async def _execute_tests(run_id: int, project_url: str, headed: bool = False, step_delay: float = 0):
-    """后台任务：执行 pytest，逐条实时更新结果 + 生成 Allure 报告"""
+async def _execute_tests(run_id: int, project_url: str, headed: bool = False, step_delay: float = 0, case_ids: list[int] | None = None):
+    """后台任务：执行 pytest，逐条实时更新结果 + WebSocket 广播日志 + 生成 Allure 报告"""
     async with async_session() as db:
         run = await db.get(TestRun, run_id)
         if not run:
@@ -52,6 +53,9 @@ async def _execute_tests(run_id: int, project_url: str, headed: bool = False, st
         run.status = "running"
         run.started_at = datetime.utcnow()
         await db.commit()
+
+        # 广播运行开始
+        await ws_module.broadcast(run_id, "run_start", {"run_id": run_id, "status": "running"})
 
         # 清理旧的 allure 结果
         allure_dir = Path(ALLURE_RESULTS_DIR)
@@ -71,6 +75,16 @@ async def _execute_tests(run_id: int, project_url: str, headed: bool = False, st
             f"--alluredir={ALLURE_RESULTS_DIR}",
         ]
 
+        # 如果指定了 case_ids，用 -k 过滤只运行选中的用例
+        if case_ids:
+            cases_query = await db.execute(
+                select(TestCase).where(TestCase.id.in_(case_ids))
+            )
+            func_names = [c.function_name for c in cases_query.scalars().all()]
+            if func_names:
+                k_expr = " or ".join(func_names)
+                cmd.extend(["-k", k_expr])
+
         env = {
             **__import__("os").environ,
             "HEADLESS": "false" if headed else "true",
@@ -88,8 +102,13 @@ async def _execute_tests(run_id: int, project_url: str, headed: bool = False, st
         skipped = 0
         error_details = {}  # func_name -> error message
 
-        # 实时解析 pytest 输出
+        # 实时解析 pytest 输出 + WebSocket 广播日志
         for line in proc.stdout:
+            # 广播每一行日志
+            stripped = line.rstrip()
+            if stripped:
+                await ws_module.broadcast(run_id, "log", {"line": stripped})
+
             parsed = _parse_pytest_line(line)
             if not parsed:
                 continue
@@ -125,6 +144,14 @@ async def _execute_tests(run_id: int, project_url: str, headed: bool = False, st
             run.failed = failed
             run.skipped = skipped
             await db.commit()
+
+            # 广播单条结果更新
+            await ws_module.broadcast(run_id, "result_update", {
+                "case_name": func_name,
+                "suite_name": parsed["suite_name"],
+                "status": outcome,
+                "passed": passed, "failed": failed, "skipped": skipped,
+            })
 
         proc.wait(timeout=600)
         finished = datetime.utcnow()
@@ -176,6 +203,17 @@ async def _execute_tests(run_id: int, project_url: str, headed: bool = False, st
         except Exception as e:
             print(f"[Allure] 报告生成失败: {e}")
 
+        # 广播运行完成
+        await ws_module.broadcast(run_id, "run_complete", {
+            "run_id": run_id,
+            "status": run.status,
+            "total": run.total,
+            "passed": run.passed,
+            "failed": run.failed,
+            "skipped": run.skipped,
+            "duration_ms": run.duration_ms,
+        })
+
 
 @router.get("/runs", response_model=ApiResponse)
 async def list_runs(
@@ -205,11 +243,20 @@ async def trigger_run(
     trigger_type: str = "manual",
     headed: bool = False,
     step_delay: float = 0,
+    case_ids: str = "",
     db: AsyncSession = Depends(get_async_session),
 ):
-    """触发一次测试运行"""
+    """触发一次测试运行。case_ids: 逗号分隔的用例 ID，为空则运行全部"""
     project = await db.get(Project, project_id)
     project_url = project.url if project else "http://localhost:3001"
+
+    # 解析 case_ids
+    parsed_case_ids = None
+    if case_ids:
+        try:
+            parsed_case_ids = [int(x.strip()) for x in case_ids.split(",") if x.strip()]
+        except ValueError:
+            parsed_case_ids = None
 
     run = TestRun(
         project_id=project_id,
@@ -221,7 +268,7 @@ async def trigger_run(
     await db.commit()
     await db.refresh(run)
 
-    background_tasks.add_task(_execute_tests, run.id, project_url, headed, step_delay)
+    background_tasks.add_task(_execute_tests, run.id, project_url, headed, step_delay, parsed_case_ids)
 
     return ApiResponse(data=RunResponse.model_validate(run))
 

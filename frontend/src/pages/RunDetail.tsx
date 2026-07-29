@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams } from "react-router-dom";
 import { getRun, getRunResults } from "../api/runs";
 import type { TestRun, TestResult } from "../api/types";
@@ -7,12 +7,31 @@ const statusIcon: Record<string, string> = {
   passed: "✅", failed: "❌", skipped: "⏭️", error: "⚠️", running: "🔄", pending: "⏳",
 };
 
+interface WsMessage {
+  event: string;
+  data: Record<string, unknown>;
+}
+
 export default function RunDetail() {
   const { id } = useParams<{ id: string }>();
   const [run, setRun] = useState<TestRun | null>(null);
   const [results, setResults] = useState<TestResult[]>([]);
+  const [logs, setLogs] = useState<string[]>([]);
+  const [showLogs, setShowLogs] = useState(true);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const logEndRef = useRef<HTMLDivElement>(null);
 
+  // 自动滚动到底部
+  const scrollToEnd = useCallback(() => {
+    logEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, []);
+
+  useEffect(() => {
+    if (logs.length > 0) scrollToEnd();
+  }, [logs, scrollToEnd]);
+
+  // 数据获取（轮询 fallback）
   useEffect(() => {
     if (!id) return;
     const runId = Number(id);
@@ -32,6 +51,41 @@ export default function RunDetail() {
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [id]);
 
+  // WebSocket 连接实时日志
+  useEffect(() => {
+    if (!id) return;
+    const runId = Number(id);
+
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const ws = new WebSocket(`${protocol}//${window.location.host}/ws/runs/${runId}`);
+    wsRef.current = ws;
+
+    ws.onmessage = (e) => {
+      try {
+        const msg: WsMessage = JSON.parse(e.data);
+        if (msg.event === "log") {
+          const line = (msg.data.line as string) || "";
+          setLogs((prev) => [...prev, line]);
+        } else if (msg.event === "run_complete") {
+          // 运行完成，刷新最终状态
+          getRun(runId).then(setRun).catch(console.error);
+          getRunResults(runId).then(setResults).catch(console.error);
+        }
+      } catch {
+        // ignore parse errors
+      }
+    };
+
+    ws.onerror = () => {
+      // WS 断连时静默降级到轮询
+    };
+
+    return () => {
+      ws.close();
+      wsRef.current = null;
+    };
+  }, [id]);
+
   if (!run) return <div className="p-8 text-gray-500">加载中...</div>;
 
   const isFinished = run.status !== "pending" && run.status !== "running";
@@ -46,16 +100,26 @@ export default function RunDetail() {
             <span className="ml-3 text-sm font-normal text-blue-500 animate-pulse">运行中...</span>
           )}
         </h1>
-        {isFinished && (
-          <a
-            href={allureUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors text-sm"
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowLogs(!showLogs)}
+            className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
+              showLogs ? "bg-gray-700 text-white" : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+            }`}
           >
-            Allure 报告
-          </a>
-        )}
+            {showLogs ? "隐藏日志" : "显示日志"}
+          </button>
+          {isFinished && (
+            <a
+              href={allureUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors text-sm"
+            >
+              Allure 报告
+            </a>
+          )}
+        </div>
       </div>
       <div className="grid grid-cols-5 gap-4">
         {[
@@ -71,6 +135,8 @@ export default function RunDetail() {
           </div>
         ))}
       </div>
+
+      {/* 结果表格 */}
       <div className="bg-white rounded-xl shadow-sm overflow-hidden">
         <table className="w-full">
           <thead className="bg-gray-50">
@@ -95,6 +161,37 @@ export default function RunDetail() {
           </tbody>
         </table>
       </div>
+
+      {/* 实时日志面板 */}
+      {showLogs && (
+        <div className="bg-gray-900 rounded-xl shadow-sm overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-2 bg-gray-800">
+            <span className="text-sm text-gray-300 font-medium">
+              实时日志 {logs.length > 0 && <span className="text-gray-500">({logs.length} 行)</span>}
+            </span>
+            {run.status === "running" && (
+              <span className="flex items-center gap-1.5 text-xs text-green-400">
+                <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                接收中
+              </span>
+            )}
+          </div>
+          <div className="h-80 overflow-y-auto p-4 font-mono text-xs text-gray-300 leading-relaxed">
+            {logs.length === 0 ? (
+              <p className="text-gray-600">
+                {run.status === "pending" ? "等待运行开始..." : run.status === "running" ? "等待日志输出..." : "无日志"}
+              </p>
+            ) : (
+              logs.map((line, i) => (
+                <div key={i} className="whitespace-pre-wrap break-all">
+                  {line}
+                </div>
+              ))
+            )}
+            <div ref={logEndRef} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

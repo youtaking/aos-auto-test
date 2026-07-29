@@ -119,6 +119,7 @@ class TestRunner:
         stdout = result.stdout or ""
         collected = []
         current_file = ""
+        current_class = ""
 
         for line in stdout.splitlines():
             line_stripped = line.strip()
@@ -126,10 +127,17 @@ class TestRunner:
             if "<Module " in line_stripped:
                 module_name = line_stripped.split("<Module ")[-1].rstrip(">").strip()
                 current_file = f"{test_dir}/{module_name}"
+                current_class = ""
+                continue
+
+            if "<Class " in line_stripped:
+                current_class = line_stripped.split("<Class ")[-1].rstrip(">").strip()
                 continue
 
             if "<Function " in line_stripped and current_file:
                 func_name = line_stripped.split("<Function ")[-1].rstrip(">").strip()
+                if current_class:
+                    func_name = f"{current_class}::{func_name}"
                 suite_name = Path(current_file).stem.replace("test_", "")
                 collected.append({
                     "suite_name": suite_name,

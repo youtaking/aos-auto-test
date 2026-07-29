@@ -39,15 +39,21 @@ def _load_api_key() -> str:
 
 
 def _parse_pytest_line(line: str) -> dict | None:
-    """解析 pytest -v 输出的单行结果"""
-    m = re.match(r"^(tests/\S+::\w+)\s+(PASSED|FAILED|SKIPPED|ERROR)", line.strip())
+    """解析 pytest -v 输出的单行结果，支持 file::Class::function 和 file::function"""
+    m = re.match(r"^(tests/\S+?::\S+)\s+(PASSED|FAILED|SKIPPED|ERROR)", line.strip())
     if not m:
         return None
     nodeid = m.group(1)
     outcome = m.group(2).lower()
     parts = nodeid.split("::")
     file_path = parts[0] if parts else ""
-    func_name = parts[-1] if len(parts) > 1 else ""
+    # 处理 Class::function 格式（3段）和 纯 function 格式（2段）
+    if len(parts) >= 3:
+        func_name = "::".join(parts[1:])  # Class::function
+    elif len(parts) == 2:
+        func_name = parts[1]
+    else:
+        func_name = ""
     suite_name = Path(file_path).stem.replace("test_", "")
     return {
         "nodeid": nodeid,
@@ -76,125 +82,144 @@ async def _execute_api_tests(
 
         await ws_module.broadcast(run_id, "run_start", {"run_id": run_id, "status": "running"})
 
-        report_path = f"api_report_{run_id}.json"
-        cmd = [
-            sys.executable, "-m", "pytest", API_TEST_DIR,
-            "-v", "--tb=short",
-            f"--base-url={api_base_url}",
-            "--json-report", f"--json-report-file={report_path}",
-        ]
+        try:
+            report_path = f"api_report_{run_id}.json"
+            cmd = [
+                sys.executable, "-m", "pytest", API_TEST_DIR,
+                "-v", "--tb=short",
+                f"--base-url={api_base_url}",
+                "--json-report", f"--json-report-file={report_path}",
+            ]
 
-        if case_ids:
-            cases_query = await db.execute(
-                select(TestCase).where(TestCase.id.in_(case_ids))
+            if case_ids:
+                cases_query = await db.execute(
+                    select(TestCase).where(TestCase.id.in_(case_ids))
+                )
+                func_names = [c.function_name for c in cases_query.scalars().all()]
+                if func_names:
+                    k_expr = " or ".join(func_names)
+                    cmd.extend(["-k", k_expr])
+
+            env = {
+                **os.environ,
+                "FENIX_API_KEY": api_key,
+            }
+
+            proc = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, encoding="utf-8", errors="replace", env=env,
             )
-            func_names = [c.function_name for c in cases_query.scalars().all()]
-            if func_names:
-                k_expr = " or ".join(func_names)
-                cmd.extend(["-k", k_expr])
 
-        env = {
-            **os.environ,
-            "FENIX_API_KEY": api_key,
-        }
+            passed = 0
+            failed = 0
+            skipped = 0
 
-        proc = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, encoding="utf-8", errors="replace", env=env,
-        )
+            for line in proc.stdout:
+                stripped = line.rstrip()
+                if stripped:
+                    await ws_module.broadcast(run_id, "log", {"line": stripped})
 
-        passed = 0
-        failed = 0
-        skipped = 0
+                parsed = _parse_pytest_line(line)
+                if not parsed:
+                    continue
 
-        for line in proc.stdout:
-            stripped = line.rstrip()
-            if stripped:
-                await ws_module.broadcast(run_id, "log", {"line": stripped})
+                func_name = parsed["func_name"]
+                outcome = parsed["outcome"]
 
-            parsed = _parse_pytest_line(line)
-            if not parsed:
-                continue
+                case_query = await db.execute(
+                    select(TestCase).where(TestCase.function_name == func_name)
+                )
+                case = case_query.scalar_one_or_none()
 
-            func_name = parsed["func_name"]
-            outcome = parsed["outcome"]
+                result = TestResult(
+                    run_id=run_id,
+                    case_id=case.id if case else None,
+                    case_name=func_name,
+                    suite_name=parsed["suite_name"],
+                    status=outcome if outcome in ("passed", "failed", "skipped") else "error",
+                    duration_ms=0,
+                )
+                db.add(result)
 
-            case_query = await db.execute(
-                select(TestCase).where(TestCase.function_name == func_name)
-            )
-            case = case_query.scalar_one_or_none()
+                if outcome == "passed":
+                    passed += 1
+                elif outcome in ("failed", "error"):
+                    failed += 1
+                else:
+                    skipped += 1
 
-            result = TestResult(
-                run_id=run_id,
-                case_id=case.id if case else None,
-                case_name=func_name,
-                suite_name=parsed["suite_name"],
-                status=outcome if outcome in ("passed", "failed", "skipped") else "error",
-                duration_ms=0,
-            )
-            db.add(result)
+                run.total = passed + failed + skipped
+                run.passed = passed
+                run.failed = failed
+                run.skipped = skipped
+                await db.commit()
 
-            if outcome == "passed":
-                passed += 1
-            elif outcome in ("failed", "error"):
-                failed += 1
-            else:
-                skipped += 1
+                await ws_module.broadcast(run_id, "result_update", {
+                    "case_name": func_name,
+                    "suite_name": parsed["suite_name"],
+                    "status": outcome,
+                    "passed": passed, "failed": failed, "skipped": skipped,
+                })
 
-            run.total = passed + failed + skipped
-            run.passed = passed
-            run.failed = failed
-            run.skipped = skipped
+            proc.wait(timeout=300)
+            finished = datetime.utcnow()
+
+            # 用 JSON 报告补充 duration 和 error 信息
+            rf = Path(report_path)
+            if rf.exists():
+                with open(rf, "r", encoding="utf-8") as f:
+                    report = json.load(f)
+                for test in report.get("tests", []):
+                    nodeid = test.get("nodeid", "")
+                    # 正确解析 Class::function 格式
+                    node_parts = nodeid.split("::")
+                    if len(node_parts) >= 3:
+                        func_name = "::".join(node_parts[1:])
+                    elif len(node_parts) == 2:
+                        func_name = node_parts[1]
+                    else:
+                        func_name = ""
+                    call_info = test.get("call", {})
+                    duration_ms = int(call_info.get("duration", 0) * 1000)
+                    longrepr = str(call_info.get("longrepr", "")) if call_info.get("longrepr") else None
+                    existing = await db.execute(
+                        select(TestResult).where(
+                            TestResult.run_id == run_id,
+                            TestResult.case_name == func_name,
+                        )
+                    )
+                    r = existing.scalar_one_or_none()
+                    if r:
+                        r.duration_ms = duration_ms
+                        r.error_message = longrepr[:500] if longrepr else None
+                        r.stack_trace = longrepr
+                rf.unlink(missing_ok=True)
+
+            run.status = "passed" if failed == 0 else "failed"
+            run.finished_at = finished
+            run.duration_ms = int((finished - run.started_at).total_seconds() * 1000)
             await db.commit()
 
-            await ws_module.broadcast(run_id, "result_update", {
-                "case_name": func_name,
-                "suite_name": parsed["suite_name"],
-                "status": outcome,
-                "passed": passed, "failed": failed, "skipped": skipped,
+            await ws_module.broadcast(run_id, "run_complete", {
+                "run_id": run_id,
+                "status": run.status,
+                "total": run.total,
+                "passed": run.passed,
+                "failed": run.failed,
+                "skipped": run.skipped,
+                "duration_ms": run.duration_ms,
             })
 
-        proc.wait(timeout=300)
-        finished = datetime.utcnow()
-
-        # 用 JSON 报告补充 duration 和 error 信息
-        rf = Path(report_path)
-        if rf.exists():
-            with open(rf, "r", encoding="utf-8") as f:
-                report = json.load(f)
-            for test in report.get("tests", []):
-                nodeid = test.get("nodeid", "")
-                func_name = nodeid.split("::")[-1] if "::" in nodeid else ""
-                call_info = test.get("call", {})
-                duration_ms = int(call_info.get("duration", 0) * 1000)
-                longrepr = str(call_info.get("longrepr", "")) if call_info.get("longrepr") else None
-                existing = await db.execute(
-                    select(TestResult).where(
-                        TestResult.run_id == run_id,
-                        TestResult.case_name == func_name,
-                    )
-                )
-                r = existing.scalar_one_or_none()
-                if r:
-                    r.duration_ms = duration_ms
-                    r.error_message = longrepr[:500] if longrepr else None
-                    r.stack_trace = longrepr
-            rf.unlink(missing_ok=True)
-
-        run.status = "passed" if failed == 0 else "failed"
-        run.finished_at = finished
-        run.duration_ms = int((finished - run.started_at).total_seconds() * 1000)
-        await db.commit()
-
-        await ws_module.broadcast(run_id, "run_complete", {
-            "run_id": run_id,
-            "status": run.status,
-            "total": run.total,
-            "passed": run.passed,
-            "failed": run.failed,
-            "skipped": run.skipped,
-            "duration_ms": run.duration_ms,
-        })
+        except Exception as e:
+            # 异常保护：确保 run 状态不会卡在 "running"
+            run.status = "error"
+            run.finished_at = datetime.utcnow()
+            await db.commit()
+            await ws_module.broadcast(run_id, "run_complete", {
+                "run_id": run_id,
+                "status": "error",
+                "error": str(e),
+            })
 
 
 @router.get("/api-tests/cases", response_model=ApiResponse)
@@ -278,14 +303,17 @@ async def list_api_runs(
     db: AsyncSession = Depends(get_async_session),
 ):
     """获取接口测试运行历史"""
-    api_suite_ids_q = await db.execute(
-        select(TestSuite.id).where(TestSuite.test_type == "api")
+    # 找所有 api 类型的 suite → 其下的 case_id → 关联的 run_id
+    api_case_ids_q = await db.execute(
+        select(TestCase.id)
+        .join(TestSuite, TestCase.suite_id == TestSuite.id)
+        .where(TestSuite.test_type == "api")
     )
-    api_suite_ids = {r[0] for r in api_suite_ids_q.all()}
+    api_case_ids = {r[0] for r in api_case_ids_q.all()}
 
     api_run_ids_q = await db.execute(
         select(TestResult.run_id).distinct().where(
-            TestResult.suite_name.in_(["agent_api"])
+            TestResult.case_id.in_(api_case_ids)
         )
     )
     api_run_ids = {r[0] for r in api_run_ids_q.all()}
