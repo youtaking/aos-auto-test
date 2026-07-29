@@ -20,10 +20,10 @@ class ModelConfigPage:
         self.page.wait_for_timeout(1500)
 
     def is_loaded(self) -> bool:
-        """页面标题「服务商与模型」可见"""
+        """页面标题「模型库」可见"""
         return (
             self.page.locator("div.agent-panel-body")
-            .locator("text=服务商与模型")
+            .locator("text=模型库")
             .count()
             > 0
         )
@@ -38,19 +38,19 @@ class ModelConfigPage:
     # ==================== 搜索 ====================
 
     def search(self, keyword: str):
-        inp = self.page.locator("input[placeholder*='搜索服务商']")
+        inp = self.page.locator("input[placeholder*='搜索服务商名称']")
         if inp.count() > 0:
             inp.first.fill(keyword)
             self.page.wait_for_timeout(500)
 
     def clear_search(self):
-        inp = self.page.locator("input[placeholder*='搜索服务商']")
+        inp = self.page.locator("input[placeholder*='搜索服务商名称']")
         if inp.count() > 0:
             inp.first.fill("")
             self.page.wait_for_timeout(500)
 
     def has_search_input(self) -> bool:
-        return self.page.locator("input[placeholder*='搜索服务商']").count() > 0
+        return self.page.locator("input[placeholder*='搜索服务商名称']").count() > 0
 
     # ==================== Provider 列表 ====================
 
@@ -71,16 +71,15 @@ class ModelConfigPage:
         return False
 
     def get_provider_names(self) -> list[str]:
-        """获取所有 Provider 显示名称"""
+        """获取所有 Provider 显示名称（从卡片文本第2行提取）"""
         cards = self.get_provider_cards()
         names = []
         for i in range(cards.count()):
-            header = cards.nth(i).locator("div.flex-1.min-w-0").first
-            if header.count() > 0:
-                text = header.inner_text().strip()
-                # 第一行通常是 "name ORG_ID" 格式
-                name_part = text.split("\n")[0].strip()
-                names.append(name_part)
+            text = cards.nth(i).inner_text().strip()
+            # 卡片文本格式：首字母\n名称\nORG_ID\n...
+            lines = text.split("\n")
+            if len(lines) >= 2:
+                names.append(lines[1].strip())
         return names
 
     def get_provider_card_text(self, name: str) -> str:
@@ -286,6 +285,247 @@ class ModelConfigPage:
             return id_input.is_disabled()
         return False
 
+    def get_edit_provider_protocol(self) -> str:
+        """获取编辑弹窗中的协议文本"""
+        dialog = self.page.locator("[role=dialog]")
+        combobox = dialog.locator("button[role=combobox]")
+        if combobox.count() > 0:
+            return combobox.first.inner_text().strip()
+        return ""
+
+    def has_model_list_section(self) -> bool:
+        """编辑弹窗中是否存在「可用模型列表」区域"""
+        dialog = self.page.locator("[role=dialog]")
+        return "可用模型列表" in dialog.inner_text()
+
+    def has_fetch_models_in_dialog(self) -> bool:
+        """编辑弹窗中是否有「获取模型列表」按钮"""
+        dialog = self.page.locator("[role=dialog]")
+        btn = dialog.get_by_role("button", name="获取模型列表")
+        return btn.count() > 0
+
+    def click_fetch_models_in_dialog(self):
+        """点击编辑弹窗中的「获取模型列表」按钮"""
+        dialog = self.page.locator("[role=dialog]")
+        btn = dialog.get_by_role("button", name="获取模型列表")
+        if btn.count() > 0:
+            btn.first.click()
+            self.page.wait_for_timeout(3000)
+
+    def get_dialog_model_list_text(self) -> str:
+        """获取编辑弹窗中可用模型列表区域的文本"""
+        dialog = self.page.locator("[role=dialog]")
+        full_text = dialog.inner_text()
+        # 提取"可用模型列表"之后的文本
+        if "可用模型列表" in full_text:
+            idx = full_text.index("可用模型列表")
+            return full_text[idx:idx + 500]
+        return ""
+
+    # ==================== 编辑模型弹窗 — 高级字段 ====================
+
+    def set_context_limit(self, value: int):
+        """设置上下文限制"""
+        dialog = self.page.locator("[role=dialog]")
+        number_inputs = dialog.locator("input[type=number]")
+        if number_inputs.count() >= 1:
+            number_inputs.nth(0).fill(str(value))
+
+    def set_output_limit(self, value: int):
+        """设置输出限制"""
+        dialog = self.page.locator("[role=dialog]")
+        number_inputs = dialog.locator("input[type=number]")
+        if number_inputs.count() >= 2:
+            number_inputs.nth(1).fill(str(value))
+
+    def get_context_limit(self) -> str:
+        """获取上下文限制值"""
+        dialog = self.page.locator("[role=dialog]")
+        number_inputs = dialog.locator("input[type=number]")
+        if number_inputs.count() >= 1:
+            return number_inputs.nth(0).input_value()
+        return ""
+
+    def get_output_limit(self) -> str:
+        """获取输出限制值"""
+        dialog = self.page.locator("[role=dialog]")
+        number_inputs = dialog.locator("input[type=number]")
+        if number_inputs.count() >= 2:
+            return number_inputs.nth(1).input_value()
+        return ""
+
+    def _get_modality_buttons(self, section: str = "input"):
+        """获取模态切换按钮列表。section: 'input' 或 'output'"""
+        dialog = self.page.locator("[role=dialog]")
+        # 输入模态: text, image, audio, video, pdf (前5个按钮)
+        # 输出模态: text, image (按钮5-6)
+        all_btns = dialog.locator("button")
+        input_mods = ["text", "image", "audio", "video", "pdf"]
+        output_mods = ["text", "image"]
+        result = []
+        count = all_btns.count()
+        if section == "input":
+            for i in range(min(5, count)):
+                txt = all_btns.nth(i).inner_text().strip()
+                if txt in input_mods:
+                    result.append(all_btns.nth(i))
+        else:
+            # 输出模态按钮在索引 5-6
+            for i in range(5, min(7, count)):
+                txt = all_btns.nth(i).inner_text().strip()
+                if txt in output_mods:
+                    result.append(all_btns.nth(i))
+        return result
+
+    def is_modality_selected(self, modality: str, section: str = "input") -> bool:
+        """模态按钮是否被选中（通过 CSS class 判断：bg-indigo/bg-emerald 表示选中）"""
+        btns = self._get_modality_buttons(section)
+        for btn in btns:
+            if btn.inner_text().strip() == modality:
+                cls = btn.get_attribute("class") or ""
+                return "bg-indigo" in cls or "bg-emerald" in cls
+        return False
+
+    def click_modality(self, modality: str, section: str = "input"):
+        """点击模态切换按钮"""
+        btns = self._get_modality_buttons(section)
+        for btn in btns:
+            if btn.inner_text().strip() == modality:
+                btn.click()
+                self.page.wait_for_timeout(300)
+                return True
+        return False
+
+    def get_selected_input_modalities(self) -> list:
+        """获取已选中的输入模态"""
+        btns = self._get_modality_buttons("input")
+        selected = []
+        for btn in btns:
+            cls = btn.get_attribute("class") or ""
+            if "bg-indigo" in cls:
+                selected.append(btn.inner_text().strip())
+        return selected
+
+    def get_selected_output_modalities(self) -> list:
+        """获取已选中的输出模态"""
+        btns = self._get_modality_buttons("output")
+        selected = []
+        for btn in btns:
+            cls = btn.get_attribute("class") or ""
+            if "bg-emerald" in cls:
+                selected.append(btn.inner_text().strip())
+        return selected
+
+    def has_expand_advanced_button(self) -> bool:
+        """是否有「展开高级参数」按钮"""
+        dialog = self.page.locator("[role=dialog]")
+        btn = dialog.get_by_role("button", name="展开高级参数")
+        return btn.count() > 0
+
+    def click_expand_advanced(self):
+        """点击「展开高级参数」"""
+        dialog = self.page.locator("[role=dialog]")
+        btn = dialog.get_by_role("button", name="展开高级参数")
+        if btn.count() > 0:
+            btn.click()
+            self.page.wait_for_timeout(500)
+
+    def has_thinking_mode_checkbox(self) -> bool:
+        """展开高级参数后，是否有「启用思考模式」开关"""
+        dialog = self.page.locator("[role=dialog]")
+        switch = dialog.locator("button[role=switch]")
+        return switch.count() > 0
+
+    def is_thinking_mode_checked(self) -> bool:
+        """思考模式是否已启用"""
+        dialog = self.page.locator("[role=dialog]")
+        switch = dialog.locator("button[role=switch]")
+        if switch.count() > 0:
+            return switch.first.get_attribute("aria-checked") == "true"
+        return False
+
+    def toggle_thinking_mode(self):
+        """切换思考模式（点击 role=switch 按钮）"""
+        dialog = self.page.locator("[role=dialog]")
+        switch = dialog.locator("button[role=switch]")
+        if switch.count() > 0:
+            switch.first.click()
+            self.page.wait_for_timeout(300)
+
+    def set_input_cost(self, value: str):
+        """设置输入费用（通过 label 文本定位）"""
+        dialog = self.page.locator("[role=dialog]")
+        label = dialog.locator("label").filter(has_text="输入费用")
+        if label.count() > 0:
+            inp = label.locator("xpath=following-sibling::input | ./input")
+            if inp.count() > 0:
+                inp.first.fill(value)
+            else:
+                # label 和 input 在同一个父 div 中
+                parent = label.locator("xpath=..")
+                num_inp = parent.locator("input[type=number]")
+                if num_inp.count() > 0:
+                    num_inp.first.fill(value)
+
+    def set_output_cost(self, value: str):
+        """设置输出费用（通过 label 文本定位）"""
+        dialog = self.page.locator("[role=dialog]")
+        label = dialog.locator("label").filter(has_text="输出费用")
+        if label.count() > 0:
+            parent = label.locator("xpath=..")
+            num_inp = parent.locator("input[type=number]")
+            if num_inp.count() > 0:
+                num_inp.first.fill(value)
+
+    def get_input_cost(self) -> str:
+        """获取输入费用值"""
+        dialog = self.page.locator("[role=dialog]")
+        label = dialog.locator("label").filter(has_text="输入费用")
+        if label.count() > 0:
+            parent = label.locator("xpath=..")
+            num_inp = parent.locator("input[type=number]")
+            if num_inp.count() > 0:
+                return num_inp.first.input_value()
+        return ""
+
+    def get_output_cost(self) -> str:
+        """获取输出费用值"""
+        dialog = self.page.locator("[role=dialog]")
+        label = dialog.locator("label").filter(has_text="输出费用")
+        if label.count() > 0:
+            parent = label.locator("xpath=..")
+            num_inp = parent.locator("input[type=number]")
+            if num_inp.count() > 0:
+                return num_inp.first.input_value()
+        return ""
+
+    def has_thinking_budget_input(self) -> bool:
+        """是否有「思考预算」输入框（仅在思考模式开启时出现）"""
+        dialog = self.page.locator("[role=dialog]")
+        label = dialog.locator("label").filter(has_text="思考预算")
+        return label.count() > 0
+
+    def set_thinking_budget(self, value: str):
+        """设置思考预算"""
+        dialog = self.page.locator("[role=dialog]")
+        label = dialog.locator("label").filter(has_text="思考预算")
+        if label.count() > 0:
+            parent = label.locator("xpath=..")
+            num_inp = parent.locator("input[type=number]")
+            if num_inp.count() > 0:
+                num_inp.first.fill(value)
+
+    def get_thinking_budget(self) -> str:
+        """获取思考预算值"""
+        dialog = self.page.locator("[role=dialog]")
+        label = dialog.locator("label").filter(has_text="思考预算")
+        if label.count() > 0:
+            parent = label.locator("xpath=..")
+            num_inp = parent.locator("input[type=number]")
+            if num_inp.count() > 0:
+                return num_inp.first.input_value()
+        return ""
+
     # ==================== 模型操作 ====================
 
     def click_add_model(self, provider_name: str):
@@ -303,7 +543,7 @@ class ModelConfigPage:
     def fill_model_form(self, model_id: str, display_name: str):
         """填写新增模型表单（弹窗须已打开）"""
         dialog = self.page.locator("[role=dialog]")
-        inputs = dialog.locator("input[type=text]")
+        inputs = dialog.locator("input[data-slot='input']")
         if inputs.count() >= 2:
             inputs.nth(0).fill(model_id)
             inputs.nth(1).fill(display_name)
@@ -338,7 +578,7 @@ class ModelConfigPage:
                         btn = rows.nth(j).locator("button").filter(has_text="测试")
                         if btn.count() > 0:
                             btn.first.click()
-                            self.page.wait_for_timeout(3000)
+                            self.page.wait_for_timeout(500)
                             return True
         return False
 
@@ -356,6 +596,29 @@ class ModelConfigPage:
                             self.page.wait_for_timeout(1000)
                             return True
         return False
+
+    def is_edit_model_id_disabled(self) -> bool:
+        """编辑模型弹窗中模型 ID 是否不可修改"""
+        dialog = self.page.locator("[role=dialog]")
+        inputs = dialog.locator("input[data-slot='input']")
+        if inputs.count() > 0:
+            return inputs.nth(0).is_disabled()
+        return False
+
+    def fill_edit_model_form(self, display_name: str = ""):
+        """填写编辑模型表单（弹窗须已打开）"""
+        dialog = self.page.locator("[role=dialog]")
+        inputs = dialog.locator("input[data-slot='input']")
+        if display_name and inputs.count() >= 2:
+            inputs.nth(1).fill(display_name)
+
+    def get_edit_model_display_name(self) -> str:
+        """获取编辑模型弹窗中的显示名称"""
+        dialog = self.page.locator("[role=dialog]")
+        inputs = dialog.locator("input[data-slot='input']")
+        if inputs.count() >= 2:
+            return inputs.nth(1).input_value()
+        return ""
 
     def click_model_delete(self, provider_name: str, model_name: str):
         """点击模型级别的「删除」按钮"""
@@ -412,6 +675,18 @@ class ModelConfigPage:
 
     def intercept_api_responses(self, url_pattern: str):
         """设置 API 响应拦截，返回收集列表"""
+        # 移除之前的监听器，避免累积
+
+        if hasattr(self, '_last_listener') and self._last_listener:
+
+            try:
+
+                self.page.remove_listener("response", self._last_listener)
+
+            except Exception:
+
+                pass
+
         collected = []
 
         def on_response(resp):
@@ -432,5 +707,6 @@ class ModelConfigPage:
                         "body": None,
                     })
 
+        self._last_listener = on_response
         self.page.on("response", on_response)
         return collected

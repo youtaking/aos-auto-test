@@ -17,7 +17,7 @@ class SitesListPage:
         self.page.wait_for_timeout(1000)
 
     def is_loaded(self) -> bool:
-        return self.page.locator("h1").filter(has_text="Agent Sites").count() > 0
+        return "/ctrl/agent/sites" in self.page.url and self.page.locator("div.agent-panel-content").count() > 0
 
     # === 列表基础 ===
 
@@ -101,6 +101,48 @@ class SitesListPage:
                 creator_td = row.locator("td").nth(3)
                 return creator_td.locator("a, button").count() > 0
         return False
+
+    # === 创建应用 ===
+
+    def click_create_app(self):
+        """点击'创建 App'按钮"""
+        btn = self.page.locator("button").filter(has_text="创建 App")
+        if btn.count() > 0:
+            btn.first.click()
+            self.page.wait_for_timeout(1500)
+
+    def is_create_dialog_open(self) -> bool:
+        """创建弹窗是否打开"""
+        d = self.page.locator('[role="dialog"]')
+        if d.count() == 0:
+            return False
+        return "创建 App" in d.first.inner_text()
+
+    def fill_create_form(self, name: str, desc: str = "", visibility: str = "仅自己"):
+        """填写创建表单"""
+        d = self.page.locator('[role="dialog"]')
+        # 名称
+        name_input = d.locator('input[placeholder*="kebab"]')
+        if name_input.count() > 0:
+            name_input.first.fill(name)
+        # 描述
+        if desc:
+            desc_input = d.locator('textarea[placeholder*="可选"]')
+            if desc_input.count() > 0:
+                desc_input.first.fill(desc)
+        # 可见性
+        if visibility:
+            sel = d.locator("select")
+            if sel.count() > 0:
+                sel.first.select_option(label=visibility)
+
+    def save_create(self):
+        """点击创建弹窗的保存按钮"""
+        d = self.page.locator('[role="dialog"]')
+        btn = d.locator("button").filter(has_text="保存")
+        if btn.count() > 0:
+            btn.first.click()
+            self.page.wait_for_timeout(2000)
 
     # === 打开应用（独立 URL）===
 
@@ -186,6 +228,14 @@ class SitesListPage:
                     self.page.wait_for_timeout(500)
                     return
 
+    def renew_token(self, app_name: str):
+        """通过三点菜单重签 Token"""
+        self.open_row_menu(app_name)
+        renew_item = self.page.get_by_role("menuitem", name="重签 Token")
+        if renew_item.count() > 0:
+            renew_item.click()
+            self.page.wait_for_timeout(2000)
+
     def delete_app(self, app_name: str):
         """通过三点菜单删除应用"""
         self.open_row_menu(app_name)
@@ -260,8 +310,12 @@ class SiteBuilderChatPage:
         return self.page.locator("textarea").count() > 0
 
     def has_artifacts_panel(self) -> bool:
-        """是否有 ArtifactsPanel（iframe 预览区）"""
-        return self.page.locator("iframe").count() > 0
+        """是否有 ArtifactsPanel（预览区）"""
+        # ArtifactsPanel 可能是 iframe 或 div[class*='artifact']
+        return (
+            self.page.locator("iframe").count() > 0
+            or self.page.locator("[class*='artifact'], [class*='Artifact']").count() > 0
+        )
 
     def get_iframe_src(self) -> str:
         """获取 iframe 的 src"""

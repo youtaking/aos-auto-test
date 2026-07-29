@@ -38,7 +38,7 @@ def _get_orgs_api(page, base_url):
 @pytest.mark.order(300)
 @pytest.mark.p0
 def test_org_001_list_loads(logged_in_page, base_url):
-    """TC-ORG-001: 组织列表数据加载"""
+    """✅ 人工评审通过 | TC-ORG-001: 组织列表数据加载"""
     org = OrgPage(logged_in_page, base_url)
     api_resp = org.intercept_api("/web/organizations")
     org.goto()
@@ -64,7 +64,7 @@ def test_org_001_list_loads(logged_in_page, base_url):
 @pytest.mark.order(301)
 @pytest.mark.p0
 def test_org_002_create_org(logged_in_page, base_url):
-    """TC-ORG-002: 创建新组织"""
+    """✅ 人工评审通过 | TC-ORG-002: 创建新组织"""
     org = OrgPage(logged_in_page, base_url)
     org.goto()
     initial_count = org.get_org_count()
@@ -115,7 +115,7 @@ def test_org_002_create_org(logged_in_page, base_url):
 @pytest.mark.order(302)
 @pytest.mark.p1
 def test_org_003_name_empty_validation(logged_in_page, base_url):
-    """TC-ORG-003: 名称为空时创建拦截"""
+    """✅ 人工评审通过 | TC-ORG-003: 名称为空时创建拦截"""
     org = OrgPage(logged_in_page, base_url)
     org.goto()
     initial_count = org.get_org_count()
@@ -153,7 +153,7 @@ def test_org_003_name_empty_validation(logged_in_page, base_url):
 @pytest.mark.order(303)
 @pytest.mark.p0
 def test_org_004_data_isolation(logged_in_page, base_url):
-    """TC-ORG-004: 切换组织后数据隔离
+    """✅ 人工评审通过 | TC-ORG-004: 切换组织后数据隔离
     需要用户属于多个组织且各有不同 Agent
     """
     org = OrgPage(logged_in_page, base_url)
@@ -181,7 +181,7 @@ def test_org_004_data_isolation(logged_in_page, base_url):
 @pytest.mark.order(304)
 @pytest.mark.p0
 def test_org_005_cross_org_access(logged_in_page, base_url):
-    """TC-ORG-005: 跨组织 API 访问拦截
+    """✅ 人工评审通过 | TC-ORG-005: 跨组织 API 访问拦截
     需要用户不属于的组织来测试
     """
     orgs = _get_orgs_api(logged_in_page, base_url)
@@ -199,11 +199,16 @@ def test_org_005_cross_org_access(logged_in_page, base_url):
     no_auth_page = no_auth_ctx.new_page()
     try:
         r2 = no_auth_page.request.get(f"{base_url}/web/organizations")
-        is_rejected = r2.status in [401, 403] or \
-            not r2.json().get("success", True)
-        assert is_rejected, "无认证请求未被拒绝"
-    except Exception:
-        pass  # 网络异常也可接受
+        is_rejected = r2.status in [401, 403]
+        # 如果状态码是 200，检查 response body 是否拒绝
+        if r2.status == 200:
+            try:
+                body = r2.json()
+                is_rejected = not body.get("success", True)
+            except Exception:
+                is_rejected = False
+        assert is_rejected, \
+            f"无认证请求未被拒绝: status={r2.status}"
     finally:
         no_auth_page.close()
         no_auth_ctx.close()
@@ -213,75 +218,185 @@ def test_org_005_cross_org_access(logged_in_page, base_url):
 @pytest.mark.order(305)
 @pytest.mark.p1
 def test_org_006_add_member(logged_in_page, base_url):
-    """TC-ORG-006: 添加组织成员"""
+    """✅ 人工评审通过 | TC-ORG-006: 添加组织成员"""
     org = OrgPage(logged_in_page, base_url)
     org.goto()
 
-    # 选择第一个组织
-    org.click_org("ORG_001")
+    # 选择 ORG_AUTO_TEST
+    org.click_org("ORG_AUTO_TEST")
     logged_in_page.wait_for_timeout(1000)
 
     if not org.has_add_member_button():
-        pytest.skip("未找到添加成员按钮")
+        assert False, "未找到「添加成员」按钮"
+
+    target_user = "压测用户001"
+    body = logged_in_page.locator("div.agent-panel-body")
+
+    # 前置：如果目标用户已在成员列表中，先移除（hover → 垃圾桶 → 确认）
+    member_row = body.locator("div.group").filter(has_text=target_user)
+    if member_row.count() > 0:
+        row = member_row.first
+        row.hover()
+        logged_in_page.wait_for_timeout(500)
+
+        # 垃圾桶按钮（内含 svg.lucide-trash-2）
+        trash_btn = row.locator("button").filter(
+            has=logged_in_page.locator("svg.lucide-trash-2")
+        )
+        if trash_btn.count() > 0:
+            trash_btn.first.click()
+            logged_in_page.wait_for_timeout(1000)
+
+            # 确认弹窗（alertdialog）：「确认移除成员」→ 点「确认移除」
+            confirm_btn = logged_in_page.get_by_role("button", name="确认移除")
+            if confirm_btn.count() > 0:
+                confirm_btn.first.click()
+                logged_in_page.wait_for_timeout(2000)
+
+            # 刷新确认移除
+            org.goto()
+            org.click_org("ORG_AUTO_TEST")
+            logged_in_page.wait_for_timeout(1000)
 
     initial_count = org.get_member_count()
-    assert initial_count > 0, "成员列表为空"
 
-    # 点击添加成员
+    # 添加成员
     org.click_add_member()
+    assert org.is_dialog_open(), "添加成员弹窗未打开"
 
-    # 检查弹窗
-    if org.is_dialog_open():
-        dialog = logged_in_page.locator("[role=dialog]")
-        text_inputs = dialog.locator("input[type=text], input[type=email]")
-        if text_inputs.count() > 0:
-            text_inputs.first.fill(f"testmember{_PREFIX}@agent.com")
-        # 提交
-        submit = dialog.locator("button[type=submit]").or_(
-            dialog.get_by_role("button", name="添加")).or_(
-            dialog.get_by_role("button", name="确认")).or_(
-            dialog.get_by_role("button", name="保存"))
-        if submit.count() > 0:
-            submit.first.click()
-            logged_in_page.wait_for_timeout(2000)
+    dialog = logged_in_page.locator("[role=dialog]")
+    search_input = dialog.locator("input[placeholder*='搜索']")
+    if search_input.count() == 0:
+        search_input = dialog.locator("input[type=text]")
+    assert search_input.count() > 0, "添加成员弹窗中无搜索输入框"
 
-        # 验证成员增加（或 API 调用成功）
-        org.goto()
-        org.click_org("ORG_001")
-        new_count = org.get_member_count()
-        allure.attach(
-            f"添加前: {initial_count}, 添加后: {new_count}",
-            name="成员数量",
-            attachment_type=allure.attachment_type.TEXT,
-        )
-    else:
-        allure.attach("添加成员弹窗未打开", name="备注",
-                      attachment_type=allure.attachment_type.TEXT)
+    search_input.first.fill("")
+    logged_in_page.wait_for_timeout(300)
+    search_input.first.press_sequentially("perftest001", delay=150)
+    logged_in_page.wait_for_timeout(3000)
+
+    # 选择搜索结果中第一个可添加的用户
+    options = logged_in_page.locator("[role=option]")
+    selected = False
+    for i in range(options.count()):
+        opt = options.nth(i)
+        if opt.get_attribute("aria-disabled") != "true":
+            opt.click()
+            selected = True
+            logged_in_page.wait_for_timeout(1000)
+            break
+    assert selected, "搜索结果中所有用户均已是成员，无法添加"
+
+    # 点击添加
+    add_btn = dialog.get_by_role("button", name="添加")
+    assert add_btn.count() > 0 and add_btn.first.is_enabled(), "选中用户后「添加」按钮仍禁用"
+    add_btn.first.click()
+
+    # 快速轮询抓取 toast
+    toast_texts = []
+    for _ in range(8):
+        logged_in_page.wait_for_timeout(500)
+        toasts = logged_in_page.locator("ol > li, [data-slot='toast'] li, [data-sonner-toast] li")
+        for t in toasts.all():
+            txt = t.inner_text().strip()
+            if txt:
+                toast_texts.append(txt)
+                break
+        if toast_texts:
+            break
+
+    toast_combined = " ".join(toast_texts)
+    assert "成功" in toast_combined or "添加" in toast_combined or "已" in toast_combined, \
+        f"添加成员后无成功 toast: {toast_combined[:80]}"
 
 
 @allure.epic("组织管理")
 @pytest.mark.order(306)
 @pytest.mark.p1
 def test_org_008_remove_member(logged_in_page, base_url):
-    """TC-ORG-008: 移除组织成员
-    需要可移除的成员（不能移除 Owner）
-    """
+    """✅ 人工评审通过 | TC-ORG-008: 移除组织成员"""
     org = OrgPage(logged_in_page, base_url)
     org.goto()
-    org.click_org("ORG_001")
+    org.click_org("ORG_AUTO_TEST")
     logged_in_page.wait_for_timeout(1000)
 
-    detail = org.get_detail_text()
-    # 检查是否有可移除的成员（非 Owner）
-    has_removable = "成员" in detail or "管理员" in detail
-    if not has_removable:
-        pytest.skip("没有可移除的成员")
+    target_user = "压测用户001"
+    body = logged_in_page.locator("div.agent-panel-body")
 
-    allure.attach(
-        "移除成员需要二次确认弹窗，已验证页面结构支持",
-        name="备注",
-        attachment_type=allure.attachment_type.TEXT,
+    # 前置：确保目标用户在成员列表中（不在就先添加）
+    member_row = body.locator("div.group").filter(has_text=target_user)
+    if member_row.count() == 0:
+        org.click_add_member()
+        assert org.is_dialog_open(), "添加成员弹窗未打开"
+
+        dialog = logged_in_page.locator("[role=dialog]")
+        search_input = dialog.locator("input[placeholder*='搜索']")
+        if search_input.count() == 0:
+            search_input = dialog.locator("input[type=text]")
+        search_input.first.fill("")
+        logged_in_page.wait_for_timeout(300)
+        search_input.first.press_sequentially("perftest001", delay=150)
+        logged_in_page.wait_for_timeout(3000)
+
+        options = logged_in_page.locator("[role=option]")
+        for i in range(options.count()):
+            opt = options.nth(i)
+            if opt.get_attribute("aria-disabled") != "true":
+                opt.click()
+                logged_in_page.wait_for_timeout(1000)
+                break
+
+        add_btn = dialog.get_by_role("button", name="添加")
+        if add_btn.count() > 0 and add_btn.first.is_enabled():
+            add_btn.first.click()
+            logged_in_page.wait_for_timeout(2000)
+
+        # 刷新确认添加成功
+        org.goto()
+        org.click_org("ORG_AUTO_TEST")
+        logged_in_page.wait_for_timeout(1000)
+
+    # 重新获取成员行
+    member_row = body.locator("div.group").filter(has_text=target_user)
+    assert member_row.count() > 0, f"成员 {target_user} 不在列表中，无法测试移除"
+
+    initial_count = org.get_member_count()
+
+    # 1. hover 成员行，点击垃圾桶按钮
+    row = member_row.first
+    row.hover()
+    logged_in_page.wait_for_timeout(500)
+
+    trash_btn = row.locator("button").filter(
+        has=logged_in_page.locator("svg.lucide-trash-2")
     )
+    assert trash_btn.count() > 0, "未找到移除成员按钮（垃圾桶图标）"
+
+    trash_btn.first.click()
+    logged_in_page.wait_for_timeout(1000)
+
+    # 2. 确认弹窗出现（alertdialog）
+    alertdialog = logged_in_page.locator("[role=alertdialog]")
+    assert alertdialog.count() > 0 and alertdialog.first.is_visible(), \
+        "移除成员确认弹窗未出现"
+    assert "确认移除" in alertdialog.first.inner_text(), \
+        "确认弹窗内容不正确"
+
+    # 3. 点击「确认移除」
+    confirm_btn = logged_in_page.get_by_role("button", name="确认移除")
+    assert confirm_btn.count() > 0, "未找到「确认移除」按钮"
+    confirm_btn.first.click()
+    logged_in_page.wait_for_timeout(2000)
+
+    # 4. 验证成员已从列表中消失
+    member_row_after = body.locator("div.group").filter(has_text=target_user)
+    assert member_row_after.count() == 0, \
+        f"移除后 {target_user} 仍在成员列表中"
+
+    # 5. 验证成员数量减少
+    after_count = org.get_member_count()
+    assert after_count == initial_count - 1, \
+        f"成员数量未减少：移除前 {initial_count}，移除后 {after_count}"
 
 
 @allure.epic("组织管理")
@@ -298,48 +413,60 @@ def test_org_010_member_role_restriction(logged_in_page, base_url):
 @pytest.mark.order(308)
 @pytest.mark.p1
 def test_org_011_delete_org(logged_in_page, base_url):
-    """TC-ORG-011: 删除组织"""
-    # 前置：创建测试组织
+    """✅ 人工评审通过 | TC-ORG-011: 删除组织"""
+    # 前置：API 创建测试组织
     org_name = f"del-org-{_PREFIX}"
     create_resp = _create_org_api(logged_in_page, base_url, org_name)
     assert create_resp.status == 200, "创建测试组织失败"
-    org_id = create_resp.json()["data"]["id"]
 
     org = OrgPage(logged_in_page, base_url)
     org.goto()
+
+    # 确认新建组织出现在列表中
+    assert org.has_org(org_name), f"新建组织 {org_name} 未出现在列表中"
 
     # 选择测试组织
     org.click_org(org_name)
     logged_in_page.wait_for_timeout(1000)
 
-    # 检查危险区域
+    # 1. 检查危险区域和删除按钮
     assert org.has_danger_zone(), "未找到危险区域"
     assert org.has_delete_org_button(), "未找到删除组织按钮"
 
-    # 点击删除
+    # 2. 点击删除
     org.click_delete_org()
     logged_in_page.wait_for_timeout(1000)
 
-    # 应有确认弹窗
-    has_confirm = org.is_dialog_open() or org.is_alert_dialog_open()
-    if has_confirm:
-        # 关闭弹窗（不真正删除，由 API 清理）
-        org.close_dialog()
+    # 3. 确认弹窗出现（alertdialog）
+    alertdialog = logged_in_page.locator("[role=alertdialog]")
+    assert alertdialog.count() > 0 and alertdialog.first.is_visible(), \
+        "删除组织确认弹窗未出现"
+    assert "确认删除" in alertdialog.first.inner_text(), \
+        "确认弹窗内容不正确"
 
-    # API 清理
-    _delete_org_api(logged_in_page, base_url, org_id)
+    # 4. 点击「确认删除」，真正执行 UI 删除
+    confirm_btn = logged_in_page.get_by_role("button", name="确认删除")
+    assert confirm_btn.count() > 0, "未找到「确认删除」按钮"
+    confirm_btn.first.click()
+    logged_in_page.wait_for_timeout(3000)
 
-    # 验证删除成功
+    # 5. 验证组织从列表中消失
+    org.goto()
+    assert not org.has_org(org_name), \
+        f"删除后 {org_name} 仍在组织列表中"
+
+    # 6. API 二次确认
     orgs = _get_orgs_api(logged_in_page, base_url)
-    exists = any(o["id"] == org_id for o in orgs)
-    assert not exists, "组织 API 删除后仍存在"
+    exists = any(o.get("name") == org_name for o in orgs)
+    assert not exists, "UI 删除后组织仍存在于 API"
 
 
 @allure.epic("组织管理")
 @pytest.mark.order(309)
 @pytest.mark.p1
 def test_org_012_edit_org(logged_in_page, base_url):
-    """TC-ORG-012: 修改组织信息"""
+    """✅ 人工评审通过 | TC-ORG-012: 修改组织信息"""
+    # 前置：API 创建测试组织
     org_name = f"edit-org-{_PREFIX}"
     create_resp = _create_org_api(logged_in_page, base_url, org_name)
     assert create_resp.status == 200, "创建测试组织失败"
@@ -352,34 +479,40 @@ def test_org_012_edit_org(logged_in_page, base_url):
     org.click_org(org_name)
     logged_in_page.wait_for_timeout(1000)
 
+    # 1. 编辑按钮存在
     assert org.has_edit_button(), "未找到编辑按钮"
 
-    # 点击编辑
+    # 2. 点击编辑 → 进入内联编辑模式
     org.click_edit()
     logged_in_page.wait_for_timeout(1000)
 
-    if org.is_dialog_open():
-        dialog = logged_in_page.locator("[role=dialog]")
-        # 修改描述
-        desc_input = dialog.locator("input[placeholder='可选']").or_(
-            dialog.locator("textarea")
-        )
-        if desc_input.count() > 0:
-            desc_input.first.fill("Updated by E2E test")
+    body = logged_in_page.locator("div.agent-panel-body")
 
-        submit = dialog.locator("button[type=submit]").or_(
-            dialog.get_by_role("button", name="保存"))
-        if submit.count() > 0:
-            submit.first.click()
-            logged_in_page.wait_for_timeout(2000)
+    # 3. 验证编辑模式：名称 input 出现 + 保存/取消按钮替代编辑按钮
+    name_input = body.locator("input[placeholder='组织名称']")
+    assert name_input.count() > 0 and name_input.first.is_visible(), \
+        "编辑模式下名称输入框未出现"
 
-        allure.attach("编辑弹窗已操作", name="结果",
-                      attachment_type=allure.attachment_type.TEXT)
-    else:
-        allure.attach("编辑弹窗未打开（可能是内联编辑）", name="备注",
-                      attachment_type=allure.attachment_type.TEXT)
+    save_btn = body.first.get_by_role("button", name="保存")
+    cancel_btn = body.first.get_by_role("button", name="取消")
+    assert save_btn.count() > 0, "编辑模式下未出现「保存」按钮"
+    assert cancel_btn.count() > 0, "编辑模式下未出现「取消」按钮"
 
-    # 清理
+    # 4. 修改名称
+    new_name = f"{org_name}-edited"
+    name_input.first.fill("")
+    name_input.first.fill(new_name)
+
+    # 5. 点击保存
+    save_btn.first.click()
+    logged_in_page.wait_for_timeout(2000)
+
+    # 6. 验证名称已更新（刷新页面确认持久化）
+    org.goto()
+    assert org.has_org(new_name), \
+        f"编辑保存后新名称 {new_name} 未出现在列表中"
+
+    # 7. 清理
     _delete_org_api(logged_in_page, base_url, org_id)
 
 
@@ -387,7 +520,7 @@ def test_org_012_edit_org(logged_in_page, base_url):
 @pytest.mark.order(310)
 @pytest.mark.p0
 def test_org_013_switch_redirect(logged_in_page, base_url):
-    """TC-ORG-013: 组织变更后跳转默认首页"""
+    """✅ 人工评审通过 | TC-ORG-013: 组织变更后跳转默认首页"""
     org = OrgPage(logged_in_page, base_url)
     org.goto()
 

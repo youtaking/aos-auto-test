@@ -20,7 +20,7 @@ class McpServerPage:
 
     def is_loaded(self) -> bool:
         """页面标题「MCP 服务器」可见"""
-        return self.page.locator("h1").filter(has_text="MCP 服务器").count() > 0
+        return "/ctrl/agent/mcp" in self.page.url and self.page.locator("div.agent-panel-body").count() > 0
 
     # === 搜索 ===
 
@@ -54,17 +54,16 @@ class McpServerPage:
         rows = self.get_server_rows()
         for i in range(rows.count()):
             row = rows.nth(i)
-            # 卡片头部区域包含名称（border-b 子 div）
-            header = row.locator("div.border-b").first
-            if header.count() > 0:
-                text = header.inner_text().strip()
-                # 去掉组织前缀（首字母 + 组织名，如 "LORG_001/"）
-                if "/" in text:
-                    text = text.split("/", 1)[-1].strip()
-                # 取第一行作为名称
-                name = text.split("\n")[0].strip()
-                if name and name not in ["检测", "启用", "禁用", "编辑", "删除"]:
-                    names.append(name)
+            text = row.inner_text().strip()
+            lines = text.split("\n")
+            # 卡片文本格式：首字母\nORG_ID/名称\n类型(Local/Remote)\n...
+            if len(lines) >= 2:
+                full_name = lines[1].strip()
+                # 去掉组织前缀（如 "ORG_001/"）
+                if "/" in full_name:
+                    full_name = full_name.split("/", 1)[-1].strip()
+                if full_name and full_name not in ["检测", "启用", "禁用", "编辑", "删除", "Local", "Remote"]:
+                    names.append(full_name)
         return names
 
     def has_server(self, name: str) -> bool:
@@ -84,16 +83,16 @@ class McpServerPage:
 
     def select_type(self, server_type: str):
         """选择服务器类型：Stdio(→Local) / SSE(→Remote) / Streamable HTTP
-        实际 UI 是 Radix Select 下拉框（role=combobox），选项为 Local / Remote"""
+        实际 UI 是 Radix Select 下拉框（role=combobox），选项为 Local（命令行启动）/ Remote（URL 连接）"""
         dialog = self.page.locator("[role='dialog']")
 
-        # 映射测试用语到实际选项文本
+        # 映射测试用语到实际选项文本（含括号说明）
         type_map = {
-            "Stdio": "Local",
-            "Local": "Local",
-            "SSE": "Remote",
-            "Remote": "Remote",
-            "Streamable HTTP": "Remote",
+            "Stdio": "Local（命令行启动）",
+            "Local": "Local（命令行启动）",
+            "SSE": "Remote（URL 连接）",
+            "Remote": "Remote（URL 连接）",
+            "Streamable HTTP": "Remote（URL 连接）",
         }
         option_text = type_map.get(server_type, server_type)
 
@@ -103,12 +102,14 @@ class McpServerPage:
             trigger.first.click()
             self.page.wait_for_timeout(800)
 
-            # 点击选项
-            option = self.page.locator(f"[role='option']").filter(has_text=option_text)
-            if option.count() > 0:
-                option.first.click()
-                self.page.wait_for_timeout(800)
-                return
+            # 精确匹配选项文本
+            options = self.page.locator("[role='option']")
+            for i in range(options.count()):
+                txt = options.nth(i).inner_text().strip()
+                if txt == option_text:
+                    options.nth(i).click()
+                    self.page.wait_for_timeout(800)
+                    return
 
         # 回退：尝试 tab / radio
         tab = dialog.get_by_role("tab", name=server_type).or_(
@@ -186,14 +187,47 @@ class McpServerPage:
     # === 表单校验 ===
 
     def get_validation_errors(self) -> list[str]:
-        """获取表单校验错误信息"""
+        """获取表单校验错误信息（包括 dialog 内联错误 + 页面 toast 通知）"""
+        errors = []
+
+        # 1. dialog 内联错误
         dialog = self.page.locator("[role='dialog']")
-        errors = dialog.locator(
+        inline_errors = dialog.locator(
             "[role='alert'], p.text-red-500, p.text-red-600, "
             "span.text-red-500, [class*='form-error'], "
             "[class*='invalid'], [class*='error']"
         )
-        return [e.inner_text().strip() for e in errors.all() if e.inner_text().strip()]
+        for e in inline_errors.all():
+            txt = e.inner_text().strip()
+            if txt and txt not in ["检测", "删除", "取消", "保存", "编辑"]:
+                errors.append(txt)
+
+        # 2. toast 通知（右上角，<li> 元素，自动消失）
+        toasts = self.page.locator("ol > li, [data-slot='toast'] li, [data-sonner-toast] li")
+        for t in toasts.all():
+            txt = t.inner_text().strip()
+            if txt:
+                errors.append(txt)
+
+        # 3. 兜底：在页面右上角区域查找 li 元素的文本
+        if not errors:
+            top_right_texts = self.page.evaluate("""() => {
+                const results = [];
+                const lis = document.querySelectorAll('li');
+                for (const li of lis) {
+                    const rect = li.getBoundingClientRect();
+                    if (rect.top >= 0 && rect.top < 100 && rect.right > window.innerWidth - 500 && rect.height > 0) {
+                        const text = li.textContent.trim();
+                        if (text && text.length > 5) {
+                            results.push(text);
+                        }
+                    }
+                }
+                return results;
+            }""")
+            errors.extend(top_right_texts)
+
+        return errors
 
     # === 找到服务器行的辅助方法 ===
 

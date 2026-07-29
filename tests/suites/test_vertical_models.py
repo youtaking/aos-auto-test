@@ -7,7 +7,7 @@ from tests.pages.vertical_models_page import VerticalModelsPage
 @pytest.mark.order(100)
 @pytest.mark.p0
 def test_vertical_models_page_loads(logged_in_page, base_url):
-    """垂直模型库页面能正常加载"""
+    """垂直模型库页面能正常加载 | ✅ 人工评审通过 |"""
     vm = VerticalModelsPage(logged_in_page, base_url)
     vm.goto()
     assert vm.is_loaded(), "垂直模型库页面未加载"
@@ -16,7 +16,7 @@ def test_vertical_models_page_loads(logged_in_page, base_url):
 @pytest.mark.order(101)
 @pytest.mark.p0
 def test_vertical_models_list_not_empty(logged_in_page, base_url):
-    """垂直模型库列表不为空"""
+    """垂直模型库列表不为空 | ✅ 人工评审通过 |"""
     vm = VerticalModelsPage(logged_in_page, base_url)
     vm.goto()
     count = vm.get_model_count()
@@ -26,22 +26,27 @@ def test_vertical_models_list_not_empty(logged_in_page, base_url):
 @pytest.mark.order(102)
 @pytest.mark.p1
 def test_vertical_models_has_known_models(logged_in_page, base_url):
-    """垂直模型库包含已知模型"""
+    """垂直模型库包含已知模型 | ✅ 人工评审通过 |"""
     vm = VerticalModelsPage(logged_in_page, base_url)
     vm.goto()
-    # DOM 探查确认存在的模型关键词
+
+    # 通过搜索框验证已知模型是否存在
     known_keywords = ["风机物流", "PPE检测", "装配质量", "电力抢修"]
     found = []
     for kw in known_keywords:
-        if vm.has_model(kw):
+        vm.search(kw)
+        logged_in_page.wait_for_timeout(500)
+        if vm.get_model_count() > 0:
             found.append(kw)
-    assert len(found) > 0, f"未找到任何已知模型关键词: {known_keywords}"
+
+    vm.clear_search()
+    assert len(found) > 0, f"搜索框未找到任何已知模型关键词: {known_keywords}"
 
 
 @pytest.mark.order(103)
 @pytest.mark.p1
 def test_vertical_models_search_filter(logged_in_page, base_url):
-    """垂直模型库搜索过滤功能"""
+    """垂直模型库搜索过滤功能 | ✅ 人工评审通过 |"""
     vm = VerticalModelsPage(logged_in_page, base_url)
     vm.goto()
 
@@ -65,7 +70,7 @@ def test_vertical_models_search_filter(logged_in_page, base_url):
 @pytest.mark.order(104)
 @pytest.mark.p1
 def test_vertical_models_card_structure(logged_in_page, base_url):
-    """垂直模型库卡片结构完整"""
+    """垂直模型库卡片结构完整 | ✅ 人工评审通过 |"""
     vm = VerticalModelsPage(logged_in_page, base_url)
     vm.goto()
 

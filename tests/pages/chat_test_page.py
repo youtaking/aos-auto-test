@@ -25,7 +25,8 @@ class ChatTestPage:
             self.page.wait_for_timeout(3000)
 
     def is_chat_loaded(self) -> bool:
-        return "/chat/" in self.page.url
+        """聊天界面是否加载完成（URL 不变，通过 textarea 判断）"""
+        return self.page.locator("textarea").count() > 0
 
     # === 会话管理 ===
 

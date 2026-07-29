@@ -25,65 +25,67 @@ class ApiKeyPage:
         self.page.wait_for_timeout(2000)
 
     def is_loaded(self) -> bool:
-        return self.page.locator("h1").filter(has_text="API 密钥").count() > 0
+        return "/ctrl/agent/apikeys" in self.page.url and self.page.get_by_role("button", name="吊销").count() > 0
 
-    # ==================== 搜索 ====================
+    def _body(self):
+        """获取 API Key 主内容区"""
+        return self.page.locator("div.agent-panel-body")
 
     def search(self, keyword: str):
-        body = self.page.locator("div.agent-panel-body").first
+        body = self._body()
         inp = body.locator("input[placeholder*='搜索密钥']")
         if inp.count() > 0:
             inp.first.fill(keyword)
             self.page.wait_for_timeout(500)
 
     def clear_search(self):
-        body = self.page.locator("div.agent-panel-body").first
+        body = self._body()
         inp = body.locator("input[placeholder*='搜索密钥']")
         if inp.count() > 0:
             inp.first.fill("")
             self.page.wait_for_timeout(500)
 
     def has_search_input(self) -> bool:
-        body = self.page.locator("div.agent-panel-body").first
+        body = self._body()
         return body.locator("input[placeholder*='搜索密钥']").count() > 0
 
     # ==================== 密钥列表 ====================
 
     def get_key_count(self) -> int:
         """密钥数量（通过吊销按钮数量）"""
-        body = self.page.locator("div.agent-panel-body").first
+        body = self._body()
         return body.get_by_role("button", name="吊销").count()
 
     def get_key_items(self):
         """获取密钥卡片元素"""
-        body = self.page.locator("div.agent-panel-body").first
+        body = self._body()
         # 每个密钥卡片包含名称、前缀、创建时间和吊销按钮
         return body.locator("div").filter(has=body.get_by_role("button", name="吊销"))
 
     def has_key(self, name: str) -> bool:
-        body = self.page.locator("div.agent-panel-body").first
+        body = self._body()
         return name in body.inner_text()
 
     def get_key_prefixes(self) -> list[str]:
         """获取所有密钥前缀（如 rcs_...）"""
-        body = self.page.locator("div.agent-panel-body").first
+        body = self._body()
         text = body.inner_text()
         import re
         return re.findall(r"[a-z]{3,5}_\.{3}", text)
 
     def get_body_text(self) -> str:
-        body = self.page.locator("div.agent-panel-body").first
+        body = self._body()
         return body.inner_text()
 
     # ==================== 创建密钥 ====================
 
     def click_create_key(self):
-        body = self.page.locator("div.agent-panel-body").first
+        body = self._body()
         body.get_by_role("button", name="创建密钥").click()
         self.page.wait_for_timeout(1000)
 
     def has_create_button(self) -> bool:
-        body = self.page.locator("div.agent-panel-body").first
+        body = self._body()
         return body.get_by_role("button", name="创建密钥").count() > 0
 
     # ==================== 弹窗操作 ====================
@@ -107,7 +109,7 @@ class ApiKeyPage:
 
     def fill_key_name(self, name: str):
         dialog = self.page.locator("[role=dialog]")
-        inp = dialog.locator("input[type=text]")
+        inp = dialog.locator("input[data-slot='input']").or_(dialog.locator("input[type=text]"))
         if inp.count() > 0:
             inp.first.fill(name)
 
@@ -179,15 +181,15 @@ class ApiKeyPage:
             return False
         text = dialog.first.inner_text()
         return any(kw in text for kw in [
-            "仅显示一次", "仅一次", "妥善保管", "不要", "安全",
-            "警告", "注意", "重要",
+            "仅显示一次", "仅一次", "妥善保管", "妥善保存", "不要", "安全",
+            "警告", "注意", "重要", "无法再次查看", "无法再次",
         ])
 
     # ==================== 吊销/删除 ====================
 
     def click_revoke(self, name: str = ""):
         """点击吊销按钮（如果指定 name，则点击对应密钥的吊销按钮）"""
-        body = self.page.locator("div.agent-panel-body").first
+        body = self._body()
         if name:
             # 找到包含该名称的卡片，然后点击其吊销按钮
             cards = body.locator("div").filter(has_text=name)
@@ -235,7 +237,7 @@ class ApiKeyPage:
     # ==================== 加载状态 ====================
 
     def has_skeleton_or_spinner(self) -> bool:
-        body = self.page.locator("div.agent-panel-body").first
+        body = self._body()
         loading = body.locator(
             "[class*='skeleton'], [class*='Skeleton'], "
             "[class*='spinner'], [class*='Spinner'], "
@@ -246,6 +248,18 @@ class ApiKeyPage:
     # ==================== API 拦截 ====================
 
     def intercept_api(self, url_pattern: str):
+        # 移除之前的监听器，避免累积
+
+        if hasattr(self, '_last_listener') and self._last_listener:
+
+            try:
+
+                self.page.remove_listener("response", self._last_listener)
+
+            except Exception:
+
+                pass
+
         collected = []
 
         def on_response(resp):
@@ -259,5 +273,6 @@ class ApiKeyPage:
                 except Exception:
                     pass
 
+        self._last_listener = on_response
         self.page.on("response", on_response)
         return collected

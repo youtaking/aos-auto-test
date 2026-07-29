@@ -7,7 +7,7 @@ from tests.pages.algorithms_page import AlgorithmsPage
 @pytest.mark.order(110)
 @pytest.mark.p0
 def test_algorithms_page_loads(logged_in_page, base_url):
-    """算法库页面能正常加载"""
+    """算法库页面能正常加载 | ✅ 人工评审通过 |"""
     algo = AlgorithmsPage(logged_in_page, base_url)
     algo.goto()
     assert algo.is_loaded(), "算法库页面未加载"
@@ -16,7 +16,7 @@ def test_algorithms_page_loads(logged_in_page, base_url):
 @pytest.mark.order(111)
 @pytest.mark.p0
 def test_algorithms_list_not_empty(logged_in_page, base_url):
-    """算法库列表不为空"""
+    """算法库列表不为空 | ✅ 人工评审通过 |"""
     algo = AlgorithmsPage(logged_in_page, base_url)
     algo.goto()
     count = algo.get_algo_count()
@@ -26,7 +26,7 @@ def test_algorithms_list_not_empty(logged_in_page, base_url):
 @pytest.mark.order(112)
 @pytest.mark.p1
 def test_algorithms_has_category_tabs(logged_in_page, base_url):
-    """算法库包含分类筛选 Tab"""
+    """算法库包含分类筛选 Tab | ✅ 人工评审通过 |"""
     algo = AlgorithmsPage(logged_in_page, base_url)
     algo.goto()
 
@@ -39,7 +39,7 @@ def test_algorithms_has_category_tabs(logged_in_page, base_url):
 @pytest.mark.order(113)
 @pytest.mark.p1
 def test_algorithms_filter_by_category(logged_in_page, base_url):
-    """算法库分类筛选功能"""
+    """算法库分类筛选功能 | ✅ 人工评审通过 |"""
     algo = AlgorithmsPage(logged_in_page, base_url)
     algo.goto()
 
@@ -68,7 +68,7 @@ def test_algorithms_filter_by_category(logged_in_page, base_url):
 @pytest.mark.order(114)
 @pytest.mark.p1
 def test_algorithms_search_filter(logged_in_page, base_url):
-    """算法库搜索过滤功能"""
+    """算法库搜索过滤功能 | ✅ 人工评审通过 |"""
     algo = AlgorithmsPage(logged_in_page, base_url)
     algo.goto()
 
@@ -92,7 +92,7 @@ def test_algorithms_search_filter(logged_in_page, base_url):
 @pytest.mark.order(115)
 @pytest.mark.p1
 def test_algorithms_view_detail(logged_in_page, base_url):
-    """算法库查看详情按钮"""
+    """算法库查看详情按钮 | ✅ 人工评审通过 |"""
     algo = AlgorithmsPage(logged_in_page, base_url)
     algo.goto()
 
@@ -105,7 +105,7 @@ def test_algorithms_view_detail(logged_in_page, base_url):
 
     # 验证有反馈：弹窗出现或页面内容变化
     dialog = logged_in_page.locator("[role='dialog']")
-    body = logged_in_page.locator("div.agent-panel-body").inner_text()
+    body = logged_in_page.locator("div.agent-panel-content").inner_text()
     has_feedback = (
         dialog.count() > 0
         or any(kw in body for kw in ["详情", "说明", "场景", "参数", "使用"])
@@ -124,7 +124,7 @@ def test_algorithms_view_detail(logged_in_page, base_url):
 @pytest.mark.order(116)
 @pytest.mark.p2
 def test_algorithms_copy_code(logged_in_page, base_url):
-    """算法库复制代码按钮"""
+    """算法库复制代码按钮 | ✅ 人工评审通过 |"""
     algo = AlgorithmsPage(logged_in_page, base_url)
     algo.goto()
 
@@ -132,16 +132,23 @@ def test_algorithms_copy_code(logged_in_page, base_url):
     if not names:
         pytest.skip("算法列表为空")
 
+    # 拦截剪贴板写入
+    logged_in_page.evaluate("""() => {
+        window.__clipboardText = '';
+        if (navigator.clipboard) {
+            navigator.clipboard.writeText = (text) => {
+                window.__clipboardText = text;
+                return Promise.resolve();
+            };
+        }
+    }""")
+
     # 点击第一个算法的"复制代码"
     algo.click_copy_code(names[0])
 
-    # 验证有反馈：toast 提示或弹窗
-    logged_in_page.wait_for_timeout(1000)
-    body = logged_in_page.locator("div.agent-panel-body").inner_text()
-    dialog = logged_in_page.locator("[role='dialog']")
-    # toast 通常在 body 中出现"复制"、"成功"等关键词
-    has_feedback = (
-        dialog.count() > 0
-        or any(kw in body for kw in ["复制", "成功", "代码", "Copy"])
-    )
-    assert has_feedback, "复制代码后无任何反馈"
+    # 验证剪贴板中有代码内容
+    logged_in_page.wait_for_timeout(500)
+    clipboard = logged_in_page.evaluate("() => window.__clipboardText")
+    assert len(clipboard) > 0, "复制代码后剪贴板为空"
+    assert any(kw in clipboard for kw in ["def ", "import ", "class ", "function ", "async ", "#"]), \
+        f"剪贴板内容不像代码: {clipboard[:80]}"

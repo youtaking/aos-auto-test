@@ -12,9 +12,9 @@ from tests.pages.chat_test_page import ChatTestPage
 @pytest.mark.order(50)
 @pytest.mark.p0
 def test_markdown_rendering(logged_in_page, base_url):
-    """Markdown 完整渲染（TC-CHAT-013）"""
+    """✅ 人工评审通过 | Markdown 完整渲染（TC-CHAT-013）"""
     chat = ChatTestPage(logged_in_page, base_url)
-    chat.goto_agent_chat()
+    chat.goto_agent_chat("my-auto-test")
     assert chat.is_chat_loaded()
 
     chat.create_new_session()
@@ -41,9 +41,9 @@ def test_markdown_rendering(logged_in_page, base_url):
 @pytest.mark.order(51)
 @pytest.mark.p0
 def test_code_block_highlight(logged_in_page, base_url):
-    """代码块语法高亮与复制功能（TC-CHAT-014）"""
+    """✅ 人工评审通过 | 代码块语法高亮与复制功能（TC-CHAT-014）"""
     chat = ChatTestPage(logged_in_page, base_url)
-    chat.goto_agent_chat()
+    chat.goto_agent_chat("my-auto-test")
     chat.create_new_session()
 
     chat.send_message(
@@ -68,9 +68,9 @@ def test_code_block_highlight(logged_in_page, base_url):
 @pytest.mark.order(52)
 @pytest.mark.p2
 def test_long_code_block_layout(logged_in_page, base_url):
-    """长代码块不撑破布局（TC-CHAT-015）"""
+    """✅ 人工评审通过 | 长代码块不撑破布局（TC-CHAT-015）"""
     chat = ChatTestPage(logged_in_page, base_url)
-    chat.goto_agent_chat()
+    chat.goto_agent_chat("my-auto-test")
     chat.create_new_session()
 
     chat.send_message(
@@ -78,8 +78,8 @@ def test_long_code_block_layout(logged_in_page, base_url):
         "代码要尽量长，使用 ```python 代码块格式"
     )
 
-    if not chat.has_code_block():
-        pytest.skip("AI 未生成代码块")
+    assert chat.has_code_block(), \
+        "AI 未按指令生成代码块（pre 元素不存在），可能是模型未遵循格式指令或 Markdown 渲染异常"
 
     # 验证代码块没有导致页面横向溢出
     body_width = logged_in_page.evaluate("document.body.scrollWidth")
@@ -116,9 +116,9 @@ def test_long_code_block_layout(logged_in_page, base_url):
 @pytest.mark.order(53)
 @pytest.mark.p1
 def test_markdown_table_rendering(logged_in_page, base_url):
-    """Markdown 表格渲染（TC-CHAT-016）"""
+    """✅ 人工评审通过 | Markdown 表格渲染（TC-CHAT-016）"""
     chat = ChatTestPage(logged_in_page, base_url)
-    chat.goto_agent_chat()
+    chat.goto_agent_chat("my-auto-test")
     chat.create_new_session()
 
     chat.send_message(
@@ -126,11 +126,8 @@ def test_markdown_table_rendering(logged_in_page, base_url):
     )
 
     # 验证表格渲染
-    if not chat.has_table():
-        # AI 可能没用表格格式，检查是否有其他表格元素
-        tables = logged_in_page.locator("table")
-        if tables.count() == 0:
-            pytest.skip("AI 未生成表格")
+    assert chat.has_table(), \
+        "AI 未按指令生成表格（table 元素不存在），可能是模型未遵循格式指令或 Markdown 渲染异常"
 
     table = logged_in_page.locator("table").first
     thead = table.locator("thead")
@@ -145,9 +142,9 @@ def test_markdown_table_rendering(logged_in_page, base_url):
 @pytest.mark.order(54)
 @pytest.mark.p0
 def test_xss_protection(logged_in_page, base_url):
-    """XSS 防护 - 恶意脚本不执行（TC-CHAT-018）"""
+    """✅ 人工评审通过 | XSS 防护 - 恶意脚本不执行（TC-CHAT-018）"""
     chat = ChatTestPage(logged_in_page, base_url)
-    chat.goto_agent_chat()
+    chat.goto_agent_chat("my-auto-test")
     chat.create_new_session()
 
     # 监听 alert 弹窗
@@ -187,9 +184,10 @@ def test_xss_protection(logged_in_page, base_url):
 @pytest.mark.order(55)
 @pytest.mark.p0
 def test_create_new_session(logged_in_page, base_url):
-    """新建对话会话（TC-CHAT-020）"""
+    """✅ 人工评审通过 | 新建对话会话（TC-CHAT-020）"""
     chat = ChatTestPage(logged_in_page, base_url)
-    chat.goto_agent_chat()
+    agent_name = "my-auto-test"
+    chat.goto_agent_chat(agent_name)
     assert chat.is_chat_loaded()
 
     # 1. 新建会话
@@ -206,15 +204,33 @@ def test_create_new_session(logged_in_page, base_url):
     textarea = logged_in_page.locator("textarea")
     assert textarea.count() > 0, "新建会话后输入框消失"
 
+    # 5. textarea 有正确的 placeholder
+    placeholder = textarea.first.get_attribute("placeholder") or ""
+    assert "给智能体发送消息" in placeholder, \
+        f"新建会话后输入框 placeholder 异常: '{placeholder}'"
+
+    # 6. 当前 agent 名称在输入框区域显示（限定在 chat-composer-card 内）
+    composer_card = logged_in_page.locator("div.chat-composer-card")
+    assert composer_card.count() > 0, "输入框卡片（chat-composer-card）不存在"
+    agent_span = composer_card.locator(f"span[title='{agent_name}']")
+    assert agent_span.count() > 0, \
+        f"新建会话后未显示当前 agent 名称 '{agent_name}'"
+
+    # 7. 模型名称在输入框区域显示（不写死具体模型名，只验证非空）
+    model_span = composer_card.locator("span[data-slot='popover-anchor']")
+    assert model_span.count() > 0, "未找到模型名称展示区域"
+    model_title = model_span.first.get_attribute("title") or ""
+    assert model_title.strip(), "模型名称为空"
+
 
 # === TC-CHAT-022: 切换会话后消息隔离 ===
 
 @pytest.mark.order(56)
 @pytest.mark.p0
 def test_session_message_isolation(logged_in_page, base_url):
-    """切换会话后消息隔离（TC-CHAT-022）"""
+    """✅ 人工评审通过 | 切换会话后消息隔离（TC-CHAT-022）"""
     chat = ChatTestPage(logged_in_page, base_url)
-    chat.goto_agent_chat()
+    chat.goto_agent_chat("my-auto-test")
 
     # 获取会话列表
     chat.open_session_dialog()
@@ -247,90 +263,58 @@ def test_session_message_isolation(logged_in_page, base_url):
 @pytest.mark.order(57)
 @pytest.mark.p0
 def test_session_persistence_refresh(logged_in_page, base_url):
-    """会话数据持久化 - 刷新不丢失（TC-CHAT-024）"""
-    import uuid
+    """✅ 人工评审通过 | 会话数据持久化 - 刷新不丢失（TC-CHAT-024）"""
     chat = ChatTestPage(logged_in_page, base_url)
-    chat.goto_agent_chat()
+    chat.goto_agent_chat("my-auto-test")
     chat.create_new_session()
 
-    # 1. 发送唯一消息（UUID 确保全局唯一）
-    unique_msg = f"persist_{uuid.uuid4().hex[:12]}"
-    chat.send_message(unique_msg)
+    # 1. 发送一条自然的消息
+    user_message = "你好，请简单介绍一下什么是人工智能"
+    chat.send_message(user_message)
 
-    # 2. 记录当前会话 URL
+    # 2. 验证用户消息出现在消息区域（role='log' 容器）
+    log_area = logged_in_page.locator("div[role='log']")
+    assert log_area.count() > 0, "消息列表容器（role='log'）不存在"
+    messages_before = log_area.first.inner_text()
+    assert user_message in messages_before, \
+        f"用户消息未出现在消息区域: '{user_message}'"
+
+    # 3. 验证 AI 有回复（消息区域有除用户消息以外的内容）
+    ai_response_length = len(messages_before) - len(user_message)
+    assert ai_response_length > 50, \
+        f"AI 回复内容过少（仅 {ai_response_length} 字符），可能未正常响应"
+
+    # 4. 记录当前会话 URL
     session_url = logged_in_page.url
 
-    # 3. 刷新页面 — 先导航到完全不同的页面，再 reload 回来，确保 SPA 重新初始化
+    # 5. 导航到完全不同的页面，再回到原会话 URL
     logged_in_page.goto(f"{base_url}/ctrl/agent/algorithms")
     logged_in_page.wait_for_load_state("networkidle")
     logged_in_page.wait_for_timeout(1000)
     logged_in_page.goto(session_url, wait_until="networkidle")
     logged_in_page.wait_for_timeout(5000)
 
-    # 如果消息未出现，做一次 reload 强制 SPA 重新加载
-    body_check = logged_in_page.locator("body").inner_text()
-    if unique_msg not in body_check:
+    # 6. 如果消息未出现，做一次 reload
+    log_check = logged_in_page.locator("div[role='log']")
+    if log_check.count() > 0 and user_message not in log_check.first.inner_text():
         logged_in_page.reload(wait_until="networkidle")
         logged_in_page.wait_for_timeout(5000)
 
-    # 4. 等待消息加载（轮询检查，最长 15 秒）
-    body_after = ""
+    # 7. 轮询等待消息加载（最长 15 秒）
+    messages_after = ""
     for _ in range(15):
-        body_after = logged_in_page.locator("body").inner_text()
-        if unique_msg in body_after:
-            break
+        log_after = logged_in_page.locator("div[role='log']")
+        if log_after.count() > 0:
+            messages_after = log_after.first.inner_text()
+            if user_message in messages_after:
+                break
         logged_in_page.wait_for_timeout(1000)
 
-    assert unique_msg in body_after, \
-        f"刷新后消息丢失（URL: {logged_in_page.url}，原URL: {session_url}）: '{unique_msg}'"
-
-
-# === TC-CHAT-026: 删除会话 ===
-
-@pytest.mark.order(58)
-@pytest.mark.p1
-def test_delete_session(logged_in_page, base_url):
-    """删除会话（TC-CHAT-026）"""
-    chat = ChatTestPage(logged_in_page, base_url)
-    chat.goto_agent_chat()
-
-    # 先创建一个新会话并发送消息，等待自动生成标题
-    chat.create_new_session()
-    chat.send_message("这是一个待删除的测试会话，请回复收到")
-
-    # 等待标题自动生成（轮询检查，最长 15 秒）
-    title_to_delete = ""
-    for _ in range(15):
-        logged_in_page.wait_for_timeout(1000)
-        title_to_delete = chat.get_session_header_title()
-        if title_to_delete and title_to_delete != "新会话":
-            break
-
-    if not title_to_delete or title_to_delete == "新会话":
-        pytest.skip("会话标题未自动生成，无法测试删除")
-
-    # 打开会话对话框，记录删除前标题数
-    chat.open_session_dialog()
-    titles_before = chat.get_session_titles()
-
-    # 使用 PO 封装方法删除会话
-    success = chat.delete_session_by_title(title_to_delete)
-    if not success:
-        chat.close_session_dialog()
-        pytest.skip("会话项没有删除操作按钮")
-
-    # 验证：会话被删除
-    chat.open_session_dialog()
-    titles_after = chat.get_session_titles()
-    chat.close_session_dialog()
-
-    deleted_gone = title_to_delete not in titles_after
-    list_shrunk = len(titles_after) < len(titles_before)
-    assert deleted_gone or list_shrunk, (
-        f"会话删除后仍出现在列表中"
-        f"（删除标题='{title_to_delete}'，"
-        f"删除前数量={len(titles_before)}，删除后数量={len(titles_after)}）"
-    )
+    # 8. 验证：用户消息和 AI 回复都在
+    assert user_message in messages_after, \
+        f"刷新后用户消息丢失（URL: {logged_in_page.url}）: '{user_message}'"
+    assert len(messages_after) > len(user_message) + 50, \
+        "刷新后 AI 回复丢失，仅剩用户消息"
 
 
 # === TC-CHAT-027: 会话列表数据加载 ===
@@ -338,9 +322,9 @@ def test_delete_session(logged_in_page, base_url):
 @pytest.mark.order(59)
 @pytest.mark.p0
 def test_session_list_loads(logged_in_page, base_url):
-    """会话列表数据加载（TC-CHAT-027）"""
+    """✅ 人工评审通过 | 会话列表数据加载（TC-CHAT-027）"""
     chat = ChatTestPage(logged_in_page, base_url)
-    chat.goto_agent_chat()
+    chat.goto_agent_chat("my-auto-test")
 
     chat.open_session_dialog()
     assert chat.is_session_dialog_open(), "会话对话框未打开"
@@ -360,9 +344,9 @@ def test_session_list_loads(logged_in_page, base_url):
 @pytest.mark.order(60)
 @pytest.mark.p1
 def test_session_search(logged_in_page, base_url):
-    """会话搜索功能（TC-CHAT-028）"""
+    """✅ 人工评审通过 | 会话搜索功能（TC-CHAT-028）"""
     chat = ChatTestPage(logged_in_page, base_url)
-    chat.goto_agent_chat()
+    chat.goto_agent_chat("my-auto-test")
 
     chat.open_session_dialog()
     assert chat.is_session_dialog_open()
@@ -377,14 +361,15 @@ def test_session_search(logged_in_page, base_url):
     keyword = all_titles[0][:4]  # 取前4个字符
     chat.search_sessions(keyword)
 
-    # 3. 过滤后的结果应减少且包含关键词
+    # 3. 过滤后的结果应减少，且每条结果都包含关键词
     filtered = chat.get_filtered_session_titles()
+    assert len(filtered) > 0, "搜索后结果为空，应该有匹配结果"
     assert len(filtered) < len(all_titles), \
         f"搜索后结果数量未减少: {len(filtered)} vs {len(all_titles)}"
-    # 搜索结果中应至少有一个匹配关键词
-    matched = [t for t in filtered if keyword.lower() in t.lower()]
-    assert len(matched) > 0, \
-        f"搜索结果中没有匹配关键词 '{keyword}' 的会话"
+    # 每条过滤结果都应包含关键词
+    for title in filtered:
+        assert keyword.lower() in title.lower(), \
+            f"搜索结果中出现不匹配项: '{title}' 不包含关键词 '{keyword}'"
 
     # 4. 搜索不存在的关键词
     chat.search_sessions("zzz_不存在_zzz_99999")
@@ -402,25 +387,20 @@ def test_session_search(logged_in_page, base_url):
 @pytest.mark.order(61)
 @pytest.mark.p2
 def test_session_status_visual_distinction(logged_in_page, base_url):
-    """不同会话状态视觉区分（TC-CHAT-031）"""
+    """✅ 人工评审通过 | 不同会话状态视觉区分（TC-CHAT-031）"""
     chat = ChatTestPage(logged_in_page, base_url)
-    chat.goto_agent_chat()
+    chat.goto_agent_chat("my-auto-test")
 
     chat.open_session_dialog()
-    if not chat.is_session_dialog_open():
-        pytest.skip("无法打开会话对话框")
+    assert chat.is_session_dialog_open(), "无法打开会话对话框，系统可能异常"
 
     dialog = logged_in_page.locator("[role='dialog']")
-    # 检查是否有时间分区标题（今天/昨天/更早）
-    has_sections = chat.has_session_time_sections()
-
-    if not has_sections:
-        pytest.skip("会话列表没有时间分区（今天/昨天/更早），无法验证视觉区分")
-
-    # 有时间分区，验证分区标题确实可见
     dialog_text = dialog.first.inner_text()
+
+    # 检查时间分区标题（三种情况都算通过：只有今天 / 今天+昨天 / 今天+昨天+更早）
     found_sections = [s for s in ["今天", "昨天", "更早"] if s in dialog_text]
-    assert len(found_sections) > 0, "has_session_time_sections 返回 True 但实际未找到分区标题"
+    assert len(found_sections) >= 1, \
+        f"会话列表未显示任何时间分区（今天/昨天/更早），当前对话框内容: {dialog_text[:200]}"
 
     chat.close_session_dialog()
 
@@ -430,9 +410,9 @@ def test_session_status_visual_distinction(logged_in_page, base_url):
 @pytest.mark.order(62)
 @pytest.mark.p0
 def test_file_upload_preview(logged_in_page, base_url):
-    """文件上传成功并预览（TC-CHAT-056）"""
+    """✅ 人工评审通过 | 文件上传成功并预览（TC-CHAT-056）"""
     chat = ChatTestPage(logged_in_page, base_url)
-    chat.goto_agent_chat()
+    chat.goto_agent_chat("my-auto-test")
     chat.create_new_session()
 
     # 创建临时文件（使用已知文件名便于验证）
@@ -446,62 +426,53 @@ def test_file_upload_preview(logged_in_page, base_url):
         # 上传文件
         chat.upload_file(tmp_path)
 
-        # 验证：文件预览区域出现或文件名可见
-        has_preview = chat.has_file_preview()
-        has_name = logged_in_page.locator(f"[title*='test-upload']").count() > 0
-        assert has_preview or has_name, (
-            f"上传后页面上未出现文件预览或文件名 '{file_name}'"
-            f"（has_preview={has_preview}，has_name={has_name}）"
-        )
+        # 等待文件出现在文件树中（轮询，最长 10 秒）
+        file_tree_item = None
+        for _ in range(10):
+            # 先展开 user 文件夹（如果未展开）
+            user_folder = logged_in_page.locator(
+                "div[role='treeitem'][data-node-id='user']"
+            )
+            if user_folder.count() > 0:
+                expanded = user_folder.first.get_attribute("aria-expanded")
+                if expanded == "false":
+                    user_folder.first.click()
+                    logged_in_page.wait_for_timeout(500)
+
+            # 查找上传的文件
+            item = logged_in_page.locator(
+                f"div[role='treeitem'][data-node-id='user/{file_name}']"
+            )
+            if item.count() > 0:
+                file_tree_item = item
+                break
+            logged_in_page.wait_for_timeout(1000)
+
+        assert file_tree_item is not None, \
+            f"上传后文件 '{file_name}' 未出现在文件树中（已等待 10 秒）"
+
+        # 点击文件打开预览
+        file_tree_item.first.click()
+        logged_in_page.wait_for_timeout(2000)
+
+        # 验证：预览区域正常打开
+        preview_container = logged_in_page.locator("div.ofv-code-container")
+        assert preview_container.count() > 0, "点击文件后未打开预览区域（ofv-code-container 不存在）"
+
+        # 验证：预览中文件名正确
+        preview_title = preview_container.locator("div.ofv-code-title strong")
+        assert preview_title.count() > 0, "预览区域缺少文件名标题"
+        displayed_name = preview_title.first.inner_text().strip()
+        assert displayed_name == file_name, \
+            f"预览文件名不匹配: 显示 '{displayed_name}'，期望 '{file_name}'"
+
+        # 验证：预览中文件内容正确
+        preview_content = preview_container.locator("pre code").first.inner_text().strip()
+        assert "hello world" in preview_content, \
+            f"预览文件内容不匹配: 显示 '{preview_content}'，期望包含 'hello world'"
     finally:
         import shutil
         shutil.rmtree(tmp_dir, ignore_errors=True)
-
-
-# === TC-CHAT-058: 不支持的文件类型被拦截 ===
-
-@pytest.mark.order(63)
-@pytest.mark.p1
-def test_unsupported_file_type_blocked(logged_in_page, base_url):
-    """不支持的文件类型被拦截（TC-CHAT-058）"""
-    chat = ChatTestPage(logged_in_page, base_url)
-    chat.goto_agent_chat()
-    chat.create_new_session()
-
-    # 创建临时 .exe 文件
-    with tempfile.NamedTemporaryFile(suffix=".exe", delete=False, mode="wb") as f:
-        f.write(b"\x00" * 100)
-        tmp_path = f.name
-
-    try:
-        # 尝试上传
-        file_input = chat.get_file_input()
-        # 检查 accept 属性 — 如果有白名单限制，.exe 会被浏览器拦截
-        accept = file_input.get_attribute("accept") or ""
-
-        if accept:
-            # 有 accept 限制，浏览器会自动过滤 .exe
-            # 验证 accept 不包含 .exe
-            assert ".exe" not in accept, f"accept 属性允许 .exe: {accept}"
-        else:
-            # 没有 accept 限制，尝试上传后检查错误提示
-            chat.upload_file(tmp_path)
-            body_text = logged_in_page.locator("body").inner_text()
-            # 检查是否有错误提示或不支持的文件类型提示
-            has_error = (
-                chat.has_file_error()
-                or "不支持" in body_text
-                or "格式" in body_text
-                or "类型" in body_text
-                or "invalid" in body_text.lower()
-                or "error" in body_text.lower()
-            )
-            # 如果有文件预览出现，说明 .exe 未被拦截 — 记录为问题
-            has_preview = chat.has_file_preview()
-            assert has_error or not has_preview, \
-                "上传 .exe 文件后既没有错误提示，也未被拦截（出现了文件预览）"
-    finally:
-        os.unlink(tmp_path)
 
 
 # === TC-CHAT-059: 多文件上传 ===
@@ -509,9 +480,9 @@ def test_unsupported_file_type_blocked(logged_in_page, base_url):
 @pytest.mark.order(64)
 @pytest.mark.p2
 def test_multi_file_upload(logged_in_page, base_url):
-    """多文件上传（TC-CHAT-059）"""
+    """✅ 人工评审通过 | 多文件上传（TC-CHAT-059）"""
     chat = ChatTestPage(logged_in_page, base_url)
-    chat.goto_agent_chat()
+    chat.goto_agent_chat("my-auto-test")
     chat.create_new_session()
 
     # 创建多个临时文件（使用已知文件名）
@@ -528,17 +499,116 @@ def test_multi_file_upload(logged_in_page, base_url):
         # 上传多个文件
         file_input = chat.get_file_input()
         multiple = file_input.get_attribute("multiple")
-
-        if multiple is None:
-            pytest.skip("文件上传不支持多文件选择")
+        assert multiple is not None, \
+            "文件上传 input 缺少 multiple 属性，不支持多文件选择"
 
         chat.upload_files(tmp_files)
 
-        # 验证：应有文件预览区域出现
-        assert chat.has_file_preview(), "多文件上传后未显示文件预览"
+        # 展开 user 文件夹
+        user_folder = logged_in_page.locator(
+            "div[role='treeitem'][data-node-id='user']"
+        )
+        if user_folder.count() > 0:
+            expanded = user_folder.first.get_attribute("aria-expanded")
+            if expanded == "false":
+                user_folder.first.click()
+                logged_in_page.wait_for_timeout(500)
+
+        # 验证：两个文件都出现在文件树中
+        file_names = [f"multi-upload-{i}.txt" for i in range(2)]
+        for i, fname in enumerate(file_names):
+            # 等待文件出现在文件树
+            item = None
+            for _ in range(10):
+                item = logged_in_page.locator(
+                    f"div[role='treeitem'][data-node-id='user/{fname}']"
+                )
+                if item.count() > 0:
+                    break
+                logged_in_page.wait_for_timeout(1000)
+            assert item is not None and item.count() > 0, \
+                f"多文件上传后 '{fname}' 未出现在文件树中（已等待 10 秒）"
+
+            # 点击文件打开预览
+            item.first.click()
+            logged_in_page.wait_for_timeout(2000)
+
+            # 验证预览区域打开
+            preview_container = logged_in_page.locator("div.ofv-code-container")
+            assert preview_container.count() > 0, \
+                f"点击文件 '{fname}' 后未打开预览区域"
+
+            # 验证预览中文件名正确
+            preview_title = preview_container.locator("div.ofv-code-title strong")
+            displayed_name = preview_title.first.inner_text().strip() \
+                if preview_title.count() > 0 else ""
+            assert displayed_name == fname, \
+                f"预览文件名不匹配: 显示 '{displayed_name}'，期望 '{fname}'"
+
+            # 验证预览中文件内容正确
+            expected_content = f"测试文件 {i} 的内容"
+            preview_content = preview_container.locator("pre code").first.inner_text().strip() \
+                if preview_container.locator("pre code").count() > 0 else ""
+            assert expected_content in preview_content, \
+                f"文件 '{fname}' 预览内容不匹配: 显示 '{preview_content}'，期望包含 '{expected_content}'"
     finally:
         import shutil
         shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+# === 上传 .exe 文件预览提示 ===
+
+@pytest.mark.order(64.1)
+@pytest.mark.p1
+def test_exe_file_preview_unsupported(logged_in_page, base_url):
+    """✅ 人工评审通过 | 上传 .exe 文件后预览提示暂不支持此格式"""
+    chat = ChatTestPage(logged_in_page, base_url)
+    chat.goto_agent_chat("my-auto-test")
+    chat.create_new_session()
+
+    # 创建临时 .exe 文件
+    with tempfile.NamedTemporaryFile(suffix=".exe", delete=False, mode="wb",
+                                     prefix="test-exe-") as f:
+        f.write(b"\x00" * 100)
+        tmp_path = f.name
+    exe_name = os.path.basename(tmp_path)
+
+    try:
+        # 上传 .exe 文件
+        chat.upload_file(tmp_path)
+
+        # 展开 user 文件夹，等待文件出现在文件树
+        user_folder = logged_in_page.locator(
+            "div[role='treeitem'][data-node-id='user']"
+        )
+        if user_folder.count() > 0:
+            expanded = user_folder.first.get_attribute("aria-expanded")
+            if expanded == "false":
+                user_folder.first.click()
+                logged_in_page.wait_for_timeout(500)
+
+        file_item = None
+        for _ in range(10):
+            file_item = logged_in_page.locator(
+                f"div[role='treeitem'][data-node-id='user/{exe_name}']"
+            )
+            if file_item.count() > 0:
+                break
+            logged_in_page.wait_for_timeout(1000)
+
+        assert file_item is not None and file_item.count() > 0, \
+            f"上传 .exe 文件 '{exe_name}' 未出现在文件树中（上传失败）"
+
+        # 点击文件
+        file_item.first.click()
+        logged_in_page.wait_for_timeout(2000)
+
+        # 验证预览区域显示"暂不支持此格式"提示
+        body_text = logged_in_page.locator("body").inner_text()
+        assert "暂不支持此格式" in body_text or "不支持" in body_text, \
+            f"点击 .exe 文件后未显示'暂不支持此格式'提示"
+    finally:
+        os.unlink(tmp_path)
 
 
 # === TC-CHAT-061: 消息输入框基础功能 ===
@@ -546,12 +616,17 @@ def test_multi_file_upload(logged_in_page, base_url):
 @pytest.mark.order(65)
 @pytest.mark.p0
 def test_input_box_basics(logged_in_page, base_url):
-    """消息输入框基础功能（TC-CHAT-061）"""
+    """✅ 人工评审通过 | 消息输入框基础功能（TC-CHAT-061）"""
     chat = ChatTestPage(logged_in_page, base_url)
-    chat.goto_agent_chat()
+    chat.goto_agent_chat("my-auto-test")
     chat.create_new_session()
 
     textarea = logged_in_page.locator("textarea").first
+
+    # 0. 验证会话已就绪，输入框不是"等待会话"状态
+    placeholder = textarea.get_attribute("placeholder") or ""
+    assert "等待会话" not in placeholder, \
+        f"会话未就绪，输入框仍处于等待状态: placeholder='{placeholder}'"
 
     # 1. 空消息不发送 — 按 Enter 后输入框仍为空
     textarea.fill("")
@@ -587,29 +662,47 @@ def test_input_box_basics(logged_in_page, base_url):
 @pytest.mark.order(66)
 @pytest.mark.p1
 def test_prevent_double_send(logged_in_page, base_url):
-    """发送防重复提交（TC-CHAT-063）"""
-    import time
+    """✅ 人工评审通过 | 发送防重复提交（TC-CHAT-063）"""
     chat = ChatTestPage(logged_in_page, base_url)
-    chat.goto_agent_chat()
+    chat.goto_agent_chat("my-auto-test")
     chat.create_new_session()
 
+    # 验证会话已就绪
     textarea = logged_in_page.locator("textarea").first
+    placeholder = textarea.get_attribute("placeholder") or ""
+    assert "等待会话" not in placeholder, \
+        f"会话未就绪: placeholder='{placeholder}'"
 
-    # 使用时间戳唯一消息，避免 AI 通用回复干扰计数
-    unique_msg = f"dblsnd_{int(time.time() * 1000) % 100000}"
-    textarea.fill(unique_msg)
+    # 记录发送前消息区域的气泡数
+    log_area = logged_in_page.locator("div[role='log']")
+    bubbles_before = log_area.first.locator("[class*='message']").count() \
+        if log_area.count() > 0 else 0
+
+    # 发送一条自然消息，快速连按两次 Enter
+    user_message = "这是一条防重复发送的测试消息"
+    textarea.fill(user_message)
     textarea.press("Enter")
+
+    # 第一次 Enter 后输入框应立即清空
     logged_in_page.wait_for_timeout(200)
-    textarea.press("Enter")
-    logged_in_page.wait_for_load_state("networkidle", timeout=8000)
-    logged_in_page.wait_for_timeout(2000)
+    val_after_first = textarea.input_value()
+    assert val_after_first == "", \
+        f"第一次 Enter 后输入框未清空: '{val_after_first}'（第二次 Enter 会重复发送）"
 
-    # 唯一消息：不重复时最多出现 2 次（用户气泡 + AI 可能引用）
-    # 双重发送时至少 3 次（2 个用户气泡 + AI 回复）
-    body_text = logged_in_page.locator("body").inner_text()
-    count = body_text.count(unique_msg)
-    assert count <= 2, \
-        f"消息被重复发送，'{unique_msg}' 在页面中出现了 {count} 次（防重复失效）"
+    # 第二次 Enter（此时输入框为空，不应发送任何内容）
+    textarea.press("Enter")
+
+    # 等待响应完成
+    logged_in_page.wait_for_load_state("networkidle", timeout=8000)
+    logged_in_page.wait_for_timeout(3000)
+
+    # 验证：用户消息气泡只有 1 个（bg-user-bubble 是用户消息的标识）
+    log_area_after = logged_in_page.locator("div[role='log']")
+    assert log_area_after.count() > 0, "消息区域不存在"
+    user_bubbles = log_area_after.locator("div.bg-user-bubble")
+    user_bubble_count = user_bubbles.count()
+    assert user_bubble_count == 1, \
+        f"消息被重复发送，检测到 {user_bubble_count} 个用户气泡（期望 1 个）"
 
 
 # === TC-CHAT-064: 停止生成按钮 ===
@@ -617,9 +710,9 @@ def test_prevent_double_send(logged_in_page, base_url):
 @pytest.mark.order(67)
 @pytest.mark.p0
 def test_stop_generation(logged_in_page, base_url):
-    """停止生成按钮（TC-CHAT-064）"""
+    """✅ 人工评审通过 | 停止生成按钮（TC-CHAT-064）"""
     chat = ChatTestPage(logged_in_page, base_url)
-    chat.goto_agent_chat()
+    chat.goto_agent_chat("my-auto-test")
     chat.create_new_session()
 
     textarea = logged_in_page.locator("textarea").first

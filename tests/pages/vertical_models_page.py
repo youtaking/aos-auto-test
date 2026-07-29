@@ -18,7 +18,7 @@ class VerticalModelsPage:
 
     def is_loaded(self) -> bool:
         """页面标题「垂直模型库」可见"""
-        return self.page.locator("h1").filter(has_text="垂直模型库").count() > 0
+        return "/ctrl/agent/vertical" in self.page.url and self.page.locator("div.agent-panel-content").count() > 0
 
     # === 搜索 ===
 
@@ -61,5 +61,5 @@ class VerticalModelsPage:
 
     def has_model(self, keyword: str) -> bool:
         """列表中是否包含包含关键词的模型"""
-        body = self.page.locator("div.agent-panel-body")
+        body = self.page.locator("div.agent-panel-content")
         return keyword in body.inner_text()

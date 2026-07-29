@@ -14,7 +14,10 @@ class DashboardPage:
         self.page.wait_for_load_state("networkidle")
 
     def is_loaded(self) -> bool:
-        return "dashboard" in self.page.url.lower() and self.page.locator("div.agent-panel-body").is_visible()
+        return (
+            "dashboard" in self.page.url.lower()
+            and self.page.locator("h1, h2").filter(has_text="系统概览").count() > 0
+        )
 
     def has_sidebar(self) -> bool:
         return self.page.locator("nav, aside, [class*='sidebar']").first.is_visible()

@@ -44,7 +44,7 @@ def _get_kb_detail_api(page, base_url, kb_id):
 @pytest.mark.order(320)
 @pytest.mark.p0
 def test_kb_001_list_loads(logged_in_page, base_url):
-    """TC-KB-001: 知识库列表数据加载"""
+    """✅ 人工评审通过 | TC-KB-001: 知识库列表数据加载"""
     kb = KnowledgePage(logged_in_page, base_url)
     api_resp = kb.intercept_api("/web/knowledgeBases")
     kb.goto()
@@ -56,9 +56,9 @@ def test_kb_001_list_loads(logged_in_page, base_url):
                       for r in api_resp)
     assert list_called, "未发起知识库列表 API 请求"
 
-    # 2. 页面有内容
-    body = kb.get_detail_text()
-    assert "知识库" in body, "页面中未显示知识库相关内容"
+    # 2. 页面有内容（左侧面板包含知识库列表）
+    body = logged_in_page.locator("div.agent-panel-body")
+    assert "知识库" in body.inner_text(), "页面中未显示知识库相关内容"
 
     # 3. 搜索框存在
     assert kb.has_search_input(), "搜索框不存在"
@@ -68,11 +68,11 @@ def test_kb_001_list_loads(logged_in_page, base_url):
 @pytest.mark.order(321)
 @pytest.mark.p0
 def test_kb_002_create_kb(logged_in_page, base_url):
-    """TC-KB-002: 创建知识库"""
+    """⚠️ 发现系统Bug | TC-KB-002: 创建知识库 — 向量模型选择器被禁用，无可用 embedding 模型"""
     kb = KnowledgePage(logged_in_page, base_url)
     kb.goto()
 
-    api_resp = kb.intercept_api("/web/knowledgeBases")
+    initial_kbs = _get_kbs_api(logged_in_page, base_url)
 
     kb.click_create_kb()
     assert kb.is_dialog_open(), "新建知识库弹窗未打开"
@@ -80,32 +80,45 @@ def test_kb_002_create_kb(logged_in_page, base_url):
 
     # 填写表单
     dialog = logged_in_page.locator("[role=dialog]")
-    name_input = dialog.locator("input[type=text]")
-    if name_input.count() > 0:
-        name_input.first.fill(f"KB-{_PREFIX}")
+    name_input = dialog.locator("input").first
+    assert name_input.count() > 0, "名称输入框不存在"
+    kb_name = f"KB-{_PREFIX}"
+    name_input.fill(kb_name)
 
     desc_input = dialog.locator("textarea")
     if desc_input.count() > 0:
         desc_input.first.fill("E2E 测试知识库")
 
+    # 选择向量模型（必填）
+    model_combo = dialog.locator("[role=combobox]").first
+    if model_combo.count() > 0 and not model_combo.is_disabled():
+        model_combo.click()
+        logged_in_page.wait_for_timeout(1000)
+        options = logged_in_page.locator("[role=option]")
+        assert options.count() > 0, "向量模型下拉无选项"
+        options.first.click()
+        logged_in_page.wait_for_timeout(500)
+    elif model_combo.count() > 0 and model_combo.is_disabled():
+        assert False, "向量模型选择器被禁用，系统中无可用的 embedding 模型"
+
     kb.submit_dialog()
 
-    # 刷新验证
+    # 验证弹窗关闭
+    logged_in_page.wait_for_timeout(2000)
+    dialog_after = logged_in_page.locator("[role=dialog]")
+    still_open = dialog_after.count() > 0 and dialog_after.first.is_visible()
+    assert not still_open, "提交后弹窗未关闭，表单可能有校验错误"
+
+    # 刷新验证列表
     kb.goto()
-
-    # API 请求验证
-    post_calls = [r for r in api_resp if r["method"] == "POST"
-                  and "/web/knowledgeBases" in r["url"]]
-    assert len(post_calls) > 0, "未检测到创建知识库的 API 请求"
-
-    # 列表验证
     kbs = _get_kbs_api(logged_in_page, base_url)
-    found = any(f"KB-{_PREFIX}" in k.get("name", "") for k in kbs)
-    assert found, f"新知识库 KB-{_PREFIX} 未出现在 API 列表中"
+    found = any(kb_name in k.get("name", "") for k in kbs)
+    assert found, f"新知识库 {kb_name} 未出现在 API 列表中"
+    assert len(kbs) > len(initial_kbs), "知识库数量未增加"
 
     # 清理
     for k in kbs:
-        if f"KB-{_PREFIX}" in k.get("name", ""):
+        if kb_name in k.get("name", ""):
             _delete_kb_api(logged_in_page, base_url, k["id"])
 
 
@@ -209,7 +222,7 @@ def test_kb_006_import_url(logged_in_page, base_url):
     logged_in_page.wait_for_timeout(1000)
 
     # 检查是否有导入 URL 按钮
-    body = logged_in_page.locator("div.agent-panel-body").first
+    body = logged_in_page.locator("div.agent-panel-content").first
     has_import = body.get_by_role("button", name="导入").count() > 0 or \
         "导入" in body.inner_text()
 

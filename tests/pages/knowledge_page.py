@@ -25,7 +25,7 @@ class KnowledgePage:
         self.page.wait_for_timeout(2000)
 
     def is_loaded(self) -> bool:
-        return self.page.locator("h1").filter(has_text="知识库").count() > 0
+        return "/ctrl/agent/knowledge" in self.page.url and self.page.locator("div.agent-panel-body").count() > 0
 
     # ==================== 搜索 ====================
 
@@ -174,14 +174,16 @@ class KnowledgePage:
     # ==================== 详情面板 ====================
 
     def get_detail_text(self) -> str:
-        """获取右侧详情面板文本"""
+        """获取详情面板文本（全宽布局，内容在 agent-panel-body 中）"""
         body = self.page.locator("div.agent-panel-body").first
         return body.inner_text()
 
     def has_detail_placeholder(self) -> bool:
-        """是否有选择提示"""
+        """是否处于初始状态（未选中知识库时显示列表视图）"""
         body = self.page.locator("div.agent-panel-body").first
-        return "选择左侧知识库查看详情" in body.inner_text()
+        text = body.inner_text()
+        # 初始状态有新建按钮和 KB 列表，没有"返回知识库列表"
+        return "新建知识库" in text and "返回知识库列表" not in text
 
     # ==================== 确认弹窗 ====================
 
@@ -210,6 +212,18 @@ class KnowledgePage:
     # ==================== API 拦截 ====================
 
     def intercept_api(self, url_pattern: str):
+        # 移除之前的监听器，避免累积
+
+        if hasattr(self, '_last_listener') and self._last_listener:
+
+            try:
+
+                self.page.remove_listener("response", self._last_listener)
+
+            except Exception:
+
+                pass
+
         collected = []
 
         def on_response(resp):
@@ -223,5 +237,6 @@ class KnowledgePage:
                 except Exception:
                     pass
 
+        self._last_listener = on_response
         self.page.on("response", on_response)
         return collected

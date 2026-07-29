@@ -17,8 +17,9 @@ class AlgorithmsPage:
         self.page.wait_for_timeout(1500)
 
     def is_loaded(self) -> bool:
-        """页面标题「算法库」可见"""
-        return self.page.locator("h1").filter(has_text="算法库").count() > 0
+        """页面加载完成"""
+        return "/ctrl/agent/algorithms" in self.page.url and \
+            self.page.locator("div.agent-panel-content").count() > 0
 
     # === 搜索 ===
 
@@ -82,7 +83,7 @@ class AlgorithmsPage:
 
     def has_algo(self, keyword: str) -> bool:
         """列表中是否包含包含关键词的算法"""
-        body = self.page.locator("div.agent-panel-body")
+        body = self.page.locator("div.agent-panel-content")
         return keyword in body.inner_text()
 
     # === 操作按钮 ===

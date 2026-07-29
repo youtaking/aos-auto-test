@@ -27,13 +27,13 @@ class OrgPage:
         self.page.wait_for_timeout(2000)
 
     def is_loaded(self) -> bool:
-        return self.page.locator("h1").filter(has_text="组织管理").count() > 0
+        return "/ctrl/agent/organization" in self.page.url and self.page.locator("div.agent-panel-body").count() > 0
 
     # ==================== 组织列表 ====================
 
     def get_org_buttons(self):
         """左侧组织列表按钮"""
-        body = self.page.locator("div.agent-panel-body").first
+        body = self.page.locator("div.agent-panel-body")
         return body.locator("button").filter(has_text="拥有者").or_(
             body.locator("button").filter(has_text="成员").or_(
                 body.locator("button").filter(has_text="管理员")
@@ -42,24 +42,26 @@ class OrgPage:
 
     def get_org_count(self) -> int:
         """组织数量"""
-        body = self.page.locator("div.agent-panel-body").first
-        # 组织按钮包含角色文本（拥有者/成员/管理员）
-        btns = body.locator("div > div > button")
+        body = self.page.locator("div.agent-panel-body")
+        btns = body.locator("button")
         count = 0
         for i in range(btns.count()):
             text = btns.nth(i).inner_text()
             if "拥有者" in text or "成员" in text or "管理员" in text:
-                count += 1
+                # 排除成员列表中的角色文本（格式不同）
+                lines = text.strip().split("\n")
+                if len(lines) == 2 and lines[1].strip() in ("拥有者", "成员", "管理员"):
+                    count += 1
         return count
 
     def has_org(self, name: str) -> bool:
         """列表中是否有指定组织"""
-        body = self.page.locator("div.agent-panel-body").first
+        body = self.page.locator("div.agent-panel-body")
         return name in body.inner_text()
 
     def click_org(self, name: str):
         """点击左侧组织"""
-        body = self.page.locator("div.agent-panel-body").first
+        body = self.page.locator("div.agent-panel-body")
         btn = body.locator("button").filter(has_text=name)
         if btn.count() > 0:
             btn.first.click()
@@ -67,15 +69,15 @@ class OrgPage:
 
     def get_org_names(self) -> list[str]:
         """获取组织名称列表"""
-        body = self.page.locator("div.agent-panel-body").first
-        btns = body.locator("div > div > button")
+        body = self.page.locator("div.agent-panel-body")
+        btns = body.locator("button")
         names = []
         for i in range(btns.count()):
             text = btns.nth(i).inner_text().strip()
-            # 格式: "ORG_NAME 角色"
-            parts = text.split()
-            if len(parts) >= 2 and parts[-1] in ("拥有者", "成员", "管理员"):
-                names.append(parts[0])
+            # 格式: "ORG_NAME\n角色"
+            lines = text.split("\n")
+            if len(lines) == 2 and lines[1].strip() in ("拥有者", "成员", "管理员"):
+                names.append(lines[0].strip())
         return names
 
     # ==================== 创建组织 ====================
@@ -226,6 +228,18 @@ class OrgPage:
     # ==================== API 拦截 ====================
 
     def intercept_api(self, url_pattern: str):
+        # 移除之前的监听器，避免累积
+
+        if hasattr(self, '_last_listener') and self._last_listener:
+
+            try:
+
+                self.page.remove_listener("response", self._last_listener)
+
+            except Exception:
+
+                pass
+
         collected = []
 
         def on_response(resp):
@@ -239,5 +253,6 @@ class OrgPage:
                 except Exception:
                     pass
 
+        self._last_listener = on_response
         self.page.on("response", on_response)
         return collected

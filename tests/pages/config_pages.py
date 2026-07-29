@@ -16,7 +16,7 @@ class ModelsPage:
         self.page.wait_for_load_state("networkidle")
 
     def is_loaded(self) -> bool:
-        return self.page.locator("h1, h2").filter(has_text="服务商与模型").count() > 0
+        return self.page.locator("h1, h2").filter(has_text="模型库").count() > 0
 
     def has_model_list(self) -> bool:
         """是否有模型列表内容"""
@@ -37,7 +37,7 @@ class ModelsPage:
     def get_provider_count(self) -> int:
         """获取服务商卡片数量"""
         cards = self.page.locator(
-            "main [class*='card'], [class*='content'] [class*='card']"
+            "div.agent-panel-content [class*='card']"
         )
         return cards.count()
 
@@ -140,7 +140,7 @@ class McpPage:
     def get_server_count(self) -> int:
         """获取 MCP 服务器列表数量"""
         items = self.page.locator(
-            "main [class*='card'], [class*='content'] [class*='card'], "
+            "div.agent-panel-content [class*='card'], "
             "table tbody tr"
         )
         return items.count()

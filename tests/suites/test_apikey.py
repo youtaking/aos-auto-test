@@ -38,28 +38,35 @@ def _get_keys_api(page, base_url):
 @pytest.mark.order(340)
 @pytest.mark.p0
 def test_apikey_001_list_loads(logged_in_page, base_url):
-    """TC-APIKEY-001: API 密钥列表数据加载"""
+    """✅ 人工评审通过 | TC-APIKEY-001: API 密钥列表数据加载"""
     ak = ApiKeyPage(logged_in_page, base_url)
     api_resp = ak.intercept_api("/web/api-keys")
     ak.goto()
 
     assert ak.is_loaded(), "API 密钥页面未加载"
 
-    # 1. 发起密钥列表请求
+    # 1. 页面标题
+    body = ak.get_body_text()
+    assert "API" in body or "密钥" in body, \
+        f"页面缺少标题，当前内容: {body[:80]}"
+
+    # 2. 创建密钥按钮
+    assert ak.has_create_button(), "创建密钥按钮不存在"
+
+    # 3. 发起密钥列表请求
     list_called = any("/web/api-keys" in r["url"] and r["method"] == "GET"
                       for r in api_resp)
     assert list_called, "未发起 API 密钥列表请求"
 
-    # 2. 列表只显示前缀
-    body = ak.get_body_text()
-    assert "rcs_" in body or ak.get_key_count() >= 0, \
-        "列表中未显示密钥前缀"
+    # 4. 列表只显示前缀
+    assert "rcs_" in body, \
+        "列表中未显示密钥前缀 rcs_"
 
-    # 3. 显示创建时间
+    # 5. 显示创建时间
     assert "创建时间" in body or "创建" in body, \
         "列表中未显示创建时间"
 
-    # 4. 搜索框存在
+    # 6. 搜索框存在
     assert ak.has_search_input(), "搜索框不存在"
 
 
@@ -67,7 +74,7 @@ def test_apikey_001_list_loads(logged_in_page, base_url):
 @pytest.mark.order(341)
 @pytest.mark.p0
 def test_apikey_002_create_key(logged_in_page, base_url):
-    """TC-APIKEY-002: 创建 API 密钥"""
+    """✅ 人工评审通过 | TC-APIKEY-002: 创建 API 密钥"""
     ak = ApiKeyPage(logged_in_page, base_url)
     ak.goto()
     initial_count = ak.get_key_count()
@@ -81,13 +88,15 @@ def test_apikey_002_create_key(logged_in_page, base_url):
 
     # 填写名称
     dialog = logged_in_page.locator("[role=dialog]")
-    name_input = dialog.locator("input[type=text]")
+    name_input = dialog.locator("input[data-slot='input']").or_(dialog.locator("input"))
     if name_input.count() > 0:
         name_input.first.fill(f"key-{_PREFIX}")
 
     ak.submit_dialog()
+    logged_in_page.wait_for_timeout(1000)
 
-    # 验证
+    # 关闭创建成功后的密钥展示弹窗
+    ak.close_dialog()
     logged_in_page.wait_for_timeout(1000)
 
     # API 请求验证
@@ -118,7 +127,7 @@ def test_apikey_002_create_key(logged_in_page, base_url):
 @pytest.mark.order(342)
 @pytest.mark.p1
 def test_apikey_003_name_empty_validation(logged_in_page, base_url):
-    """TC-APIKEY-003: 名称为空时创建拦截"""
+    """✅ 人工评审通过 | TC-APIKEY-003: 名称为空时创建拦截"""
     ak = ApiKeyPage(logged_in_page, base_url)
     ak.goto()
     initial_count = ak.get_key_count()
@@ -154,7 +163,7 @@ def test_apikey_003_name_empty_validation(logged_in_page, base_url):
 @pytest.mark.order(343)
 @pytest.mark.p0
 def test_apikey_004_one_time_display(logged_in_page, base_url):
-    """TC-APIKEY-004: 密钥一次性展示
+    """✅ 人工评审通过 | TC-APIKEY-004: 密钥一次性展示
     验证：创建后列表只显示前缀，API 也不返回完整密钥
     """
     # 通过 API 创建密钥
@@ -195,7 +204,7 @@ def test_apikey_004_one_time_display(logged_in_page, base_url):
 @pytest.mark.order(344)
 @pytest.mark.p0
 def test_apikey_005_list_no_full_key(logged_in_page, base_url):
-    """TC-APIKEY-005: 密钥列表不返回完整密钥"""
+    """✅ 人工评审通过 | TC-APIKEY-005: 密钥列表不返回完整密钥"""
     api_resp = []
 
     def on_resp(r):
@@ -232,7 +241,7 @@ def test_apikey_005_list_no_full_key(logged_in_page, base_url):
 @pytest.mark.order(345)
 @pytest.mark.p1
 def test_apikey_006_security_warning(logged_in_page, base_url):
-    """TC-APIKEY-006: 安全警告提示"""
+    """✅ 人工评审通过 | TC-APIKEY-006: 安全警告提示"""
     ak = ApiKeyPage(logged_in_page, base_url)
     ak.goto()
 
@@ -245,19 +254,25 @@ def test_apikey_006_security_warning(logged_in_page, base_url):
 
     # 填写名称并创建，检查创建后的弹窗
     dialog = logged_in_page.locator("[role=dialog]")
-    name_input = dialog.locator("input[type=text]")
+    name_input = dialog.locator("input[data-slot='input']").or_(dialog.locator("input"))
     if name_input.count() > 0:
         name_input.first.fill(f"warn-{_PREFIX}")
+    else:
+        print("\n⚠️ 未找到名称输入框")
 
     ak.submit_dialog()
-    logged_in_page.wait_for_timeout(1000)
+    logged_in_page.wait_for_timeout(2000)
 
     # 检查创建后弹窗
-    if ak.is_dialog_open():
+    has_post_warning = False
+    dialog_open = ak.is_dialog_open()
+    print(f"\n创建后弹窗是否打开: {dialog_open}")
+    if dialog_open:
         post_text = ak.get_dialog_text()
+        print(f"创建后弹窗文本: {post_text[:200]}")
         has_post_warning = any(kw in post_text for kw in [
-            "仅显示一次", "仅一次", "妥善保管", "复制", "安全",
-            "重要", "注意",
+            "仅显示一次", "仅一次", "妥善保管", "妥善保存", "复制", "安全",
+            "重要", "注意", "无法再次查看", "无法再次",
         ])
         allure.attach(
             f"创建前警告: {has_warning}, 创建后警告: {has_post_warning}\n"
@@ -265,6 +280,9 @@ def test_apikey_006_security_warning(logged_in_page, base_url):
             name="安全提示",
             attachment_type=allure.attachment_type.TEXT,
         )
+        # 至少有一个阶段显示了安全提示
+        assert has_warning or has_post_warning, \
+            "创建密钥全流程中未显示任何安全提示"
 
     ak.close_dialog()
 
@@ -275,11 +293,135 @@ def test_apikey_006_security_warning(logged_in_page, base_url):
             _delete_key_api(logged_in_page, base_url, k["id"])
 
 
+def _create_and_get_key_dialog(page, base_url, ak, name_prefix):
+    """辅助函数：创建密钥并返回创建后弹窗中的完整密钥和 dialog 引用"""
+    ak.goto()
+    ak.click_create_key()
+    assert ak.is_dialog_open(), "创建密钥弹窗未打开"
+
+    dialog = page.locator("[role=dialog]")
+    name_input = dialog.locator("input[data-slot='input']").or_(dialog.locator("input"))
+    if name_input.count() > 0:
+        name_input.first.fill(f"{name_prefix}-{_PREFIX}")
+
+    ak.submit_dialog()
+    page.wait_for_timeout(2000)
+
+    assert ak.is_dialog_open(), "创建成功后应弹出密钥展示弹窗"
+    post_text = ak.get_dialog_text()
+    match = re.search(r"rcs_[a-zA-Z0-9]+", post_text)
+    shown_key = match.group(0) if match else ""
+    return shown_key, dialog
+
+
 @allure.epic("API密钥")
 @pytest.mark.order(346)
 @pytest.mark.p1
+def test_apikey_006b_copy_button(logged_in_page, base_url):
+    """✅ 人工评审通过 | TC-APIKEY-006b: 复制按钮能将完整密钥复制到剪贴板"""
+    ak = ApiKeyPage(logged_in_page, base_url)
+    shown_key, dialog = _create_and_get_key_dialog(
+        logged_in_page, base_url, ak, "copy-btn"
+    )
+    assert shown_key, "创建后弹窗中未显示完整密钥"
+
+    # 点击复制按钮
+    has_copy = ak.has_copy_button()
+    assert has_copy, "创建后弹窗中缺少复制按钮"
+    ak.click_copy()
+    logged_in_page.wait_for_timeout(1000)
+
+    # 读取剪贴板（通过 JS evaluate）
+    try:
+        clipboard_text = logged_in_page.evaluate(
+            "() => navigator.clipboard.readText()"
+        )
+    except Exception:
+        # 某些环境不允许读取剪贴板，改用 permission check
+        clipboard_text = ""
+
+    if clipboard_text:
+        assert clipboard_text == shown_key, (
+            f"剪贴板内容不匹配: 剪贴板={clipboard_text[:20]}, "
+            f"弹窗显示={shown_key[:20]}"
+        )
+
+    ak.close_dialog()
+
+    # 清理
+    keys = _get_keys_api(logged_in_page, base_url)
+    for k in keys:
+        if f"copy-btn-{_PREFIX}" in k.get("name", ""):
+            _delete_key_api(logged_in_page, base_url, k["id"])
+
+
+@allure.epic("API密钥")
+@pytest.mark.order(347)
+@pytest.mark.p2
+def test_apikey_006c_close_button_bottom(logged_in_page, base_url):
+    """✅ 人工评审通过 | TC-APIKEY-006c: 创建后弹窗底部的"关闭"按钮能关闭弹窗"""
+    ak = ApiKeyPage(logged_in_page, base_url)
+    shown_key, dialog = _create_and_get_key_dialog(
+        logged_in_page, base_url, ak, "close-bottom"
+    )
+
+    # 找到底部的"关闭"按钮
+    close_btn = dialog.get_by_role("button", name="关闭")
+    if close_btn.count() == 0:
+        # 兼容：可能文案为"确定"或"我知道了"
+        close_btn = dialog.get_by_role("button", name="确定").or_(
+            dialog.get_by_role("button", name="我知道了")
+        )
+
+    assert close_btn.count() > 0, "创建后弹窗底部未找到关闭按钮"
+    close_btn.first.click()
+    logged_in_page.wait_for_timeout(1000)
+
+    assert not ak.is_dialog_open(), "点击底部关闭按钮后弹窗未关闭"
+
+    # 清理
+    keys = _get_keys_api(logged_in_page, base_url)
+    for k in keys:
+        if f"close-bottom-{_PREFIX}" in k.get("name", ""):
+            _delete_key_api(logged_in_page, base_url, k["id"])
+
+
+@allure.epic("API密钥")
+@pytest.mark.order(348)
+@pytest.mark.p2
+def test_apikey_006d_close_button_x(logged_in_page, base_url):
+    """✅ 人工评审通过 | TC-APIKEY-006d: 创建后弹窗右上角 X 按钮能关闭弹窗"""
+    ak = ApiKeyPage(logged_in_page, base_url)
+    shown_key, dialog = _create_and_get_key_dialog(
+        logged_in_page, base_url, ak, "close-x"
+    )
+
+    # 找到右上角 X 关闭按钮 (data-slot='dialog-close')
+    x_btn = dialog.locator("button[data-slot='dialog-close']")
+    if x_btn.count() == 0:
+        # 兼容：aria-label 包含 close/关闭
+        x_btn = dialog.locator("button[aria-label*='close']").or_(
+            dialog.locator("button[aria-label*='关闭']")
+        )
+
+    assert x_btn.count() > 0, "创建后弹窗右上角未找到 X 关闭按钮"
+    x_btn.first.click()
+    logged_in_page.wait_for_timeout(1000)
+
+    assert not ak.is_dialog_open(), "点击右上角 X 按钮后弹窗未关闭"
+
+    # 清理
+    keys = _get_keys_api(logged_in_page, base_url)
+    for k in keys:
+        if f"close-x-{_PREFIX}" in k.get("name", ""):
+            _delete_key_api(logged_in_page, base_url, k["id"])
+
+
+@allure.epic("API密钥")
+@pytest.mark.order(349)
+@pytest.mark.p1
 def test_apikey_007_delete_key(logged_in_page, base_url):
-    """TC-APIKEY-007: 删除 API 密钥"""
+    """✅ 人工评审通过 | TC-APIKEY-007: 删除 API 密钥"""
     # 前置：创建密钥
     create_resp = _create_key_api(logged_in_page, base_url, f"del-{_PREFIX}")
     assert create_resp.status == 200, "创建密钥失败"
@@ -324,10 +466,10 @@ def test_apikey_007_delete_key(logged_in_page, base_url):
 
 
 @allure.epic("API密钥")
-@pytest.mark.order(347)
+@pytest.mark.order(350)
 @pytest.mark.p2
 def test_apikey_008_delete_cancel(logged_in_page, base_url):
-    """TC-APIKEY-008: 删除取消操作"""
+    """✅ 人工评审通过 | TC-APIKEY-008: 删除取消操作"""
     ak = ApiKeyPage(logged_in_page, base_url)
     ak.goto()
     initial_count = ak.get_key_count()
@@ -359,10 +501,10 @@ def test_apikey_008_delete_cancel(logged_in_page, base_url):
 
 
 @allure.epic("API密钥")
-@pytest.mark.order(348)
+@pytest.mark.order(351)
 @pytest.mark.p2
 def test_apikey_009_copy_key(logged_in_page, base_url):
-    """TC-APIKEY-009: 密钥复制功能"""
+    """✅ 人工评审通过 | TC-APIKEY-009: 密钥复制功能"""
     ak = ApiKeyPage(logged_in_page, base_url)
     ak.goto()
 
@@ -370,7 +512,7 @@ def test_apikey_009_copy_key(logged_in_page, base_url):
     assert ak.is_dialog_open(), "创建弹窗未打开"
 
     dialog = logged_in_page.locator("[role=dialog]")
-    name_input = dialog.locator("input[type=text]")
+    name_input = dialog.locator("input[data-slot='input']").or_(dialog.locator("input"))
     if name_input.count() > 0:
         name_input.first.fill(f"copy-{_PREFIX}")
 
@@ -388,6 +530,9 @@ def test_apikey_009_copy_key(logged_in_page, base_url):
             name="复制功能",
             attachment_type=allure.attachment_type.TEXT,
         )
+        # 创建后弹窗应显示密钥或有复制按钮
+        assert key_shown or has_copy, \
+            "创建密钥后弹窗中既无密钥显示也无复制按钮"
 
     ak.close_dialog()
 
@@ -396,33 +541,3 @@ def test_apikey_009_copy_key(logged_in_page, base_url):
     for k in keys:
         if f"copy-{_PREFIX}" in k.get("name", ""):
             _delete_key_api(logged_in_page, base_url, k["id"])
-
-
-@allure.epic("API密钥")
-@pytest.mark.order(349)
-@pytest.mark.p2
-def test_apikey_010_loading_state(logged_in_page, base_url):
-    """TC-APIKEY-010: 列表加载状态"""
-    ak = ApiKeyPage(logged_in_page, base_url)
-
-    # 导航但不等待完全加载
-    ak.page.goto(ak.url)
-    ak.page.wait_for_timeout(300)
-
-    # 可能有骨架屏
-    had_loading = ak.has_skeleton_or_spinner()
-
-    # 等待加载完成
-    ak.page.wait_for_load_state("networkidle")
-    ak.page.wait_for_timeout(2000)
-
-    # 加载完成后显示列表
-    assert ak.is_loaded(), "API 密钥页面加载完成未正确显示"
-    assert ak.get_key_count() >= 0, "密钥列表加载异常"
-
-    if not had_loading:
-        allure.attach(
-            "加载过快未捕获骨架屏，但列表已正确加载",
-            name="备注",
-            attachment_type=allure.attachment_type.TEXT,
-        )

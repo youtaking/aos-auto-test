@@ -16,7 +16,8 @@ class WorkflowPage:
         self.page.wait_for_load_state("networkidle")
 
     def is_loaded(self) -> bool:
-        return self.page.locator("h1").filter(has_text="智能体编排").count() > 0
+        return "/ctrl/agent/workflow" in self.page.url and \
+            self.page.locator("div.agent-panel-content").count() > 0
 
     def search(self, keyword: str):
         """搜索工作流"""
@@ -35,14 +36,13 @@ class WorkflowPage:
         """获取工作流卡片数量"""
         # 排除侧边栏卡片
         cards = self.page.locator(
-            "[class*='workflow'] [class*='card'], "
-            "main [class*='card'], "
-            "[class*='content'] [class*='card']"
+            "div.agent-panel-content [class*='card']"
         )
         return cards.count()
 
     def has_create_button(self) -> bool:
-        return self.page.get_by_role("button", name="新建工作流").count() > 0
+        btn = self.page.get_by_role("button", name="新建工作流")
+        return btn.count() > 0 and btn.first.is_visible() and btn.first.is_enabled()
 
 
 class MemoryPage:
@@ -58,7 +58,8 @@ class MemoryPage:
         self.page.wait_for_load_state("networkidle")
 
     def is_loaded(self) -> bool:
-        return self.page.locator("h1").filter(has_text="记忆").count() > 0
+        return "/ctrl/agent/memor" in self.page.url and \
+            self.page.locator("div.agent-panel-content").count() > 0
 
     def get_tab_names(self) -> list[str]:
         """获取分类 Tab 名称列表"""
@@ -102,7 +103,8 @@ class KnowledgeBasePage:
         self.page.wait_for_load_state("networkidle")
 
     def is_loaded(self) -> bool:
-        return self.page.locator("h1").filter(has_text="知识库").count() > 0
+        return "/ctrl/agent/knowledge" in self.page.url and \
+            self.page.locator("div.agent-panel-content").count() > 0
 
     def search(self, keyword: str):
         inp = self.page.locator("input[placeholder*='搜索知识库']")
@@ -119,12 +121,13 @@ class KnowledgeBasePage:
     def get_kb_count(self) -> int:
         """获取知识库卡片数量"""
         cards = self.page.locator(
-            "main [class*='card'], [class*='content'] [class*='card']"
+            "div.agent-panel-content [class*='card']"
         )
         return cards.count()
 
     def has_create_button(self) -> bool:
-        return self.page.get_by_role("button", name="新建知识库").count() > 0
+        btn = self.page.get_by_role("button", name="新建知识库")
+        return btn.count() > 0 and btn.first.is_visible() and btn.first.is_enabled()
 
 
 class TasksPage:
@@ -140,7 +143,8 @@ class TasksPage:
         self.page.wait_for_load_state("networkidle")
 
     def is_loaded(self) -> bool:
-        return self.page.locator("h1").filter(has_text="定时任务").count() > 0
+        return "/ctrl/agent/tasks" in self.page.url and \
+            self.page.locator("div.agent-panel-content").count() > 0
 
     def get_tab_names(self) -> list[str]:
         tabs = self.page.locator("[role='tab']")
@@ -184,7 +188,8 @@ class OrganizationPage:
         self.page.wait_for_load_state("networkidle")
 
     def is_loaded(self) -> bool:
-        return self.page.locator("h1").filter(has_text="组织管理").count() > 0
+        return "/ctrl/agent/organization" in self.page.url and \
+            self.page.locator("div.agent-panel-content").count() > 0
 
     def get_org_name(self) -> str:
         """获取当前组织名称"""
@@ -218,7 +223,8 @@ class ApiKeyPage:
         self.page.wait_for_load_state("networkidle")
 
     def is_loaded(self) -> bool:
-        return self.page.locator("h1").filter(has_text="API 密钥").count() > 0
+        return "/ctrl/agent/apikeys" in self.page.url and \
+            self.page.locator("div.agent-panel-content").count() > 0
 
     def search(self, keyword: str):
         inp = self.page.locator("input[placeholder*='搜索密钥']")
@@ -239,4 +245,72 @@ class ApiKeyPage:
         return self.page.locator("div.grid.gap-3 > div").count()
 
     def has_create_button(self) -> bool:
-        return self.page.get_by_role("button", name="创建密钥").count() > 0
+        btn = self.page.get_by_role("button", name="创建密钥")
+        return btn.count() > 0 and btn.first.is_visible() and btn.first.is_enabled()
+
+
+class SidebarNavigation:
+    """侧边栏导航通用操作"""
+
+    # 侧边栏菜单项 → 预期 URL 路径
+    NAV_ITEMS = {
+        "新建智能体": "/ctrl/agent/home",
+        "智能体管理": "/ctrl/agent/agents",
+        "智能体编排": "/ctrl/agent/workflow",
+        "记忆": "/ctrl/agent/memor",
+        "知识库": "/ctrl/agent/knowledge",
+        "定时任务": "/ctrl/agent/tasks",
+        "组织": "/ctrl/agent/organization",
+        "API Key": "/ctrl/agent/apikeys",
+        "模型库": "/ctrl/agent/models",
+        "垂直模型库": "/ctrl/agent/vertical-models",
+        "算法库": "/ctrl/agent/algorithms",
+        "技能库": "/ctrl/agent/skills",
+        "MCP": "/ctrl/agent/mcp",
+        "Agent Sites": "/ctrl/agent/sites",
+    }
+
+    def __init__(self, page: Page, base_url: str):
+        self.page = page
+        self.base_url = base_url
+
+    def get_nav_items(self) -> list[str]:
+        """获取所有侧边栏导航项名称"""
+        items = self.page.locator("button.agent-sidebar-nav-item")
+        return [t.strip() for t in items.all_text_contents() if t.strip()]
+
+    def get_nav_count(self) -> int:
+        return self.page.locator("button.agent-sidebar-nav-item").count()
+
+    def click_nav(self, name: str):
+        """点击侧边栏导航项"""
+        btn = self.page.locator("button.agent-sidebar-nav-item").filter(
+            has_text=name
+        )
+        if btn.count() > 0:
+            btn.first.click()
+            self.page.wait_for_load_state("networkidle")
+            self.page.wait_for_timeout(1500)
+
+    def is_nav_active(self, name: str) -> bool:
+        """某导航项是否处于激活状态"""
+        btn = self.page.locator("button.agent-sidebar-nav-item").filter(
+            has_text=name
+        )
+        if btn.count() == 0:
+            return False
+        cls = btn.first.get_attribute("class") or ""
+        return "active" in cls.lower() or "selected" in cls.lower()
+
+    def get_group_labels(self) -> list[str]:
+        """获取侧边栏分组标签（如 '核心'、'配置'）"""
+        groups = self.page.locator("aside.agent-sidebar span, aside.agent-sidebar h3, aside.agent-sidebar h4")
+        return [t.strip() for t in groups.all_text_contents() if t.strip()]
+
+    def has_nav_item(self, name: str) -> bool:
+        return self.page.locator("button.agent-sidebar-nav-item").filter(
+            has_text=name
+        ).count() > 0
+
+    def has_panel_content(self) -> bool:
+        return self.page.locator("div.agent-panel-content").count() > 0

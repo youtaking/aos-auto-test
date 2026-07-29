@@ -48,10 +48,10 @@ class AgentPage:
         self.page.wait_for_timeout(500)
 
     def click_create_button(self):
-        """点击「新建智能体」按钮（侧边栏）"""
-        btn = self.page.get_by_role("button", name="新建智能体")
+        """点击「创建智能体」按钮（页面内容区）"""
+        btn = self.page.get_by_role("button", name="创建智能体")
         if btn.count() == 0:
-            btn = self.page.get_by_role("button", name="创建智能体")
+            btn = self.page.get_by_role("button", name="新建智能体")
         btn.first.click()
 
     def is_create_dialog_open(self) -> bool:
@@ -110,12 +110,10 @@ class AgentPage:
         self.page.wait_for_load_state("networkidle")
 
     def get_filter_buttons(self) -> list[str]:
-        """获取所有分类筛选按钮的文字"""
-        buttons = self.page.locator("button").filter(
-            has_text="全部"
-        ).or_(
-            self.page.locator("button").filter(has_text="通用助理")
-        ).or_(
-            self.page.locator("button").filter(has_text="自定义")
-        )
+        """获取所有分类筛选按钮的文字（从「全部」按钮的父容器中动态获取）"""
+        all_btn = self.page.get_by_role("button", name="全部")
+        if all_btn.count() == 0:
+            return []
+        parent = all_btn.first.locator("..")
+        buttons = parent.locator("button")
         return [b.strip() for b in buttons.all_text_contents()]
