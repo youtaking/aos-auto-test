@@ -31,6 +31,9 @@ dump_*.py
 # 调试截图
 debug_*.png
 
+# 人工评审报告（本地保留，不入库）
+tests/*.md
+
 # Excel 用例文件（仅保留最新版本入库）
 testcases.xlsx
 testcases_updated.xlsx
@@ -39,6 +42,9 @@ Fenix_AI_Agent_测试用例_V2.xlsx
 # 本地开发脚本
 *.bat
 report_*.json
+
+# 被测项目（独立仓库，位于同级目录）
+# FenixAgent 已移至 ../FenixAgent，不再作为子目录
 
 # 归档目录
 docs/archive/
