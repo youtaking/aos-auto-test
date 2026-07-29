@@ -33,6 +33,8 @@ debug_*.png
 
 # 人工评审报告（本地保留，不入库）
 tests/*.md
+docs/通知*.txt
+docs/测试用例评审报告_*.md
 
 # Excel 用例文件（仅保留最新版本入库）
 testcases.xlsx
