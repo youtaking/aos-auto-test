@@ -92,7 +92,9 @@ class ChatPage:
     def has_response(self) -> bool:
         """是否收到了回复（页面上有除输入框以外的文本内容变化）"""
         # 检查是否有消息气泡或回复区域
-        messages = self.page.locator("[class*='message'], [class*='chat'], [class*='prose'], [class*='markdown']")
+        messages = self.page.locator("div[role='log']")
+        if messages.count() == 0:
+            messages = self.page.locator("div.agent-chat-area")
         return messages.count() > 0
 
     def get_connection_status(self) -> str:
@@ -140,5 +142,8 @@ class ChatPage:
 
     def get_session_count(self) -> int:
         """获取会话实例数量"""
-        items = self.page.locator("[class*='instance'], [class*='session']").all()
+        dialog = self.page.locator("[role='dialog']")
+        if dialog.count() == 0:
+            return 0
+        items = dialog.locator("button[title]").all()
         return len(items) if items else 0

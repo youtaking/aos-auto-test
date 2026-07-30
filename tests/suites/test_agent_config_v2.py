@@ -257,7 +257,7 @@ def test_agent_023_system_prompt_effective(logged_in_page, base_url):
     try:
         # 进入智能体列表，点击该 Agent
         ac.goto_agents()
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.wait_for_load_state("networkidle")
         clicked = ac.click_agent(agent_name)
         assert clicked, f"左侧列表中未找到 '{agent_name}'"
         assert ac.is_on_chat_page(), "应进入对话页面"
@@ -303,7 +303,7 @@ def test_agent_024_system_prompt_empty(logged_in_page, base_url):
 
     try:
         ac.goto_agents()
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.wait_for_load_state("networkidle")
         clicked = ac.click_agent(agent_name)
         assert clicked, f"左侧列表中未找到 '{agent_name}'"
         assert ac.is_on_chat_page(), "System Prompt 留空也应能进入对话页面"
@@ -329,7 +329,7 @@ def test_agent_025_bind_mcp(logged_in_page, base_url):
     try:
         # 2. 导航到智能体列表
         ac.goto_agents()
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.wait_for_load_state("networkidle")
 
         # 3. 找到新建 Agent 的卡片容器，hover 后点击"智能体配置"
         card = logged_in_page.locator("button.agent-sidebar-agent-card").filter(
@@ -339,11 +339,10 @@ def test_agent_025_bind_mcp(logged_in_page, base_url):
         # 卡片父容器: div.agent-sidebar-agent
         agent_wrapper = card.first.locator("xpath=ancestor::div[contains(@class,'agent-sidebar-agent')]")
         agent_wrapper.hover()
-        logged_in_page.wait_for_timeout(500)
         # 在该容器内点击配置按钮
         config_btn = agent_wrapper.locator('button[title="智能体配置"]')
         config_btn.click()
-        logged_in_page.wait_for_timeout(3000)
+        logged_in_page.locator("div.absolute.inset-0.z-50").wait_for(state="visible", timeout=10000)
 
         # 4. 在编辑 modal 中，找到 MCP 区域，点击 + 展开列表
         modal = logged_in_page.locator("div.absolute.inset-0.z-50")
@@ -363,7 +362,7 @@ def test_agent_025_bind_mcp(logged_in_page, base_url):
         # 点击 + 号展开 MCP 列表
         plus_btn = mcp_section.locator("button:has(svg.lucide-plus)")
         plus_btn.first.click()
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.wait_for_timeout(500)
 
         # 5. 选择第一个可用的 MCP 服务器（点击 label）
         mcp_labels = mcp_section.locator(
@@ -377,24 +376,23 @@ def test_agent_025_bind_mcp(logged_in_page, base_url):
         first_mcp_name = mcp_labels.first.text_content().strip()
         print(f"选择绑定: {first_mcp_name}")
         mcp_labels.first.click()
-        logged_in_page.wait_for_timeout(1000)
+        logged_in_page.wait_for_timeout(500)
 
         # 6. 点击保存
         save_btn = modal.get_by_role("button", name="保存")
         save_btn.click()
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.wait_for_timeout(500)
 
         # 6.1 处理"配置已保存"重启对话框
         restart_btn = logged_in_page.get_by_role("button", name="重启")
         restart_btn.wait_for(state="visible", timeout=5000)
         restart_btn.click()
-        logged_in_page.wait_for_timeout(3000)
+        logged_in_page.wait_for_load_state("networkidle")
 
         # 7. 重新打开配置，验证 MCP 已绑定
         agent_wrapper.hover()
-        logged_in_page.wait_for_timeout(500)
         agent_wrapper.locator('button[title="智能体配置"]').click()
-        logged_in_page.wait_for_timeout(3000)
+        logged_in_page.locator("div.absolute.inset-0.z-50").wait_for(state="visible", timeout=10000)
 
         modal2 = logged_in_page.locator("div.absolute.inset-0.z-50")
         mcp_section2 = modal2.locator(
@@ -409,7 +407,6 @@ def test_agent_025_bind_mcp(logged_in_page, base_url):
         close_btn = modal2.locator("button:has-text('✕')")
         if close_btn.count() > 0:
             close_btn.first.click()
-            logged_in_page.wait_for_timeout(1000)
 
     finally:
         # 8. 清理
@@ -432,7 +429,7 @@ def test_agent_026_no_mcp(logged_in_page, base_url):
 
     try:
         ac.goto_agents()
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.wait_for_load_state("networkidle")
 
         # 找到新建 Agent 的卡片，确认存在
         card = logged_in_page.locator("button.agent-sidebar-agent-card").filter(
@@ -442,7 +439,7 @@ def test_agent_026_no_mcp(logged_in_page, base_url):
 
         # 点击进入对话
         card.first.click()
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.wait_for_load_state("networkidle")
         assert ac.is_on_chat_page(), "不绑定 MCP 的 Agent 也应能进入对话页面"
     finally:
         status = ac.delete_agent_api(agent_name)
@@ -466,7 +463,7 @@ def test_agent_027_bind_skill(logged_in_page, base_url):
     try:
         # 2. 导航到智能体列表
         ac.goto_agents()
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.wait_for_load_state("networkidle")
 
         # 3. 找到新建 Agent 的卡片容器，hover 后点击"智能体配置"
         card = logged_in_page.locator("button.agent-sidebar-agent-card").filter(
@@ -475,9 +472,8 @@ def test_agent_027_bind_skill(logged_in_page, base_url):
         assert card.count() > 0, f"列表中未找到 '{agent_name}'"
         agent_wrapper = card.first.locator("xpath=ancestor::div[contains(@class,'agent-sidebar-agent')]")
         agent_wrapper.hover()
-        logged_in_page.wait_for_timeout(500)
         agent_wrapper.locator('button[title="智能体配置"]').click()
-        logged_in_page.wait_for_timeout(3000)
+        logged_in_page.locator("div.absolute.inset-0.z-50").wait_for(state="visible", timeout=10000)
 
         # 4. 在编辑 modal 中，找到 Skill 区域
         modal = logged_in_page.locator("div.absolute.inset-0.z-50")
@@ -497,7 +493,7 @@ def test_agent_027_bind_skill(logged_in_page, base_url):
         # 点击 + 号展开 Skill 列表
         plus_btn = skill_section.locator("button:has(svg.lucide-plus)")
         plus_btn.first.click()
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.wait_for_timeout(500)
 
         # 5. 选择第一个可用的 Skill（点击 label）
         skill_labels = skill_section.locator("div.mt-3 label")
@@ -508,24 +504,23 @@ def test_agent_027_bind_skill(logged_in_page, base_url):
         first_skill_name = skill_labels.first.text_content().strip()
         print(f"选择绑定: {first_skill_name}")
         skill_labels.first.click()
-        logged_in_page.wait_for_timeout(1000)
+        logged_in_page.wait_for_timeout(500)
 
         # 6. 点击保存
         save_btn = modal.get_by_role("button", name="保存")
         save_btn.click()
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.wait_for_timeout(500)
 
         # 6.1 处理重启对话框
         restart_btn = logged_in_page.get_by_role("button", name="重启")
         restart_btn.wait_for(state="visible", timeout=5000)
         restart_btn.click()
-        logged_in_page.wait_for_timeout(3000)
+        logged_in_page.wait_for_load_state("networkidle")
 
         # 7. 重新打开配置，验证 Skill 已绑定
         agent_wrapper.hover()
-        logged_in_page.wait_for_timeout(500)
         agent_wrapper.locator('button[title="智能体配置"]').click()
-        logged_in_page.wait_for_timeout(3000)
+        logged_in_page.locator("div.absolute.inset-0.z-50").wait_for(state="visible", timeout=10000)
 
         modal2 = logged_in_page.locator("div.absolute.inset-0.z-50")
         skill_section2 = modal2.locator(
@@ -540,7 +535,6 @@ def test_agent_027_bind_skill(logged_in_page, base_url):
         close_btn = modal2.locator("button:has-text('✕')")
         if close_btn.count() > 0:
             close_btn.first.click()
-            logged_in_page.wait_for_timeout(1000)
 
     finally:
         # 8. 清理
@@ -563,7 +557,7 @@ def test_agent_028_no_skill(logged_in_page, base_url):
 
     try:
         ac.goto_agents()
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.wait_for_load_state("networkidle")
 
         card = logged_in_page.locator("button.agent-sidebar-agent-card").filter(
             has_text=agent_name
@@ -571,7 +565,7 @@ def test_agent_028_no_skill(logged_in_page, base_url):
         assert card.count() > 0, f"列表中未找到 '{agent_name}'"
 
         card.first.click()
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.wait_for_load_state("networkidle")
         assert ac.is_on_chat_page(), "不绑定 Skill 的 Agent 也应能进入对话页面"
     finally:
         status = ac.delete_agent_api(agent_name)
@@ -595,7 +589,7 @@ def test_agent_029_bind_knowledge(logged_in_page, base_url):
     try:
         # 2. 导航到智能体列表
         ac.goto_agents()
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.wait_for_load_state("networkidle")
 
         # 3. 找到新建 Agent，打开配置 modal
         card = logged_in_page.locator("button.agent-sidebar-agent-card").filter(
@@ -604,9 +598,8 @@ def test_agent_029_bind_knowledge(logged_in_page, base_url):
         assert card.count() > 0, f"列表中未找到 '{agent_name}'"
         agent_wrapper = card.first.locator("xpath=ancestor::div[contains(@class,'agent-sidebar-agent')]")
         agent_wrapper.hover()
-        logged_in_page.wait_for_timeout(500)
         agent_wrapper.locator('button[title="智能体配置"]').click()
-        logged_in_page.wait_for_timeout(3000)
+        logged_in_page.locator("div.absolute.inset-0.z-50").wait_for(state="visible", timeout=10000)
 
         modal = logged_in_page.locator("div.absolute.inset-0.z-50")
         assert modal.count() > 0, "编辑 Agent 的 modal 未打开"
@@ -614,7 +607,7 @@ def test_agent_029_bind_knowledge(logged_in_page, base_url):
         # 4. 切换到"知识库" tab
         kb_tab = modal.get_by_role("button", name="知识库")
         kb_tab.click()
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.wait_for_timeout(500)
 
         # 5. 验证初始状态：未绑定知识库
         modal_text = modal.inner_text()
@@ -628,7 +621,7 @@ def test_agent_029_bind_knowledge(logged_in_page, base_url):
             # 尝试其他选择器
             kb_labels = modal.locator("input[type='checkbox']:visible").first.locator("xpath=ancestor::label")
         kb_labels.click()
-        logged_in_page.wait_for_timeout(1000)
+        logged_in_page.wait_for_timeout(500)
 
         # 获取选中的知识库名称
         first_kb = kb_labels.text_content().strip()[:40]
@@ -637,24 +630,23 @@ def test_agent_029_bind_knowledge(logged_in_page, base_url):
         # 7. 点击保存
         save_btn = modal.get_by_role("button", name="保存")
         save_btn.click()
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.wait_for_timeout(500)
 
         # 7.1 处理重启对话框
         restart_btn = logged_in_page.get_by_role("button", name="重启")
         restart_btn.wait_for(state="visible", timeout=5000)
         restart_btn.click()
-        logged_in_page.wait_for_timeout(3000)
+        logged_in_page.wait_for_load_state("networkidle")
 
         # 8. 重新打开配置，验证知识库已绑定
         agent_wrapper.hover()
-        logged_in_page.wait_for_timeout(500)
         agent_wrapper.locator('button[title="智能体配置"]').click()
-        logged_in_page.wait_for_timeout(3000)
+        logged_in_page.locator("div.absolute.inset-0.z-50").wait_for(state="visible", timeout=10000)
 
         modal2 = logged_in_page.locator("div.absolute.inset-0.z-50")
         kb_tab2 = modal2.get_by_role("button", name="知识库")
         kb_tab2.click()
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.wait_for_timeout(500)
 
         after_text = modal2.inner_text()
         print(f"绑定后知识库内容: {[l for l in after_text.split(chr(10)) if '已选择' in l]}")
@@ -665,7 +657,6 @@ def test_agent_029_bind_knowledge(logged_in_page, base_url):
         close_btn = modal2.locator("button:has-text('✕')")
         if close_btn.count() > 0:
             close_btn.first.click()
-            logged_in_page.wait_for_timeout(1000)
 
     finally:
         # 9. 清理
@@ -690,7 +681,7 @@ def test_agent_030_select_model(logged_in_page, base_url):
     try:
         # 2. 导航到智能体列表
         ac.goto_agents()
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.wait_for_load_state("networkidle")
 
         # 3. 打开配置 modal
         card = logged_in_page.locator("button.agent-sidebar-agent-card").filter(
@@ -699,9 +690,8 @@ def test_agent_030_select_model(logged_in_page, base_url):
         assert card.count() > 0, f"列表中未找到 '{agent_name}'"
         agent_wrapper = card.first.locator("xpath=ancestor::div[contains(@class,'agent-sidebar-agent')]")
         agent_wrapper.hover()
-        logged_in_page.wait_for_timeout(500)
         agent_wrapper.locator('button[title="智能体配置"]').click()
-        logged_in_page.wait_for_timeout(3000)
+        logged_in_page.locator("div.absolute.inset-0.z-50").wait_for(state="visible", timeout=10000)
 
         modal = logged_in_page.locator("div.absolute.inset-0.z-50")
         assert modal.count() > 0, "编辑 Agent 的 modal 未打开"
@@ -716,13 +706,13 @@ def test_agent_030_select_model(logged_in_page, base_url):
 
         # 5. 点击模型下拉按钮
         model_btn.click()
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.wait_for_timeout(500)
 
         # 6. 获取可选模型列表
         model_options = logged_in_page.locator("[data-state='open'] [role='option'], [data-radix-popper-content-wrapper] [role='option']")
         if model_options.count() == 0:
             # 备选：查找下拉列表中的所有可点击项
-            model_options = logged_in_page.locator("[data-state='open'] div[class*='cursor-pointer'], [data-radix-popper-content-wrapper] div[class*='cursor-pointer']")
+            model_options = logged_in_page.locator("[data-state='open'] [role='option'], [data-radix-popper-content-wrapper] [role='option']")
 
         option_count = model_options.count()
         print(f"可选模型数量: {option_count}")
@@ -736,30 +726,28 @@ def test_agent_030_select_model(logged_in_page, base_url):
             )
             # 关闭下拉
             logged_in_page.keyboard.press("Escape")
-            logged_in_page.wait_for_timeout(500)
         else:
             # 选择第二个模型（与当前不同的）
             new_model_text = model_options.nth(1).text_content().strip()
             print(f"切换到: {new_model_text}")
             model_options.nth(1).click()
-            logged_in_page.wait_for_timeout(1000)
+            logged_in_page.wait_for_timeout(500)
 
             # 7. 保存
             save_btn = modal.get_by_role("button", name="保存")
             save_btn.click()
-            logged_in_page.wait_for_timeout(2000)
+            logged_in_page.wait_for_timeout(500)
 
             # 7.1 处理重启对话框
             restart_btn = logged_in_page.get_by_role("button", name="重启")
             restart_btn.wait_for(state="visible", timeout=5000)
             restart_btn.click()
-            logged_in_page.wait_for_timeout(3000)
+            logged_in_page.wait_for_load_state("networkidle")
 
             # 8. 重新打开配置，验证模型已切换
             agent_wrapper.hover()
-            logged_in_page.wait_for_timeout(500)
             agent_wrapper.locator('button[title="智能体配置"]').click()
-            logged_in_page.wait_for_timeout(3000)
+            logged_in_page.locator("div.absolute.inset-0.z-50").wait_for(state="visible", timeout=10000)
 
             modal2 = logged_in_page.locator("div.absolute.inset-0.z-50")
             new_model_btn = modal2.locator("button").filter(has_text="ORG_001/").first
@@ -772,7 +760,6 @@ def test_agent_030_select_model(logged_in_page, base_url):
         close_btn = modal.locator("button:has-text('✕')")
         if close_btn.count() > 0:
             close_btn.first.click()
-            logged_in_page.wait_for_timeout(1000)
 
     finally:
         # 9. 清理
@@ -812,7 +799,7 @@ def test_agent_031_create_full_config(logged_in_page, base_url):
     )
 
     assert has_meta or has_templates or has_quick, \
-        "至少有一种创建方式可用"
+        f"首页缺少元数据/模板/快捷入口，has_meta={has_meta}, has_templates={has_templates}, has_quick={has_quick}"
 
 
 @allure.epic("智能体配置")
@@ -830,7 +817,7 @@ def test_agent_032_edit_add_config(logged_in_page, base_url):
 
     # 点击第一个 Agent 进入对话
     ac.click_agent(names[0])
-    logged_in_page.wait_for_timeout(2000)
+    logged_in_page.wait_for_load_state("networkidle")
 
     # 对话页面应有配置相关入口
     if ac.is_on_chat_page():
@@ -862,7 +849,7 @@ def test_add_then_remove_skill(logged_in_page, base_url):
 
     try:
         ac.goto_agents()
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.wait_for_load_state("networkidle")
 
         card = logged_in_page.locator("button.agent-sidebar-agent-card").filter(
             has_text=agent_name
@@ -872,9 +859,8 @@ def test_add_then_remove_skill(logged_in_page, base_url):
 
         # === 阶段一：绑定一个技能 ===
         agent_wrapper.hover()
-        logged_in_page.wait_for_timeout(500)
         agent_wrapper.locator('button[title="智能体配置"]').click()
-        logged_in_page.wait_for_timeout(3000)
+        logged_in_page.locator("div.absolute.inset-0.z-50").wait_for(state="visible", timeout=10000)
 
         modal = logged_in_page.locator("div.absolute.inset-0.z-50")
         skill_section = modal.locator(
@@ -884,7 +870,7 @@ def test_add_then_remove_skill(logged_in_page, base_url):
         # 点击 + 展开 Skill 列表
         plus_btn = skill_section.locator("button:has(svg.lucide-plus)")
         plus_btn.first.click()
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.wait_for_timeout(500)
 
         # 选择第一个 Skill
         skill_labels = skill_section.locator("div.mt-3 label")
@@ -892,21 +878,20 @@ def test_add_then_remove_skill(logged_in_page, base_url):
         first_skill = skill_labels.first.text_content().strip()[:40]
         print(f"\n绑定技能: {first_skill}")
         skill_labels.first.click()
-        logged_in_page.wait_for_timeout(1000)
+        logged_in_page.wait_for_timeout(500)
 
         # 保存
         modal.get_by_role("button", name="保存").click()
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.get_by_role("button", name="重启").wait_for(state="visible", timeout=15000)
         restart_btn = logged_in_page.get_by_role("button", name="重启")
         restart_btn.wait_for(state="visible", timeout=5000)
         restart_btn.click()
-        logged_in_page.wait_for_timeout(3000)
+        logged_in_page.wait_for_load_state("networkidle")
 
         # === 阶段二：移除该技能 ===
         agent_wrapper.hover()
-        logged_in_page.wait_for_timeout(500)
         agent_wrapper.locator('button[title="智能体配置"]').click()
-        logged_in_page.wait_for_timeout(3000)
+        logged_in_page.locator("div.absolute.inset-0.z-50").wait_for(state="visible", timeout=10000)
 
         modal2 = logged_in_page.locator("div.absolute.inset-0.z-50")
         skill_section2 = modal2.locator(
@@ -924,21 +909,20 @@ def test_add_then_remove_skill(logged_in_page, base_url):
         )
         assert x_btns.count() > 0, "没有找到已绑定技能的移除按钮"
         x_btns.first.click()
-        logged_in_page.wait_for_timeout(1000)
+        logged_in_page.wait_for_timeout(500)
 
         # 保存
         modal2.get_by_role("button", name="保存").click()
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.get_by_role("button", name="重启").wait_for(state="visible", timeout=15000)
         restart_btn2 = logged_in_page.get_by_role("button", name="重启")
         restart_btn2.wait_for(state="visible", timeout=5000)
         restart_btn2.click()
-        logged_in_page.wait_for_timeout(3000)
+        logged_in_page.wait_for_timeout(1500)
 
         # === 阶段三：验证技能已移除 ===
         agent_wrapper.hover()
-        logged_in_page.wait_for_timeout(500)
         agent_wrapper.locator('button[title="智能体配置"]').click()
-        logged_in_page.wait_for_timeout(3000)
+        logged_in_page.locator("div.absolute.inset-0.z-50").wait_for(state="visible", timeout=10000)
 
         modal3 = logged_in_page.locator("div.absolute.inset-0.z-50")
         skill_section3 = modal3.locator(
@@ -953,7 +937,6 @@ def test_add_then_remove_skill(logged_in_page, base_url):
         close_btn = modal3.locator("button:has-text('✕')")
         if close_btn.count() > 0:
             close_btn.first.click()
-            logged_in_page.wait_for_timeout(1000)
 
     finally:
         status = ac.delete_agent_api(agent_name)
@@ -975,7 +958,7 @@ def test_add_then_remove_mcp(logged_in_page, base_url):
 
     try:
         ac.goto_agents()
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.wait_for_load_state("networkidle")
 
         card = logged_in_page.locator("button.agent-sidebar-agent-card").filter(
             has_text=agent_name
@@ -985,9 +968,8 @@ def test_add_then_remove_mcp(logged_in_page, base_url):
 
         # === 阶段一：绑定 MCP ===
         agent_wrapper.hover()
-        logged_in_page.wait_for_timeout(500)
         agent_wrapper.locator('button[title="智能体配置"]').click()
-        logged_in_page.wait_for_timeout(3000)
+        logged_in_page.locator("div.absolute.inset-0.z-50").wait_for(state="visible", timeout=10000)
 
         modal = logged_in_page.locator("div.absolute.inset-0.z-50")
         mcp_section = modal.locator(
@@ -996,27 +978,26 @@ def test_add_then_remove_mcp(logged_in_page, base_url):
 
         plus_btn = mcp_section.locator("button:has(svg.lucide-plus)")
         plus_btn.first.click()
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.wait_for_timeout(500)
 
         mcp_labels = mcp_section.locator("div.mt-3 label")
         assert mcp_labels.count() > 0, "没有可用的 MCP 服务器"
         first_mcp = mcp_labels.first.text_content().strip()[:40]
         print(f"\n绑定 MCP: {first_mcp}")
         mcp_labels.first.click()
-        logged_in_page.wait_for_timeout(1000)
+        logged_in_page.wait_for_timeout(500)
 
         modal.get_by_role("button", name="保存").click()
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.get_by_role("button", name="重启").wait_for(state="visible", timeout=15000)
         restart_btn = logged_in_page.get_by_role("button", name="重启")
         restart_btn.wait_for(state="visible", timeout=5000)
         restart_btn.click()
-        logged_in_page.wait_for_timeout(3000)
+        logged_in_page.wait_for_load_state("networkidle")
 
         # === 阶段二：移除 MCP ===
         agent_wrapper.hover()
-        logged_in_page.wait_for_timeout(500)
         agent_wrapper.locator('button[title="智能体配置"]').click()
-        logged_in_page.wait_for_timeout(3000)
+        logged_in_page.locator("div.absolute.inset-0.z-50").wait_for(state="visible", timeout=10000)
 
         modal2 = logged_in_page.locator("div.absolute.inset-0.z-50")
         mcp_section2 = modal2.locator(
@@ -1032,20 +1013,19 @@ def test_add_then_remove_mcp(logged_in_page, base_url):
         )
         assert x_btns.count() > 0, "没有找到已绑定 MCP 的移除按钮"
         x_btns.first.click()
-        logged_in_page.wait_for_timeout(1000)
+        logged_in_page.wait_for_timeout(500)
 
         modal2.get_by_role("button", name="保存").click()
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.get_by_role("button", name="重启").wait_for(state="visible", timeout=15000)
         restart_btn2 = logged_in_page.get_by_role("button", name="重启")
         restart_btn2.wait_for(state="visible", timeout=5000)
         restart_btn2.click()
-        logged_in_page.wait_for_timeout(3000)
+        logged_in_page.wait_for_timeout(1500)
 
         # === 阶段三：验证 MCP 已移除 ===
         agent_wrapper.hover()
-        logged_in_page.wait_for_timeout(500)
         agent_wrapper.locator('button[title="智能体配置"]').click()
-        logged_in_page.wait_for_timeout(3000)
+        logged_in_page.locator("div.absolute.inset-0.z-50").wait_for(state="visible", timeout=10000)
 
         modal3 = logged_in_page.locator("div.absolute.inset-0.z-50")
         mcp_section3 = modal3.locator(
@@ -1059,7 +1039,6 @@ def test_add_then_remove_mcp(logged_in_page, base_url):
         close_btn = modal3.locator("button:has-text('✕')")
         if close_btn.count() > 0:
             close_btn.first.click()
-            logged_in_page.wait_for_timeout(1000)
 
     finally:
         status = ac.delete_agent_api(agent_name)
@@ -1081,7 +1060,7 @@ def test_add_then_remove_knowledge(logged_in_page, base_url):
 
     try:
         ac.goto_agents()
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.wait_for_load_state("networkidle")
 
         card = logged_in_page.locator("button.agent-sidebar-agent-card").filter(
             has_text=agent_name
@@ -1091,14 +1070,13 @@ def test_add_then_remove_knowledge(logged_in_page, base_url):
 
         # === 阶段一：绑定知识库 ===
         agent_wrapper.hover()
-        logged_in_page.wait_for_timeout(500)
         agent_wrapper.locator('button[title="智能体配置"]').click()
-        logged_in_page.wait_for_timeout(3000)
+        logged_in_page.locator("div.absolute.inset-0.z-50").wait_for(state="visible", timeout=10000)
 
         modal = logged_in_page.locator("div.absolute.inset-0.z-50")
         kb_tab = modal.get_by_role("button", name="知识库")
         kb_tab.click()
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.wait_for_timeout(500)
 
         kb_labels = modal.locator("label:visible").filter(has_text="知识库").first
         if kb_labels.count() == 0:
@@ -1106,25 +1084,24 @@ def test_add_then_remove_knowledge(logged_in_page, base_url):
         first_kb = kb_labels.text_content().strip()[:40]
         print(f"\n绑定知识库: {first_kb}")
         kb_labels.click()
-        logged_in_page.wait_for_timeout(1000)
+        logged_in_page.wait_for_timeout(500)
 
         modal.get_by_role("button", name="保存").click()
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.get_by_role("button", name="重启").wait_for(state="visible", timeout=15000)
         restart_btn = logged_in_page.get_by_role("button", name="重启")
         restart_btn.wait_for(state="visible", timeout=5000)
         restart_btn.click()
-        logged_in_page.wait_for_timeout(3000)
+        logged_in_page.wait_for_load_state("networkidle")
 
         # === 阶段二：移除知识库 ===
         agent_wrapper.hover()
-        logged_in_page.wait_for_timeout(500)
         agent_wrapper.locator('button[title="智能体配置"]').click()
-        logged_in_page.wait_for_timeout(3000)
+        logged_in_page.locator("div.absolute.inset-0.z-50").wait_for(state="visible", timeout=10000)
 
         modal2 = logged_in_page.locator("div.absolute.inset-0.z-50")
         kb_tab2 = modal2.get_by_role("button", name="知识库")
         kb_tab2.click()
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.wait_for_timeout(500)
 
         before_text = modal2.inner_text()
         print(f"移除前: {[l for l in before_text.split(chr(10)) if '已选择' in l]}")
@@ -1135,25 +1112,24 @@ def test_add_then_remove_knowledge(logged_in_page, base_url):
         if kb_labels2.count() == 0:
             kb_labels2 = modal2.locator("input[type='checkbox']:visible").first.locator("xpath=ancestor::label")
         kb_labels2.click()
-        logged_in_page.wait_for_timeout(1000)
+        logged_in_page.wait_for_timeout(500)
 
         modal2.get_by_role("button", name="保存").click()
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.get_by_role("button", name="重启").wait_for(state="visible", timeout=15000)
         restart_btn2 = logged_in_page.get_by_role("button", name="重启")
         restart_btn2.wait_for(state="visible", timeout=5000)
         restart_btn2.click()
-        logged_in_page.wait_for_timeout(3000)
+        logged_in_page.wait_for_timeout(1500)
 
         # === 阶段三：验证知识库已移除 ===
         agent_wrapper.hover()
-        logged_in_page.wait_for_timeout(500)
         agent_wrapper.locator('button[title="智能体配置"]').click()
-        logged_in_page.wait_for_timeout(3000)
+        logged_in_page.locator("div.absolute.inset-0.z-50").wait_for(state="visible", timeout=10000)
 
         modal3 = logged_in_page.locator("div.absolute.inset-0.z-50")
         kb_tab3 = modal3.get_by_role("button", name="知识库")
         kb_tab3.click()
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.wait_for_timeout(500)
 
         after_text = modal3.inner_text()
         print(f"移除后: {[l for l in after_text.split(chr(10)) if '已选择' in l]}")
@@ -1163,7 +1139,6 @@ def test_add_then_remove_knowledge(logged_in_page, base_url):
         close_btn = modal3.locator("button:has-text('✕')")
         if close_btn.count() > 0:
             close_btn.first.click()
-            logged_in_page.wait_for_timeout(1000)
 
     finally:
         status = ac.delete_agent_api(agent_name)
@@ -1185,7 +1160,7 @@ def test_add_then_remove_sites(logged_in_page, base_url):
 
     try:
         ac.goto_agents()
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.wait_for_load_state("networkidle")
 
         card = logged_in_page.locator("button.agent-sidebar-agent-card").filter(
             has_text=agent_name
@@ -1195,9 +1170,8 @@ def test_add_then_remove_sites(logged_in_page, base_url):
 
         # === 阶段一：绑定 Sites ===
         agent_wrapper.hover()
-        logged_in_page.wait_for_timeout(500)
         agent_wrapper.locator('button[title="智能体配置"]').click()
-        logged_in_page.wait_for_timeout(3000)
+        logged_in_page.locator("div.absolute.inset-0.z-50").wait_for(state="visible", timeout=10000)
 
         modal = logged_in_page.locator("div.absolute.inset-0.z-50")
         sites_section = modal.locator(
@@ -1206,27 +1180,26 @@ def test_add_then_remove_sites(logged_in_page, base_url):
 
         plus_btn = sites_section.locator("button:has(svg.lucide-plus)")
         plus_btn.first.click()
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.wait_for_timeout(500)
 
         sites_labels = sites_section.locator("div.mt-3 label")
         assert sites_labels.count() > 0, "没有可用的 Sites"
         first_site = sites_labels.first.text_content().strip()[:40]
         print(f"\n绑定 Sites: {first_site}")
         sites_labels.first.click()
-        logged_in_page.wait_for_timeout(1000)
+        logged_in_page.wait_for_timeout(500)
 
         modal.get_by_role("button", name="保存").click()
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.get_by_role("button", name="重启").wait_for(state="visible", timeout=15000)
         restart_btn = logged_in_page.get_by_role("button", name="重启")
         restart_btn.wait_for(state="visible", timeout=5000)
         restart_btn.click()
-        logged_in_page.wait_for_timeout(3000)
+        logged_in_page.wait_for_load_state("networkidle")
 
         # === 阶段二：移除 Sites ===
         agent_wrapper.hover()
-        logged_in_page.wait_for_timeout(500)
         agent_wrapper.locator('button[title="智能体配置"]').click()
-        logged_in_page.wait_for_timeout(3000)
+        logged_in_page.locator("div.absolute.inset-0.z-50").wait_for(state="visible", timeout=10000)
 
         modal2 = logged_in_page.locator("div.absolute.inset-0.z-50")
         sites_section2 = modal2.locator(
@@ -1242,20 +1215,19 @@ def test_add_then_remove_sites(logged_in_page, base_url):
         )
         assert x_btns.count() > 0, "没有找到已绑定 Sites 的移除按钮"
         x_btns.first.click()
-        logged_in_page.wait_for_timeout(1000)
+        logged_in_page.wait_for_timeout(500)
 
         modal2.get_by_role("button", name="保存").click()
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.get_by_role("button", name="重启").wait_for(state="visible", timeout=15000)
         restart_btn2 = logged_in_page.get_by_role("button", name="重启")
         restart_btn2.wait_for(state="visible", timeout=5000)
         restart_btn2.click()
-        logged_in_page.wait_for_timeout(3000)
+        logged_in_page.wait_for_timeout(1500)
 
         # === 阶段三：验证 Sites 已移除 ===
         agent_wrapper.hover()
-        logged_in_page.wait_for_timeout(500)
         agent_wrapper.locator('button[title="智能体配置"]').click()
-        logged_in_page.wait_for_timeout(3000)
+        logged_in_page.locator("div.absolute.inset-0.z-50").wait_for(state="visible", timeout=10000)
 
         modal3 = logged_in_page.locator("div.absolute.inset-0.z-50")
         sites_section3 = modal3.locator(
@@ -1269,7 +1241,6 @@ def test_add_then_remove_sites(logged_in_page, base_url):
         close_btn = modal3.locator("button:has-text('✕')")
         if close_btn.count() > 0:
             close_btn.first.click()
-            logged_in_page.wait_for_timeout(1000)
 
     finally:
         status = ac.delete_agent_api(agent_name)
@@ -1292,7 +1263,7 @@ def test_edit_description(logged_in_page, base_url):
 
     try:
         ac.goto_agents()
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.wait_for_load_state("networkidle")
 
         card = logged_in_page.locator("button.agent-sidebar-agent-card").filter(
             has_text=agent_name
@@ -1302,9 +1273,8 @@ def test_edit_description(logged_in_page, base_url):
 
         # 打开配置 modal
         agent_wrapper.hover()
-        logged_in_page.wait_for_timeout(500)
         agent_wrapper.locator('button[title="智能体配置"]').click()
-        logged_in_page.wait_for_timeout(3000)
+        logged_in_page.locator("div.absolute.inset-0.z-50").wait_for(state="visible", timeout=10000)
 
         modal = logged_in_page.locator("div.absolute.inset-0.z-50")
         assert modal.count() > 0, "编辑 modal 未打开"
@@ -1320,17 +1290,16 @@ def test_edit_description(logged_in_page, base_url):
 
         # 保存
         modal.get_by_role("button", name="保存").click()
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.get_by_role("button", name="重启").wait_for(state="visible", timeout=15000)
         restart_btn = logged_in_page.get_by_role("button", name="重启")
         restart_btn.wait_for(state="visible", timeout=5000)
         restart_btn.click()
-        logged_in_page.wait_for_timeout(3000)
+        logged_in_page.wait_for_load_state("networkidle")
 
         # 重新打开配置，验证描述已修改
         agent_wrapper.hover()
-        logged_in_page.wait_for_timeout(500)
         agent_wrapper.locator('button[title="智能体配置"]').click()
-        logged_in_page.wait_for_timeout(3000)
+        logged_in_page.locator("div.absolute.inset-0.z-50").wait_for(state="visible", timeout=10000)
 
         modal2 = logged_in_page.locator("div.absolute.inset-0.z-50")
         desc_input2 = modal2.locator("label:has-text('描述') + input, label:has-text('描述') ~ input").first
@@ -1344,7 +1313,6 @@ def test_edit_description(logged_in_page, base_url):
         close_btn = modal2.locator("button:has-text('✕')")
         if close_btn.count() > 0:
             close_btn.first.click()
-            logged_in_page.wait_for_timeout(1000)
 
     finally:
         status = ac.delete_agent_api(agent_name)
@@ -1367,7 +1335,7 @@ def test_edit_prompt(logged_in_page, base_url):
 
     try:
         ac.goto_agents()
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.wait_for_load_state("networkidle")
 
         card = logged_in_page.locator("button.agent-sidebar-agent-card").filter(
             has_text=agent_name
@@ -1377,9 +1345,8 @@ def test_edit_prompt(logged_in_page, base_url):
 
         # 打开配置 modal
         agent_wrapper.hover()
-        logged_in_page.wait_for_timeout(500)
         agent_wrapper.locator('button[title="智能体配置"]').click()
-        logged_in_page.wait_for_timeout(3000)
+        logged_in_page.locator("div.absolute.inset-0.z-50").wait_for(state="visible", timeout=10000)
 
         modal = logged_in_page.locator("div.absolute.inset-0.z-50")
         assert modal.count() > 0, "编辑 modal 未打开"
@@ -1395,17 +1362,16 @@ def test_edit_prompt(logged_in_page, base_url):
 
         # 保存
         modal.get_by_role("button", name="保存").click()
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.get_by_role("button", name="重启").wait_for(state="visible", timeout=15000)
         restart_btn = logged_in_page.get_by_role("button", name="重启")
         restart_btn.wait_for(state="visible", timeout=5000)
         restart_btn.click()
-        logged_in_page.wait_for_timeout(3000)
+        logged_in_page.wait_for_load_state("networkidle")
 
         # 重新打开配置，验证提示词已修改
         agent_wrapper.hover()
-        logged_in_page.wait_for_timeout(500)
         agent_wrapper.locator('button[title="智能体配置"]').click()
-        logged_in_page.wait_for_timeout(3000)
+        logged_in_page.locator("div.absolute.inset-0.z-50").wait_for(state="visible", timeout=10000)
 
         modal2 = logged_in_page.locator("div.absolute.inset-0.z-50")
         prompt_ta2 = modal2.locator("label:has-text('Prompt') + textarea, label:has-text('提示词') ~ textarea").first
@@ -1419,7 +1385,6 @@ def test_edit_prompt(logged_in_page, base_url):
         close_btn = modal2.locator("button:has-text('✕')")
         if close_btn.count() > 0:
             close_btn.first.click()
-            logged_in_page.wait_for_timeout(1000)
 
     finally:
         status = ac.delete_agent_api(agent_name)
@@ -1442,7 +1407,7 @@ def test_cancel_discards_changes(logged_in_page, base_url):
 
     try:
         ac.goto_agents()
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.wait_for_load_state("networkidle")
 
         card = logged_in_page.locator("button.agent-sidebar-agent-card").filter(
             has_text=agent_name
@@ -1452,9 +1417,8 @@ def test_cancel_discards_changes(logged_in_page, base_url):
 
         # 打开配置 modal
         agent_wrapper.hover()
-        logged_in_page.wait_for_timeout(500)
         agent_wrapper.locator('button[title="智能体配置"]').click()
-        logged_in_page.wait_for_timeout(3000)
+        logged_in_page.locator("div.absolute.inset-0.z-50").wait_for(state="visible", timeout=10000)
 
         modal = logged_in_page.locator("div.absolute.inset-0.z-50")
         assert modal.count() > 0, "编辑 modal 未打开"
@@ -1469,13 +1433,11 @@ def test_cancel_discards_changes(logged_in_page, base_url):
         # 点取消（不保存）
         cancel_btn = modal.get_by_role("button", name="取消")
         cancel_btn.click()
-        logged_in_page.wait_for_timeout(2000)
 
         # 重新打开配置，验证提示词未改变
         agent_wrapper.hover()
-        logged_in_page.wait_for_timeout(500)
         agent_wrapper.locator('button[title="智能体配置"]').click()
-        logged_in_page.wait_for_timeout(3000)
+        logged_in_page.locator("div.absolute.inset-0.z-50").wait_for(state="visible", timeout=10000)
 
         modal2 = logged_in_page.locator("div.absolute.inset-0.z-50")
         prompt_ta2 = modal2.locator("label:has-text('Prompt') + textarea, label:has-text('提示词') ~ textarea").first
@@ -1491,7 +1453,6 @@ def test_cancel_discards_changes(logged_in_page, base_url):
         close_btn = modal2.locator("button:has-text('✕')")
         if close_btn.count() > 0:
             close_btn.first.click()
-            logged_in_page.wait_for_timeout(1000)
 
     finally:
         status = ac.delete_agent_api(agent_name)
@@ -1517,7 +1478,7 @@ def test_refresh_during_reply(logged_in_page, base_url):
     # 2. 记录刷新前的消息数量
     chat_url = logged_in_page.url
     before_messages = logged_in_page.locator(
-        "[class*='message'], [class*='response'], [class*='chat-message']"
+        "div[role='log'] > div, div[role='log']"
     )
     before_count = before_messages.count()
     print(f"\n刷新前消息气泡数: {before_count}")
@@ -1542,12 +1503,13 @@ def test_refresh_during_reply(logged_in_page, base_url):
         if not ac.is_on_chat_page():
             ac.goto_agents()
             ac.click_agent(agent_name)
-            logged_in_page.wait_for_timeout(2000)
+            logged_in_page.wait_for_load_state("networkidle")
 
     assert ac.is_on_chat_page(), "刷新后应能回到对话页面"
 
     # 6. 等待 AI 完成回复（刷新后 AI 应继续或重新完成回复）
-    logged_in_page.wait_for_timeout(15000)
+    logged_in_page.wait_for_load_state("networkidle")
+    logged_in_page.wait_for_timeout(3000)
 
     # 7. 获取最后一条 AI 回复，检查是否完整（不被打断）
     last_reply = ac.get_last_message()

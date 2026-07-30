@@ -134,7 +134,8 @@ def test_workflow_create_and_return(logged_in_page, base_url):
     logged_in_page.on("response", on_create)
 
     logged_in_page.locator("[role='dialog'] button").filter(has_text="创建并编辑").first.click()
-    logged_in_page.wait_for_timeout(5000)
+    logged_in_page.wait_for_load_state("networkidle")
+    logged_in_page.wait_for_timeout(2000)
 
     # ── Step 3: 验证跳转到编辑页 ──
     assert "/workflow/" in logged_in_page.url and "/edit" in logged_in_page.url, \

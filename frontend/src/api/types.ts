@@ -13,6 +13,18 @@ export interface Project {
   created_at: string;
 }
 
+export interface AuthConfig {
+  id: number;
+  name: string;
+  ui_test_email: string;
+  ui_test_password: string;
+  api_test_email: string;
+  api_test_password: string;
+  open_api_key: string;
+  is_active: number;
+  created_at: string;
+}
+
 export interface TestSuite {
   id: number;
   project_id: number;
@@ -86,4 +98,26 @@ export interface TrendItem {
   failed: number;
   skipped: number;
   pass_rate: number;
+}
+
+export interface LLMConfig {
+  id: number;
+  name: string;
+  provider: string;
+  base_url: string;
+  api_key: string;
+  model: string;
+  is_active: number;
+  created_at: string;
+}
+
+export interface ZentaoConfig {
+  id: number;
+  name: string;
+  base_url: string;
+  username: string;
+  password: string;
+  product_id: number;
+  is_active: number;
+  created_at: string;
 }

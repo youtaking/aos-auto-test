@@ -1,8 +1,10 @@
 # backend/api/cases.py
 """测试用例管理 API"""
+from collections import defaultdict
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, delete
 from backend.db.config import get_async_session
 from backend.db.models import TestCase, TestResult, TestSuite, Project
 from backend.schemas.case import CaseResponse, CaseCreate
@@ -10,6 +12,138 @@ from backend.schemas.common import ApiResponse
 
 router = APIRouter()
 
+# ── 套件显示名映射 ──
+
+SUITE_LABELS = {
+    "login": "登录/认证", "dashboard": "Dashboard",
+    "agent": "Agent 管理", "agent_manage": "Agent 管理",
+    "agent_config_v2": "Agent_Config_V2",
+    "chat": "Chat 对话", "chat_v2": "对话聊天",
+    "sidebar": "侧边栏导航", "sites": "Agent Sites",
+    "tasks": "定时任务", "knowledge": "知识库",
+    "apikey": "API Key", "skills_v2": "Skills_V2",
+    "auth": "Auth", "mcp": "Mcp",
+    "algorithms": "Algorithms", "model_config": "Model_Config",
+    "org": "Org", "vertical_models": "Vertical_Models",
+}
+
+API_SUITE_LABELS = {
+    "agent_api": "Agent_Api (API)",
+}
+
+
+def _infer_priority(func_name: str) -> str:
+    """根据函数名推断优先级"""
+    if any(t in func_name for t in ["login", "auth", "redirect", "page_loads"]):
+        return "P0"
+    return "P1"
+
+
+async def sync_test_cases(
+    db: AsyncSession,
+    project: Project,
+    collected: list[dict],
+    suite_labels: dict[str, str],
+    test_type: str = "ui",
+) -> dict:
+    """
+    全量同步：对比文件系统与 DB，新增缺失的、清理过期的、删除空套件。
+    """
+    # 1. 按 suite_key 分组
+    grouped: dict[str, list[dict]] = defaultdict(list)
+    for item in collected:
+        grouped[item["suite_name"]].append(item)
+
+    # 2. 获取已有套件，按 tags 索引
+    result = await db.execute(
+        select(TestSuite).where(TestSuite.project_id == project.id)
+    )
+    suites_by_tags = {s.tags: s for s in result.scalars().all()}
+
+    new_cases = 0
+    removed_cases = 0
+
+    # 3. 逐套件同步
+    for suite_key, items in grouped.items():
+        suite_label = suite_labels.get(suite_key, suite_key.title())
+
+        # 按 tags 匹配已有套件，找不到则创建
+        suite = suites_by_tags.get(suite_key)
+        if not suite:
+            suite = TestSuite(
+                project_id=project.id,
+                name=suite_label,
+                description=f"自动发现的 {suite_key} 测试套件",
+                tags=suite_key,
+                test_type=test_type,
+            )
+            db.add(suite)
+            await db.flush()
+            suites_by_tags[suite_key] = suite
+
+        # 文件系统上的函数名集合
+        fs_funcs = {item["function_name"] for item in items}
+
+        # DB 中该套件的所有用例
+        db_result = await db.execute(
+            select(TestCase).where(TestCase.suite_id == suite.id)
+        )
+        db_cases = {c.function_name: c for c in db_result.scalars().all()}
+
+        # 新增：文件系统有但 DB 没有
+        for item in items:
+            fn = item["function_name"]
+            if fn not in db_cases:
+                priority = _infer_priority(fn)
+                db.add(TestCase(
+                    suite_id=suite.id,
+                    name=fn.replace("test_", "").replace("_", " ").title(),
+                    file_path=item["file_path"],
+                    function_name=fn,
+                    tags=f"{priority.lower()},{suite_key}",
+                    priority=priority,
+                    timeout=30,
+                ))
+                new_cases += 1
+
+        # 清理：DB 有但文件系统没有
+        stale_funcs = [fn for fn in db_cases if fn not in fs_funcs]
+        if stale_funcs:
+            stale_ids = [db_cases[fn].id for fn in stale_funcs]
+            await db.execute(
+                delete(TestResult).where(TestResult.case_id.in_(stale_ids))
+            )
+            await db.execute(
+                delete(TestCase).where(TestCase.id.in_(stale_ids))
+            )
+            removed_cases += len(stale_funcs)
+
+    await db.flush()
+
+    # 4. 删除空套件
+    removed_suites = 0
+    project_suites = await db.execute(
+        select(TestSuite).where(TestSuite.project_id == project.id)
+    )
+    for suite in project_suites.scalars().all():
+        cnt = await db.execute(
+            select(func.count()).select_from(TestCase).where(TestCase.suite_id == suite.id)
+        )
+        if cnt.scalar() == 0:
+            await db.delete(suite)
+            removed_suites += 1
+
+    await db.commit()
+
+    return {
+        "discovered": len(collected),
+        "new_cases": new_cases,
+        "removed_cases": removed_cases,
+        "removed_suites": removed_suites,
+    }
+
+
+# ── 端点 ──
 
 @router.post("/suites/{suite_id}/cases", response_model=ApiResponse)
 async def create_case(
@@ -33,96 +167,29 @@ async def create_case(
 
 @router.post("/cases/discover", response_model=ApiResponse)
 async def discover_cases(db: AsyncSession = Depends(get_async_session)):
-    """扫描测试文件，自动发现并注册套件和用例"""
+    """扫描测试文件，全量同步套件和用例（新增 + 清理）"""
     from engine.runner import TestRunner
 
-    runner = TestRunner()
-    collected = runner.collect_tests()
-
     # 获取激活的项目
-    result = await db.execute(
-        select(Project).where(Project.is_active == 1)
-    )
-    active_project = result.scalar_one_or_none()
-    if not active_project:
-        # 没有激活项目就用第一个项目
+    result = await db.execute(select(Project).where(Project.is_active == 1))
+    project = result.scalar_one_or_none()
+    if not project:
         result = await db.execute(select(Project).limit(1))
-        active_project = result.scalar_one_or_none()
-    if not active_project:
+        project = result.scalar_one_or_none()
+    if not project:
         return ApiResponse(success=False, error="没有项目，请先添加项目")
 
-    # 获取已有套件，按名称索引
-    result = await db.execute(
-        select(TestSuite).where(TestSuite.project_id == active_project.id)
-    )
-    suites = {s.name: s for s in result.scalars().all()}
+    runner = TestRunner()
 
-    # 套件名映射：test_xxx.py → "xxx"
-    SUITE_LABELS = {
-        "login": "登录/认证",
-        "dashboard": "Dashboard",
-        "agent": "Agent 管理",
-        "chat": "Chat 对话",
-        "workflow": "智能体编排", "memory": "记忆",
-        "knowledge": "知识库", "tasks": "定时任务",
-        "organization": "组织", "apikey": "API Key",
-        "sidebar": "侧边栏导航", "sites": "Agent Sites",
-        "chat_v2": "对话聊天", "skills_v2": "技能管理",
-    }
+    # UI 测试同步
+    ui_collected = runner.collect_tests()
+    ui_stats = await sync_test_cases(db, project, ui_collected, SUITE_LABELS, "ui")
 
-    created_suites = 0
-    created_cases = 0
+    # API 测试同步
+    api_collected = runner.collect_tests_api()
+    api_stats = await sync_test_cases(db, project, api_collected, API_SUITE_LABELS, "api")
 
-    for item in collected:
-        suite_key = item["suite_name"]  # e.g. "login", "dashboard"
-        func_name = item["function_name"]
-
-        # 自动创建套件
-        suite_label = SUITE_LABELS.get(suite_key, suite_key.title())
-        if suite_label not in suites:
-            suite = TestSuite(
-                project_id=active_project.id,
-                name=suite_label,
-                description=f"自动发现的 {suite_key} 测试套件",
-                tags=suite_key,
-            )
-            db.add(suite)
-            await db.flush()
-            suites[suite_label] = suite
-            created_suites += 1
-
-        suite = suites[suite_label]
-
-        # 检查用例是否已存在
-        existing = await db.execute(
-            select(TestCase).where(TestCase.function_name == func_name)
-        )
-        if existing.scalar_one_or_none():
-            continue
-
-        # 推断优先级
-        priority = "P1"
-        if any(tag in func_name for tag in ["login", "auth", "redirect", "page_loads"]):
-            priority = "P0"
-
-        case = TestCase(
-            suite_id=suite.id,
-            name=func_name.replace("test_", "").replace("_", " ").title(),
-            file_path=item["file_path"],
-            function_name=func_name,
-            tags=f"{priority.lower()},{suite_key}",
-            priority=priority,
-            timeout=30,
-        )
-        db.add(case)
-        created_cases += 1
-
-    await db.commit()
-    return ApiResponse(data={
-        "discovered": len(collected),
-        "created_suites": created_suites,
-        "created_cases": created_cases,
-    })
+    return ApiResponse(data={"ui": ui_stats, "api": api_stats})
 
 
 @router.get("/suites/{suite_id}/cases", response_model=ApiResponse)

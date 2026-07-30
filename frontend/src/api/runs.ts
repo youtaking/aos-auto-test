@@ -5,6 +5,11 @@ export const listRuns = (params?: { project_id?: number; status?: string; page?:
   get<TestRun[]>("/runs", params);
 export const getRun = (id: number) => get<TestRun>(`/runs/${id}`);
 export const getRunResults = (runId: number) => get<TestResult[]>(`/runs/${runId}/results`);
+export const getRunMdReport = (runId: number) =>
+  fetch(`/api/runs/${runId}/md-report`).then((r) => {
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.text();
+  });
 export const triggerRun = (
   projectId: number,
   triggerType = "manual",

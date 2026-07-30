@@ -50,3 +50,25 @@ report_*.json
 
 # 归档目录
 docs/archive/
+
+# Claude Code 会话数据
+.claude/
+
+# 临时调试脚本和截图
+docs/_probe_*.py
+docs/_temp_*.py
+docs/_login_debug.png
+docs/_mcp_dialog.png
+docs/page_dom_dump.json
+docs/review_dom_snapshot.json
+docs/报告/
+docs/通知/
+kb_dialog.png
+kb_full.png
+provider_check.png
+
+# 测试报告 JSON
+api_report_*.json
+
+# Excel 测试用例文件
+*_updated.xlsx

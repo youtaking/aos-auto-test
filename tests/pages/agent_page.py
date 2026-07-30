@@ -58,7 +58,7 @@ class AgentPage:
         """创建对话框是否打开（导航到 agent/home 页面并显示 dialog）"""
         try:
             self.page.wait_for_url(lambda url: "/agent/home" in url, timeout=5000)
-            self.page.wait_for_selector("[class*='agent-home-dialog']", timeout=5000)
+            self.page.wait_for_selector("[role='dialog']", timeout=5000)
             return True
         except Exception:
             return False
@@ -82,17 +82,15 @@ class AgentPage:
         # 点击对话框中的确认/创建按钮
         submit_btn = dialog.get_by_role("button", name="创建").or_(
             dialog.get_by_role("button", name="确定")
-        ).or_(
-            dialog.get_by_role("button", name="保存")
         )
         submit_btn.first.click()
         self.page.wait_for_load_state("networkidle")
 
     def close_dialog(self):
         """关闭对话框"""
-        dialog_sel = "[role='dialog'], .ant-modal, .el-dialog, [class*='modal'], [class*='dialog'], [class*='Modal'], [class*='Dialog']"
-        close_btn = self.page.locator(f"{dialog_sel} button").filter(has_text="取消").or_(
-            self.page.locator(f"{dialog_sel} [aria-label*='close'], {dialog_sel} [aria-label*='关闭'], {dialog_sel} [class*='close']")
+        dialog = self.page.locator("[role='dialog']")
+        close_btn = dialog.get_by_role("button", name="取消").or_(
+            dialog.locator("button[aria-label*='close' i], button[aria-label*='关闭']")
         )
         if close_btn.count() > 0:
             close_btn.first.click()

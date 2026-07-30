@@ -142,7 +142,9 @@ class OrgPage:
 
     def get_form_validation_text(self) -> str:
         dialog = self.page.locator("[role=dialog]")
-        errors = dialog.locator("[class*='text-red'], [class*='error'], [class*='Error']")
+        errors = dialog.locator("[data-slot='form-message'], [role='alert']")
+        if errors.count() == 0:
+            errors = dialog.locator("p.text-red-500, p.text-destructive")
         if errors.count() > 0:
             return errors.first.text_content().strip()
         return ""

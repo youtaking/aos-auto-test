@@ -1,12 +1,78 @@
 # tests/suites/test_tasks.py
 """定时任务模块回归测试（基于 Excel 用例 TC-TASK-001 ~ TC-TASK-023）
 /ctrl/agent/tasks 为工作台面板，含定时任务 Tab，支持完整 CRUD。"""
+import json
 import time
+import uuid
 import pytest
 from tests.pages.tasks_page import TasksPage
 
 
 _PREFIX = f"e2e-{int(time.time())}"
+
+
+# === API helpers ===
+
+
+def _list_tasks_api(page, base_url):
+    """GET /web/tasks/v2 → list of tasks (paginated: data.items)"""
+    r = page.request.get(f"{base_url}/web/tasks/v2")
+    if r.status == 200:
+        body = r.json()
+        data = body.get("data", {})
+        if isinstance(data, list):
+            return data
+        # Paginated response: { success, data: { items: [...], total, page, pageSize } }
+        return data.get("items", [])
+    return []
+
+
+def _create_task_api(page, base_url, name=None, cron="0 9 * * *",
+                      task_type="http", url="https://httpbin.org/get"):
+    """POST /web/tasks/v2 → created task
+
+    源码 schema (CreateTaskV2RequestSchema):
+      name, cron, type: "http"|"agent",
+      definition: { url, method } | { prompt },
+      timeoutSeconds?, agentId?
+    """
+    name = name or f"e2e-task-{uuid.uuid4().hex[:6]}"
+    # Build definition based on task type
+    if task_type == "agent":
+        definition = {"prompt": "请执行每日检查任务"}
+    else:
+        definition = {"url": url, "method": "GET"}
+
+    payload = {
+        "name": name,
+        "cron": cron,
+        "type": task_type,
+        "timeoutSeconds": 300,
+        "definition": definition,
+    }
+    r = page.request.post(
+        f"{base_url}/web/tasks/v2",
+        data=json.dumps(payload),
+        headers={"Content-Type": "application/json"},
+    )
+    if r.status in (200, 201):
+        return r.json().get("data", {})
+    return {}
+
+
+def _delete_task_api(page, base_url, task_id):
+    """DELETE /web/tasks/v2/:id"""
+    if task_id:
+        page.request.delete(f"{base_url}/web/tasks/v2/{task_id}")
+
+
+def _get_or_create_task(page, base_url):
+    """获取第一个任务，若无则创建一个。返回 (task_dict, created_flag)"""
+    tasks = _list_tasks_api(page, base_url)
+    if tasks:
+        return tasks[0], False
+    task = _create_task_api(page, base_url)
+    return task, True
 
 
 # === TC-TASK-001: 列表页面加载 ===
@@ -180,9 +246,16 @@ def test_view_task_log(logged_in_page, base_url):
     tasks = TasksPage(logged_in_page, base_url)
     tasks.goto()
 
+    # 确保有任务可用
     names = tasks.get_task_names()
     if not names:
-        pytest.skip("任务列表为空")
+        task_data, _ = _get_or_create_task(logged_in_page, base_url)
+        if not task_data:
+            pytest.skip("无法获取或创建任务")
+        tasks.goto()
+        names = tasks.get_task_names()
+        if not names:
+            pytest.skip("任务列表仍为空")
 
     # 打开三点菜单 → 日志
     tasks.open_row_menu(names[0])
@@ -220,14 +293,20 @@ def test_edit_task(logged_in_page, base_url):
 
     names = tasks.get_task_names()
     if not names:
-        pytest.skip("任务列表为空")
+        task_data, _ = _get_or_create_task(logged_in_page, base_url)
+        if not task_data:
+            pytest.skip("无法获取或创建任务")
+        tasks.goto()
+        names = tasks.get_task_names()
+        if not names:
+            pytest.skip("任务列表仍为空")
 
     original_name = names[0]
 
     # 点击任务名称打开编辑弹窗
     tasks.click_task_name(original_name)
     assert tasks.is_dialog_open(), "编辑弹窗未打开"
-    assert "编辑" in tasks.get_dialog_title(), "弹窗标题不含'编辑'"
+    assert "编辑" in tasks.get_dialog_title(), "弹窗标题不包含'编辑'"
 
     # 修改名称
     dialog = logged_in_page.locator('[role="dialog"]')
@@ -321,9 +400,9 @@ def test_required_fields_validation(logged_in_page, base_url):
         logged_in_page.wait_for_timeout(1000)
         # 弹窗应该还在（未成功创建）
         still_open = tasks.is_dialog_open()
-        assert still_open or is_disabled, "名称为空时未拦截"
+        assert still_open or is_disabled, f"名称为空时未拦截: still_open={still_open}, is_disabled={is_disabled}"
     else:
-        assert True, "保存按钮在名称为空时被禁用（前端校验生效）"
+        assert save_btn.first.is_disabled(), "保存按钮在名称为空时被禁用（前端校验生效）"
 
     tasks.cancel_dialog()
 
@@ -476,7 +555,14 @@ def test_tasks_filter_by_type(logged_in_page, base_url):
 
     total = tasks.get_task_count()
     if total == 0:
-        pytest.skip("任务列表为空")
+        # 尝试创建任务
+        task_data, _ = _get_or_create_task(logged_in_page, base_url)
+        if not task_data:
+            pytest.skip("任务列表为空且无法创建")
+        tasks.goto()
+        total = tasks.get_task_count()
+        if total == 0:
+            pytest.skip("任务列表仍为空")
 
     # 检查筛选 Tab
     filter_tabs = tasks.get_filter_tabs()
@@ -513,7 +599,13 @@ def test_toggle_task_enabled(logged_in_page, base_url):
 
     names = tasks.get_task_names()
     if not names:
-        pytest.skip("任务列表为空")
+        task_data, _ = _get_or_create_task(logged_in_page, base_url)
+        if not task_data:
+            pytest.skip("任务列表为空且无法创建")
+        tasks.goto()
+        names = tasks.get_task_names()
+        if not names:
+            pytest.skip("任务列表仍为空")
 
     target = names[0]
 
@@ -533,3 +625,192 @@ def test_toggle_task_enabled(logged_in_page, base_url):
     restored_state = tasks.get_row_switch_state(target)
     assert restored_state == initial_state, \
         f"再次切换后未恢复: {initial_state} → {restored_state}"
+
+
+# === 新增测试 ===
+
+
+@pytest.mark.order(810)
+@pytest.mark.p1
+def test_task_cron_editor(logged_in_page, base_url):
+    """TC-TASK-018: Cron 表达式编辑 — 创建任务时使用 Cron 编辑器"""
+    tasks = TasksPage(logged_in_page, base_url)
+    tasks.goto()
+
+    tasks.click_create()
+    assert tasks.is_dialog_open(), "新建任务弹窗未打开"
+
+    dialog = logged_in_page.locator('[role="dialog"]')
+    cron_input = dialog.locator('input[placeholder="0 * * * *"]')
+
+    # 验证 Cron 输入框存在
+    assert cron_input.count() > 0, "Cron 输入框不存在"
+
+    # 直接输入自定义 Cron
+    cron_input.fill("15 3 * * 0")
+    logged_in_page.wait_for_timeout(500)
+    assert cron_input.input_value() == "15 3 * * 0", \
+        f"Cron 输入值不正确: {cron_input.input_value()}"
+
+    # 点击预设按钮验证切换
+    preset_btns = dialog.locator("button").filter(has_text="每天")
+    if preset_btns.count() > 0:
+        preset_btns.first.click()
+        logged_in_page.wait_for_timeout(500)
+        new_value = cron_input.input_value()
+        assert new_value != "15 3 * * 0", \
+            "点击预设后 Cron 值未变化"
+
+    tasks.cancel_dialog()
+
+
+@pytest.mark.order(811)
+@pytest.mark.p1
+def test_task_log_view(logged_in_page, base_url):
+    """TC-TASK-019: 任务日志查看 — 查看任务执行日志"""
+    tasks = TasksPage(logged_in_page, base_url)
+    tasks.goto()
+
+    names = tasks.get_task_names()
+    if not names:
+        task_data, _ = _get_or_create_task(logged_in_page, base_url)
+        if not task_data:
+            pytest.skip("无法获取或创建任务")
+        tasks.goto()
+        names = tasks.get_task_names()
+        if not names:
+            pytest.skip("任务列表仍为空")
+
+    target = names[0]
+
+    # 打开三点菜单
+    tasks.open_row_menu(target)
+
+    # 查找日志菜单项
+    menu = logged_in_page.locator('[role="menu"]')
+    assert menu.count() > 0, "三点菜单未弹出"
+
+    log_item = menu.locator('[role="menuitem"]').filter(has_text="日志")
+    assert log_item.count() > 0, "菜单中无'日志'选项"
+
+    log_item.first.click()
+    logged_in_page.wait_for_timeout(2000)
+
+    # 验证日志对话框或面板打开
+    dialog = logged_in_page.locator('[role="dialog"]')
+    panel = logged_in_page.locator("div.agent-panel-content")
+
+    if dialog.count() > 0:
+        dialog_text = dialog.first.inner_text()
+        has_log_content = any(kw in dialog_text for kw in [
+            "日志", "执行", "log", "时间", "状态", "成功", "失败", "暂无"
+        ])
+        assert has_log_content, "日志对话框无相关内容"
+        # 关闭对话框
+        close_btn = dialog.locator("button").filter(has_text="Close").or_(
+            dialog.locator("button").filter(has_text="关闭")
+        )
+        if close_btn.count() > 0:
+            close_btn.first.click()
+        else:
+            logged_in_page.keyboard.press("Escape")
+    else:
+        # 可能内嵌在面板中
+        panel_text = panel.inner_text() if panel.count() > 0 else ""
+        assert "日志" in panel_text or "log" in panel_text.lower() or len(panel_text) > 0, \
+            "日志面板无内容"
+
+
+@pytest.mark.order(812)
+@pytest.mark.p1
+def test_task_tab_filter(logged_in_page, base_url):
+    """TC-TASK-020: Tab 过滤 — 全部/HTTP/Agent Tab 切换过滤任务"""
+    tasks = TasksPage(logged_in_page, base_url)
+    tasks.goto()
+
+    filter_tabs = tasks.get_filter_tabs()
+    if not filter_tabs:
+        pytest.skip("无筛选 Tab")
+
+    total = tasks.get_task_count()
+    if total == 0:
+        task_data, _ = _get_or_create_task(logged_in_page, base_url)
+        if not task_data:
+            pytest.skip("任务列表为空且无法创建")
+        tasks.goto()
+        total = tasks.get_task_count()
+        if total == 0:
+            pytest.skip("任务列表仍为空")
+
+    # 切换到 HTTP Tab
+    if "HTTP" in filter_tabs:
+        tasks.click_filter_tab("HTTP")
+        http_count = tasks.get_task_count()
+        assert http_count <= total, \
+            f"HTTP Tab 过滤后数量({http_count})大于全部({total})"
+
+    # 切换到 Agent Tab
+    if "Agent" in filter_tabs:
+        tasks.click_filter_tab("Agent")
+        agent_count = tasks.get_task_count()
+        assert agent_count <= total, \
+            f"Agent Tab 过滤后数量({agent_count})大于全部({total})"
+
+    # 切回全部
+    tasks.click_filter_tab("全部")
+    restored = tasks.get_task_count()
+    assert restored == total, \
+        f"切回'全部'后数量未恢复: {restored} vs {total}"
+
+
+@pytest.mark.order(813)
+@pytest.mark.p1
+def test_task_run_now_confirm(logged_in_page, base_url):
+    """TC-TASK-021: 立即运行确认 — 点击立即运行弹出确认对话框"""
+    tasks = TasksPage(logged_in_page, base_url)
+    tasks.goto()
+
+    names = tasks.get_task_names()
+    if not names:
+        task_data, _ = _get_or_create_task(logged_in_page, base_url)
+        if not task_data:
+            pytest.skip("无法获取或创建任务")
+        tasks.goto()
+        names = tasks.get_task_names()
+        if not names:
+            pytest.skip("任务列表仍为空")
+
+    target = names[0]
+
+    # 查找执行按钮
+    tasks.click_execute(target)
+    logged_in_page.wait_for_timeout(1500)
+
+    # 检查是否有确认对话框
+    dialog = logged_in_page.locator('[role="dialog"]')
+    alert = logged_in_page.locator('[role="alertdialog"]')
+    confirm_dialog = logged_in_page.locator('[role="dialog"], [role="alertdialog"]')
+
+    if confirm_dialog.count() > 0:
+        dialog_text = confirm_dialog.first.inner_text()
+        has_confirm = any(kw in dialog_text for kw in [
+            "确认", "确定", "执行", "运行", "confirm", "run", "取消"
+        ])
+        assert has_confirm, "确认对话框无相关提示文本"
+        # 取消执行
+        cancel_btn = confirm_dialog.locator("button").filter(has_text="取消").or_(
+            confirm_dialog.locator("button").filter(has_text="Cancel")
+        )
+        if cancel_btn.count() > 0:
+            cancel_btn.first.click()
+        else:
+            logged_in_page.keyboard.press("Escape")
+    else:
+        # 某些系统可能直接执行（无确认弹窗），检查 toast 反馈
+        toasts = logged_in_page.locator(
+            "ol > li, [data-slot='toast'] li, [data-sonner-toast] li"
+        )
+        # 直接执行也可以接受，只要有反馈
+        panel = logged_in_page.locator("div.agent-panel-content")
+        assert toasts.count() > 0 or panel.count() > 0, \
+            "执行后无任何反馈"

@@ -20,7 +20,7 @@ class ModelsPage:
 
     def has_model_list(self) -> bool:
         """是否有模型列表内容"""
-        return self.page.locator("table, [class*='list'], [class*='card']").count() > 0
+        return self.page.locator("table tbody tr, div.grid > div").count() > 0
 
     def search(self, keyword: str):
         inp = self.page.locator("input[placeholder*='搜索服务商']")
@@ -37,7 +37,7 @@ class ModelsPage:
     def get_provider_count(self) -> int:
         """获取服务商卡片数量"""
         cards = self.page.locator(
-            "div.agent-panel-content [class*='card']"
+            "div.agent-panel-content div.rounded-lg.border"
         )
         return cards.count()
 
@@ -103,9 +103,8 @@ class SkillsPage:
     def has_skeleton_or_spinner(self) -> bool:
         """页面是否显示加载骨架屏或 Spinner"""
         skeleton = self.page.locator(
-            "[class*='skeleton'], [class*='Skeleton'], "
-            "[class*='shimmer'], [class*='animate-pulse'], "
-            "[class*='loading'], [class*='spinner'], [class*='Spinner']"
+            "[role='progressbar'], [data-slot='skeleton'], "
+            "div.animate-pulse, [data-slot='spinner']"
         )
         return skeleton.count() > 0
 
@@ -140,7 +139,7 @@ class McpPage:
     def get_server_count(self) -> int:
         """获取 MCP 服务器列表数量"""
         items = self.page.locator(
-            "div.agent-panel-content [class*='card'], "
+            "div.agent-panel-content div.rounded-lg.border, "
             "table tbody tr"
         )
         return items.count()
@@ -163,7 +162,7 @@ class SitesPage:
 
     def get_filter_tabs(self) -> list[str]:
         """获取筛选 Tab 列表"""
-        tabs = self.page.locator("[role='tab'], [class*='tab']").all_text_contents()
+        tabs = self.page.locator("[role='tab']").all_text_contents()
         return [t.strip() for t in tabs if t.strip()]
 
     def click_filter_tab(self, tab_name: str):

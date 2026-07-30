@@ -192,8 +192,9 @@ class ModelConfigPage:
     def get_form_validation_text(self) -> str:
         """获取表单校验错误文本"""
         dialog = self.page.locator("[role=dialog]")
-        # 校验错误通常以红色或特定 class 出现
-        errors = dialog.locator("[class*='text-red'], [class*='error'], [class*='Error']")
+        errors = dialog.locator("[data-slot='form-message'], [role='alert']")
+        if errors.count() == 0:
+            errors = dialog.locator("p.text-red-500, p.text-destructive")
         if errors.count() > 0:
             return errors.first.text_content().strip()
         return ""
@@ -665,9 +666,8 @@ class ModelConfigPage:
         """是否有加载骨架屏或 Spinner"""
         body = self.page.locator("div.agent-panel-body")
         loading = body.locator(
-            "[class*='skeleton'], [class*='Skeleton'], "
-            "[class*='spinner'], [class*='Spinner'], "
-            "[class*='animate-pulse'], [class*='loading']"
+            "[role='progressbar'], [data-slot='skeleton'], "
+            "div.animate-pulse, [data-slot='spinner']"
         )
         return loading.count() > 0
 

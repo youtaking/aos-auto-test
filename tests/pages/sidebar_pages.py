@@ -36,7 +36,7 @@ class WorkflowPage:
         """获取工作流卡片数量"""
         # 排除侧边栏卡片
         cards = self.page.locator(
-            "div.agent-panel-content [class*='card']"
+            "div.agent-panel-content div.rounded-lg.border"
         )
         return cards.count()
 
@@ -84,8 +84,6 @@ class MemoryPage:
         """是否有视图切换按钮（星座图/图谱/表格/时间线）"""
         btns = self.page.get_by_role("button", name="星座图").or_(
             self.page.get_by_role("button", name="图谱")
-        ).or_(
-            self.page.get_by_role("button", name="表格")
         )
         return btns.count() > 0
 
@@ -121,7 +119,7 @@ class KnowledgeBasePage:
     def get_kb_count(self) -> int:
         """获取知识库卡片数量"""
         cards = self.page.locator(
-            "div.agent-panel-content [class*='card']"
+            "div.agent-panel-content div.rounded-lg.border"
         )
         return cards.count()
 

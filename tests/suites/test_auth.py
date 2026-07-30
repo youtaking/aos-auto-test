@@ -499,7 +499,7 @@ def test_auth_015_change_password_validation(logged_in_page, base_url):
             error = auth.get_dialog_error()
             dialog_still_open = auth.is_dialog_open()
             assert error or dialog_still_open, \
-                "空表单提交时应有校验提示或弹窗不关闭"
+                f"空表单提交未拦截: error={error}, dialog_still_open={dialog_still_open}"
 
     auth.close_dialog()
 
@@ -543,7 +543,7 @@ def test_auth_015b_change_password_required_fields(logged_in_page, base_url):
         print(f"\n{field_names[skip_idx]}留空: 弹窗仍在={still_open}, 错误={error}, 校验提示={validation}")
 
         assert still_open or error or validation, \
-            f"'{field_names[skip_idx]}' 留空时应被校验拦截"
+            f"空表单未拦截: still_open={still_open}, error={error}, validation={validation}"
 
         # 关闭弹窗准备下一轮
         if still_open:

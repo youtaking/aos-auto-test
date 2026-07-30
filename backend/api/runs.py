@@ -1,17 +1,17 @@
 # backend/api/runs.py
 """测试运行 API"""
+import asyncio
 import json
 import re
-import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
 from fastapi import APIRouter, Depends, BackgroundTasks
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse, PlainTextResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from backend.db.config import get_async_session, async_session
-from backend.db.models import TestRun, TestResult, TestCase, Project
+from backend.db.models import TestRun, TestResult, TestCase, Project, AuthConfig
 from backend.schemas.run import RunResponse, RunReport, ResultResponse
 from backend.schemas.common import ApiResponse
 from backend import ws as ws_module
@@ -25,6 +25,7 @@ ALLURE_REPORT_DIR = "allure-report"
 def _parse_pytest_line(line: str) -> dict | None:
     """解析 pytest -v 输出的单行结果"""
     # 格式：tests/suites/test_login.py::test_login_page_loads PASSED
+    # 或：tests/api_suites/test_agent_api.py::TestAgentWebAPI::test_list_agents PASSED
     m = re.match(r"^(tests/\S+::\w+)\s+(PASSED|FAILED|SKIPPED|ERROR)", line.strip())
     if not m:
         return None
@@ -32,7 +33,7 @@ def _parse_pytest_line(line: str) -> dict | None:
     outcome = m.group(2).lower()
     parts = nodeid.split("::")
     file_path = parts[0] if parts else ""
-    func_name = parts[-1] if len(parts) > 1 else ""
+    func_name = "::".join(parts[1:]) if len(parts) > 1 else ""
     suite_name = Path(file_path).stem.replace("test_", "")
     return {
         "nodeid": nodeid,
@@ -43,7 +44,7 @@ def _parse_pytest_line(line: str) -> dict | None:
     }
 
 
-async def _execute_tests(run_id: int, project_url: str, headed: bool = False, step_delay: float = 0, case_ids: list[int] | None = None):
+async def _execute_tests(run_id: int, project_url: str, headed: bool = False, step_delay: float = 0, case_ids: list[int] | None = None, auth_env: dict | None = None):
     """后台任务：执行 pytest，逐条实时更新结果 + WebSocket 广播日志 + 生成 Allure 报告"""
     async with async_session() as db:
         run = await db.get(TestRun, run_id)
@@ -67,7 +68,8 @@ async def _execute_tests(run_id: int, project_url: str, headed: bool = False, st
 
         report_path = f"report_{run_id}.json"
         cmd = [
-            sys.executable, "-m", "pytest", "tests/suites/",
+            sys.executable, "-m", "pytest",
+            "tests/suites/", "tests/api_suites/",
             "-v", "--tb=short",
             f"--base-url={project_url}",
             f"--step-delay={step_delay}",
@@ -75,35 +77,47 @@ async def _execute_tests(run_id: int, project_url: str, headed: bool = False, st
             f"--alluredir={ALLURE_RESULTS_DIR}",
         ]
 
-        # 如果指定了 case_ids，用 -k 过滤只运行选中的用例
+        # 如果指定了 case_ids，直接传完整 nodeid 给 pytest
         if case_ids:
             cases_query = await db.execute(
                 select(TestCase).where(TestCase.id.in_(case_ids))
             )
-            func_names = [c.function_name for c in cases_query.scalars().all()]
-            if func_names:
-                k_expr = " or ".join(func_names)
-                cmd.extend(["-k", k_expr])
+            selected_cases = cases_query.scalars().all()
+            if selected_cases:
+                # 构建完整 nodeid: file_path::function_name
+                # UI: tests/suites/test_xxx.py::test_func
+                # API: tests/api_suites/test_xxx.py::TestClass::test_func
+                nodeids = [f"{c.file_path}::{c.function_name}" for c in selected_cases]
+                cmd.extend(nodeids)
+                # 不再需要扫描整个目录，去掉目录参数
+                cmd = [c for c in cmd if c not in ("tests/suites/", "tests/api_suites/")]
 
         env = {
             **__import__("os").environ,
             "HEADLESS": "false" if headed else "true",
             "STEP_DELAY": str(step_delay),
+            "FENIX_URL": project_url,
         }
+        if auth_env:
+            env.update(auth_env)
 
-        # 用 Popen 逐行读取输出
-        proc = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, encoding="utf-8", errors="replace", env=env,
+        # 用 asyncio 子进程，非阻塞读取输出
+        import os as _os
+        proc = await asyncio.create_subprocess_exec(
+            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+            env=env, cwd=_os.getcwd(),
         )
 
         passed = 0
         failed = 0
         skipped = 0
-        error_details = {}  # func_name -> error message
 
-        # 实时解析 pytest 输出 + WebSocket 广播日志
-        for line in proc.stdout:
+        # 非阻塞逐行读取 pytest 输出 + WebSocket 广播日志
+        while True:
+            raw = await proc.stdout.readline()
+            if not raw:
+                break
+            line = raw.decode("utf-8", errors="replace")
             # 广播每一行日志
             stripped = line.rstrip()
             if stripped:
@@ -153,7 +167,7 @@ async def _execute_tests(run_id: int, project_url: str, headed: bool = False, st
                 "passed": passed, "failed": failed, "skipped": skipped,
             })
 
-        proc.wait(timeout=600)
+        await proc.wait()
         finished = datetime.utcnow()
 
         # 用 JSON 报告补充 duration 和 error 信息
@@ -192,12 +206,14 @@ async def _execute_tests(run_id: int, project_url: str, headed: bool = False, st
             allure_bin = shutil.which("allure") or r"C:\Users\52686\AppData\Roaming\npm\allure.cmd"
             report_dir = Path(ALLURE_REPORT_DIR) / str(run_id)
             cmd_str = f'"{allure_bin}" generate "{allure_dir}" -o "{report_dir}" --clean'
-            result = subprocess.run(
-                cmd_str, shell=True,
-                capture_output=True, text=True, timeout=60,
+            allure_proc = await asyncio.create_subprocess_shell(
+                cmd_str,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
             )
-            if result.returncode != 0:
-                print(f"[Allure] stderr: {result.stderr}")
+            stdout, stderr = await asyncio.wait_for(allure_proc.communicate(), timeout=60)
+            if allure_proc.returncode != 0:
+                print(f"[Allure] stderr: {stderr.decode(errors='replace')}")
             else:
                 print(f"[Allure] 报告生成成功: {report_dir}")
         except Exception as e:
@@ -250,6 +266,19 @@ async def trigger_run(
     project = await db.get(Project, project_id)
     project_url = project.url if project else "http://localhost:3001"
 
+    # 从激活的认证配置读取凭据
+    auth_env = {}
+    auth_result = await db.execute(select(AuthConfig).where(AuthConfig.is_active == 1))
+    auth_config = auth_result.scalar_one_or_none()
+    if auth_config:
+        auth_env = {
+            "FENIX_UI_EMAIL": auth_config.ui_test_email or "",
+            "FENIX_UI_PASSWORD": auth_config.ui_test_password or "",
+            "FENIX_API_EMAIL": auth_config.api_test_email or "",
+            "FENIX_API_PASSWORD": auth_config.api_test_password or "",
+            "FENIX_OPEN_API_KEY": auth_config.open_api_key or "",
+        }
+
     # 解析 case_ids
     parsed_case_ids = None
     if case_ids:
@@ -268,7 +297,7 @@ async def trigger_run(
     await db.commit()
     await db.refresh(run)
 
-    background_tasks.add_task(_execute_tests, run.id, project_url, headed, step_delay, parsed_case_ids)
+    background_tasks.add_task(_execute_tests, run.id, project_url, headed, step_delay, parsed_case_ids, auth_env)
 
     return ApiResponse(data=RunResponse.model_validate(run))
 
@@ -382,3 +411,187 @@ async def report_run(
 
     await db.commit()
     return ApiResponse(data={"imported": len(body.results)})
+
+
+@router.get("/runs/{run_id}/md-report")
+async def generate_md_report(run_id: int, db: AsyncSession = Depends(get_async_session)):
+    """生成 Markdown 格式测试报告"""
+    run = await db.get(TestRun, run_id)
+    if not run:
+        return ApiResponse(success=False, error="运行记录不存在")
+
+    result = await db.execute(
+        select(TestResult).where(TestResult.run_id == run_id).order_by(TestResult.id)
+    )
+    results = result.scalars().all()
+
+    # 按套件分组
+    suites: dict[str, list] = {}
+    for r in results:
+        suites.setdefault(r.suite_name, []).append(r)
+
+    # 获取项目名
+    project = await db.get(Project, run.project_id)
+    project_name = project.name if project else "未知项目"
+
+    status_icon = {"passed": "✅", "failed": "❌", "skipped": "⏭️", "error": "⚠️"}
+    duration_str = f"{run.duration_ms / 1000:.1f}s" if run.duration_ms else "-"
+    started = run.started_at.strftime("%Y-%m-%d %H:%M:%S") if run.started_at else "-"
+    finished = run.finished_at.strftime("%Y-%m-%d %H:%M:%S") if run.finished_at else "-"
+    pass_rate = f"{run.passed / run.total * 100:.1f}%" if run.total else "-"
+
+    lines = [
+        f"# 测试报告 — 运行 #{run.id}",
+        "",
+        f"**项目**: {project_name}  ",
+        f"**触发方式**: {run.trigger_type}  ",
+        f"**状态**: {run.status}  ",
+        f"**开始时间**: {started}  ",
+        f"**结束时间**: {finished}  ",
+        f"**总耗时**: {duration_str}  ",
+        "",
+        "## 概览",
+        "",
+        "| 指标 | 数值 |",
+        "|------|------|",
+        f"| 总用例 | {run.total} |",
+        f"| 通过 | {run.passed} |",
+        f"| 失败 | {run.failed} |",
+        f"| 跳过 | {run.skipped} |",
+        f"| 通过率 | {pass_rate} |",
+        "",
+    ]
+
+    # ── 分析总结 ──
+    failed_results = [r for r in results if r.status in ("failed", "error")]
+    skipped_results = [r for r in results if r.status == "skipped"]
+    passed_results = [r for r in results if r.status == "passed"]
+
+    lines.append("## 分析总结")
+    lines.append("")
+
+    # 1. 总体结论
+    if run.total == 0:
+        lines.append("> ⚠️ 本次运行无用例执行。")
+    elif run.failed == 0 and run.skipped == 0:
+        lines.append(f"> ✅ 全部 {run.total} 条用例通过，通过率 100%，系统状态良好。")
+    elif run.failed == 0:
+        lines.append(f"> ✅ 无用例失败，但有 {run.skipped} 条被跳过。通过率 {pass_rate}。")
+    else:
+        lines.append(f"> ❌ 共 {run.failed} 条用例失败，通过率 {pass_rate}，需要关注以下问题。")
+    lines.append("")
+
+    # 2. 失败分类（按错误类型分组）
+    if failed_results:
+        error_groups: dict[str, list] = {}
+        for r in failed_results:
+            msg = r.error_message or "未知错误"
+            # 提取错误类型（第一行中的 XxxError 或前缀）
+            first_line = msg.strip().split("\n")[0][:120]
+            err_type = "其他"
+            for keyword in ["AssertionError", "AssertError", "assert ", "TimeoutError", "timeout",
+                            "ConnectionError", "ConnectionRefused", "404", "403", "401", "500",
+                            "ElementNotFound", "NoSuchElement", "Locator", "Page closed"]:
+                if keyword.lower() in first_line.lower():
+                    err_type = keyword if keyword not in ("assert ", "Locator") else "断言失败"
+                    if keyword in ("404", "403", "401", "500"):
+                        err_type = f"HTTP {keyword}"
+                    break
+            error_groups.setdefault(err_type, []).append(r)
+
+        lines.append("### 失败分类")
+        lines.append("")
+        lines.append("| 错误类型 | 数量 | 涉及用例 |")
+        lines.append("|----------|------|----------|")
+        for err_type, group in sorted(error_groups.items(), key=lambda x: -len(x[1])):
+            case_names = ", ".join(r.case_name for r in group[:3])
+            if len(group) > 3:
+                case_names += f" 等{len(group)}条"
+            lines.append(f"| {err_type} | {len(group)} | {case_names} |")
+        lines.append("")
+
+    # 3. 套件健康度
+    if suites:
+        lines.append("### 套件健康度")
+        lines.append("")
+        lines.append("| 套件 | 总数 | 通过 | 失败 | 跳过 | 通过率 | 状态 |")
+        lines.append("|------|------|------|------|------|--------|------|")
+        for suite_name, suite_results in suites.items():
+            s_total = len(suite_results)
+            s_passed = sum(1 for r in suite_results if r.status == "passed")
+            s_failed = sum(1 for r in suite_results if r.status in ("failed", "error"))
+            s_skipped = sum(1 for r in suite_results if r.status == "skipped")
+            s_rate = f"{s_passed / s_total * 100:.0f}%" if s_total else "-"
+            s_status = "✅ 健康" if s_failed == 0 else ("⚠️ 部分失败" if s_passed > 0 else "❌ 全部失败")
+            lines.append(f"| {suite_name} | {s_total} | {s_passed} | {s_failed} | {s_skipped} | {s_rate} | {s_status} |")
+        lines.append("")
+
+    # 4. 最慢用例 Top 5
+    if results:
+        sorted_by_duration = sorted(results, key=lambda r: r.duration_ms, reverse=True)[:5]
+        lines.append("### 最慢用例 Top 5")
+        lines.append("")
+        lines.append("| 排名 | 用例 | 套件 | 耗时 |")
+        lines.append("|------|------|------|------|")
+        for i, r in enumerate(sorted_by_duration, 1):
+            lines.append(f"| {i} | {r.case_name} | {r.suite_name} | {r.duration_ms}ms |")
+        lines.append("")
+
+    # 5. 建议
+    lines.append("### 建议")
+    lines.append("")
+    if failed_results:
+        # 统计连续失败（如果有历史数据可进一步分析，这里简单建议）
+        lines.append(f"- 优先修复 {len(failed_results)} 条失败用例，按错误类型集中处理可提高效率")
+        # 检查是否有超时
+        timeout_cases = [r for r in failed_results if r.error_message and "timeout" in r.error_message.lower()]
+        if timeout_cases:
+            lines.append(f"- {len(timeout_cases)} 条用例疑似超时问题，建议检查网络或被测服务性能")
+    if skipped_results:
+        lines.append(f"- {len(skipped_results)} 条用例被跳过，确认是否为预期跳过")
+    slow_cases = [r for r in results if r.duration_ms > 10000]
+    if slow_cases:
+        lines.append(f"- {len(slow_cases)} 条用例耗时超过 10s，考虑优化或拆分")
+    if not failed_results and not skipped_results and not slow_cases:
+        lines.append("- 本轮测试表现良好，无需特别关注")
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+
+    # 失败用例详情
+    if failed_results:
+        lines.append("## 失败用例")
+        lines.append("")
+        for r in failed_results:
+            lines.append(f"### {status_icon.get(r.status, '❓')} {r.suite_name} / {r.case_name}")
+            lines.append("")
+            if r.error_message:
+                lines.append("```")
+                lines.append(r.error_message)
+                lines.append("```")
+                lines.append("")
+        lines.append("---")
+        lines.append("")
+
+    # 按套件输出详情
+    lines.append("## 详细结果")
+    lines.append("")
+    for suite_name, suite_results in suites.items():
+        s_passed = sum(1 for r in suite_results if r.status == "passed")
+        s_failed = sum(1 for r in suite_results if r.status in ("failed", "error"))
+        s_skipped = sum(1 for r in suite_results if r.status == "skipped")
+        lines.append(f"### {suite_name}（{s_passed}✅ {s_failed}❌ {s_skipped}⏭️）")
+        lines.append("")
+        lines.append("| 状态 | 用例 | 耗时 | 错误 |")
+        lines.append("|------|------|------|------|")
+        for r in suite_results:
+            icon = status_icon.get(r.status, "❓")
+            err = (r.error_message or "-")[:80].replace("|", "\\|").replace("\n", " ")
+            lines.append(f"| {icon} | {r.case_name} | {r.duration_ms}ms | {err} |")
+        lines.append("")
+
+    # 页脚
+    lines.append("---")
+    lines.append(f"*报告生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*")
+
+    return PlainTextResponse(content="\n".join(lines), media_type="text/markdown; charset=utf-8")

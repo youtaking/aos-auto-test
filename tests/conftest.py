@@ -32,10 +32,13 @@ def test_config():
 
 @pytest.fixture(scope="session")
 def base_url(request, test_config):
-    """被测应用 URL：优先使用 --base-url 命令行参数，否则读配置文件"""
+    """被测应用 URL：优先 CLI 参数 > 环境变量 > 配置文件"""
     cli_url = request.config.getoption("--base-url")
     if cli_url:
         return cli_url
+    env_url = os.environ.get("FENIX_URL")
+    if env_url:
+        return env_url
     return test_config["fenixagent"]["url"]
 
 
@@ -90,7 +93,9 @@ def logged_in_page(page, base_url, test_config, step_delay):
         return page
 
     admin = test_config["fenixagent"]["admin"]
-    login.login(admin["email"], admin["password"])
+    email = os.environ.get("FENIX_UI_EMAIL") or admin["email"]
+    password = os.environ.get("FENIX_UI_PASSWORD") or admin["password"]
+    login.login(email, password)
     assert login.is_logged_in(), "登录失败，后续用例无法继续"
     # 等待侧边栏渲染完成，确保后续用例可直接使用
     try:

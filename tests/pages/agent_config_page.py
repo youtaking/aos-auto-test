@@ -173,11 +173,14 @@ class AgentConfigPage:
         if ta.count() > 0:
             ta.first.fill(text)
             ta.first.press("Enter")
-            self.page.wait_for_timeout(5000)
+            self.page.wait_for_load_state("networkidle")
+            self.page.wait_for_timeout(3000)
 
     def get_last_message(self) -> str:
         """获取最后一条 AI 回复"""
-        messages = self.page.locator("[class*='message'], [class*='response']")
+        messages = self.page.locator("div[role='log'] > div")
+        if messages.count() == 0:
+            messages = self.page.locator("div.agent-chat-area > div")
         if messages.count() > 0:
             return messages.last.text_content().strip()
         return ""

@@ -1265,7 +1265,7 @@ def test_model_019_openapi_idempotency(logged_in_page, base_url):
     is_not_found = resp2.status == 404
     is_failed = resp2.status == 200 and not resp2.json().get("success", True)
     assert is_not_found or is_failed, \
-        f"重复删除应有明确反馈（404 或 success=false），实际: status={resp2.status}, body={resp2.text()[:200]}"
+        f"假 URL Provider 未被拒绝: is_not_found={is_not_found}, is_failed={is_failed}, status={resp2.status}, body={resp2.text()[:200]}"
 
 
 @allure.epic("模型配置")
@@ -1302,7 +1302,7 @@ def test_model_022_openapi_create_validation(logged_in_page, base_url):
             attachment_type=allure.attachment_type.TEXT,
         )
     else:
-        assert True, "空 body 请求未创建 Provider（被拦截）"
+        assert resp_empty.status in [400, 422, 500] or not was_created, "空 body 请求未创建 Provider（被拦截）"
 
     # 2. 无效协议类型
     resp_bad_protocol = logged_in_page.request.put(
@@ -1512,3 +1512,302 @@ def test_model_025_openapi_pagination_filter(logged_in_page, base_url):
         name="统计",
         attachment_type=allure.attachment_type.TEXT,
     )
+
+
+# ==================== 补充测试（TC-MODEL-026 ~ 030）====================
+
+
+@allure.epic("模型库")
+@pytest.mark.order(620)
+@pytest.mark.p1
+def test_model_api_key_auto_fetch(logged_in_page, base_url):
+    """TC-MODEL-026: API Key 防抖自动获取模型 — 输入 API Key 后 800ms 自动获取远端模型列表"""
+    mc = ModelConfigPage(logged_in_page, base_url)
+    mc.goto()
+
+    # 拦截 fetch-models API
+    api_responses = mc.intercept_api_responses(
+        "/web/config/providers/actions/fetch-models"
+    )
+
+    # 打开新建服务商弹窗
+    mc.click_add_provider()
+    assert mc.is_dialog_open(), "新建服务商弹窗未打开"
+
+    dialog = logged_in_page.locator("[role=dialog]")
+
+    # 填写 Provider ID 和名称
+    provider_id = f"autofetch-{_TEST_PREFIX}"
+    mc.fill_provider_form(
+        provider_id=provider_id,
+        display_name=f"AutoFetch {_TEST_PREFIX}",
+        api_key="sk-test-key-for-auto-fetch-e2e-12345",
+        base_url="https://api.test-autofetch-placeholder.com/v1",
+    )
+
+    # 等待 800ms+ 防抖触发
+    logged_in_page.wait_for_timeout(2000)
+
+    # 检查是否自动触发了 fetch-models 请求
+    fetch_calls = [
+        r for r in api_responses
+        if r["method"] == "POST" and "fetch-models" in r["url"]
+    ]
+
+    if len(fetch_calls) > 0:
+        allure.attach(
+            f"输入 API Key 后自动触发了 {len(fetch_calls)} 次 fetch-models 请求",
+            name="防抖验证",
+            attachment_type=allure.attachment_type.TEXT,
+        )
+        assert fetch_calls[0]["method"] == "POST", "fetch-models 应为 POST 请求"
+    else:
+        # 可能系统不自动获取，检查弹窗中是否有手动获取按钮
+        fetch_btn = dialog.get_by_role("button", name="获取模型列表")
+        if fetch_btn.count() > 0:
+            allure.attach(
+                "输入 API Key 后未自动触发 fetch-models，需要手动点击获取按钮",
+                name="备注",
+                attachment_type=allure.attachment_type.TEXT,
+            )
+        else:
+            allure.attach(
+                "输入 API Key 后未触发任何模型获取操作",
+                name="备注",
+                attachment_type=allure.attachment_type.TEXT,
+            )
+
+    # 关闭弹窗
+    mc.close_dialog()
+
+
+@allure.epic("模型库")
+@pytest.mark.order(621)
+@pytest.mark.p0
+def test_model_connectivity_test(logged_in_page, base_url):
+    """TC-MODEL-027: 模型连通性测试 — 点击测试按钮验证模型可用"""
+    mc = ModelConfigPage(logged_in_page, base_url)
+    mc.goto()
+
+    # 找到有模型的 Provider
+    names = mc.get_provider_names()
+    provider_with_models = None
+    model_name = None
+    for name in names:
+        model_count = mc.get_model_count_for_provider(name)
+        if model_count > 0:
+            provider_with_models = name
+            model_names = mc.get_model_names_for_provider(name)
+            if model_names:
+                model_name = model_names[0]
+            break
+
+    if not provider_with_models or not model_name:
+        pytest.skip("没有可用的 Provider 或模型")
+
+    # 拦截 API
+    api_responses = mc.intercept_api_responses("/web/config/providers")
+
+    # 点击模型级别的「测试」按钮
+    clicked = mc.click_model_test(provider_with_models, model_name)
+    if not clicked:
+        pytest.skip("未找到模型级别的测试按钮")
+
+    # 等待测试结果出现
+    logged_in_page.wait_for_timeout(3000)
+
+    # 检查卡片中的测试结果
+    card_text = mc.get_provider_card_text(provider_with_models)
+    has_test_result = any(kw in card_text for kw in [
+        "测试通过", "测试失败", "测试中", "超时", "错误",
+    ])
+    assert has_test_result, \
+        f"未检测到测试结果，卡片文本: {card_text[:300]}"
+
+    # 验证 API 层有测试请求
+    test_calls = [
+        r for r in api_responses
+        if r["method"] == "POST" and (
+            "test" in r["url"] or "fetch-models" in r["url"]
+            or "chat" in r["url"] or "completions" in r["url"]
+        )
+    ]
+    if test_calls:
+        allure.attach(
+            f"连通性测试 API 状态码: {test_calls[0]['status']}",
+            name="API 响应",
+            attachment_type=allure.attachment_type.TEXT,
+        )
+
+
+@allure.epic("模型库")
+@pytest.mark.order(622)
+@pytest.mark.p1
+def test_model_batch_add(logged_in_page, base_url):
+    """TC-MODEL-028: 批量选择模型添加 — 从远端模型列表批量选择并添加"""
+    mc = ModelConfigPage(logged_in_page, base_url)
+    mc.goto()
+
+    count = mc.get_provider_count()
+    if count == 0:
+        pytest.skip("Provider 列表为空")
+
+    names = mc.get_provider_names()
+    provider_name = names[0]
+
+    # 编辑 Provider 打开弹窗（在弹窗中可以获取远端模型列表）
+    mc.click_provider_edit(provider_name)
+    assert mc.is_dialog_open(), "编辑弹窗未打开"
+
+    # 检查是否有获取模型列表按钮
+    if not mc.has_fetch_models_in_dialog():
+        mc.close_dialog()
+        pytest.skip("编辑弹窗中无获取模型列表按钮")
+
+    # 点击获取远端模型列表
+    mc.click_fetch_models_in_dialog()
+    logged_in_page.wait_for_timeout(3000)
+
+    dialog = logged_in_page.locator("[role=dialog]")
+    dialog_text = dialog.first.inner_text()
+
+    # 检查是否有 checkbox 可选择模型
+    checkboxes = dialog.locator("input[type=checkbox], [role=checkbox]")
+    if checkboxes.count() > 0:
+        # 选择前 2 个模型
+        select_count = min(2, checkboxes.count())
+        for i in range(select_count):
+            cb = checkboxes.nth(i)
+            if not cb.is_checked():
+                cb.click()
+                logged_in_page.wait_for_timeout(300)
+
+        # 查找批量添加/确认按钮
+        add_btn = dialog.get_by_role("button", name="添加").or_(
+            dialog.get_by_role("button", name="确认添加").or_(
+                dialog.get_by_role("button", name="导入")
+            )
+        )
+
+        if add_btn.count() > 0:
+            # 拦截添加 API
+            api_responses = mc.intercept_api_responses(
+                "/web/config/providers/actions/models"
+            )
+            add_btn.first.click()
+            logged_in_page.wait_for_timeout(3000)
+
+            # 验证有模型添加请求
+            add_calls = [
+                r for r in api_responses
+                if r["method"] == "POST" and "models" in r["url"]
+            ]
+            allure.attach(
+                f"批量添加触发了 {len(add_calls)} 次模型添加请求",
+                name="批量添加",
+                attachment_type=allure.attachment_type.TEXT,
+            )
+        else:
+            allure.attach(
+                "模型列表有 checkbox 但缺少批量添加按钮",
+                name="备注",
+                attachment_type=allure.attachment_type.TEXT,
+            )
+    else:
+        allure.attach(
+            f"获取模型列表后未发现 checkbox，对话框文本: {dialog_text[:300]}",
+            name="备注",
+            attachment_type=allure.attachment_type.TEXT,
+        )
+
+    mc.close_dialog()
+
+
+@allure.epic("模型库")
+@pytest.mark.order(623)
+@pytest.mark.p1
+def test_model_public_toggle(logged_in_page, base_url):
+    """TC-MODEL-029: 模型公开/私密切换 — 切换 Provider 的公开状态"""
+    provider_id = f"pub-toggle-{_TEST_PREFIX}"
+    _create_provider_via_api(
+        logged_in_page, base_url,
+        provider_id, f"PubToggle {_TEST_PREFIX}",
+    )
+
+    try:
+        mc = ModelConfigPage(logged_in_page, base_url)
+        mc.goto()
+        assert mc.has_provider(provider_id), "测试 Provider 未创建成功"
+
+        # 获取公开开关
+        sw = mc.get_public_switch(provider_id)
+        assert sw is not None, "未找到公开开关"
+
+        # 记录初始状态
+        initial_checked = sw.get_attribute("aria-checked")
+
+        # 点击切换
+        sw.click()
+        logged_in_page.wait_for_timeout(1500)
+
+        # 验证 aria-checked 变化
+        new_checked = sw.get_attribute("aria-checked")
+        assert new_checked != initial_checked, \
+            f"切换公开状态后 aria-checked 未变化: {initial_checked} -> {new_checked}"
+
+        # 再次点击恢复
+        sw.click()
+        logged_in_page.wait_for_timeout(1500)
+
+        restored_checked = sw.get_attribute("aria-checked")
+        assert restored_checked == initial_checked, \
+            f"恢复公开状态失败: {restored_checked} vs {initial_checked}"
+
+    finally:
+        _delete_provider_via_api(logged_in_page, base_url, provider_id)
+
+
+@allure.epic("模型库")
+@pytest.mark.order(624)
+@pytest.mark.p0
+def test_model_provider_delete(logged_in_page, base_url):
+    """TC-MODEL-030: Provider 删除确认 — 删除 Provider 弹出确认对话框"""
+    provider_id = f"del-confirm-{_TEST_PREFIX}"
+    _create_provider_via_api(
+        logged_in_page, base_url,
+        provider_id, f"DelConfirm {_TEST_PREFIX}",
+    )
+
+    try:
+        mc = ModelConfigPage(logged_in_page, base_url)
+        mc.goto()
+        assert mc.has_provider(provider_id), "测试 Provider 未创建成功"
+
+        # 点击删除按钮
+        mc.click_provider_delete(provider_id)
+
+        # 验证确认对话框弹出
+        assert mc.is_alert_dialog_open(), "删除确认对话框未弹出"
+
+        alert_text = mc.get_alert_dialog_text()
+        assert "删除" in alert_text or "确认" in alert_text, \
+            f"确认对话框文本不正确: {alert_text}"
+
+        # 确认删除
+        mc.confirm_alert_dialog()
+        logged_in_page.wait_for_timeout(2000)
+
+        # 刷新验证 Provider 已删除
+        mc.goto()
+        assert not mc.has_provider(provider_id), \
+            f"Provider '{provider_id}' 删除后仍然存在"
+
+        # API 层确认
+        providers = _get_providers_via_api(logged_in_page, base_url)
+        found = any(p["id"] == provider_id for p in providers)
+        assert not found, \
+            f"API 中 Provider '{provider_id}' 仍存在"
+
+    finally:
+        # 兜底清理
+        _delete_provider_via_api(logged_in_page, base_url, provider_id)

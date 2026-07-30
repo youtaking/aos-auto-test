@@ -43,7 +43,7 @@ def test_chat_home_loads(logged_in_page, base_url):
 
     # 验证对话页面有消息展示区域
     has_message_area = logged_in_page.locator(
-        "[class*='message'], [class*='chat'], [class*='prose'], [class*='markdown']"
+        "div[role='log'], div[role='log'] > div, div.prose"
     ).count() > 0
     assert has_message_area, "对话页面缺少消息展示区域"
 

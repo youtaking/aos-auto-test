@@ -1,12 +1,12 @@
-# 测试数据配置
 fenixagent:
-  url: "http://100.105.9.16:38879"
+  url: http://localhost:8080
   admin:
-    email: "xiaochun@agent.com"
-    password: "12345678"
-  api_key: "rcs_pHZNlWrcfHKTdTUdqrxOYRZgrtzEvKOuSxthmnOWVwwjPWaryeugTFqYORZCxZRW"
-
+    email: admin@example.com
+    password: your-admin-password
+  api_key: test-api-key-placeholder
+  api_email: api-test@example.com
+  api_password: your-api-password
 test_users:
-  - email: "test@example.com"
-    password: "test123"
-    role: "user"
+- email: test@example.com
+  password: test123
+  role: user

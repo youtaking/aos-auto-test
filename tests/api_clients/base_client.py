@@ -21,19 +21,24 @@ class BaseClient:
         resp = self.client.get(path, params=params)
         return self._parse_response(resp)
 
-    def post(self, path: str, json: dict | None = None) -> dict:
+    def post(self, path: str, params: dict | None = None, json: dict | None = None) -> dict:
         """发送 POST 请求"""
-        resp = self.client.post(path, json=json)
+        resp = self.client.post(path, params=params, json=json)
         return self._parse_response(resp)
 
-    def put(self, path: str, json: dict | None = None) -> dict:
+    def put(self, path: str, params: dict | None = None, json: dict | None = None) -> dict:
         """发送 PUT 请求"""
-        resp = self.client.put(path, json=json)
+        resp = self.client.put(path, params=params, json=json)
         return self._parse_response(resp)
 
     def delete(self, path: str, params: dict | None = None) -> dict:
         """发送 DELETE 请求"""
         resp = self.client.delete(path, params=params)
+        return self._parse_response(resp)
+
+    def patch(self, path: str, params: dict | None = None, json: dict | None = None) -> dict:
+        """发送 PATCH 请求"""
+        resp = self.client.patch(path, params=params, json=json)
         return self._parse_response(resp)
 
     def validate_schema(self, data: dict, schema: dict) -> None:

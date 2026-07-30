@@ -116,9 +116,7 @@ class ApiKeyPage:
     def submit_dialog(self):
         dialog = self.page.locator("[role=dialog]")
         dialog.get_by_role("button", name="创建").or_(
-            dialog.get_by_role("button", name="保存").or_(
-                dialog.locator("button[type=submit]")
-            )
+            dialog.get_by_role("button", name="保存")
         ).first.click()
         self.page.wait_for_timeout(2000)
 
@@ -133,7 +131,9 @@ class ApiKeyPage:
 
     def get_form_validation_text(self) -> str:
         dialog = self.page.locator("[role=dialog]")
-        errors = dialog.locator("[class*='text-red'], [class*='error'], [class*='Error']")
+        errors = dialog.locator("[data-slot='form-message'], [role='alert']")
+        if errors.count() == 0:
+            errors = dialog.locator("p.text-red-500, p.text-destructive")
         if errors.count() > 0:
             return errors.first.text_content().strip()
         return ""
@@ -158,19 +158,13 @@ class ApiKeyPage:
         # 复制按钮
         return (
             dialog.get_by_role("button", name="复制").count() > 0
-            or dialog.locator("button").filter(has_text="Copy").count() > 0
-            or dialog.locator("button[aria-label*='copy']").count() > 0
-            or dialog.locator("button[aria-label*='复制']").count() > 0
+            or dialog.locator("button[aria-label*='copy' i], button[aria-label*='复制']").count() > 0
         )
 
     def click_copy(self):
         dialog = self.page.locator("[role=dialog]")
         dialog.get_by_role("button", name="复制").or_(
-            dialog.locator("button").filter(has_text="Copy").or_(
-                dialog.locator("button[aria-label*='copy']").or_(
-                    dialog.locator("button[aria-label*='复制']")
-                )
-            )
+            dialog.locator("button[aria-label*='copy' i], button[aria-label*='复制']")
         ).first.click()
         self.page.wait_for_timeout(500)
 
@@ -223,9 +217,7 @@ class ApiKeyPage:
     def confirm_alert(self):
         dialog = self.page.locator("[role=alertdialog]")
         dialog.get_by_role("button", name="确认").or_(
-            dialog.get_by_role("button", name="吊销").or_(
-                dialog.get_by_role("button", name="删除")
-            )
+            dialog.get_by_role("button", name="吊销")
         ).first.click()
         self.page.wait_for_timeout(2000)
 
@@ -239,9 +231,8 @@ class ApiKeyPage:
     def has_skeleton_or_spinner(self) -> bool:
         body = self._body()
         loading = body.locator(
-            "[class*='skeleton'], [class*='Skeleton'], "
-            "[class*='spinner'], [class*='Spinner'], "
-            "[class*='animate-pulse']"
+            "[role='progressbar'], [data-slot='skeleton'], "
+            "div.animate-pulse, [data-slot='spinner']"
         )
         return loading.count() > 0
 

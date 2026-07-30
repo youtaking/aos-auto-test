@@ -20,7 +20,7 @@ class DashboardPage:
         )
 
     def has_sidebar(self) -> bool:
-        return self.page.locator("nav, aside, [class*='sidebar']").first.is_visible()
+        return self.page.locator("nav, aside, aside.agent-sidebar").first.is_visible()
 
     def navigate_to(self, menu_text: str):
         self.page.get_by_text(menu_text).click()

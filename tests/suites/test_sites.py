@@ -138,7 +138,7 @@ def test_artifacts_panel_with_bound_site(logged_in_page, base_url):
 
     # 2. 预览区有内容（iframe 或 artifact div）
     iframe = logged_in_page.locator("iframe")
-    artifact = logged_in_page.locator("[class*='artifact'], [class*='Artifact']")
+    artifact = logged_in_page.locator("[data-slot='artifact'], iframe[src*='artifact']")
     has_preview = False
     if iframe.count() > 0:
         src = iframe.first.get_attribute("src") or ""
@@ -215,7 +215,7 @@ def test_creator_name_click_navigation(logged_in_page, base_url):
     url_changed = url_after != url_before
     dialog_visible = dialog.count() > 0 and dialog.first.is_visible()
     assert url_changed or dialog_visible, (
-        f"点击创建者名称后既没有跳转也没有弹出对话框"
+        f"部署操作无响应: url_changed={url_changed}, dialog_visible={dialog_visible}"
         f"（URL变化: {url_before} → {url_after}，dialog数={dialog.count()}）"
     )
 
@@ -359,8 +359,7 @@ def test_token_renewal(logged_in_page, base_url):
 
     # 3. 验证 Toast 提示"Token 已重签"
     toast = logged_in_page.locator(
-        "[role='status'], [class*='toast'], [class*='Toast'], "
-        "[class*='sonner'], [data-sonner-toast]"
+        "[role='status'], [data-sonner-toast], [data-slot='toast']"
     )
     toast_found = False
     for t in toast.all():

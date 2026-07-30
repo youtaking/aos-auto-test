@@ -23,6 +23,52 @@ class Project(Base):
     runs = relationship("TestRun", back_populates="project", cascade="all, delete-orphan")
 
 
+class AuthConfig(Base):
+    """认证配置：独立于项目，可创建多份，同时只能激活一份"""
+    __tablename__ = "auth_configs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(200), nullable=False)
+    ui_test_email = Column(String(200), default="")
+    ui_test_password = Column(String(200), default="")
+    api_test_email = Column(String(200), default="")
+    api_test_password = Column(String(200), default="")
+    open_api_key = Column(String(500), default="")
+    is_active = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class LLMConfig(Base):
+    """LLM 配置：支持多个 LLM 提供商，同时只能激活一个"""
+    __tablename__ = "llm_configs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(200), nullable=False)
+    provider = Column(String(50), default="openai")  # openai, anthropic, custom
+    base_url = Column(String(500), nullable=False)
+    api_key = Column(String(500), nullable=False)
+    model = Column(String(200), nullable=False)
+    is_active = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class ZentaoConfig(Base):
+    """禅道配置：同时只能激活一个"""
+    __tablename__ = "zentao_configs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(200), nullable=False)
+    base_url = Column(String(500), nullable=False)  # 禅道服务地址
+    username = Column(String(200), default="")       # 禅道登录账号
+    password = Column(String(200), default="")       # 禅道登录密码
+    product_id = Column(Integer, default=1)          # 禅道产品 ID
+    is_active = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class TestSuite(Base):
     __tablename__ = "test_suites"
 
@@ -117,4 +163,20 @@ class TestResult(Base):
     __table_args__ = (
         Index("ix_test_results_run_id", "run_id"),
         Index("ix_test_results_case_id", "case_id"),
+    )
+
+
+class AIAnalysisReport(Base):
+    """AI 分析报告（保存到数据库）"""
+    __tablename__ = "ai_analysis_reports"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    run_id = Column(Integer, ForeignKey("test_runs.id"), nullable=False)
+    report_md = Column(Text, default="")       # Markdown 分析报告
+    bugs_json = Column(Text, default="[]")     # Bug 列表 JSON
+    llm_model = Column(String(200), default="")  # 使用的模型
+    created_at = Column(DateTime, default=datetime.now)
+
+    __table_args__ = (
+        Index("ix_ai_reports_run_id", "run_id"),
     )

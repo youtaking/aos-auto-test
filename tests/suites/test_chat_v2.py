@@ -253,7 +253,8 @@ def test_session_message_isolation(logged_in_page, base_url):
     msg_text_b = chat.get_chat_messages_text()
 
     # 3. 两个会话的消息区域内容不同（仅比较消息区，排除侧边栏）
-    assert msg_text_a or msg_text_b, "两个会话的消息区域都为空，无法验证隔离"
+    assert msg_text_a, "会话A消息区域为空"
+    assert msg_text_b, "会话B消息区域为空"
     assert msg_text_a != msg_text_b, \
         "两个不同会话的消息内容完全相同，可能存在串台"
 
@@ -292,13 +293,15 @@ def test_session_persistence_refresh(logged_in_page, base_url):
     logged_in_page.wait_for_load_state("networkidle")
     logged_in_page.wait_for_timeout(1000)
     logged_in_page.goto(session_url, wait_until="networkidle")
-    logged_in_page.wait_for_timeout(5000)
+    logged_in_page.wait_for_load_state("networkidle")
+    logged_in_page.wait_for_timeout(3000)
 
     # 6. 如果消息未出现，做一次 reload
     log_check = logged_in_page.locator("div[role='log']")
     if log_check.count() > 0 and user_message not in log_check.first.inner_text():
         logged_in_page.reload(wait_until="networkidle")
-        logged_in_page.wait_for_timeout(5000)
+        logged_in_page.wait_for_load_state("networkidle")
+        logged_in_page.wait_for_timeout(3000)
 
     # 7. 轮询等待消息加载（最长 15 秒）
     messages_after = ""
@@ -675,7 +678,7 @@ def test_prevent_double_send(logged_in_page, base_url):
 
     # 记录发送前消息区域的气泡数
     log_area = logged_in_page.locator("div[role='log']")
-    bubbles_before = log_area.first.locator("[class*='message']").count() \
+    bubbles_before = log_area.first.locator("div").count() \
         if log_area.count() > 0 else 0
 
     # 发送一条自然消息，快速连按两次 Enter

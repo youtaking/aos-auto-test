@@ -136,7 +136,8 @@ class ChatTestPage:
         textarea = self.page.locator("textarea").first
         textarea.fill(text)
         textarea.press("Enter")
-        self.page.wait_for_timeout(8000)
+        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_timeout(5000)
 
     def send_message_with_shift_enter(self, lines: list[str]):
         """用 Shift+Enter 输入多行消息并发送"""
@@ -148,7 +149,8 @@ class ChatTestPage:
                 textarea.press("Shift+Enter")
         self.page.wait_for_timeout(300)
         textarea.press("Enter")
-        self.page.wait_for_timeout(8000)
+        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_timeout(5000)
 
     def get_textarea_value(self) -> str:
         return self.page.locator("textarea").first.input_value()
@@ -192,7 +194,8 @@ class ChatTestPage:
         textarea.press("Enter")
         self.page.wait_for_timeout(200)
         textarea.press("Enter")
-        self.page.wait_for_timeout(8000)
+        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_timeout(5000)
 
     # === 消息计数 ===
 
@@ -211,7 +214,7 @@ class ChatTestPage:
     def get_user_message_count(self) -> int:
         """获取用户消息气泡数量"""
         # User messages are typically in specific containers
-        messages = self.page.locator("[class*='message']")
+        messages = self.page.locator("div[role='log'] > div")
         return messages.count()
 
     # === Markdown 渲染检查 ===
@@ -302,12 +305,14 @@ class ChatTestPage:
     def has_file_preview(self) -> bool:
         """是否有文件预览区域"""
         # 检查上传后的预览元素
-        preview = self.page.locator("[class*='preview'], [class*='upload'], [class*='attachment'], [class*='file-item']")
+        preview = self.page.locator("[data-slot='file-item'], [data-slot='attachment']")
+        if preview.count() == 0:
+            preview = self.page.locator("div[data-file-preview], img[alt*='preview']")
         return preview.count() > 0
 
     def has_file_error(self) -> bool:
         """是否有文件错误提示"""
-        error = self.page.locator("[class*='error'], [class*='danger'], [role='alert']")
+        error = self.page.locator("[role='alert'], p.text-red-500, p.text-destructive")
         return error.count() > 0
 
     # === 刷新 ===
@@ -315,7 +320,7 @@ class ChatTestPage:
     def refresh_page(self):
         self.page.reload()
         self.page.wait_for_load_state("networkidle")
-        self.page.wait_for_timeout(5000)
+        self.page.wait_for_timeout(2000)
 
     # === 删除会话 ===
 
@@ -356,8 +361,6 @@ class ChatTestPage:
                 self.page.wait_for_timeout(500)
                 # 确认删除
                 confirm = self.page.locator("[role='alertdialog']").get_by_role("button", name="确认").or_(
-                    self.page.locator("[role='dialog']").get_by_role("button", name="确认")
-                ).or_(
                     self.page.get_by_role("button", name="确认")
                 )
                 if confirm.count() > 0:

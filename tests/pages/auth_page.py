@@ -245,7 +245,9 @@ class AuthPage:
 
     def get_dialog_error(self) -> str:
         dialog = self.page.locator("[role=dialog]")
-        errors = dialog.locator("[class*='error'], [class*='Error'], [class*='red']")
+        errors = dialog.locator(".auth-light-error")
+        if errors.count() == 0:
+            errors = dialog.locator("[data-slot='form-message'], [role='alert']")
         if errors.count() > 0:
             return errors.first.text_content().strip()
         return ""
@@ -256,7 +258,7 @@ class AuthPage:
         return self.page.locator("button.agent-sidebar-user-button").count() > 0
 
     def get_sidebar_text(self) -> str:
-        sidebar = self.page.locator("aside, nav, [class*=sidebar]").first
+        sidebar = self.page.locator("aside, nav, aside.agent-sidebar").first
         if sidebar.count() > 0:
             return sidebar.inner_text()
         return ""

@@ -111,16 +111,6 @@ class McpServerPage:
                     self.page.wait_for_timeout(800)
                     return
 
-        # 回退：尝试 tab / radio
-        tab = dialog.get_by_role("tab", name=server_type).or_(
-            dialog.get_by_role("radio", name=server_type)
-        ).or_(
-            dialog.locator(f"button:has-text('{server_type}')")
-        )
-        if tab.count() > 0:
-            tab.first.click()
-            self.page.wait_for_timeout(500)
-
     def fill_create_form(self, name: str, command: str = "", url: str = ""):
         """填写创建表单"""
         dialog = self.page.locator("[role='dialog']")
@@ -128,10 +118,6 @@ class McpServerPage:
         # 名称输入框（placeholder = my-mcp-server）
         name_input = dialog.locator("input[placeholder='my-mcp-server']").or_(
             dialog.locator("input[name='name']")
-        ).or_(
-            dialog.locator("input[placeholder*='名称']")
-        ).or_(
-            dialog.locator("input").first
         )
         if name_input.count() > 0:
             name_input.first.fill(name)
@@ -140,12 +126,6 @@ class McpServerPage:
         if command:
             cmd_input = dialog.locator("input[placeholder*='npx']").or_(
                 dialog.locator("input[name='command']")
-            ).or_(
-                dialog.locator("input[placeholder*='命令']")
-            ).or_(
-                dialog.locator("input[placeholder*='command']")
-            ).or_(
-                dialog.locator("textarea[name='command']")
             )
             if cmd_input.count() > 0:
                 cmd_input.first.fill(command)
@@ -154,10 +134,6 @@ class McpServerPage:
         if url:
             url_input = dialog.locator("input[placeholder*='example.com']").or_(
                 dialog.locator("input[name='url']")
-            ).or_(
-                dialog.locator("input[placeholder*='URL']")
-            ).or_(
-                dialog.locator("input[type='url']")
             )
             if url_input.count() > 0:
                 url_input.first.fill(url)
@@ -167,8 +143,6 @@ class McpServerPage:
         dialog = self.page.locator("[role='dialog']")
         save_btn = dialog.get_by_role("button", name="保存").or_(
             dialog.get_by_role("button", name="创建")
-        ).or_(
-            dialog.get_by_role("button", name="确定")
         )
         if save_btn.count() > 0:
             save_btn.first.click()
@@ -194,8 +168,7 @@ class McpServerPage:
         dialog = self.page.locator("[role='dialog']")
         inline_errors = dialog.locator(
             "[role='alert'], p.text-red-500, p.text-red-600, "
-            "span.text-red-500, [class*='form-error'], "
-            "[class*='invalid'], [class*='error']"
+            "span.text-red-500, [data-slot='form-message']"
         )
         for e in inline_errors.all():
             txt = e.inner_text().strip()
@@ -274,7 +247,8 @@ class McpServerPage:
         btn = row.get_by_role("button", name="检测")
         if btn.count() > 0:
             btn.first.click()
-            self.page.wait_for_timeout(5000)
+            self.page.wait_for_load_state("networkidle")
+            self.page.wait_for_timeout(2000)
 
     def click_edit(self, name: str):
         """点击「编辑」按钮"""
@@ -297,8 +271,6 @@ class McpServerPage:
         # 确认删除弹窗
         confirm = self.page.get_by_role("button", name="确认").or_(
             self.page.get_by_role("button", name="确定")
-        ).or_(
-            self.page.locator("[role='dialog']").get_by_role("button", name="删除")
         )
         if confirm.count() > 0:
             confirm.first.click()

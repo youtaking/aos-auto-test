@@ -14,3 +14,5 @@ export const listSuites = (projectId: number) =>
   get<TestSuite[]>(`/projects/${projectId}/suites`);
 export const createSuite = (projectId: number, data: { name: string; description?: string }) =>
   post<TestSuite>(`/projects/${projectId}/suites`, data);
+
+export const discoverCases = () => post<{ ui: object; api: object }>("/cases/discover");

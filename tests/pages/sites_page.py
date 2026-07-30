@@ -311,10 +311,10 @@ class SiteBuilderChatPage:
 
     def has_artifacts_panel(self) -> bool:
         """是否有 ArtifactsPanel（预览区）"""
-        # ArtifactsPanel 可能是 iframe 或 div[class*='artifact']
+        # ArtifactsPanel 可能是 iframe 或 data-slot='artifact'
         return (
             self.page.locator("iframe").count() > 0
-            or self.page.locator("[class*='artifact'], [class*='Artifact']").count() > 0
+            or self.page.locator("[data-slot='artifact'], iframe[src*='artifact']").count() > 0
         )
 
     def get_iframe_src(self) -> str:

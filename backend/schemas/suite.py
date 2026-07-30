@@ -23,6 +23,7 @@ class SuiteResponse(BaseModel):
     name: str
     description: str
     tags: str
+    test_type: str = "ui"
     created_at: datetime
 
     model_config = {"from_attributes": True}

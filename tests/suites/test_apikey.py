@@ -143,13 +143,13 @@ def test_apikey_003_name_empty_validation(logged_in_page, base_url):
     if save_btn.count() > 0:
         is_disabled = save_btn.first.is_disabled()
         if is_disabled:
-            assert True, "保存按钮在名称为空时被禁用"
+            assert save_btn.first.is_disabled(), "保存按钮在名称为空时被禁用"
         else:
             save_btn.first.click(force=True)
             logged_in_page.wait_for_timeout(1000)
             has_error = len(ak.get_form_validation_text()) > 0
             dialog_still_open = ak.is_dialog_open()
-            assert has_error or dialog_still_open, "名称为空时未拦截"
+            assert has_error or dialog_still_open, f"名称为空时未拦截: has_error={has_error}, dialog_still_open={dialog_still_open}"
 
     ak.close_dialog()
 
@@ -282,7 +282,7 @@ def test_apikey_006_security_warning(logged_in_page, base_url):
         )
         # 至少有一个阶段显示了安全提示
         assert has_warning or has_post_warning, \
-            "创建密钥全流程中未显示任何安全提示"
+            f"未检测到吊销警告: has_warning={has_warning}, has_post_warning={has_post_warning}"
 
     ak.close_dialog()
 
@@ -530,9 +530,9 @@ def test_apikey_009_copy_key(logged_in_page, base_url):
             name="复制功能",
             attachment_type=allure.attachment_type.TEXT,
         )
-        # 创建后弹窗应显示密钥或有复制按钮
-        assert key_shown or has_copy, \
-            "创建密钥后弹窗中既无密钥显示也无复制按钮"
+        # 创建后弹窗应显示密钥且有复制按钮
+        assert key_shown, "创建后未展示密钥"
+        assert has_copy, "创建后未展示复制按钮"
 
     ak.close_dialog()
 

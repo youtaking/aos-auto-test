@@ -181,7 +181,7 @@ def test_invalid_name_format(logged_in_page, base_url):
         dialog_still_open = mcp.is_create_dialog_open()
         errors = mcp.get_validation_errors()
         assert dialog_still_open or len(errors) > 0, \
-            f"{desc}（'{name[:20]}'）未触发校验反馈（对话框已关闭且无错误提示）"
+            f"{desc}（'{name[:20]}'）未触发校验反馈: dialog_still_open={dialog_still_open}, errors={errors}"
 
         if dialog_still_open:
             mcp.close_dialog()
@@ -195,7 +195,7 @@ def test_invalid_name_format(logged_in_page, base_url):
         dialog_still_open = mcp.is_create_dialog_open()
         errors = mcp.get_validation_errors()
         assert dialog_still_open or len(errors) > 0, \
-            "空名称未触发校验反馈"
+            f"空名称未触发校验反馈: dialog_still_open={dialog_still_open}, errors={errors}"
         if mcp.is_create_dialog_open():
             mcp.close_dialog()
 
@@ -227,7 +227,7 @@ def test_command_validation(logged_in_page, base_url):
     dialog_still_open = mcp.is_create_dialog_open()
     errors = mcp.get_validation_errors()
     assert dialog_still_open or len(errors) > 0, \
-        "空命令未触发校验反馈（对话框已关闭且无错误提示）"
+        f"空命令未触发校验反馈: dialog_still_open={dialog_still_open}, errors={errors}"
 
     if dialog_still_open:
         mcp.close_dialog()
@@ -517,7 +517,8 @@ def test_remote_url(logged_in_page, base_url):
     has_feedback = any(kw in combined for kw in ["成功", "失败", "错误", "超时", "Success", "Error", "Timeout", "工具", "tool", "SSE", "Unable"])
     has_console_feedback = any(kw in console_combined for kw in ["SSE error", "Unable to connect", "Error", "error", "失败"])
     assert has_feedback or has_console_feedback, (
-        f"测试远程 URL 后无任何反馈（页面片段: {combined[:80]}，控制台: {console_combined[:80]}）"
+        f"测试远程 URL 后无任何反馈: has_feedback={has_feedback}, has_console_feedback={has_console_feedback}"
+        f"（页面片段: {combined[:80]}，控制台: {console_combined[:80]}）"
     )
 
     # 关闭可能的 dialog
@@ -935,7 +936,7 @@ def test_mcp_api_validation(logged_in_page, base_url):
 
     dialog_still_open = mcp.is_create_dialog_open()
     assert dialog_still_open or len(toast1) > 0, \
-        "非法名称未触发校验（对话框已关闭且无 toast）"
+        f"非法名称未触发校验: dialog_still_open={dialog_still_open}, toast1={toast1}"
     if dialog_still_open:
         mcp.close_dialog()
     logged_in_page.wait_for_timeout(300)
@@ -954,7 +955,7 @@ def test_mcp_api_validation(logged_in_page, base_url):
 
     dialog_still_open = mcp.is_create_dialog_open()
     assert dialog_still_open or len(toast2) > 0, \
-        "缺必填字段未触发校验（对话框已关闭且无 toast）"
+        f"缺必填字段未触发校验: dialog_still_open={dialog_still_open}, toast2={toast2}"
     if dialog_still_open:
         mcp.close_dialog()
     logged_in_page.wait_for_timeout(300)
@@ -975,7 +976,7 @@ def test_mcp_api_validation(logged_in_page, base_url):
 
     dialog_still_open = mcp.is_create_dialog_open()
     assert dialog_still_open or len(toast3) > 0, \
-        "无效 URL 未触发校验（对话框已关闭且无 toast）"
+        f"无效 URL 未触发校验: dialog_still_open={dialog_still_open}, toast3={toast3}"
     if dialog_still_open:
         mcp.close_dialog()
 
@@ -1022,8 +1023,8 @@ def test_mcp_api_auth(logged_in_page, base_url, browser_instance):
     is_redirected = "/login" in unauth_page.url
     api_blocked = any(r["status"] in (401, 403) for r in unauth_responses)
     assert is_redirected or api_blocked, (
-        f"未认证请求未被拒绝: URL={unauth_page.url}, "
-        f"API 响应={unauth_responses[:3]}"
+        f"未认证请求未被拒绝: is_redirected={is_redirected}, api_blocked={api_blocked}, "
+        f"URL={unauth_page.url}, API 响应={unauth_responses[:3]}"
     )
 
     unauth_page.close()
