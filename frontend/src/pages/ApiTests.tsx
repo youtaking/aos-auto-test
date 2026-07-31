@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from "react";
+import { Link } from "react-router-dom";
 import { listApiCases, triggerApiRun, listApiRuns, getApiRun } from "../api/apiTests";
 import { listProjects } from "../api/projects";
 import type { ApiTestCase, ApiRunDetail } from "../api/apiTests";
@@ -23,22 +24,36 @@ export default function ApiTests() {
   const [running, setRunning] = useState(false);
   const [activeRunId, setActiveRunId] = useState<number | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
+  const [showLogs, setShowLogs] = useState(false);
   const [runResults, setRunResults] = useState<TestResult[]>([]);
   const [activeRun, setActiveRun] = useState<TestRun | null>(null);
+  const [showResults, setShowResults] = useState(false);
   const [moduleFilter, setModuleFilter] = useState("");
   const [priorityFilter, setPriorityFilter] = useState("");
   const [projects, setProjects] = useState<Project[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
+  const logContainerRef = useRef<HTMLDivElement>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
+  const autoScrollRef = useRef(true);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const scrollToEnd = useCallback(() => {
-    logEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (autoScrollRef.current && logContainerRef.current) {
+      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
+    }
   }, []);
 
   useEffect(() => {
     if (logs.length > 0) scrollToEnd();
   }, [logs, scrollToEnd]);
+
+  // 用户手动滚动时暂停自动滚动，滚回底部时恢复
+  const handleLogScroll = useCallback(() => {
+    const el = logContainerRef.current;
+    if (!el) return;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    autoScrollRef.current = atBottom;
+  }, []);
 
   // 加载用例和项目
   useEffect(() => {
@@ -85,6 +100,10 @@ export default function ApiTests() {
           getApiRun(activeRunId).then((detail: ApiRunDetail) => {
             setActiveRun(detail.run);
             setRunResults(detail.results);
+            // 有失败时自动展开结果
+            if (detail.run.failed > 0 || detail.run.status === "error") {
+              setShowResults(true);
+            }
           }).catch(console.error);
           listApiRuns().then(setRuns).catch(console.error);
         }
@@ -117,6 +136,8 @@ export default function ApiTests() {
     setLogs([]);
     setRunResults([]);
     setActiveRun(null);
+    setShowLogs(true);
+    autoScrollRef.current = true;
     try {
       const run = await triggerApiRun(activeProject.id, caseIds);
       setActiveRunId(run.id);
@@ -194,19 +215,38 @@ export default function ApiTests() {
         </div>
       </div>
 
-      {/* 实时日志面板（运行时显示） */}
-      {isRunning && (
+      {/* 实时日志面板 */}
+      {showLogs && (
         <div className="bg-gray-900 rounded-xl shadow-sm overflow-hidden">
           <div className="flex items-center justify-between px-4 py-2 bg-gray-800">
             <span className="text-sm text-gray-300 font-medium">
               实时日志 {logs.length > 0 && <span className="text-gray-500">({logs.length} 行)</span>}
             </span>
-            <span className="flex items-center gap-1.5 text-xs text-green-400">
-              <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-              运行中
-            </span>
+            <div className="flex items-center gap-3">
+              {isRunning ? (
+                <span className="flex items-center gap-1.5 text-xs text-green-400">
+                  <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                  运行中
+                </span>
+              ) : (
+                <span className="flex items-center gap-1.5 text-xs text-gray-400">
+                  <span className="w-2 h-2 rounded-full bg-gray-500" />
+                  已完成
+                </span>
+              )}
+              <button
+                onClick={() => setShowLogs(false)}
+                className="text-xs text-gray-500 hover:text-gray-300"
+              >
+                ✕ 关闭
+              </button>
+            </div>
           </div>
-          <div className="h-80 overflow-y-auto p-4 font-mono text-xs text-gray-300 leading-relaxed">
+          <div
+            ref={logContainerRef}
+            onScroll={handleLogScroll}
+            className="h-80 overflow-y-auto p-4 font-mono text-xs text-gray-300 leading-relaxed"
+          >
             {logs.length === 0 ? (
               <p className="text-gray-600">等待日志输出...</p>
             ) : (
@@ -219,38 +259,55 @@ export default function ApiTests() {
         </div>
       )}
 
-      {/* 运行结果（运行完成后显示） */}
+      {/* 运行结果（可折叠） */}
       {activeRun && !isRunning && runResults.length > 0 && (
         <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-          <div className="px-4 py-3 border-b bg-gray-50">
-            <span className="font-medium">运行 #{activeRun.id} 结果</span>
-            <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${statusBadge[activeRun.status] ?? ""}`}>
-              {activeRun.status}
-            </span>
-            <span className="ml-3 text-sm text-gray-500">
-              通过 {activeRun.passed} / 失败 {activeRun.failed} / 跳过 {activeRun.skipped}
-            </span>
+          <div
+            className="px-4 py-3 border-b bg-gray-50 flex items-center justify-between cursor-pointer select-none"
+            onClick={() => setShowResults(!showResults)}
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-gray-400 text-xs">{showResults ? "▼" : "▶"}</span>
+              <span className="font-medium">运行 #{activeRun.id} 结果</span>
+              <span className={`px-2 py-0.5 rounded-full text-xs ${statusBadge[activeRun.status] ?? ""}`}>
+                {activeRun.status}
+              </span>
+              <span className="text-sm text-gray-500">
+                通过 {activeRun.passed} / 失败 {activeRun.failed} / 跳过 {activeRun.skipped}
+              </span>
+            </div>
+            <span className="text-xs text-gray-400">{showResults ? "收起" : "展开"}</span>
           </div>
-          <table className="w-full">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-4 py-2 text-left text-sm font-medium text-gray-500">状态</th>
-                <th className="px-4 py-2 text-left text-sm font-medium text-gray-500">用例名</th>
-                <th className="px-4 py-2 text-left text-sm font-medium text-gray-500">耗时</th>
-                <th className="px-4 py-2 text-left text-sm font-medium text-gray-500">错误</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {runResults.map((r) => (
-                <tr key={r.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-2">{statusIcon[r.status] ?? "❓"}</td>
-                  <td className="px-4 py-2 text-sm font-mono">{r.case_name}</td>
-                  <td className="px-4 py-2 text-sm">{r.duration_ms}ms</td>
-                  <td className="px-4 py-2 text-sm text-red-600 max-w-xs truncate">{r.error_message ?? "-"}</td>
+          {showResults && (
+            <table className="w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-2 text-left text-sm font-medium text-gray-500">状态</th>
+                  <th className="px-4 py-2 text-left text-sm font-medium text-gray-500">用例名</th>
+                  <th className="px-4 py-2 text-left text-sm font-medium text-gray-500">耗时</th>
+                  <th className="px-4 py-2 text-left text-sm font-medium text-gray-500">错误</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {runResults.map((r) => (
+                  <tr key={r.id} className="hover:bg-gray-50">
+                    <td className="px-4 py-2">{statusIcon[r.status] ?? "❓"}</td>
+                    <td className="px-4 py-2 text-sm font-mono">{r.case_name}</td>
+                    <td className="px-4 py-2 text-sm">{r.duration_ms}ms</td>
+                    <td className="px-4 py-2 text-sm">
+                      {r.error_message ? (
+                        <div className="max-w-sm max-h-24 overflow-y-auto bg-red-50 rounded p-2 text-red-600 text-xs font-mono whitespace-pre-wrap break-all">
+                          {r.error_message}
+                        </div>
+                      ) : (
+                        <span className="text-gray-400">-</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       )}
 
@@ -352,7 +409,11 @@ export default function ApiTests() {
           <tbody className="divide-y divide-gray-100">
             {runs.map((run) => (
               <tr key={run.id} className="hover:bg-gray-50">
-                <td className="px-4 py-2 text-sm">#{run.id}</td>
+                <td className="px-4 py-2 text-sm">
+                  <Link to={`/runs/${run.id}`} className="text-blue-600 hover:underline font-mono">
+                    #{run.id}
+                  </Link>
+                </td>
                 <td className="px-4 py-2">
                   <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusBadge[run.status] ?? ""}`}>
                     {run.status}

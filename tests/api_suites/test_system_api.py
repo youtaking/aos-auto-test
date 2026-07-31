@@ -11,7 +11,9 @@ import httpx
 import pytest
 from tests.api_contracts.openapi_extra_schemas import (
     API_SYSTEM_USER_LIST_RESPONSE,
+    API_SYSTEM_USER_DETAIL,
     API_SYSTEM_ORG_LIST_RESPONSE,
+    API_SYSTEM_ORG_DETAIL,
     API_SYSTEM_USER_CREATE_RESPONSE,
     API_SYSTEM_DELETE_RESPONSE,
     API_SYSTEM_UPDATE_RESPONSE,
@@ -65,6 +67,7 @@ class TestSystemOpenAPI:
         user_id = list_resp["items"][0]["id"]
 
         resp = api_client.get_user(user_id)
+        api_client.validate_schema(resp, API_SYSTEM_USER_DETAIL)
         assert resp["id"] == user_id
 
     def test_list_organizations(self, api_client, api_test_config):
@@ -88,6 +91,7 @@ class TestSystemOpenAPI:
         org_id = list_resp["items"][0]["id"]
 
         resp = api_client.get_organization(org_id)
+        api_client.validate_schema(resp, API_SYSTEM_ORG_DETAIL)
         assert resp["id"] == org_id
 
     def test_get_nonexistent_user(self, api_client, api_test_config):
@@ -95,7 +99,7 @@ class TestSystemOpenAPI:
         if not _check_system_api_available(api_client):
             pytest.skip("System API Key 未配置或无权限（401），跳过测试")
 
-        with pytest.raises(httpx.HTTPStatusError, match=r"(404|500)"):
+        with pytest.raises(httpx.HTTPStatusError, match=r"404"):
             api_client.get_user("nonexistent-user-id-99999")
 
     def test_create_and_delete_user(self, api_client, api_test_config):
@@ -160,7 +164,7 @@ class TestSystemOpenAPI:
         existing_email = list_resp["items"][0].get("email")
 
         try:
-            with pytest.raises(httpx.HTTPStatusError, match=r"(409|400|500)"):
+            with pytest.raises(httpx.HTTPStatusError, match=r"(409|400)"):
                 api_client.create_user({
                     "email": existing_email,
                     "password": "TestPass123!",
@@ -330,7 +334,7 @@ class TestSystemOpenAPI:
             pytest.skip("System API Key 未配置或无权限（401），跳过测试")
 
         try:
-            with pytest.raises(httpx.HTTPStatusError, match=r"(404|500)"):
+            with pytest.raises(httpx.HTTPStatusError, match=r"404"):
                 api_client.delete_user("nonexistent-user-id-99999")
         except httpx.HTTPStatusError as e:
             if e.response.status_code in (401, 403):
@@ -343,7 +347,7 @@ class TestSystemOpenAPI:
             pytest.skip("System API Key 未配置或无权限（401），跳过测试")
 
         try:
-            with pytest.raises(httpx.HTTPStatusError, match=r"(404|500)"):
+            with pytest.raises(httpx.HTTPStatusError, match=r"404"):
                 api_client.delete_organization("nonexistent-org-id-99999")
         except httpx.HTTPStatusError as e:
             if e.response.status_code in (401, 403):

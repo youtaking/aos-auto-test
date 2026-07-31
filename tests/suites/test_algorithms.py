@@ -93,9 +93,17 @@ def test_algorithms_search_filter(logged_in_page, base_url):
 
     # 搜索已知存在的算法名称，验证搜索结果正确
     names = algo.get_algo_names()
-    if names:
-        # 取第一个算法名称的后半部分作为搜索词（避免 emoji 前缀干扰）
-        search_term = names[0].split()[-1] if " " in names[0] else names[0]
+    # 过滤掉纯 emoji 或过短的名称，取有意义的文字部分
+    meaningful_names = [n for n in names if len(n) > 2 and not all(
+        ord(c) > 0xFFFF or ord(c) < 0x20 for c in n.strip()
+    )]
+    if meaningful_names:
+        # 取第一个有效算法名称，去掉 emoji 前缀
+        name = meaningful_names[0]
+        # 去掉开头的 emoji（Unicode emoji 范围）和非文字字符
+        import re
+        clean_name = re.sub(r'^[\U00010000-\U0010FFFF☀-➿︀-️\s]+', '', name).strip()
+        search_term = clean_name if len(clean_name) >= 2 else name
         algo.search(search_term)
         found = algo.get_algo_count()
         assert found >= 1, f"搜索已知算法名称 '{search_term}' 未找到结果"

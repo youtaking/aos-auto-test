@@ -121,7 +121,7 @@ class TestEnvironmentWebAPI:
 
     def test_create_environment_invalid_config(self, web_client):
         """创建环境使用非法配置：缺少 agentConfigId 应返回 400/422"""
-        with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(400|422|500)"):
+        with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(400|422)"):
             web_client.create_environment({
                 "name": "api-test-env-invalid",
                 # 故意不传 agentConfigId
@@ -137,7 +137,7 @@ class TestEnvironmentWebAPI:
 
     def test_get_nonexistent_environment(self, web_client):
         """获取不存在的环境：应抛出 404 异常"""
-        with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(404|500)"):
+        with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"404"):
             web_client.get_environment("nonexistent-env-id-99999")
 
     def test_list_environment_instances(self, web_client):
@@ -149,7 +149,9 @@ class TestEnvironmentWebAPI:
 
         resp = web_client.list_environment_instances(env_id)
         if isinstance(resp, list):
-            assert isinstance(resp, list)
+            # 数组响应：每项应为 dict（实例对象）
+            for item in resp:
+                assert isinstance(item, dict), f"实例项应为 dict，实际: {type(item)}"
         else:
             assert isinstance(resp, dict)
             if "instances" in resp:
@@ -167,3 +169,23 @@ class TestEnvironmentWebAPI:
                 "description": "Empty name test",
                 "agentConfigId": agent_config_id,
             })
+
+    def test_delete_environment_idempotent(self, web_client):
+        """Environment DELETE 幂等性：第二次删除返回 404"""
+        agent_config_id = _get_first_agent_config_id(web_client)
+        if not agent_config_id:
+            pytest.skip("无可用 Agent 配置，无法测试幂等性")
+        test_name = "test-idempotent-delete-env"
+        _cleanup_environment(web_client, test_name)
+        try:
+            create_resp = web_client.create_environment({
+                "name": test_name,
+                "description": "Idempotent delete test",
+                "agentConfigId": agent_config_id,
+            })
+            env_id = create_resp["id"]
+            web_client.delete_environment(env_id)
+            with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"404"):
+                web_client.delete_environment(env_id)
+        finally:
+            _cleanup_environment(web_client, test_name)

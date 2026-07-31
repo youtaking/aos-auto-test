@@ -14,7 +14,6 @@ class AlgorithmsPage:
     def goto(self):
         self.page.goto(self.url)
         self.page.wait_for_load_state("networkidle")
-        self.page.wait_for_timeout(1500)
 
     def is_loaded(self) -> bool:
         """页面加载完成"""

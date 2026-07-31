@@ -21,6 +21,7 @@ report.json
 # 测试报告
 allure-report/
 allure-results/
+run_logs/
 
 # 临时脚本
 dump_*.py
@@ -69,6 +70,9 @@ provider_check.png
 
 # 测试报告 JSON
 api_report_*.json
+
+# AI 分析报告（本地文件存储，不入库）
+ai_reports/
 
 # Excel 测试用例文件
 *_updated.xlsx

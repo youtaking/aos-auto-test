@@ -12,7 +12,21 @@ import pytest
 # 因此 schema 允许 array 或 object，但 object 时必须包含 instances 字段
 _WEB_INSTANCE_ACTIVITY_DATA = {
     "type": ["object", "array"],
-    "properties": {"instances": {"type": "array"}, "total": {"type": "integer"}},
+    "properties": {
+        "instances": {"type": "array"},
+        "total": {"type": "integer"},
+    },
+}
+
+_WEB_INSTANCE_ACTIVITY_ITEM = {
+    "type": "object",
+    "properties": {
+        "id": {"type": "string"},
+        "agentId": {"type": ["string", "null"]},
+        "environmentId": {"type": ["string", "null"]},
+        "status": {"type": ["string", "null"]},
+    },
+    "additionalProperties": True,
 }
 
 
@@ -35,17 +49,35 @@ class TestInstanceWebAPI:
             # 空数组或包含实例对象的数组
             for item in resp:
                 assert isinstance(item, dict)
+                web_client.validate_schema(item, _WEB_INSTANCE_ACTIVITY_ITEM)
         elif isinstance(resp, dict):
-            if "instances" in resp:
-                assert isinstance(resp["instances"], list)
+            assert "instances" in resp, f"object 响应缺少 instances 字段: {list(resp.keys())}"
+            assert isinstance(resp["instances"], list)
+            assert "total" in resp, "object 响应缺少 total 字段"
+            assert isinstance(resp["total"], int)
+            for item in resp["instances"]:
+                web_client.validate_schema(item, _WEB_INSTANCE_ACTIVITY_ITEM)
 
     def test_get_instance_activity_all(self, web_client):
         """获取所有实例活跃度（all=true）"""
         resp = web_client.get_instance_activity(params={"all": True})
         web_client.validate_schema(resp, _WEB_INSTANCE_ACTIVITY_DATA)
+
+        # 获取默认响应用于对比
+        resp_default = web_client.get_instance_activity()
+
         if isinstance(resp, list):
             for item in resp:
                 assert isinstance(item, dict)
+                web_client.validate_schema(item, _WEB_INSTANCE_ACTIVITY_ITEM)
+            # all=true 应返回不少于默认请求的数据量
+            if isinstance(resp_default, list):
+                assert len(resp) >= len(resp_default), \
+                    "all=true 返回数据量不应少于默认请求"
         elif isinstance(resp, dict):
-            if "instances" in resp:
-                assert isinstance(resp["instances"], list)
+            assert "instances" in resp, f"object 响应缺少 instances 字段: {list(resp.keys())}"
+            assert isinstance(resp["instances"], list)
+            assert "total" in resp, "object 响应缺少 total 字段"
+            assert isinstance(resp["total"], int)
+            for item in resp["instances"]:
+                web_client.validate_schema(item, _WEB_INSTANCE_ACTIVITY_ITEM)

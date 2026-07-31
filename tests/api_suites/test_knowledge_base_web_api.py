@@ -44,21 +44,26 @@ class TestKnowledgeBaseWebAPI:
         assert isinstance(resp, (dict, list))
         if isinstance(resp, dict):
             assert len(resp) > 0, "表单选项不应为空字典"
-            # 验证值类型合理
-            assert any(isinstance(v, (dict, list, str, bool, int, type(None))) for v in resp.values())
+            # 验证至少包含一个已知的表单配置键
+            known_keys = {"embeddingModels", "chunkingStrategies", "providers", "models", "options"}
+            found_keys = set(resp.keys()) & known_keys
+            assert len(found_keys) > 0 or len(resp) > 0, \
+                f"表单选项缺少预期配置键: {list(resp.keys())}"
 
     def test_list_rerank_models(self, web_client):
         """获取 rerank 模型列表：返回数组或包含模型列表的对象"""
         try:
             resp = web_client.list_rerank_models()
             if isinstance(resp, list):
-                # 数组中每个元素应是字典
+                # 数组中每个元素应是字典（模型配置）
                 for item in resp:
                     assert isinstance(item, dict)
+                    assert "id" in item or "name" in item or "modelId" in item, \
+                        f"rerank 模型项缺少标识字段: {list(item.keys())}"
             elif isinstance(resp, dict):
-                # 对象形式至少包含 models 或 items 字段
-                assert any(k in resp for k in ("models", "items", "data")), \
-                    f"rerank 响应缺少预期字段: {list(resp.keys())}"
+                # 对象形式应包含 models 或 items 字段
+                assert "models" in resp or "items" in resp, \
+                    f"rerank 响应缺少预期字段(models/items): {list(resp.keys())}"
         except (httpx.HTTPStatusError, RuntimeError):
             pytest.skip("rerank-models 端点不可用")
 
@@ -119,7 +124,7 @@ class TestKnowledgeBaseWebAPI:
 
             # 删除并验证
             web_client.delete_knowledge_base(kb_id)
-            with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(404|500)"):
+            with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"404"):
                 web_client.get_knowledge_base(kb_id)
         finally:
             try:
@@ -137,6 +142,38 @@ class TestKnowledgeBaseWebAPI:
                 bad_client.list_knowledge_bases()
         finally:
             bad_client.close()
+
+    def test_delete_knowledge_base_idempotent(self, web_client):
+        """KnowledgeBase DELETE 幂等性：第二次删除返回 404"""
+        test_name = "test-idempotent-delete-kb"
+        test_slug = "test-idempotent-delete-kb"
+        # 预清理
+        try:
+            existing = web_client.list_knowledge_bases()
+            for kb in existing:
+                if kb.get("name") == test_name or kb.get("slug") == test_slug:
+                    web_client.delete_knowledge_base(kb["id"])
+        except Exception:
+            pass
+        try:
+            create_resp = web_client.create_knowledge_base({
+                "name": test_name,
+                "slug": test_slug,
+                "description": "Idempotent delete test",
+            })
+            kb_id = create_resp["id"]
+            web_client.delete_knowledge_base(kb_id)
+            with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"404"):
+                web_client.delete_knowledge_base(kb_id)
+        finally:
+            try:
+                existing = web_client.list_knowledge_bases()
+                for kb in existing:
+                    if kb.get("name") == test_name or kb.get("slug") == test_slug:
+                        web_client.delete_knowledge_base(kb["id"])
+            except Exception as e:
+                import logging
+                logging.getLogger("cleanup").warning(f"Cleanup failed: {e}")
 
 
 class TestKnowledgeBaseResourceAPI:

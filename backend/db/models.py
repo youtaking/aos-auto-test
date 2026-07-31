@@ -166,17 +166,3 @@ class TestResult(Base):
     )
 
 
-class AIAnalysisReport(Base):
-    """AI 分析报告（保存到数据库）"""
-    __tablename__ = "ai_analysis_reports"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    run_id = Column(Integer, ForeignKey("test_runs.id"), nullable=False)
-    report_md = Column(Text, default="")       # Markdown 分析报告
-    bugs_json = Column(Text, default="[]")     # Bug 列表 JSON
-    llm_model = Column(String(200), default="")  # 使用的模型
-    created_at = Column(DateTime, default=datetime.now)
-
-    __table_args__ = (
-        Index("ix_ai_reports_run_id", "run_id"),
-    )

@@ -30,12 +30,11 @@ async def disconnect(run_id: int, ws: WebSocket):
 async def broadcast(run_id: int, event: str, data: dict):
     """向关注某个 run 的所有客户端广播消息"""
     message = json.dumps({"event": event, "data": data}, default=str)
-    if run_id in _active_connections:
-        for ws in _active_connections[run_id]:
-            try:
-                await ws.send_text(message)
-            except Exception:
-                pass
+    for ws in _active_connections.get(run_id, []):
+        try:
+            await ws.send_text(message)
+        except Exception:
+            pass
 
 
 @router.websocket("/ws/runs/{run_id}")

@@ -148,3 +148,18 @@ class TestWorkflowDefWebAPI:
                 bad_client.list_workflow_defs()
         finally:
             bad_client.close()
+
+    def test_delete_workflow_def_idempotent(self, web_client):
+        """WorkflowDef DELETE 幂等性：第二次删除返回 404"""
+        test_name = "test-idempotent-delete-wfdef"
+        try:
+            create_resp = web_client.create_workflow_def({
+                "name": test_name,
+                "description": "Idempotent delete test",
+            })
+            wf_id = create_resp["id"]
+            web_client.delete_workflow_def(wf_id)
+            with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"404"):
+                web_client.delete_workflow_def(wf_id)
+        finally:
+            _cleanup_workflow_def(web_client, wf_id)

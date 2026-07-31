@@ -1,6 +1,7 @@
 # tests/pages/mcp_page.py
 """MCP 服务器管理页面 Page Object — 基于真实 DOM 结构编写"""
 from playwright.sync_api import Page
+from tests.pages import locators as loc
 
 
 class McpServerPage:
@@ -16,7 +17,6 @@ class McpServerPage:
     def goto(self):
         self.page.goto(self.url)
         self.page.wait_for_load_state("networkidle")
-        self.page.wait_for_timeout(1500)
 
     def is_loaded(self) -> bool:
         """页面标题「MCP 服务器」可见"""
@@ -141,19 +141,15 @@ class McpServerPage:
     def save(self):
         """点击保存/创建"""
         dialog = self.page.locator("[role='dialog']")
-        save_btn = dialog.get_by_role("button", name="保存").or_(
-            dialog.get_by_role("button", name="创建")
-        )
+        save_btn = loc.save_or_submit_button(dialog)
         if save_btn.count() > 0:
             save_btn.first.click()
-            self.page.wait_for_timeout(2000)
+            self.page.wait_for_timeout(1000)
 
     def close_dialog(self):
         """关闭对话框"""
         dialog = self.page.locator("[role='dialog']")
-        cancel = dialog.get_by_role("button", name="取消").or_(
-            dialog.get_by_role("button", name="Close")
-        )
+        cancel = loc.cancel_button(dialog)
         if cancel.count() > 0:
             cancel.first.click()
             self.page.wait_for_timeout(500)
@@ -248,7 +244,6 @@ class McpServerPage:
         if btn.count() > 0:
             btn.first.click()
             self.page.wait_for_load_state("networkidle")
-            self.page.wait_for_timeout(2000)
 
     def click_edit(self, name: str):
         """点击「编辑」按钮"""
@@ -269,12 +264,10 @@ class McpServerPage:
             self.page.wait_for_timeout(500)
 
         # 确认删除弹窗
-        confirm = self.page.get_by_role("button", name="确认").or_(
-            self.page.get_by_role("button", name="确定")
-        )
+        confirm = loc.confirm_button(self.page)
         if confirm.count() > 0:
             confirm.first.click()
-            self.page.wait_for_timeout(2000)
+            self.page.wait_for_timeout(1000)
 
     # === 公开开关 ===
 

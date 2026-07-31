@@ -16,13 +16,12 @@ class ChatTestPage:
         """进入指定 Agent 的对话页"""
         self.page.goto(f"{self.base_url}/ctrl/agent/home")
         self.page.wait_for_load_state("networkidle")
-        self.page.wait_for_timeout(2000)
         card = self.page.locator("button.agent-sidebar-agent-card").filter(has_text=agent_name)
         if card.count() > 0:
             card.first.scroll_into_view_if_needed()
             self.page.wait_for_timeout(300)
             card.first.click()
-            self.page.wait_for_timeout(3000)
+            self.page.wait_for_timeout(2000)
 
     def is_chat_loaded(self) -> bool:
         """聊天界面是否加载完成（URL 不变，通过 textarea 判断）"""
@@ -90,6 +89,31 @@ class ChatTestPage:
                 titles.append(title)
         return titles
 
+    def get_session_titles_via_client(self) -> list[str]:
+        """通过 React client 对象获取会话标题列表（WebSocket JSON-RPC）"""
+        result = self.page.evaluate("""() => {
+            const header = document.querySelector('.chat-header-card');
+            if (!header) return [];
+            const fiberKey = Object.keys(header).find(k => k.startsWith('__reactFiber'));
+            if (!fiberKey) return [];
+            let fiber = header[fiberKey];
+            let client = null;
+            for (let i = 0; i < 30 && fiber; i++) {
+                const props = fiber.memoizedProps || {};
+                if (props.client && typeof props.client.listSessions === 'function') {
+                    client = props.client;
+                    break;
+                }
+                fiber = fiber.return;
+            }
+            if (!client) return [];
+            return client.listSessions().then(resp => {
+                const sessions = Array.isArray(resp?.sessions) ? resp.sessions : [];
+                return sessions.map(s => s.title || '').filter(t => t.length > 0);
+            }).catch(() => []);
+        }""")
+        return result if isinstance(result, list) else []
+
     def search_sessions(self, keyword: str):
         """搜索会话"""
         dialog = self.page.locator("[role='dialog']")
@@ -116,9 +140,11 @@ class ChatTestPage:
     def click_session(self, title: str):
         """点击某个会话（仅匹配可见的会话按钮）"""
         dialog = self.page.locator("[role='dialog']")
-        btn = dialog.locator(f"button[title='{title}']").filter(has_text=title)
-        if btn.count() > 0:
-            btn.first.click()
+        # 避免 CSS 选择器中直接使用标题文本（可能包含 XSS 等特殊字符）
+        # 改用 filter(has_text) 匹配
+        btns = dialog.locator("button[title]").filter(has_text=title)
+        if btns.count() > 0:
+            btns.first.click()
             self.page.wait_for_timeout(2000)
 
     def has_session_time_sections(self) -> bool:
@@ -137,7 +163,6 @@ class ChatTestPage:
         textarea.fill(text)
         textarea.press("Enter")
         self.page.wait_for_load_state("networkidle")
-        self.page.wait_for_timeout(5000)
 
     def send_message_with_shift_enter(self, lines: list[str]):
         """用 Shift+Enter 输入多行消息并发送"""
@@ -150,7 +175,6 @@ class ChatTestPage:
         self.page.wait_for_timeout(300)
         textarea.press("Enter")
         self.page.wait_for_load_state("networkidle")
-        self.page.wait_for_timeout(5000)
 
     def get_textarea_value(self) -> str:
         return self.page.locator("textarea").first.input_value()
@@ -195,7 +219,6 @@ class ChatTestPage:
         self.page.wait_for_timeout(200)
         textarea.press("Enter")
         self.page.wait_for_load_state("networkidle")
-        self.page.wait_for_timeout(5000)
 
     # === 消息计数 ===
 
@@ -300,7 +323,7 @@ class ChatTestPage:
         """上传多个文件"""
         file_input = self.get_file_input()
         file_input.set_input_files(file_paths)
-        self.page.wait_for_timeout(3000)
+        self.page.wait_for_timeout(2000)
 
     def has_file_preview(self) -> bool:
         """是否有文件预览区域"""
@@ -320,52 +343,71 @@ class ChatTestPage:
     def refresh_page(self):
         self.page.reload()
         self.page.wait_for_load_state("networkidle")
-        self.page.wait_for_timeout(2000)
 
     # === 删除会话 ===
 
     def delete_session_by_title(self, title: str) -> bool:
-        """通过标题删除会话（在会话对话框中操作），返回是否成功"""
-        dialog = self.page.locator("[role='dialog']")
-        if dialog.count() == 0:
-            self.open_session_dialog()
-            dialog = self.page.locator("[role='dialog']")
+        """通过标题删除会话，返回是否成功。
+        会话删除使用 WebSocket JSON-RPC (session/delete)。
+        先创建新会话使目标会话变为非活跃状态，再通过 client.deleteSession 删除。"""
+        # 先创建新会话，使目标会话变为非活跃
+        self.create_new_session()
+        self.page.wait_for_timeout(1000)
 
-        session_btn = dialog.locator(f"button[title='{title}']")
-        if session_btn.count() == 0:
-            # 尝试模糊匹配
-            for t in self.get_session_titles():
-                if title[:6] in t:
-                    session_btn = dialog.locator(f"button[title='{t}']")
-                    break
+        # 通过 React fiber 找到 client 对象并删除会话
+        result = self.page.evaluate("""(targetTitle) => {
+            // 1. 从 chat-header-card 找到 client
+            const header = document.querySelector('.chat-header-card');
+            if (!header) return {error: 'no chat-header-card'};
 
-        if session_btn.count() == 0:
-            return False
+            const fiberKey = Object.keys(header).find(k => k.startsWith('__reactFiber'));
+            if (!fiberKey) return {error: 'no fiber key'};
 
-        # Hover 触发删除按钮
-        session_btn.first.hover()
-        self.page.wait_for_timeout(500)
+            let fiber = header[fiberKey];
+            let client = null;
+            for (let i = 0; i < 30 && fiber; i++) {
+                const props = fiber.memoizedProps || {};
+                if (props.client && typeof props.client.deleteSession === 'function') {
+                    client = props.client;
+                    break;
+                }
+                fiber = fiber.return;
+            }
+            if (!client) return {error: 'client not found'};
 
-        parent = session_btn.first.locator("..")
-        all_elements = parent.locator("*")
+            // 2. 获取会话列表
+            return client.listSessions().then(resp => {
+                const sessions = Array.isArray(resp?.sessions) ? resp.sessions : [];
+                // 3. 按标题匹配
+                let match = sessions.find(s => s.title && s.title.includes(targetTitle));
+                if (!match) {
+                    match = sessions.find(s => s.title && targetTitle.substring(0, 6) && s.title.includes(targetTitle.substring(0, 6)));
+                }
+                if (!match) return {error: 'session not found', titles: sessions.map(s => s.title), target: targetTitle};
 
-        for i in range(all_elements.count()):
-            el = all_elements.nth(i)
-            title_attr = el.get_attribute("title") or ""
-            aria = el.get_attribute("aria-label") or ""
-            cls = el.get_attribute("class") or ""
-            combined = f"{title_attr} {aria} {cls}".lower()
-            tag = el.evaluate("el => el.tagName")
-            if tag in ("BUTTON", "SVG") and any(kw in combined for kw in ["删除", "delete", "trash", "remove"]):
-                el.click()
-                self.page.wait_for_timeout(500)
-                # 确认删除
-                confirm = self.page.locator("[role='alertdialog']").get_by_role("button", name="确认").or_(
-                    self.page.get_by_role("button", name="确认")
-                )
-                if confirm.count() > 0:
-                    confirm.first.click()
-                    self.page.wait_for_timeout(1000)
-                return True
+                // 4. 调用 deleteSession
+                return client.deleteSession({sessionId: match.sessionId}).then(deleteResult => {
+                    return {success: true, sessionId: match.sessionId, title: match.title, deleteResult: JSON.stringify(deleteResult).substring(0, 200)};
+                }).catch(err => {
+                    return {error: 'delete failed: ' + err.message, sessionId: match.sessionId};
+                });
+            }).catch(err => {
+                return {error: 'listSessions failed: ' + err.message};
+            });
+        }""", title)
 
+        if isinstance(result, dict) and result.get("success"):
+            delete_result = result.get("deleteResult", "")
+            # Check if the JSON-RPC response contains an error
+            if "error" in delete_result and "Method not found" in delete_result:
+                print(f"\n[delete_session_by_title] Server does not support session/delete: {delete_result}")
+                return False
+            if '"error"' in delete_result:
+                print(f"\n[delete_session_by_title] Server error: {delete_result}")
+                return False
+            self.page.wait_for_timeout(1500)
+            return True
+        # Debug: print failure reason
+        if result:
+            print(f"\n[delete_session_by_title] result: {result}")
         return False

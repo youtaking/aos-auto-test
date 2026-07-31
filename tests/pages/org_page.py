@@ -1,6 +1,7 @@
 # tests/pages/org_page.py
 """组织管理页面 Page Object — 基于真实 DOM 结构编写"""
 from playwright.sync_api import Page
+from tests.pages import locators as loc
 
 
 class OrgPage:
@@ -17,14 +18,12 @@ class OrgPage:
         """通过侧边栏导航到组织管理页面"""
         self.page.goto(self.url)
         self.page.wait_for_load_state("networkidle")
-        self.page.wait_for_timeout(2000)
 
     def goto_via_sidebar(self):
         """通过侧边栏按钮导航"""
         btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="组织")
         btn.first.click()
         self.page.wait_for_load_state("networkidle")
-        self.page.wait_for_timeout(2000)
 
     def is_loaded(self) -> bool:
         return "/ctrl/agent/organization" in self.page.url and self.page.locator("div.agent-panel-body").count() > 0
@@ -117,14 +116,10 @@ class OrgPage:
 
     def submit_dialog(self):
         dialog = self.page.locator("[role=dialog]")
-        dialog.get_by_role("button", name="保存").or_(
-            dialog.get_by_role("button", name="创建").or_(
-                dialog.get_by_role("button", name="确认").or_(
-                    dialog.locator("button[type=submit]")
-                )
-            )
+        loc.save_or_submit_button(dialog).or_(
+            dialog.get_by_role("button", name="确认")
         ).first.click()
-        self.page.wait_for_timeout(2000)
+        self.page.wait_for_timeout(1000)
 
     def cancel_dialog(self):
         dialog = self.page.locator("[role=dialog]")
@@ -217,10 +212,8 @@ class OrgPage:
 
     def confirm_alert(self):
         dialog = self.page.locator("[role=alertdialog]")
-        dialog.get_by_role("button", name="确认").or_(
-            dialog.get_by_role("button", name="删除")
-        ).first.click()
-        self.page.wait_for_timeout(2000)
+        loc.confirm_button(dialog).first.click()
+        self.page.wait_for_timeout(1000)
 
     def cancel_alert(self):
         dialog = self.page.locator("[role=alertdialog]")

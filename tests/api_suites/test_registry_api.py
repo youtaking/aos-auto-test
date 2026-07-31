@@ -63,5 +63,5 @@ class TestRegistryWebAPI:
 
     def test_get_nonexistent_machine(self, web_client):
         """获取不存在的机器：应抛出 404 异常"""
-        with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(404|500)"):
+        with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"404"):
             web_client.get_machine("nonexistent-machine-id-99999")

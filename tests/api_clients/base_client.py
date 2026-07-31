@@ -1,5 +1,6 @@
 # tests/api_clients/base_client.py
 """HTTP 基础客户端：封装请求、响应解析、Schema 校验"""
+import time
 import httpx
 import jsonschema
 
@@ -18,27 +19,27 @@ class BaseClient:
 
     def get(self, path: str, params: dict | None = None) -> dict:
         """发送 GET 请求，返回解析后的 JSON"""
-        resp = self.client.get(path, params=params)
+        resp = self._request_with_retry("get", path, params=params)
         return self._parse_response(resp)
 
     def post(self, path: str, params: dict | None = None, json: dict | None = None) -> dict:
         """发送 POST 请求"""
-        resp = self.client.post(path, params=params, json=json)
+        resp = self._request_with_retry("post", path, params=params, json=json)
         return self._parse_response(resp)
 
     def put(self, path: str, params: dict | None = None, json: dict | None = None) -> dict:
         """发送 PUT 请求"""
-        resp = self.client.put(path, params=params, json=json)
+        resp = self._request_with_retry("put", path, params=params, json=json)
         return self._parse_response(resp)
 
     def delete(self, path: str, params: dict | None = None) -> dict:
         """发送 DELETE 请求"""
-        resp = self.client.delete(path, params=params)
+        resp = self._request_with_retry("delete", path, params=params)
         return self._parse_response(resp)
 
     def patch(self, path: str, params: dict | None = None, json: dict | None = None) -> dict:
         """发送 PATCH 请求"""
-        resp = self.client.patch(path, params=params, json=json)
+        resp = self._request_with_retry("patch", path, params=params, json=json)
         return self._parse_response(resp)
 
     def validate_schema(self, data: dict, schema: dict) -> None:
@@ -48,6 +49,16 @@ class BaseClient:
     def close(self):
         """释放 HTTP 连接"""
         self.client.close()
+
+    def _request_with_retry(self, method: str, path: str, **kwargs) -> httpx.Response:
+        """带重试的请求：遇到 500/502/503 自动重试最多 2 次"""
+        max_retries = 2
+        for attempt in range(max_retries + 1):
+            resp = getattr(self.client, method)(path, **kwargs)
+            if resp.status_code < 500 or attempt == max_retries:
+                return resp
+            time.sleep(1 * (attempt + 1))  # 递增延迟：1s, 2s
+        return resp  # type: ignore
 
     def _parse_response(self, resp: httpx.Response) -> dict:
         """统一解析响应：检查状态码 + 解析 JSON"""

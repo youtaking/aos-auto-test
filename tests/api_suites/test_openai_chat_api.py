@@ -37,7 +37,7 @@ class TestOpenAIChatAPI:
         if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
             pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
 
-        with pytest.raises(httpx.HTTPStatusError, match=r"(404|400)"):
+        with pytest.raises(httpx.HTTPStatusError, match=r"404"):
             api_client.post("/api/agents/nonexistent-agent-id/v1/chat/completions", json={
                 "model": "test",
                 "messages": [{"role": "user", "content": "hello"}],

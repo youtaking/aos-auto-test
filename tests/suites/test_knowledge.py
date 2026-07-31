@@ -10,6 +10,8 @@ import uuid
 import pytest
 import allure
 from tests.pages.knowledge_page import KnowledgePage
+from tests.pages import locators as loc
+from tests.conftest import register_cleanup
 
 _PREFIX = f"e2e-{uuid.uuid4().hex[:6]}"
 
@@ -70,7 +72,7 @@ def test_kb_001_list_loads(logged_in_page, base_url):
 @allure.epic("知识库")
 @pytest.mark.order(321)
 @pytest.mark.p0
-def test_kb_002_create_kb(logged_in_page, base_url):
+def test_kb_002_create_kb(logged_in_page, base_url, request):
     """✅ 人工评审通过 | TC-KB-002: 创建知识库 — 填写名称、选择向量模型、内置解析方法和分块方法"""
     kb = KnowledgePage(logged_in_page, base_url)
     kb.goto()
@@ -100,23 +102,23 @@ def test_kb_002_create_kb(logged_in_page, base_url):
     assert model_combo.count() > 0, "向量模型选择器不存在"
     assert not model_combo.is_disabled(), "向量模型选择器被禁用，系统中无可用的 embedding 模型"
     model_combo.click()
-    logged_in_page.wait_for_timeout(1000)
+    logged_in_page.wait_for_timeout(800)
     options = logged_in_page.locator("[role=option]")
     assert options.count() > 0, "向量模型下拉无选项"
     options.first.click()
-    logged_in_page.wait_for_timeout(1000)
+    logged_in_page.wait_for_timeout(800)
 
     # 4. 选择内置解析方法（builtin radio）
     builtin_radio = dialog.locator("input[type=radio][value=builtin]")
     if builtin_radio.count() > 0:
         builtin_radio.first.click()
-        logged_in_page.wait_for_timeout(1000)
+        logged_in_page.wait_for_timeout(800)
 
     # 5. 选择分块方法（第二个 combobox）
     chunk_combo = dialog.locator("[role=combobox]").nth(1)
     if chunk_combo.count() > 0 and not chunk_combo.is_disabled():
         chunk_combo.click()
-        logged_in_page.wait_for_timeout(1000)
+        logged_in_page.wait_for_timeout(800)
         chunk_options = logged_in_page.locator("[role=option]")
         if chunk_options.count() > 0:
             chunk_options.first.click()
@@ -126,7 +128,7 @@ def test_kb_002_create_kb(logged_in_page, base_url):
         kb.submit_dialog()
 
         # 验证弹窗关闭
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.wait_for_timeout(800)
         dialog_after = logged_in_page.locator("[role=dialog]")
         still_open = dialog_after.count() > 0 and dialog_after.first.is_visible()
         assert not still_open, "提交后弹窗未关闭，表单可能有校验错误"
@@ -137,6 +139,10 @@ def test_kb_002_create_kb(logged_in_page, base_url):
         found = any(kb_name in k.get("name", "") for k in kbs)
         assert found, f"新知识库 {kb_name} 未出现在 API 列表中"
         assert len(kbs) > len(initial_kbs), "知识库数量未增加"
+        # 注册清理（以 API 查到的 kb_id 为准）
+        for k in kbs:
+            if kb_name in k.get("name", ""):
+                register_cleanup(request, lambda kid=k["id"]: _delete_kb_api(logged_in_page, base_url, kid))
     finally:
         # 清理：无论 assert 是否通过，都删除测试数据
         kbs = _get_kbs_api(logged_in_page, base_url)
@@ -158,9 +164,7 @@ def test_kb_003_name_empty_validation(logged_in_page, base_url):
     assert kb.is_dialog_open(), "弹窗未打开"
 
     dialog = logged_in_page.locator("[role=dialog]")
-    save_btn = dialog.get_by_role("button", name="保存").or_(
-        dialog.locator("button[type=submit]")
-    )
+    save_btn = loc.save_or_submit_button(dialog)
 
     assert save_btn.count() > 0, "保存按钮不存在"
     is_disabled = save_btn.first.is_disabled()
@@ -171,7 +175,7 @@ def test_kb_003_name_empty_validation(logged_in_page, base_url):
     else:
         # 按钮可用，点击后应有校验错误且弹窗不关闭
         save_btn.first.click(force=True)
-        logged_in_page.wait_for_timeout(1000)
+        logged_in_page.wait_for_timeout(800)
         has_error = len(kb.get_form_validation_text()) > 0
         dialog_still_open = kb.is_dialog_open()
         assert has_error or dialog_still_open, f"名称为空时未拦截: has_error={has_error}, dialog_still_open={dialog_still_open}"
@@ -187,7 +191,7 @@ def test_kb_003_name_empty_validation(logged_in_page, base_url):
 @allure.epic("知识库")
 @pytest.mark.order(323)
 @pytest.mark.p0
-def test_kb_004_upload_file(logged_in_page, base_url):
+def test_kb_004_upload_file(logged_in_page, base_url, request):
     """✅ 人工评审通过 | TC-KB-004: 上传文件到知识库 — 创建临时文件，通过 UI 上传，验证文件出现在资源列表中"""
     # 创建测试知识库
     kb_name = f"upload-{_PREFIX}"
@@ -195,6 +199,7 @@ def test_kb_004_upload_file(logged_in_page, base_url):
     assert create_resp.status == 200, \
         f"创建测试知识库失败: status={create_resp.status}, body={create_resp.text()[:200]}"
     kb_id = create_resp.json()["data"]["id"]
+    register_cleanup(request, lambda kid=kb_id: _delete_kb_api(logged_in_page, base_url, kid))
 
     # 创建临时测试文件
     test_file = os.path.join(tempfile.gettempdir(), f"e2e_kb_upload_{_PREFIX}.txt")
@@ -205,7 +210,6 @@ def test_kb_004_upload_file(logged_in_page, base_url):
         # 导航到知识库详情页
         logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}")
         logged_in_page.wait_for_load_state("networkidle")
-        logged_in_page.wait_for_timeout(3000)
 
         # 验证详情页加载
         assert "返回知识库列表" in logged_in_page.inner_text("body"), \
@@ -228,7 +232,6 @@ def test_kb_004_upload_file(logged_in_page, base_url):
 
         # 等待上传完成
         logged_in_page.wait_for_load_state("networkidle")
-        logged_in_page.wait_for_timeout(3000)
 
         # 验证 1：文件名出现在页面中
         file_name = os.path.basename(test_file)
@@ -266,13 +269,14 @@ def test_kb_004_upload_file(logged_in_page, base_url):
 @allure.epic("知识库")
 @pytest.mark.order(326)
 @pytest.mark.p1
-def test_kb_007_delete_resource(logged_in_page, base_url):
+def test_kb_007_delete_resource(logged_in_page, base_url, request):
     """✅ 人工评审通过 | TC-KB-007: 删除知识库资源 — 先上传文件，再通过 UI 删除，验证资源消失"""
     kb_name = f"del-res-{_PREFIX}"
     create_resp = _create_kb_api(logged_in_page, base_url, kb_name)
     assert create_resp.status == 200, \
         f"创建测试知识库失败: status={create_resp.status}, body={create_resp.text()[:200]}"
     kb_id = create_resp.json()["data"]["id"]
+    register_cleanup(request, lambda kid=kb_id: _delete_kb_api(logged_in_page, base_url, kid))
 
     # 创建临时测试文件
     test_file = os.path.join(tempfile.gettempdir(), f"e2e_del_{_PREFIX}.txt")
@@ -283,7 +287,6 @@ def test_kb_007_delete_resource(logged_in_page, base_url):
         # 导航到知识库详情页
         logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}")
         logged_in_page.wait_for_load_state("networkidle")
-        logged_in_page.wait_for_timeout(3000)
 
         # 1. 上传文件
         upload_btn = logged_in_page.get_by_role("button", name="上传")
@@ -292,7 +295,6 @@ def test_kb_007_delete_resource(logged_in_page, base_url):
             upload_btn.first.click()
         fc_info.value.set_files(test_file)
         logged_in_page.wait_for_load_state("networkidle")
-        logged_in_page.wait_for_timeout(3000)
 
         file_name = os.path.basename(test_file)
         assert logged_in_page.locator(f"text={file_name}").count() > 0, \
@@ -312,26 +314,22 @@ def test_kb_007_delete_resource(logged_in_page, base_url):
 
         assert delete_icon.count() > 0, "删除按钮不存在"
         delete_icon.first.click()
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.wait_for_timeout(800)
 
         # 3. 处理确认弹窗（如果有）
         alert_dialog = logged_in_page.locator("[role=alertdialog]")
         if alert_dialog.count() > 0 and alert_dialog.first.is_visible():
-            confirm_btn = alert_dialog.get_by_role("button", name="确认").or_(
-                alert_dialog.get_by_role("button", name="删除").or_(
-                    alert_dialog.get_by_role("button", name="确定")
-                )
-            )
+            confirm_btn = loc.confirm_button(alert_dialog)
             if confirm_btn.count() > 0:
                 confirm_btn.first.click()
-                logged_in_page.wait_for_timeout(3000)
+                logged_in_page.wait_for_timeout(800)
 
         # 4. 验证资源已从页面消失
         assert logged_in_page.locator(f"text={file_name}").count() == 0, \
             f"删除后文件名 {file_name} 仍然显示在页面中"
 
         # 5. 验证 API 层资源已删除（等待服务端处理完成）
-        logged_in_page.wait_for_timeout(3000)
+        logged_in_page.wait_for_timeout(800)
         resources_resp = logged_in_page.request.get(
             f"{base_url}/web/knowledgeBases/{kb_id}/resources"
         )
@@ -395,13 +393,14 @@ def test_kb_008_search(logged_in_page, base_url):
 @allure.epic("知识库")
 @pytest.mark.order(328)
 @pytest.mark.p1
-def test_kb_009_delete_cascade(logged_in_page, base_url):
+def test_kb_009_delete_cascade(logged_in_page, base_url, request):
     """✅ 人工评审通过 | TC-KB-009: 删除知识库级联清理"""
     kb_name = f"cascade-{_PREFIX}"
     create_resp = _create_kb_api(logged_in_page, base_url, kb_name)
     assert create_resp.status == 200, \
         f"创建测试知识库失败: status={create_resp.status}, body={create_resp.text()[:200]}"
     kb_id = create_resp.json()["data"]["id"]
+    register_cleanup(request, lambda kid=kb_id: _delete_kb_api(logged_in_page, base_url, kid))
 
     # 通过 API 删除并验证
     del_resp = _delete_kb_api(logged_in_page, base_url, kb_id)
@@ -435,7 +434,6 @@ def test_kb_010_detail_panel(logged_in_page, base_url):
     # 导航到知识库详情页
     logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}")
     logged_in_page.wait_for_load_state("networkidle")
-    logged_in_page.wait_for_timeout(3000)
 
     body_text = logged_in_page.inner_text("body")
 
@@ -466,13 +464,14 @@ def test_kb_010_detail_panel(logged_in_page, base_url):
 @allure.epic("知识库")
 @pytest.mark.order(330)
 @pytest.mark.p0
-def test_kb_011_upload_duplicate_confirm(logged_in_page, base_url):
+def test_kb_011_upload_duplicate_confirm(logged_in_page, base_url, request):
     """TC-KB-011: 文件上传同名覆盖确认 — 上传同名文件应弹出覆盖确认对话框"""
     kb_name = f"dup-{_PREFIX}"
     create_resp = _create_kb_api(logged_in_page, base_url, kb_name)
     assert create_resp.status == 200, \
         f"创建测试知识库失败: status={create_resp.status}, body={create_resp.text()[:200]}"
     kb_id = create_resp.json()["data"]["id"]
+    register_cleanup(request, lambda kid=kb_id: _delete_kb_api(logged_in_page, base_url, kid))
 
     test_file = os.path.join(tempfile.gettempdir(), f"e2e_dup_{_PREFIX}.txt")
     with open(test_file, "w", encoding="utf-8") as f:
@@ -481,7 +480,6 @@ def test_kb_011_upload_duplicate_confirm(logged_in_page, base_url):
     try:
         logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}")
         logged_in_page.wait_for_load_state("networkidle")
-        logged_in_page.wait_for_timeout(3000)
 
         # 第一次上传
         upload_btn = logged_in_page.get_by_role("button", name="上传")
@@ -490,7 +488,6 @@ def test_kb_011_upload_duplicate_confirm(logged_in_page, base_url):
             upload_btn.first.click()
         fc_info.value.set_files(test_file)
         logged_in_page.wait_for_load_state("networkidle")
-        logged_in_page.wait_for_timeout(3000)
 
         file_name = os.path.basename(test_file)
         assert logged_in_page.locator(f"text={file_name}").count() > 0, \
@@ -500,7 +497,7 @@ def test_kb_011_upload_duplicate_confirm(logged_in_page, base_url):
         with logged_in_page.expect_file_chooser() as fc_info2:
             upload_btn.first.click()
         fc_info2.value.set_files(test_file)
-        logged_in_page.wait_for_timeout(3000)
+        logged_in_page.wait_for_timeout(800)
 
         # 检查覆盖确认对话框
         alert_dialog = logged_in_page.locator("[role=alertdialog]")
@@ -515,12 +512,12 @@ def test_kb_011_upload_duplicate_confirm(logged_in_page, base_url):
             body_text = logged_in_page.locator("body").inner_text()
             assert "覆盖" in body_text, "覆盖确认对话框中缺少'覆盖'相关文本"
             # 取消覆盖
-            cancel_btn = alert_dialog.get_by_role("button", name="取消").or_(
-                dialog.get_by_role("button", name="取消")
+            cancel_btn = loc.cancel_button(alert_dialog).or_(
+                loc.cancel_button(dialog)
             )
             if cancel_btn.count() > 0:
                 cancel_btn.first.click()
-                logged_in_page.wait_for_timeout(1000)
+                logged_in_page.wait_for_timeout(800)
         else:
             allure.attach(
                 "第二次上传同名文件未弹出覆盖确认对话框，系统可能直接覆盖或拒绝",
@@ -537,13 +534,14 @@ def test_kb_011_upload_duplicate_confirm(logged_in_page, base_url):
 @allure.epic("知识库")
 @pytest.mark.order(331)
 @pytest.mark.p1
-def test_kb_012_parse_status_polling(logged_in_page, base_url):
+def test_kb_012_parse_status_polling(logged_in_page, base_url, request):
     """TC-KB-012: 资源解析状态轮询 — 上传文件后解析状态从 pending 变为 completed"""
     kb_name = f"parse-{_PREFIX}"
     create_resp = _create_kb_api(logged_in_page, base_url, kb_name)
     assert create_resp.status == 200, \
         f"创建测试知识库失败: status={create_resp.status}"
     kb_id = create_resp.json()["data"]["id"]
+    register_cleanup(request, lambda kid=kb_id: _delete_kb_api(logged_in_page, base_url, kid))
 
     test_file = os.path.join(tempfile.gettempdir(), f"e2e_parse_{_PREFIX}.txt")
     with open(test_file, "w", encoding="utf-8") as f:
@@ -552,7 +550,6 @@ def test_kb_012_parse_status_polling(logged_in_page, base_url):
     try:
         logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}")
         logged_in_page.wait_for_load_state("networkidle")
-        logged_in_page.wait_for_timeout(3000)
 
         # 上传文件
         upload_btn = logged_in_page.get_by_role("button", name="上传")
@@ -561,7 +558,6 @@ def test_kb_012_parse_status_polling(logged_in_page, base_url):
             upload_btn.first.click()
         fc_info.value.set_files(test_file)
         logged_in_page.wait_for_load_state("networkidle")
-        logged_in_page.wait_for_timeout(3000)
 
         # 通过 API 轮询解析状态（最多 60 秒）
         final_status = None
@@ -593,13 +589,14 @@ def test_kb_012_parse_status_polling(logged_in_page, base_url):
 @allure.epic("知识库")
 @pytest.mark.order(332)
 @pytest.mark.p1
-def test_kb_013_reparse_resource(logged_in_page, base_url):
+def test_kb_013_reparse_resource(logged_in_page, base_url, request):
     """TC-KB-013: 重新解析资源 — 点击重新解析，可选删除旧分块"""
     kb_name = f"reparse-{_PREFIX}"
     create_resp = _create_kb_api(logged_in_page, base_url, kb_name)
     assert create_resp.status == 200, \
         f"创建测试知识库失败: status={create_resp.status}"
     kb_id = create_resp.json()["data"]["id"]
+    register_cleanup(request, lambda kid=kb_id: _delete_kb_api(logged_in_page, base_url, kid))
 
     test_file = os.path.join(tempfile.gettempdir(), f"e2e_reparse_{_PREFIX}.txt")
     with open(test_file, "w", encoding="utf-8") as f:
@@ -608,7 +605,6 @@ def test_kb_013_reparse_resource(logged_in_page, base_url):
     try:
         logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}")
         logged_in_page.wait_for_load_state("networkidle")
-        logged_in_page.wait_for_timeout(3000)
 
         # 上传文件并等待解析完成
         upload_btn = logged_in_page.get_by_role("button", name="上传")
@@ -617,7 +613,6 @@ def test_kb_013_reparse_resource(logged_in_page, base_url):
             upload_btn.first.click()
         fc_info.value.set_files(test_file)
         logged_in_page.wait_for_load_state("networkidle")
-        logged_in_page.wait_for_timeout(5000)
 
         # 等待解析完成
         for _ in range(12):
@@ -635,18 +630,13 @@ def test_kb_013_reparse_resource(logged_in_page, base_url):
         # 刷新页面
         logged_in_page.reload()
         logged_in_page.wait_for_load_state("networkidle")
-        logged_in_page.wait_for_timeout(2000)
 
         file_name = os.path.basename(test_file)
         assert logged_in_page.locator(f"text={file_name}").count() > 0, \
             f"资源 {file_name} 未找到"
 
         # 查找重新解析按钮
-        reparse_btn = logged_in_page.get_by_role("button", name="重新解析").or_(
-            logged_in_page.locator("button[title='重新解析']").or_(
-                logged_in_page.locator("button").filter(has_text="重新解析")
-            )
-        )
+        reparse_btn = loc.button_by_name_or_title(logged_in_page, "重新解析")
 
         if reparse_btn.count() > 0 and reparse_btn.first.is_visible():
             # 拦截 API 以验证重新解析请求
@@ -658,7 +648,7 @@ def test_kb_013_reparse_resource(logged_in_page, base_url):
 
             logged_in_page.on("response", on_reparse_resp)
             reparse_btn.first.click()
-            logged_in_page.wait_for_timeout(2000)
+            logged_in_page.wait_for_timeout(800)
 
             # 处理可能的确认弹窗
             alert_dialog = logged_in_page.locator("[role=alertdialog]")
@@ -671,12 +661,10 @@ def test_kb_013_reparse_resource(logged_in_page, base_url):
                         name="对话框信息",
                         attachment_type=allure.attachment_type.TEXT,
                     )
-                confirm = alert_dialog.get_by_role("button", name="确认").or_(
-                    alert_dialog.get_by_role("button", name="确定")
-                )
+                confirm = loc.confirm_button(alert_dialog)
                 if confirm.count() > 0:
                     confirm.first.click()
-                    logged_in_page.wait_for_timeout(3000)
+                    logged_in_page.wait_for_timeout(800)
 
             # 验证重新解析请求已发送
             assert len(reparse_called) > 0, "未检测到重新解析 API 请求"
@@ -719,18 +707,13 @@ def test_kb_014_retrieval_test_panel(logged_in_page, base_url):
 
     logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}")
     logged_in_page.wait_for_load_state("networkidle")
-    logged_in_page.wait_for_timeout(3000)
 
     # 点击检索测试 Tab
-    retrieval_tab = logged_in_page.get_by_role("tab", name="检索测试").or_(
-        logged_in_page.locator("button").filter(has_text="检索测试").or_(
-            logged_in_page.locator("[role=tab]").filter(has_text="检索")
-        )
-    )
+    retrieval_tab = loc.tab_by_name(logged_in_page, "检索测试")
 
     if retrieval_tab.count() > 0 and retrieval_tab.first.is_visible():
         retrieval_tab.first.click()
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.wait_for_timeout(800)
 
         # 查找搜索输入框
         search_input = logged_in_page.locator(
@@ -745,14 +728,10 @@ def test_kb_014_retrieval_test_panel(logged_in_page, base_url):
             logged_in_page.wait_for_timeout(500)
 
             # 点击搜索按钮
-            search_btn = logged_in_page.get_by_role("button", name="搜索").or_(
-                logged_in_page.get_by_role("button", name="检索").or_(
-                    logged_in_page.locator("button[type=submit]")
-                )
-            )
+            search_btn = loc.search_or_submit_button(logged_in_page)
             if search_btn.count() > 0:
                 search_btn.first.click()
-                logged_in_page.wait_for_timeout(3000)
+                logged_in_page.wait_for_timeout(800)
 
             # 验证有结果区域（可能有结果也可能为空，但至少面板存在）
             body_text = logged_in_page.inner_text("body")
@@ -779,21 +758,16 @@ def test_kb_015_knowledge_graph(logged_in_page, base_url):
     kb_id = kbs[0]["id"]
     logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}")
     logged_in_page.wait_for_load_state("networkidle")
-    logged_in_page.wait_for_timeout(3000)
 
     body_text = logged_in_page.inner_text("body")
     assert "返回知识库列表" in body_text, "知识库详情页未加载"
 
     # 查找知识图谱按钮
-    graph_btn = logged_in_page.get_by_role("button", name="知识图谱").or_(
-        logged_in_page.locator("button[title='知识图谱']").or_(
-            logged_in_page.locator("button").filter(has_text="知识图谱")
-        )
-    )
+    graph_btn = loc.button_by_name_or_title(logged_in_page, "知识图谱")
 
     if graph_btn.count() > 0 and graph_btn.first.is_visible():
         graph_btn.first.click()
-        logged_in_page.wait_for_timeout(3000)
+        logged_in_page.wait_for_timeout(800)
 
         # 验证图谱面板出现
         panel_text = logged_in_page.inner_text("body")
@@ -825,21 +799,16 @@ def test_kb_016_vector_model_management(logged_in_page, base_url):
     kb_id = kbs[0]["id"]
     logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}")
     logged_in_page.wait_for_load_state("networkidle")
-    logged_in_page.wait_for_timeout(3000)
 
     body_text = logged_in_page.inner_text("body")
     assert "返回知识库列表" in body_text, "知识库详情页未加载"
 
     # 查找向量模型管理按钮
-    vector_btn = logged_in_page.get_by_role("button", name="向量模型").or_(
-        logged_in_page.locator("button[title='向量模型管理']").or_(
-            logged_in_page.locator("button").filter(has_text="向量模型")
-        )
-    )
+    vector_btn = loc.button_by_name_or_title(logged_in_page, "向量模型")
 
     if vector_btn.count() > 0 and vector_btn.first.is_visible():
         vector_btn.first.click()
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.wait_for_timeout(800)
 
         # 验证对话框打开
         dialog = logged_in_page.locator("[role=dialog]")
@@ -854,9 +823,7 @@ def test_kb_016_vector_model_management(logged_in_page, base_url):
             f"向量模型管理对话框内容不正确: {dialog_text[:200]}"
 
         # 关闭对话框
-        close_btn = dialog.locator("button[data-slot='dialog-close']").or_(
-            dialog.get_by_role("button", name="关闭")
-        )
+        close_btn = loc.close_button(dialog)
         if close_btn.count() > 0:
             close_btn.first.click()
     else:
@@ -876,15 +843,11 @@ def test_kb_017_ragflow_import(logged_in_page, base_url):
     kb.goto()
 
     # 查找 RAGFlow 导入按钮
-    ragflow_btn = logged_in_page.get_by_role("button", name="RAGFlow").or_(
-        logged_in_page.locator("button[title*='RAGFlow']").or_(
-            logged_in_page.locator("button").filter(has_text="RAGFlow")
-        )
-    )
+    ragflow_btn = loc.button_by_name_or_title(logged_in_page, "RAGFlow")
 
     if ragflow_btn.count() > 0 and ragflow_btn.first.is_visible():
         ragflow_btn.first.click()
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.wait_for_timeout(800)
 
         # 验证导入对话框打开
         dialog = logged_in_page.locator("[role=dialog]")
@@ -911,12 +874,11 @@ def test_kb_017_ragflow_import(logged_in_page, base_url):
                 f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}"
             )
             logged_in_page.wait_for_load_state("networkidle")
-            logged_in_page.wait_for_timeout(3000)
 
             detail_ragflow = logged_in_page.locator("button").filter(has_text="RAGFlow")
             if detail_ragflow.count() > 0:
                 detail_ragflow.first.click()
-                logged_in_page.wait_for_timeout(2000)
+                logged_in_page.wait_for_timeout(800)
                 dialog = logged_in_page.locator("[role=dialog]")
                 assert dialog.count() > 0, "RAGFlow 导入对话框未打开"
             else:
@@ -932,13 +894,14 @@ def test_kb_017_ragflow_import(logged_in_page, base_url):
 @allure.epic("知识库")
 @pytest.mark.order(337)
 @pytest.mark.p2
-def test_kb_018_resource_preview(logged_in_page, base_url):
+def test_kb_018_resource_preview(logged_in_page, base_url, request):
     """TC-KB-018: 资源预览 — 点击资源预览，展示文件内容"""
     kb_name = f"preview-{_PREFIX}"
     create_resp = _create_kb_api(logged_in_page, base_url, kb_name)
     assert create_resp.status == 200, \
         f"创建测试知识库失败: status={create_resp.status}"
     kb_id = create_resp.json()["data"]["id"]
+    register_cleanup(request, lambda kid=kb_id: _delete_kb_api(logged_in_page, base_url, kid))
 
     test_file = os.path.join(tempfile.gettempdir(), f"e2e_preview_{_PREFIX}.txt")
     preview_content = "这是用于预览测试的文件内容。\n包含中文和英文 mixed content。\n第三行用于验证预览功能。"
@@ -948,7 +911,6 @@ def test_kb_018_resource_preview(logged_in_page, base_url):
     try:
         logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}")
         logged_in_page.wait_for_load_state("networkidle")
-        logged_in_page.wait_for_timeout(3000)
 
         # 上传文件
         upload_btn = logged_in_page.get_by_role("button", name="上传")
@@ -957,7 +919,6 @@ def test_kb_018_resource_preview(logged_in_page, base_url):
             upload_btn.first.click()
         fc_info.value.set_files(test_file)
         logged_in_page.wait_for_load_state("networkidle")
-        logged_in_page.wait_for_timeout(3000)
 
         # 等待解析完成
         for _ in range(12):
@@ -975,22 +936,17 @@ def test_kb_018_resource_preview(logged_in_page, base_url):
         # 刷新页面
         logged_in_page.reload()
         logged_in_page.wait_for_load_state("networkidle")
-        logged_in_page.wait_for_timeout(2000)
 
         file_name = os.path.basename(test_file)
         assert logged_in_page.locator(f"text={file_name}").count() > 0, \
             f"资源 {file_name} 未找到"
 
         # 查找预览按钮
-        preview_btn = logged_in_page.get_by_role("button", name="预览").or_(
-            logged_in_page.locator("button[title='预览']").or_(
-                logged_in_page.locator("button").filter(has_text="预览")
-            )
-        )
+        preview_btn = loc.button_by_name_or_title(logged_in_page, "预览")
 
         if preview_btn.count() > 0 and preview_btn.first.is_visible():
             preview_btn.first.click()
-            logged_in_page.wait_for_timeout(3000)
+            logged_in_page.wait_for_timeout(800)
 
             # 验证预览面板或对话框出现
             dialog = logged_in_page.locator("[role=dialog]")
@@ -1013,7 +969,7 @@ def test_kb_018_resource_preview(logged_in_page, base_url):
             file_link = logged_in_page.locator(f"text={file_name}")
             if file_link.count() > 0:
                 file_link.first.click()
-                logged_in_page.wait_for_timeout(3000)
+                logged_in_page.wait_for_timeout(800)
 
                 dialog = logged_in_page.locator("[role=dialog]")
                 body_text = logged_in_page.inner_text("body")
@@ -1033,4 +989,117 @@ def test_kb_018_resource_preview(logged_in_page, base_url):
     finally:
         if os.path.exists(test_file):
             os.remove(test_file)
+        _delete_kb_api(logged_in_page, base_url, kb_id)
+
+
+@allure.epic("知识库")
+@pytest.mark.order(338)
+@pytest.mark.p1
+def test_kb_019_toggle_resource_enabled(logged_in_page, base_url, request):
+    """TC-KB-019: 资源启用/禁用 Switch — 切换资源的启用/禁用状态"""
+    kb_name = f"toggle-{_PREFIX}"
+    create_resp = _create_kb_api(logged_in_page, base_url, kb_name)
+    assert create_resp.status == 200, \
+        f"创建测试知识库失败: status={create_resp.status}"
+    kb_id = create_resp.json()["data"]["id"]
+    register_cleanup(request, lambda kid=kb_id: _delete_kb_api(logged_in_page, base_url, kid))
+
+    test_file = os.path.join(tempfile.gettempdir(), f"e2e_toggle_{_PREFIX}.txt")
+    with open(test_file, "w", encoding="utf-8") as f:
+        f.write("用于测试资源启用/禁用的文件内容。")
+
+    try:
+        logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}")
+        logged_in_page.wait_for_load_state("networkidle")
+
+        # 上传文件
+        upload_btn = logged_in_page.get_by_role("button", name="上传")
+        assert upload_btn.count() > 0, "上传按钮不存在"
+        with logged_in_page.expect_file_chooser() as fc_info:
+            upload_btn.first.click()
+        fc_info.value.set_files(test_file)
+        logged_in_page.wait_for_load_state("networkidle")
+
+        # 查找资源行的 Switch
+        switch = logged_in_page.locator("[role='switch']")
+        if switch.count() > 0:
+            initial_checked = switch.first.get_attribute("aria-checked")
+            switch.first.click()
+            logged_in_page.wait_for_timeout(1500)
+            new_checked = switch.first.get_attribute("aria-checked")
+            assert new_checked != initial_checked, \
+                f"切换后状态未变化: {initial_checked} → {new_checked}"
+        else:
+            resp = logged_in_page.request.get(
+                f"{base_url}/web/knowledgeBases/{kb_id}/resources"
+            )
+            assert resp.status == 200, "资源列表 API 不可访问"
+            allure.attach(
+                "资源行未找到 Switch 控件",
+                name="备注",
+                attachment_type=allure.attachment_type.TEXT,
+            )
+    finally:
+        if os.path.exists(test_file):
+            os.remove(test_file)
+        _delete_kb_api(logged_in_page, base_url, kb_id)
+
+
+@allure.epic("知识库")
+@pytest.mark.order(339)
+@pytest.mark.p1
+def test_kb_020_edit_kb_info(logged_in_page, base_url, request):
+    """TC-KB-020: 知识库编辑（修改名称/描述）"""
+    kb_name = f"edit-{_PREFIX}"
+    create_resp = _create_kb_api(logged_in_page, base_url, kb_name, desc="原始描述")
+    assert create_resp.status == 200, \
+        f"创建测试知识库失败: status={create_resp.status}"
+    kb_id = create_resp.json()["data"]["id"]
+    register_cleanup(request, lambda kid=kb_id: _delete_kb_api(logged_in_page, base_url, kid))
+
+    try:
+        logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}")
+        logged_in_page.wait_for_load_state("networkidle")
+
+        body_text = logged_in_page.inner_text("body")
+        assert "返回知识库列表" in body_text, "知识库详情页未加载"
+
+        edit_btn = loc.button_by_name_or_title(logged_in_page, "编辑")
+        if edit_btn.count() > 0 and edit_btn.first.is_visible():
+            edit_btn.first.click()
+            logged_in_page.wait_for_timeout(1500)
+
+            dialog = logged_in_page.locator("[role=dialog]")
+            if dialog.count() > 0 and dialog.first.is_visible():
+                new_name = f"{kb_name}-edited"
+                name_input = dialog.locator(
+                    "input[placeholder*='名称'], input[placeholder*='知识库名称']"
+                )
+                if name_input.count() > 0:
+                    name_input.first.fill("")
+                    name_input.first.fill(new_name)
+
+                save_btn = loc.save_or_submit_button(dialog)
+                if save_btn.count() > 0:
+                    save_btn.first.click()
+                    logged_in_page.wait_for_timeout(800)
+
+                # API 验证
+                detail = _get_kb_detail_api(logged_in_page, base_url, kb_id)
+                if detail and detail.get("data"):
+                    updated_name = detail["data"].get("name", "")
+                    assert new_name in updated_name or updated_name == new_name, \
+                        f"编辑后名称未更新: '{updated_name}'"
+            else:
+                allure.attach("点击编辑后未弹出对话框", name="备注",
+                              attachment_type=allure.attachment_type.TEXT)
+        else:
+            update_resp = logged_in_page.request.patch(
+                f"{base_url}/web/knowledgeBases/{kb_id}",
+                data=json.dumps({"description": "API 更新描述"}),
+                headers={"Content-Type": "application/json"},
+            )
+            assert update_resp.status < 400, \
+                f"知识库更新 API 失败: status={update_resp.status}"
+    finally:
         _delete_kb_api(logged_in_page, base_url, kb_id)

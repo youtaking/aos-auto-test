@@ -129,8 +129,26 @@ class TestSkillWebAPI:
 
     def test_get_nonexistent_skill(self, web_client):
         """获取不存在的 Skill：应抛出 404 异常"""
-        with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(404|500)"):
+        with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"404"):
             web_client.get_skill("nonexistent-skill-name-99999")
+
+    def test_delete_skill_idempotent(self, web_client):
+        """Skill DELETE 幂等性：第二次删除返回 404"""
+        test_name = "test-idempotent-delete-skill"
+        _cleanup_web_skill(web_client, test_name)
+        try:
+            web_client.create_skill({
+                "name": test_name,
+                "data": {
+                    "description": "Idempotent delete test",
+                    "content": "# Test\nIdempotent.",
+                },
+            })
+            web_client.delete_skill(test_name)
+            with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"404"):
+                web_client.delete_skill(test_name)
+        finally:
+            _cleanup_web_skill(web_client, test_name)
 
 
 # ── 对外 OpenAPI 测试 ──

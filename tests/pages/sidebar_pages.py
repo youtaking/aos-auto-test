@@ -288,7 +288,6 @@ class SidebarNavigation:
         if btn.count() > 0:
             btn.first.click()
             self.page.wait_for_load_state("networkidle")
-            self.page.wait_for_timeout(1500)
 
     def is_nav_active(self, name: str) -> bool:
         """某导航项是否处于激活状态"""

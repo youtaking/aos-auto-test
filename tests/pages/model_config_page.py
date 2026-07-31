@@ -17,7 +17,6 @@ class ModelConfigPage:
     def goto(self):
         self.page.goto(self.url)
         self.page.wait_for_load_state("networkidle")
-        self.page.wait_for_timeout(1500)
 
     def is_loaded(self) -> bool:
         """页面标题「模型库」可见"""
@@ -160,7 +159,7 @@ class ModelConfigPage:
         """点击保存按钮"""
         dialog = self.page.locator("[role=dialog]")
         dialog.get_by_role("button", name="保存").click()
-        self.page.wait_for_timeout(2000)
+        self.page.wait_for_timeout(1000)
 
     def cancel_form(self):
         """点击取消按钮"""
@@ -228,7 +227,7 @@ class ModelConfigPage:
         footer = self._get_provider_footer(name)
         if footer:
             footer.get_by_role("button", name="获取模型列表").click()
-            self.page.wait_for_timeout(3000)
+            self.page.wait_for_timeout(1000)
 
     def get_public_switch(self, name: str):
         """获取 Provider 的公开开关元素"""
@@ -311,7 +310,7 @@ class ModelConfigPage:
         btn = dialog.get_by_role("button", name="获取模型列表")
         if btn.count() > 0:
             btn.first.click()
-            self.page.wait_for_timeout(3000)
+            self.page.wait_for_timeout(1000)
 
     def get_dialog_model_list_text(self) -> str:
         """获取编辑弹窗中可用模型列表区域的文本"""
@@ -652,7 +651,7 @@ class ModelConfigPage:
         """点击确认弹窗的「确认」按钮"""
         dialog = self.page.locator("[role=alertdialog]")
         dialog.get_by_role("button", name="确认").click()
-        self.page.wait_for_timeout(2000)
+        self.page.wait_for_timeout(1000)
 
     def cancel_alert_dialog(self):
         """点击确认弹窗的「取消」按钮"""

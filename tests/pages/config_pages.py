@@ -78,7 +78,6 @@ class SkillsPage:
         self.page.on("response", on_resp)
         self.page.reload()
         self.page.wait_for_load_state("networkidle")
-        self.page.wait_for_timeout(1000)
         return skills_data
 
     def search(self, keyword: str):

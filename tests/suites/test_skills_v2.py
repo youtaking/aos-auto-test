@@ -91,7 +91,6 @@ def test_skill_list_loading_skeleton(logged_in_page, base_url):
 
     # 等待 API 延迟结束 + 加载完成
     logged_in_page.wait_for_load_state("networkidle")
-    logged_in_page.wait_for_timeout(1000)
 
     # 取消路由拦截
     logged_in_page.unroute("**/web/config/skills*")
@@ -266,7 +265,6 @@ def test_skill_delete_via_ui(logged_in_page, base_url):
     # ── Step 3: 导航到技能管理页面 ──
     logged_in_page.goto(f"{base_url}/ctrl/agent/skills")
     logged_in_page.wait_for_load_state("networkidle")
-    logged_in_page.wait_for_timeout(2000)
 
     # ── Step 4: 找到测试技能卡片的删除按钮 ──
     # 用技能名定位文本元素，向上找到最近的 .group 父容器（即技能卡片）
@@ -287,13 +285,13 @@ def test_skill_delete_via_ui(logged_in_page, base_url):
     logged_in_page.on("response", on_delete_resp)
 
     delete_btn.click()
-    logged_in_page.wait_for_timeout(1000)
+    logged_in_page.wait_for_timeout(800)
 
     # ── Step 6: 确认对话框 ──
     confirm_btn = logged_in_page.locator("[role='alertdialog'] [data-slot='alert-dialog-action']")
     assert confirm_btn.count() > 0, "删除确认对话框未弹出或无确认按钮"
     confirm_btn.first.click()
-    logged_in_page.wait_for_timeout(3000)
+    logged_in_page.wait_for_timeout(800)
 
     # ── Step 7: 验证 ──
     # 7a. DELETE API 应成功
@@ -325,7 +323,7 @@ def test_skill_folder_upload(logged_in_page, base_url):
         upload_btn = logged_in_page.get_by_role("button", name="上传")
     assert upload_btn.count() > 0, "上传按钮不存在"
     upload_btn.first.click()
-    logged_in_page.wait_for_timeout(2000)
+    logged_in_page.wait_for_timeout(800)
 
     # 检查是否有文件夹上传选项
     dialog = logged_in_page.locator("[role=dialog]")
@@ -339,7 +337,7 @@ def test_skill_folder_upload(logged_in_page, base_url):
 
         if folder_btn.count() > 0:
             folder_btn.first.click()
-            logged_in_page.wait_for_timeout(1000)
+            logged_in_page.wait_for_timeout(800)
 
         # 验证 webkitdirectory 输入存在
         dir_input = dialog.locator("input[webkitdirectory]")
@@ -531,7 +529,7 @@ def test_skill_meta_agent_create(logged_in_page, base_url):
 
     if dropdown_btn.count() > 0:
         dropdown_btn.first.click()
-        logged_in_page.wait_for_timeout(1000)
+        logged_in_page.wait_for_timeout(800)
 
         # 查找"对话创建"选项
         dialog_create = logged_in_page.get_by_role("menuitem", name="对话创建").or_(
@@ -542,7 +540,7 @@ def test_skill_meta_agent_create(logged_in_page, base_url):
 
         if dialog_create.count() > 0:
             dialog_create.first.click()
-            logged_in_page.wait_for_timeout(3000)
+            logged_in_page.wait_for_timeout(800)
 
             # 验证导航到对话页面或打开对话对话框
             body_text = logged_in_page.inner_text("body")
@@ -620,7 +618,6 @@ def test_skill_upload_conflict_handling(logged_in_page, base_url):
         # 导航到技能管理页面
         logged_in_page.goto(f"{base_url}/ctrl/agent/skills")
         logged_in_page.wait_for_load_state("networkidle")
-        logged_in_page.wait_for_timeout(2000)
 
         # 创建同名临时文件
         test_file = os.path.join(
@@ -639,7 +636,7 @@ def test_skill_upload_conflict_handling(logged_in_page, base_url):
             with logged_in_page.expect_file_chooser() as fc_info:
                 upload_btn.first.click()
             fc_info.value.set_files(test_file)
-            logged_in_page.wait_for_timeout(3000)
+            logged_in_page.wait_for_timeout(800)
 
             # 检查冲突对话框
             dialog = logged_in_page.locator("[role=dialog]")
@@ -657,7 +654,7 @@ def test_skill_upload_conflict_handling(logged_in_page, base_url):
                 )
                 if skip_btn.count() > 0:
                     skip_btn.first.click()
-                    logged_in_page.wait_for_timeout(1000)
+                    logged_in_page.wait_for_timeout(800)
 
                 allure.attach(
                     "检测到上传冲突处理对话框",

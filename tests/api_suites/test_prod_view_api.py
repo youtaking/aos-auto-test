@@ -92,3 +92,36 @@ class TestProdViewWebAPI:
             except Exception as e:
                 import logging
                 logging.getLogger("cleanup").warning(f"Cleanup failed: {e}")
+
+    def test_delete_prod_view_idempotent(self, web_client):
+        """ProdView DELETE 幂等性：第二次删除返回 404"""
+        agents_data = web_client.list_agents()
+        agents = agents_data.get("agents", [])
+        if len(agents) == 0:
+            pytest.skip("Agent 列表为空，无法测试 ProdView 幂等性")
+        agent_config_id = agents[0].get("id") or agents[0].get("name")
+        test_name = "test-idempotent-delete-prodview"
+
+        try:
+            create_resp = web_client.create_prod_view({
+                "agentId": agent_config_id,
+                "name": test_name,
+                "enabled": False,
+                "modulesConfig": {},
+            })
+        except (httpx.HTTPStatusError, RuntimeError) as e:
+            if "500" in str(e) or "400" in str(e) or "422" in str(e):
+                pytest.skip("ProdView 创建接口不可用")
+            raise
+
+        view_id = create_resp["id"]
+        try:
+            web_client.delete_prod_view(view_id)
+            with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"404"):
+                web_client.delete_prod_view(view_id)
+        finally:
+            try:
+                web_client.delete_prod_view(view_id)
+            except Exception as e:
+                import logging
+                logging.getLogger("cleanup").warning(f"Cleanup failed: {e}")

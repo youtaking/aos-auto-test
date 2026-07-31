@@ -5,6 +5,7 @@ import time
 import pytest
 import allure
 from tests.pages.mcp_page import McpServerPage
+from tests.pages import locators as loc
 
 
 # 测试用 MCP 服务器名（带时间戳避免冲突）
@@ -56,7 +57,7 @@ def test_mcp_list_data_loads(logged_in_page, base_url):
         "MCP 服务器列表容器不可见且无空状态提示"
 
     # 验证 API 数据结构
-    logged_in_page.wait_for_timeout(1000)
+    logged_in_page.wait_for_timeout(800)
     list_resps = [r for r in api_data if r["method"] == "GET" and r["status"] < 400]
     if list_resps:
         body = list_resps[0].get("body")
@@ -272,7 +273,7 @@ def test_enable_server(logged_in_page, base_url):
 
     # 恢复原状态
     mcp.toggle_enabled(enable_name)
-    logged_in_page.wait_for_timeout(1000)
+    logged_in_page.wait_for_timeout(800)
 
     # 清理
     mcp.delete_server(enable_name)
@@ -317,7 +318,7 @@ def test_enable_sse_server(logged_in_page, base_url):
 
     # 恢复原状态
     mcp.toggle_enabled(enable_sse_name)
-    logged_in_page.wait_for_timeout(1000)
+    logged_in_page.wait_for_timeout(800)
 
     # 清理
     mcp.delete_server(enable_sse_name)
@@ -436,7 +437,7 @@ def test_local_connection(logged_in_page, base_url):
 
     # 点击「检测」按钮
     mcp.click_inspect(local_name)
-    logged_in_page.wait_for_timeout(3000)
+    logged_in_page.wait_for_timeout(1500)
 
     # 验证：应提示"仅支持远程"或类似错误反馈
     # 优先检查 toast / dialog
@@ -459,9 +460,7 @@ def test_local_connection(logged_in_page, base_url):
 
     # 关闭可能的 dialog
     if dialog.count() > 0 and dialog.first.is_visible():
-        close_btn = dialog.get_by_role("button", name="Close").or_(
-            dialog.get_by_role("button", name="关闭")
-        )
+        close_btn = loc.close_button(dialog)
         if close_btn.count() > 0:
             close_btn.first.click()
 
@@ -505,7 +504,6 @@ def test_remote_url(logged_in_page, base_url):
             break
 
     logged_in_page.wait_for_load_state("networkidle", timeout=10000)
-    logged_in_page.wait_for_timeout(1000)
 
     # 验证有反馈
     dialog = logged_in_page.locator("[role='dialog']")
@@ -523,9 +521,7 @@ def test_remote_url(logged_in_page, base_url):
 
     # 关闭可能的 dialog
     if dialog.count() > 0 and dialog.first.is_visible():
-        close_btn = dialog.get_by_role("button", name="Close").or_(
-            dialog.get_by_role("button", name="关闭")
-        )
+        close_btn = loc.close_button(dialog)
         if close_btn.count() > 0:
             close_btn.first.click()
 
@@ -574,7 +570,6 @@ def test_view_tools(logged_in_page, base_url):
             break
 
     logged_in_page.wait_for_load_state("networkidle", timeout=10000)
-    logged_in_page.wait_for_timeout(1000)
 
     # 验证有工具相关信息
     dialog = logged_in_page.locator("[role='dialog']")
@@ -609,9 +604,7 @@ def test_view_tools(logged_in_page, base_url):
 
     # 关闭可能的 dialog
     if dialog.count() > 0 and dialog.first.is_visible():
-        close_btn = dialog.get_by_role("button", name="Close").or_(
-            dialog.get_by_role("button", name="关闭")
-        )
+        close_btn = loc.close_button(dialog)
         if close_btn.count() > 0:
             close_btn.first.click()
 
@@ -643,7 +636,6 @@ def test_inspect_server(logged_in_page, base_url):
             break
 
     logged_in_page.wait_for_load_state("networkidle", timeout=10000)
-    logged_in_page.wait_for_timeout(1000)
 
     # 验证有状态信息
     dialog = logged_in_page.locator("[role='dialog']")
@@ -660,9 +652,7 @@ def test_inspect_server(logged_in_page, base_url):
 
     # 关闭可能的 dialog
     if dialog.count() > 0 and dialog.first.is_visible():
-        close_btn = dialog.get_by_role("button", name="Close").or_(
-            dialog.get_by_role("button", name="关闭")
-        )
+        close_btn = loc.close_button(dialog)
         if close_btn.count() > 0:
             close_btn.first.click()
 
@@ -798,7 +788,7 @@ def test_mcp_make_public(logged_in_page, base_url):
     # 切回原状态
     if refreshed_switch.count() > 0:
         refreshed_switch.first.click()
-        logged_in_page.wait_for_timeout(1000)
+        logged_in_page.wait_for_timeout(800)
 
     # 清理
     mcp.delete_server(pub_name)
@@ -860,7 +850,7 @@ def test_sse_mcp_make_public(logged_in_page, base_url):
     # 切回原状态
     if refreshed_switch.count() > 0:
         refreshed_switch.first.click()
-        logged_in_page.wait_for_timeout(1000)
+        logged_in_page.wait_for_timeout(800)
 
     # 清理
     mcp.delete_server(pub_sse_name)
@@ -885,7 +875,7 @@ def test_mcp_api_crud(logged_in_page, base_url):
     mcp.select_type("Stdio")
     mcp.fill_create_form(name=crud_name, command="echo hello")
     mcp.save()
-    logged_in_page.wait_for_timeout(1000)
+    logged_in_page.wait_for_timeout(800)
 
     create_resps = [r for r in api_responses if r["method"] in ("POST", "PUT") and r["status"] < 400]
     assert len(create_resps) > 0, f"未拦截到 Create API 响应（共 {len(api_responses)} 条）"
@@ -995,7 +985,6 @@ def test_mcp_api_auth(logged_in_page, base_url, browser_instance):
     api_responses = mcp.setup_api_interceptor("/web/config/mcp")
     logged_in_page.reload()
     logged_in_page.wait_for_load_state("networkidle")
-    logged_in_page.wait_for_timeout(1000)
 
     list_resps = [r for r in api_responses if r["method"] == "GET" and r["status"] < 400]
     assert len(list_resps) > 0, "已认证用户未能获取 MCP 列表 API 响应"
@@ -1015,7 +1004,6 @@ def test_mcp_api_auth(logged_in_page, base_url, browser_instance):
     try:
         unauth_page.goto(f"{base_url}/ctrl/agent/mcp")
         unauth_page.wait_for_load_state("networkidle", timeout=10000)
-        unauth_page.wait_for_timeout(2000)
     except Exception:
         pass  # 可能被重定向到登录页
 
@@ -1071,7 +1059,6 @@ def test_mcp_api_tools(logged_in_page, base_url):
             break
 
     logged_in_page.wait_for_load_state("networkidle", timeout=10000)
-    logged_in_page.wait_for_timeout(1000)
 
     # 验证工具数据
     toast_combined = " ".join(toast_texts)
@@ -1095,9 +1082,7 @@ def test_mcp_api_tools(logged_in_page, base_url):
     # 关闭 dialog
     dialog = logged_in_page.locator("[role='dialog']")
     if dialog.count() > 0 and dialog.first.is_visible():
-        close_btn = dialog.get_by_role("button", name="Close").or_(
-            dialog.get_by_role("button", name="关闭")
-        )
+        close_btn = loc.close_button(dialog)
         if close_btn.count() > 0:
             close_btn.first.click()
 
@@ -1145,5 +1130,5 @@ def test_mcp_api_toggle(logged_in_page, base_url):
 
     # 恢复 + 清理
     mcp.toggle_enabled(toggle_name)
-    logged_in_page.wait_for_timeout(1000)
+    logged_in_page.wait_for_timeout(800)
     mcp.delete_server(toggle_name)

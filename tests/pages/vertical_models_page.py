@@ -14,7 +14,6 @@ class VerticalModelsPage:
     def goto(self):
         self.page.goto(self.url)
         self.page.wait_for_load_state("networkidle")
-        self.page.wait_for_timeout(1500)
 
     def is_loaded(self) -> bool:
         """页面标题「垂直模型库」可见"""

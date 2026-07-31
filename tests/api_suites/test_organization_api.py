@@ -66,8 +66,70 @@ class TestOrganizationWebAPI:
 
         candidates = web_client.search_member_candidates(org_id, "")
         assert isinstance(candidates, list)
+        # 验证列表元素结构（如有返回）
+        if len(candidates) > 0:
+            candidate = candidates[0]
+            assert isinstance(candidate, dict)
+            assert "id" in candidate or "email" in candidate or "name" in candidate, \
+                f"候选项缺少标识字段: {list(candidate.keys())}"
 
     def test_get_nonexistent_organization(self, web_client):
         """获取不存在的组织：应抛出异常"""
         with pytest.raises((httpx.HTTPStatusError, RuntimeError, ValueError)):
             web_client.get_organization("nonexistent-org-id-99999")
+
+    def test_organization_crud_lifecycle(self, web_client):
+        """组织 CRUD 生命周期：创建 → 读取 → 更新 → 删除"""
+        test_name = "api-test-org-crud-001"
+        test_slug = "api-test-org-crud-001"
+
+        # 先清理可能存在的同名组织
+        try:
+            existing = web_client.list_organizations()
+            for org in existing:
+                if org.get("name") == test_name or org.get("slug") == test_slug:
+                    web_client.delete_organization(org["id"])
+        except Exception:
+            pass
+
+        try:
+            # 创建
+            create_resp = web_client.create_organization({
+                "name": test_name,
+                "slug": test_slug,
+            })
+            web_client.validate_schema(create_resp, ORGANIZATION_INFO)
+            org_id = create_resp["id"]
+            assert org_id is not None
+
+            try:
+                # 读取
+                detail = web_client.get_organization(org_id)
+                assert detail["id"] == org_id
+                assert detail["name"] == test_name
+
+                # 更新
+                updated_name = f"{test_name}-updated"
+                update_resp = web_client.update_organization(org_id, {
+                    "name": updated_name,
+                    "slug": test_slug,
+                })
+                assert update_resp["id"] == org_id
+
+                # 回读验证更新
+                detail = web_client.get_organization(org_id)
+                assert detail.get("name") == updated_name
+
+                # 删除并验证
+                web_client.delete_organization(org_id)
+                with pytest.raises((httpx.HTTPStatusError, RuntimeError, ValueError)):
+                    web_client.get_organization(org_id)
+            finally:
+                try:
+                    web_client.delete_organization(org_id)
+                except Exception:
+                    pass
+        except (httpx.HTTPStatusError, RuntimeError, ValueError) as e:
+            if "400" in str(e) or "403" in str(e) or "409" in str(e) or "500" in str(e):
+                pytest.skip(f"组织创建接口不可用: {e}")
+            raise

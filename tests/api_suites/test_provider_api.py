@@ -48,7 +48,7 @@ class TestProviderWebAPI:
 
     def test_get_nonexistent_provider(self, web_client):
         """获取不存在的 Provider：应抛出 404 异常"""
-        with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(404|500)"):
+        with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"404"):
             web_client.get_provider("nonexistent-provider-name-99999")
 
     def test_provider_crud_lifecycle(self, web_client):
@@ -107,7 +107,7 @@ class TestProviderWebAPI:
 
     def test_delete_nonexistent_provider(self, web_client):
         """删除不存在的 Provider：应抛出 404 异常"""
-        with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(404|500)"):
+        with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"404"):
             web_client.delete_provider("nonexistent-provider-to-delete-99999")
 
     def test_create_provider_duplicate(self, web_client):
@@ -142,6 +142,30 @@ class TestProviderWebAPI:
             # 验证更新生效
             detail = web_client.get_provider(test_name)
             assert detail.get("baseURL") == "https://v2.example.com"
+        finally:
+            try:
+                web_client.delete_provider(test_name)
+            except Exception as e:
+                import logging
+                logging.getLogger("cleanup").warning(f"Cleanup failed: {e}")
+
+    def test_delete_provider_idempotent(self, web_client):
+        """Provider DELETE 幂等性：第二次删除返回 404"""
+        test_name = "test-idempotent-delete-provider"
+        try:
+            web_client.delete_provider(test_name)
+        except Exception:
+            pass
+        try:
+            web_client.update_provider(test_name, {
+                "name": "Idempotent Test Provider",
+                "protocol": "openai",
+                "apiKey": "sk-test",
+                "baseURL": "https://example.com",
+            })
+            web_client.delete_provider(test_name)
+            with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"404"):
+                web_client.delete_provider(test_name)
         finally:
             try:
                 web_client.delete_provider(test_name)

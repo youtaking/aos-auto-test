@@ -146,7 +146,7 @@ class TestModelOpenAPI:
 
             # 删除并验证资源已消失
             api_client.delete_provider(provider_id)
-            with pytest.raises(httpx.HTTPStatusError, match=r"(404|500)"):
+            with pytest.raises(httpx.HTTPStatusError, match=r"404"):
                 api_client.get_provider(provider_id)
         finally:
             _cleanup_api_provider(api_client, test_name)
@@ -212,7 +212,7 @@ class TestModelOpenAPI:
 
             # 删除 Model 并验证
             api_client.delete_model(provider_id, model_internal_id)
-            with pytest.raises(httpx.HTTPStatusError, match=r"(404|500)"):
+            with pytest.raises(httpx.HTTPStatusError, match=r"404"):
                 api_client.get_model(provider_id, model_internal_id)
         finally:
             api_client.delete_provider(provider_id)
@@ -236,7 +236,7 @@ class TestModelOpenAPI:
         provider_id = list_resp["items"][0]["id"]
 
         # 空 modelId
-        with pytest.raises(httpx.HTTPStatusError, match=r"(400|422|500)"):
+        with pytest.raises(httpx.HTTPStatusError, match=r"(400|422)"):
             api_client.create_model(provider_id, {
                 "modelId": "",
                 "displayName": "Invalid Model",
@@ -252,7 +252,7 @@ class TestModelOpenAPI:
             pytest.skip("Provider 列表为空，无法测试 Model 创建")
         provider_id = list_resp["items"][0]["id"]
 
-        with pytest.raises(httpx.HTTPStatusError, match=r"(400|422|500)"):
+        with pytest.raises(httpx.HTTPStatusError, match=r"(400|422)"):
             api_client.create_model(provider_id, {
                 "displayName": "No modelId",
             })

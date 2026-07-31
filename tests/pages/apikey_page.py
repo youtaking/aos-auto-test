@@ -16,13 +16,11 @@ class ApiKeyPage:
     def goto(self):
         self.page.goto(self.url)
         self.page.wait_for_load_state("networkidle")
-        self.page.wait_for_timeout(2000)
 
     def goto_via_sidebar(self):
         btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="API Key")
         btn.first.click()
         self.page.wait_for_load_state("networkidle")
-        self.page.wait_for_timeout(2000)
 
     def is_loaded(self) -> bool:
         return "/ctrl/agent/apikeys" in self.page.url and self.page.get_by_role("button", name="吊销").count() > 0
@@ -118,7 +116,7 @@ class ApiKeyPage:
         dialog.get_by_role("button", name="创建").or_(
             dialog.get_by_role("button", name="保存")
         ).first.click()
-        self.page.wait_for_timeout(2000)
+        self.page.wait_for_timeout(1000)
 
     def cancel_dialog(self):
         dialog = self.page.locator("[role=dialog]")
@@ -219,7 +217,7 @@ class ApiKeyPage:
         dialog.get_by_role("button", name="确认").or_(
             dialog.get_by_role("button", name="吊销")
         ).first.click()
-        self.page.wait_for_timeout(2000)
+        self.page.wait_for_timeout(1000)
 
     def cancel_alert(self):
         dialog = self.page.locator("[role=alertdialog]")

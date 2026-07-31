@@ -12,7 +12,6 @@ class ChatPage:
         """进入首页（对话创建页）"""
         self.page.goto(f"{self.base_url}/ctrl/agent/home")
         self.page.wait_for_load_state("networkidle")
-        self.page.wait_for_timeout(2000)
 
     def is_home_loaded(self) -> bool:
         """首页是否加载完成"""
@@ -66,7 +65,7 @@ class ChatPage:
             card.first.scroll_into_view_if_needed()
             self.page.wait_for_timeout(300)
             card.first.click()
-            self.page.wait_for_timeout(2000)
+            self.page.wait_for_timeout(1000)
 
     def send_message(self, text: str):
         """发送消息"""
@@ -87,7 +86,7 @@ class ChatPage:
         else:
             input_area.press("Enter")
 
-        self.page.wait_for_timeout(3000)
+        self.page.wait_for_timeout(1000)
 
     def has_response(self) -> bool:
         """是否收到了回复（页面上有除输入框以外的文本内容变化）"""
@@ -113,7 +112,7 @@ class ChatPage:
         agents = self.get_sidebar_agents()
         if agents:
             self.click_sidebar_agent(agents[0])
-            self.page.wait_for_timeout(2000)
+            self.page.wait_for_timeout(1000)
             # 打开会话列表弹窗
             self.open_session_dialog()
 

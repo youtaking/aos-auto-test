@@ -43,7 +43,7 @@ class TestAgentSiteWebAPI:
 
     def test_get_nonexistent_agent_site_app(self, web_client):
         """获取不存在的 Agent Site App：应抛出 404/422 异常"""
-        with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(404|422|500)"):
+        with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(404|422)"):
             web_client.get_agent_site_app("nonexistent-app-id-99999")
 
     def test_agent_site_app_crud_lifecycle(self, web_client):
@@ -74,7 +74,7 @@ class TestAgentSiteWebAPI:
 
             # 删除并验证
             web_client.delete_agent_site_app(app_id)
-            with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(404|500)"):
+            with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"404"):
                 web_client.get_agent_site_app(app_id)
         finally:
             try:

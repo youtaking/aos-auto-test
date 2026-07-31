@@ -1,6 +1,7 @@
 # tests/pages/knowledge_page.py
 """知识库管理页面 Page Object — 基于真实 DOM 结构编写"""
 from playwright.sync_api import Page
+from tests.pages import locators as loc
 
 
 class KnowledgePage:
@@ -16,13 +17,11 @@ class KnowledgePage:
     def goto(self):
         self.page.goto(self.url)
         self.page.wait_for_load_state("networkidle")
-        self.page.wait_for_timeout(2000)
 
     def goto_via_sidebar(self):
         btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="知识库")
         btn.first.click()
         self.page.wait_for_load_state("networkidle")
-        self.page.wait_for_timeout(2000)
 
     def is_loaded(self) -> bool:
         return "/ctrl/agent/knowledge" in self.page.url and self.page.locator("div.agent-panel-body").count() > 0
@@ -148,12 +147,8 @@ class KnowledgePage:
 
     def submit_dialog(self):
         dialog = self.page.locator("[role=dialog]")
-        dialog.get_by_role("button", name="保存").or_(
-            dialog.get_by_role("button", name="创建").or_(
-                dialog.locator("button[type=submit]")
-            )
-        ).first.click()
-        self.page.wait_for_timeout(2000)
+        loc.save_or_submit_button(dialog).first.click()
+        self.page.wait_for_timeout(1000)
 
     def cancel_dialog(self):
         dialog = self.page.locator("[role=dialog]")
@@ -201,10 +196,8 @@ class KnowledgePage:
 
     def confirm_alert(self):
         dialog = self.page.locator("[role=alertdialog]")
-        dialog.get_by_role("button", name="确认").or_(
-            dialog.get_by_role("button", name="删除")
-        ).first.click()
-        self.page.wait_for_timeout(2000)
+        loc.confirm_button(dialog).first.click()
+        self.page.wait_for_timeout(1000)
 
     def cancel_alert(self):
         dialog = self.page.locator("[role=alertdialog]")

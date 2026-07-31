@@ -18,7 +18,7 @@ interface BugItem {
 }
 
 interface SavedReport {
-  id: number;
+  id: string;
   run_id: number;
   run_status: string;
   run_total: number;
@@ -181,7 +181,7 @@ export default function AIAnalysis() {
     setError("");
   };
 
-  const handleDeleteReport = async (id: number) => {
+  const handleDeleteReport = async (id: string) => {
     if (!confirm("确定删除此报告？")) return;
     try {
       await del(`/ai/reports/${id}`);

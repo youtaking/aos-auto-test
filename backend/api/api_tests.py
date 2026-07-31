@@ -1,9 +1,9 @@
 # backend/api/api_tests.py
 """接口测试 API 路由"""
+import asyncio
 import json
 import os
 import re
-import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -23,6 +23,7 @@ router = APIRouter()
 
 API_TEST_DIR = "tests/api_suites/"
 TEST_DATA_YAML = "tests/fixtures/test_data.yaml"
+LOG_DIR = Path("run_logs")
 
 
 def _load_api_key() -> str:
@@ -95,73 +96,83 @@ async def _execute_api_tests(
                 cases_query = await db.execute(
                     select(TestCase).where(TestCase.id.in_(case_ids))
                 )
-                func_names = [c.function_name for c in cases_query.scalars().all()]
-                if func_names:
-                    k_expr = " or ".join(func_names)
-                    cmd.extend(["-k", k_expr])
+                selected_cases = cases_query.scalars().all()
+                if selected_cases:
+                    nodeids = [f"{c.file_path}::{c.function_name}" for c in selected_cases]
+                    cmd.extend(nodeids)
+                    cmd = [c for c in cmd if c != API_TEST_DIR]
 
             env = {
                 **os.environ,
                 "FENIX_API_KEY": api_key,
+                "PYTHONUNBUFFERED": "1",
             }
 
-            proc = subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                text=True, encoding="utf-8", errors="replace", env=env,
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                env=env,
+                cwd=os.getcwd(),
             )
 
             passed = 0
             failed = 0
             skipped = 0
 
-            for line in proc.stdout:
-                stripped = line.rstrip()
-                if stripped:
-                    await ws_module.broadcast(run_id, "log", {"line": stripped})
+            LOG_DIR.mkdir(parents=True, exist_ok=True)
+            log_path = LOG_DIR / f"{run_id}.log"
+            with open(log_path, "w", encoding="utf-8") as log_file:
+                async for raw_line in proc.stdout:
+                    line = raw_line.decode("utf-8", errors="replace")
+                    stripped = line.rstrip()
+                    if stripped:
+                        log_file.write(stripped + "\n")
+                        await ws_module.broadcast(run_id, "log", {"line": stripped})
 
-                parsed = _parse_pytest_line(line)
-                if not parsed:
-                    continue
+                    parsed = _parse_pytest_line(line)
+                    if not parsed:
+                        continue
 
-                func_name = parsed["func_name"]
-                outcome = parsed["outcome"]
+                    func_name = parsed["func_name"]
+                    outcome = parsed["outcome"]
 
-                case_query = await db.execute(
-                    select(TestCase).where(TestCase.function_name == func_name)
-                )
-                case = case_query.scalar_one_or_none()
+                    case_query = await db.execute(
+                        select(TestCase).where(TestCase.function_name == func_name)
+                    )
+                    case = case_query.scalars().first()
 
-                result = TestResult(
-                    run_id=run_id,
-                    case_id=case.id if case else None,
-                    case_name=func_name,
-                    suite_name=parsed["suite_name"],
-                    status=outcome if outcome in ("passed", "failed", "skipped") else "error",
-                    duration_ms=0,
-                )
-                db.add(result)
+                    result = TestResult(
+                        run_id=run_id,
+                        case_id=case.id if case else None,
+                        case_name=func_name,
+                        suite_name=parsed["suite_name"],
+                        status=outcome if outcome in ("passed", "failed", "skipped") else "error",
+                        duration_ms=0,
+                    )
+                    db.add(result)
 
-                if outcome == "passed":
-                    passed += 1
-                elif outcome in ("failed", "error"):
-                    failed += 1
-                else:
-                    skipped += 1
+                    if outcome == "passed":
+                        passed += 1
+                    elif outcome in ("failed", "error"):
+                        failed += 1
+                    else:
+                        skipped += 1
 
-                run.total = passed + failed + skipped
-                run.passed = passed
-                run.failed = failed
-                run.skipped = skipped
-                await db.commit()
+                    run.total = passed + failed + skipped
+                    run.passed = passed
+                    run.failed = failed
+                    run.skipped = skipped
+                    await db.commit()
 
-                await ws_module.broadcast(run_id, "result_update", {
-                    "case_name": func_name,
-                    "suite_name": parsed["suite_name"],
-                    "status": outcome,
-                    "passed": passed, "failed": failed, "skipped": skipped,
-                })
+                    await ws_module.broadcast(run_id, "result_update", {
+                        "case_name": func_name,
+                        "suite_name": parsed["suite_name"],
+                        "status": outcome,
+                        "passed": passed, "failed": failed, "skipped": skipped,
+                    })
 
-            proc.wait(timeout=300)
+            await proc.wait()
             finished = datetime.utcnow()
 
             # 用 JSON 报告补充 duration 和 error 信息
@@ -188,7 +199,7 @@ async def _execute_api_tests(
                             TestResult.case_name == func_name,
                         )
                     )
-                    r = existing.scalar_one_or_none()
+                    r = existing.scalars().first()
                     if r:
                         r.duration_ms = duration_ms
                         r.error_message = longrepr[:500] if longrepr else None
@@ -311,6 +322,7 @@ async def list_api_runs(
     )
     api_case_ids = {r[0] for r in api_case_ids_q.all()}
 
+    # 有 API 类型 TestResult 的 run_id
     api_run_ids_q = await db.execute(
         select(TestResult.run_id).distinct().where(
             TestResult.case_id.in_(api_case_ids)
@@ -318,7 +330,15 @@ async def list_api_runs(
     )
     api_run_ids = {r[0] for r in api_run_ids_q.all()}
 
-    query = select(TestRun).where(TestRun.id.in_(api_run_ids)).order_by(TestRun.created_at.desc())
+    # 同时包含 pending/running 的 run（刚触发、还没产生 TestResult）
+    active_runs_q = await db.execute(
+        select(TestRun.id).where(TestRun.status.in_(["pending", "running"]))
+    )
+    active_run_ids = {r[0] for r in active_runs_q.all()}
+
+    all_run_ids = api_run_ids | active_run_ids
+
+    query = select(TestRun).where(TestRun.id.in_(all_run_ids)).order_by(TestRun.created_at.desc())
     query = query.offset((page - 1) * page_size).limit(page_size)
 
     result = await db.execute(query)

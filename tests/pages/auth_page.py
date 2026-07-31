@@ -16,7 +16,6 @@ class AuthPage:
     def goto(self):
         self.page.goto(self.url)
         self.page.wait_for_load_state("networkidle")
-        self.page.wait_for_timeout(2000)
 
     def is_on_login_page(self) -> bool:
         return "/ctrl/login" in self.page.url
@@ -193,7 +192,7 @@ class AuthPage:
     def click_logout(self):
         self.click_user_button()
         self.click_menu_item("退出登录")
-        self.page.wait_for_timeout(2000)
+        self.page.wait_for_timeout(1000)
 
     def click_change_password(self):
         self.click_user_button()
@@ -237,7 +236,7 @@ class AuthPage:
         btn = dialog.get_by_role("button", name="修改密码")
         if btn.count() > 0:
             btn.first.click()
-            self.page.wait_for_timeout(2000)
+            self.page.wait_for_timeout(1000)
 
     def close_dialog(self):
         self.page.keyboard.press("Escape")

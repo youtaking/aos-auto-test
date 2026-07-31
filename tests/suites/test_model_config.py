@@ -7,6 +7,7 @@ import uuid
 import pytest
 import allure
 from tests.pages.model_config_page import ModelConfigPage
+from tests.conftest import register_cleanup
 
 
 # ==================== 测试常量 ====================
@@ -24,7 +25,11 @@ _TEST_MODEL_NAME = f"Test Model {_TEST_PREFIX}"
 
 def _create_provider_via_api(page, base_url, provider_id, name, protocol="openai",
                              api_key=_TEST_API_KEY, base_url_provider=_TEST_BASE_URL):
-    """通过 API 创建 Provider（用于测试前置）"""
+    """通过 API 创建 Provider（用于测试前置），自动注册清理"""
+    import sys as _sys
+    _caller = _sys._getframe(1)
+    _req = _caller.f_locals.get('request')
+
     resp = page.request.put(
         f"{base_url}/web/config/providers?name={provider_id}",
         data=json.dumps({
@@ -35,6 +40,10 @@ def _create_provider_via_api(page, base_url, provider_id, name, protocol="openai
         }),
         headers={"Content-Type": "application/json"},
     )
+
+    if _req and resp.status == 200:
+        register_cleanup(_req, lambda: _delete_provider_via_api(page, base_url, provider_id))
+
     return resp
 
 
@@ -72,7 +81,7 @@ def _get_provider_detail_via_api(page, base_url, resource_key):
 @allure.feature("Provider列表")
 @pytest.mark.order(200)
 @pytest.mark.p0
-def test_model_001_provider_list_loads(logged_in_page, base_url):
+def test_model_001_provider_list_loads(logged_in_page, base_url, request):
     """✅ 人工评审通过 | TC-MODEL-001: Provider 列表数据加载
     验证：1. 发起 Provider 列表请求 2. 展示已配置的 Provider
     3. 列表中不显示 API Key 明文
@@ -112,7 +121,7 @@ def test_model_001_provider_list_loads(logged_in_page, base_url):
 @allure.feature("添加Provider")
 @pytest.mark.order(201)
 @pytest.mark.p0
-def test_model_002_add_openai_provider(logged_in_page, base_url):
+def test_model_002_add_openai_provider(logged_in_page, base_url, request):
     """✅ 人工评审通过 | TC-MODEL-002: 添加 OpenAI 协议 Provider
     验证：1. POST/PUT 请求发往 Provider API 2. API Key 在请求体中
     3. Provider 创建成功 4. 列表中出现新 Provider
@@ -120,6 +129,10 @@ def test_model_002_add_openai_provider(logged_in_page, base_url):
     mc = ModelConfigPage(logged_in_page, base_url)
     mc.goto()
     initial_count = mc.get_provider_count()
+
+    # 注册清理（在 UI 创建之前）
+    register_cleanup(request, lambda: _delete_provider_via_api(
+        logged_in_page, base_url, _TEST_PROVIDER_ID))
 
     # 拦截 API
     api_responses = mc.intercept_api_responses("/web/config/providers")
@@ -139,7 +152,7 @@ def test_model_002_add_openai_provider(logged_in_page, base_url):
     mc.submit_form()
 
     # 弹窗应关闭
-    logged_in_page.wait_for_timeout(1000)
+    logged_in_page.wait_for_timeout(800)
     assert not mc.is_dialog_open(), "保存后弹窗未关闭"
 
     # 刷新页面验证
@@ -173,7 +186,7 @@ def test_model_002_add_openai_provider(logged_in_page, base_url):
 @allure.feature("添加Provider")
 @pytest.mark.order(202)
 @pytest.mark.p1
-def test_model_003_add_anthropic_provider(logged_in_page, base_url):
+def test_model_003_add_anthropic_provider(logged_in_page, base_url, request):
     """✅ 人工评审通过 | TC-MODEL-003: 添加 Anthropic 协议 Provider
     验证：1. 创建成功 2. 协议类型标识正确 3. API Key 掩码显示
     """
@@ -189,6 +202,8 @@ def test_model_003_add_anthropic_provider(logged_in_page, base_url):
 
     # 填写表单
     anthropic_id = f"{_TEST_PREFIX}-anthropic"
+    register_cleanup(request, lambda: _delete_provider_via_api(
+        logged_in_page, base_url, anthropic_id))
     mc.fill_provider_form(
         provider_id=anthropic_id,
         display_name=f"Anthropic {_TEST_PREFIX}",
@@ -197,7 +212,7 @@ def test_model_003_add_anthropic_provider(logged_in_page, base_url):
     )
     mc.submit_form()
 
-    logged_in_page.wait_for_timeout(1000)
+    logged_in_page.wait_for_timeout(800)
     mc.goto()
 
     # 1. 创建成功
@@ -221,7 +236,7 @@ def test_model_003_add_anthropic_provider(logged_in_page, base_url):
 @allure.feature("添加Provider")
 @pytest.mark.order(203)
 @pytest.mark.p1
-def test_model_004_api_key_empty_allowed(logged_in_page, base_url):
+def test_model_004_api_key_empty_allowed(logged_in_page, base_url, request):
     """✅ 人工评审通过 | TC-MODEL-004: 不填 API Key 也能创建 Provider
     验证：1. 创建成功 2. Provider 出现在列表中 3. keyHint 为空或显示占位
     """
@@ -231,6 +246,8 @@ def test_model_004_api_key_empty_allowed(logged_in_page, base_url):
 
     # 打开弹窗，填写名称但不填 API Key
     provider_id = f"{_TEST_PREFIX}-nokey"
+    register_cleanup(request, lambda: _delete_provider_via_api(
+        logged_in_page, base_url, provider_id))
     mc.click_add_provider()
     mc.fill_provider_form(
         provider_id=provider_id,
@@ -239,7 +256,7 @@ def test_model_004_api_key_empty_allowed(logged_in_page, base_url):
         base_url="https://api.test.com/v1",
     )
     mc.submit_form()
-    logged_in_page.wait_for_timeout(1000)
+    logged_in_page.wait_for_timeout(800)
 
     # 弹窗应关闭（不被拦截）
     assert not mc.is_dialog_open(), "不填 API Key 时弹窗应正常关闭"
@@ -269,7 +286,7 @@ def test_model_004_api_key_empty_allowed(logged_in_page, base_url):
 @allure.feature("安全")
 @pytest.mark.order(204)
 @pytest.mark.p0
-def test_model_005_api_key_not_exposed(logged_in_page, base_url):
+def test_model_005_api_key_not_exposed(logged_in_page, base_url, request):
     """✅ 人工评审通过 | TC-MODEL-005: API Key 不暴露
     验证：1. API Key 默认掩码显示 2. API 响应中为掩码 3. LocalStorage 中不存储明文
     """
@@ -324,7 +341,7 @@ def test_model_005_api_key_not_exposed(logged_in_page, base_url):
 @allure.feature("编辑")
 @pytest.mark.order(205)
 @pytest.mark.p1
-def test_model_006_edit_provider(logged_in_page, base_url):
+def test_model_006_edit_provider(logged_in_page, base_url, request):
     """✅ 人工评审通过 | TC-MODEL-006: 编辑 Provider 配置
     验证：1. PUT/PATCH 请求更新配置 2. 修改保存成功 3. 列表显示更新后信息
     """
@@ -357,7 +374,7 @@ def test_model_006_edit_provider(logged_in_page, base_url):
     mc.fill_edit_provider_form(base_url=new_url)
     mc.submit_form()
 
-    logged_in_page.wait_for_timeout(1000)
+    logged_in_page.wait_for_timeout(800)
     assert not mc.is_dialog_open(), "保存后弹窗未关闭"
 
     # 重新打开编辑弹窗验证修改生效
@@ -391,7 +408,7 @@ def test_model_006_edit_provider(logged_in_page, base_url):
 @allure.feature("编辑")
 @pytest.mark.order(205)
 @pytest.mark.p2
-def test_model_006b_edit_provider_other_fields(logged_in_page, base_url):
+def test_model_006b_edit_provider_other_fields(logged_in_page, base_url, request):
     """TC-MODEL-006b: 编辑服务商其它字段（协议切换、可用模型列表）
     验证：1. 协议 combobox 可切换 2. 切换后保存生效 3. 可用模型列表区域存在且有获取按钮
     """
@@ -424,7 +441,7 @@ def test_model_006b_edit_provider_other_fields(logged_in_page, base_url):
 
     # 2. 保存并验证协议切换生效
     mc.submit_form()
-    logged_in_page.wait_for_timeout(1000)
+    logged_in_page.wait_for_timeout(800)
     mc.goto()
 
     mc.click_provider_edit(provider_id)
@@ -460,7 +477,7 @@ def test_model_006b_edit_provider_other_fields(logged_in_page, base_url):
 @allure.feature("删除")
 @pytest.mark.order(206)
 @pytest.mark.p1
-def test_model_007_delete_provider_cascade(logged_in_page, base_url):
+def test_model_007_delete_provider_cascade(logged_in_page, base_url, request):
     """✅ 人工评审通过 | TC-MODEL-007: 删除 Provider 级联删除模型
     验证：1. 弹出确认弹窗 2. 确认后 Provider 被删除 3. 关联模型也被删除
     """
@@ -507,7 +524,7 @@ def test_model_007_delete_provider_cascade(logged_in_page, base_url):
 
     # 确认删除
     mc.confirm_alert_dialog()
-    logged_in_page.wait_for_timeout(1000)
+    logged_in_page.wait_for_timeout(800)
 
     # 刷新页面
     mc.goto()
@@ -526,7 +543,7 @@ def test_model_007_delete_provider_cascade(logged_in_page, base_url):
 @allure.feature("模型管理")
 @pytest.mark.order(207)
 @pytest.mark.p0
-def test_model_008_add_model(logged_in_page, base_url):
+def test_model_008_add_model(logged_in_page, base_url, request):
     """✅ 人工评审通过 | TC-MODEL-008: 添加模型
     验证：1. 模型添加成功 2. 显示在模型列表中
     """
@@ -553,7 +570,7 @@ def test_model_008_add_model(logged_in_page, base_url):
     mc.fill_model_form(_TEST_MODEL_ID, _TEST_MODEL_NAME)
     mc.submit_form()
 
-    logged_in_page.wait_for_timeout(1000)
+    logged_in_page.wait_for_timeout(800)
     mc.goto()
 
     # 1. 模型添加成功 — API 调用验证
@@ -580,7 +597,7 @@ def test_model_008_add_model(logged_in_page, base_url):
 @allure.feature("模型管理")
 @pytest.mark.order(207)
 @pytest.mark.p1
-def test_model_009_edit_model(logged_in_page, base_url):
+def test_model_009_edit_model(logged_in_page, base_url, request):
     """✅ 人工评审通过 | TC-MODEL-009: 编辑模型（UI）
     验证：1. 编辑弹窗打开 2. 模型 ID 不可修改 3. 修改显示名称后保存生效
     """
@@ -622,7 +639,7 @@ def test_model_009_edit_model(logged_in_page, base_url):
     new_name = f"Updated {_TEST_PREFIX}"
     mc.fill_edit_model_form(display_name=new_name)
     mc.submit_form()
-    logged_in_page.wait_for_timeout(1000)
+    logged_in_page.wait_for_timeout(800)
 
     # 3. 重新打开编辑弹窗验证修改生效
     mc.goto()
@@ -642,7 +659,7 @@ def test_model_009_edit_model(logged_in_page, base_url):
 @allure.feature("模型管理")
 @pytest.mark.order(207)
 @pytest.mark.p1
-def test_model_009b_delete_model(logged_in_page, base_url):
+def test_model_009b_delete_model(logged_in_page, base_url, request):
     """✅ 人工评审通过 | TC-MODEL-009b: 删除模型（UI）
     验证：1. 确认弹窗弹出 2. 确认后模型被删除 3. 模型不再出现
     """
@@ -688,7 +705,7 @@ def test_model_009b_delete_model(logged_in_page, base_url):
 
     # 确认删除
     mc.confirm_alert_dialog()
-    logged_in_page.wait_for_timeout(1000)
+    logged_in_page.wait_for_timeout(800)
 
     # 2. 刷新验证模型被删除
     mc.goto()
@@ -712,7 +729,7 @@ def test_model_009b_delete_model(logged_in_page, base_url):
 @allure.feature("模型管理")
 @pytest.mark.order(207)
 @pytest.mark.p2
-def test_model_009c_edit_model_other_fields(logged_in_page, base_url):
+def test_model_009c_edit_model_other_fields(logged_in_page, base_url, request):
     """✅ 人工评审通过 | TC-MODEL-009c: 编辑模型其它字段（上下文限制、输出限制、模态切换、高级参数）
     验证：1. 上下文/输出限制可填写并保存 2. 模态按钮可切换 3. 高级参数可展开
     发现系统 bug：思考模式/思考预算/输出费用 未持久化
@@ -812,7 +829,7 @@ def test_model_009c_edit_model_other_fields(logged_in_page, base_url):
 
     # 保存
     mc.submit_form()
-    logged_in_page.wait_for_timeout(1000)
+    logged_in_page.wait_for_timeout(800)
 
     # 重新打开验证数值持久化
     mc.goto()
@@ -865,7 +882,7 @@ def test_model_009c_edit_model_other_fields(logged_in_page, base_url):
 @allure.feature("获取模型列表")
 @pytest.mark.order(208)
 @pytest.mark.p1
-def test_model_010_fetch_provider_models(logged_in_page, base_url):
+def test_model_010_fetch_provider_models(logged_in_page, base_url, request):
     """✅ 人工评审通过 | TC-MODEL-010: 获取 Provider 模型列表
     验证：1. 发送 fetch-models 请求 2. 页面有反馈结果
     """
@@ -926,7 +943,7 @@ def test_model_010_fetch_provider_models(logged_in_page, base_url):
 @allure.feature("连接测试")
 @pytest.mark.order(209)
 @pytest.mark.p1
-def test_model_011_test_single_model(logged_in_page, base_url):
+def test_model_011_test_single_model(logged_in_page, base_url, request):
     """✅ 人工评审通过 | TC-MODEL-011: 测试单个模型可用性
     验证：1. 发送测试请求 2. 有反馈结果
     """
@@ -970,7 +987,7 @@ def test_model_011_test_single_model(logged_in_page, base_url):
 @allure.feature("权限管理")
 @pytest.mark.order(212)
 @pytest.mark.p0
-def test_model_014_public_model_readonly(logged_in_page, base_url):
+def test_model_014_public_model_readonly(logged_in_page, base_url, request):
     """TC-MODEL-014: 公有模型配置可读不可改
     需要普通用户账号验证，当前仅有 admin 账号
     """
@@ -1000,7 +1017,7 @@ def test_model_014_public_model_readonly(logged_in_page, base_url):
 @allure.feature("权限管理")
 @pytest.mark.order(213)
 @pytest.mark.p1
-def test_model_015_public_toggle(logged_in_page, base_url):
+def test_model_015_public_toggle(logged_in_page, base_url, request):
     """✅ 人工评审通过 | TC-MODEL-015: 模型公开按钮
     验证：1. 公开开关存在且可切换 2. 切换后状态变化
     """
@@ -1044,7 +1061,7 @@ def test_model_015_public_toggle(logged_in_page, base_url):
 @allure.feature("CRUD")
 @pytest.mark.order(215)
 @pytest.mark.p1
-def test_model_021_get_provider_models(logged_in_page, base_url):
+def test_model_021_get_provider_models(logged_in_page, base_url, request):
     """✅ 人工评审通过 | TC-MODEL-021: 获取供应商下面的模型
     验证：1. 正确展示 Provider 下所有模型 2. 显示模型名称 3. 可操作模型
     """
@@ -1086,7 +1103,7 @@ def test_model_021_get_provider_models(logged_in_page, base_url):
 @allure.feature("Open-API")
 @pytest.mark.order(216)
 @pytest.mark.p1
-def test_model_016_openapi_provider_crud(logged_in_page, base_url):
+def test_model_016_openapi_provider_crud(logged_in_page, base_url, request):
     """✅ 人工评审通过 | TC-MODEL-016: Open-API 提供商 CRUD
     验证：1. 创建 2. 获取列表 3. 获取详情 4. 删除 5. 删除后不再显示
     """
@@ -1133,7 +1150,7 @@ def test_model_016_openapi_provider_crud(logged_in_page, base_url):
 @allure.feature("Open-API")
 @pytest.mark.order(217)
 @pytest.mark.p1
-def test_model_017_openapi_model_crud(logged_in_page, base_url):
+def test_model_017_openapi_model_crud(logged_in_page, base_url, request):
     """✅ 人工评审通过 | TC-MODEL-017: Open-API 模型 CRUD
     验证：1. 创建模型 2. 获取模型列表 3. 模型与 Provider 关联 4. 删除模型
     """
@@ -1200,7 +1217,7 @@ def test_model_017_openapi_model_crud(logged_in_page, base_url):
 @allure.feature("Open-API")
 @pytest.mark.order(218)
 @pytest.mark.p0
-def test_model_018_openapi_auth_check(logged_in_page, base_url):
+def test_model_018_openapi_auth_check(logged_in_page, base_url, request):
     """✅ 人工评审通过 | TC-MODEL-018: Open-API 认证校验
     验证：1. 不带认证 → 401/403 2. 使用无效 Cookie → 401/403
     """
@@ -1241,7 +1258,7 @@ def test_model_018_openapi_auth_check(logged_in_page, base_url):
 @allure.feature("Open-API")
 @pytest.mark.order(219)
 @pytest.mark.p2
-def test_model_019_openapi_idempotency(logged_in_page, base_url):
+def test_model_019_openapi_idempotency(logged_in_page, base_url, request):
     """✅ 人工评审通过 | TC-MODEL-019: Open-API 并发和幂等性
     验证：1. 重复删除同一资源 2. 首次成功，后续返回 404
     """
@@ -1272,10 +1289,15 @@ def test_model_019_openapi_idempotency(logged_in_page, base_url):
 @allure.feature("Open-API")
 @pytest.mark.order(220)
 @pytest.mark.p1
-def test_model_022_openapi_create_validation(logged_in_page, base_url):
+def test_model_022_openapi_create_validation(logged_in_page, base_url, request):
     """✅ 人工评审通过 | TC-MODEL-022: Open-API 创建提供商参数校验
     验证：1. 缺少必填字段 2. 无效协议类型 3. 错误响应包含校验信息
     """
+    # 注册清理（在 API 调用之前，安全兜底）
+    for _pid in [f"invalid-{_TEST_PREFIX}", f"badproto-{_TEST_PREFIX}", f"badurl-{_TEST_PREFIX}"]:
+        register_cleanup(request, lambda pid=_pid: _delete_provider_via_api(
+            logged_in_page, base_url, pid))
+
     # 1. 缺少必填字段 — 空 body
     resp_empty = logged_in_page.request.put(
         f"{base_url}/web/config/providers?name=invalid-{_TEST_PREFIX}",
@@ -1356,7 +1378,7 @@ def test_model_022_openapi_create_validation(logged_in_page, base_url):
 @allure.feature("Open-API")
 @pytest.mark.order(221)
 @pytest.mark.p1
-def test_model_023_openapi_cascade_delete(logged_in_page, base_url):
+def test_model_023_openapi_cascade_delete(logged_in_page, base_url, request):
     """TC-MODEL-023: Open-API 级联删除
     验证：1. Provider 删除成功 2. 其下模型也被删除 3. 不产生孤立数据
     """
@@ -1415,7 +1437,7 @@ def test_model_023_openapi_cascade_delete(logged_in_page, base_url):
 @allure.feature("Open-API")
 @pytest.mark.order(222)
 @pytest.mark.p1
-def test_model_024_openapi_connectivity_test(logged_in_page, base_url):
+def test_model_024_openapi_connectivity_test(logged_in_page, base_url, request):
     """✅ 人工评审通过 | TC-MODEL-024: Open-API 模型联通性测试
     验证：1. 有效配置发送测试请求 2. 无效配置返回失败+错误原因
     """
@@ -1476,7 +1498,7 @@ def test_model_024_openapi_connectivity_test(logged_in_page, base_url):
 @allure.feature("Open-API")
 @pytest.mark.order(223)
 @pytest.mark.p2
-def test_model_025_openapi_pagination_filter(logged_in_page, base_url):
+def test_model_025_openapi_pagination_filter(logged_in_page, base_url, request):
     """✅ 人工评审通过 | TC-MODEL-025: Open-API 分页和过滤
     验证：1. 列表请求返回数据 2. 返回格式正确
     """
@@ -1520,7 +1542,7 @@ def test_model_025_openapi_pagination_filter(logged_in_page, base_url):
 @allure.epic("模型库")
 @pytest.mark.order(620)
 @pytest.mark.p1
-def test_model_api_key_auto_fetch(logged_in_page, base_url):
+def test_model_api_key_auto_fetch(logged_in_page, base_url, request):
     """TC-MODEL-026: API Key 防抖自动获取模型 — 输入 API Key 后 800ms 自动获取远端模型列表"""
     mc = ModelConfigPage(logged_in_page, base_url)
     mc.goto()
@@ -1546,7 +1568,7 @@ def test_model_api_key_auto_fetch(logged_in_page, base_url):
     )
 
     # 等待 800ms+ 防抖触发
-    logged_in_page.wait_for_timeout(2000)
+    logged_in_page.wait_for_timeout(800)
 
     # 检查是否自动触发了 fetch-models 请求
     fetch_calls = [
@@ -1584,7 +1606,7 @@ def test_model_api_key_auto_fetch(logged_in_page, base_url):
 @allure.epic("模型库")
 @pytest.mark.order(621)
 @pytest.mark.p0
-def test_model_connectivity_test(logged_in_page, base_url):
+def test_model_connectivity_test(logged_in_page, base_url, request):
     """TC-MODEL-027: 模型连通性测试 — 点击测试按钮验证模型可用"""
     mc = ModelConfigPage(logged_in_page, base_url)
     mc.goto()
@@ -1614,7 +1636,7 @@ def test_model_connectivity_test(logged_in_page, base_url):
         pytest.skip("未找到模型级别的测试按钮")
 
     # 等待测试结果出现
-    logged_in_page.wait_for_timeout(3000)
+    logged_in_page.wait_for_timeout(800)
 
     # 检查卡片中的测试结果
     card_text = mc.get_provider_card_text(provider_with_models)
@@ -1643,7 +1665,7 @@ def test_model_connectivity_test(logged_in_page, base_url):
 @allure.epic("模型库")
 @pytest.mark.order(622)
 @pytest.mark.p1
-def test_model_batch_add(logged_in_page, base_url):
+def test_model_batch_add(logged_in_page, base_url, request):
     """TC-MODEL-028: 批量选择模型添加 — 从远端模型列表批量选择并添加"""
     mc = ModelConfigPage(logged_in_page, base_url)
     mc.goto()
@@ -1666,7 +1688,7 @@ def test_model_batch_add(logged_in_page, base_url):
 
     # 点击获取远端模型列表
     mc.click_fetch_models_in_dialog()
-    logged_in_page.wait_for_timeout(3000)
+    logged_in_page.wait_for_timeout(800)
 
     dialog = logged_in_page.locator("[role=dialog]")
     dialog_text = dialog.first.inner_text()
@@ -1695,7 +1717,7 @@ def test_model_batch_add(logged_in_page, base_url):
                 "/web/config/providers/actions/models"
             )
             add_btn.first.click()
-            logged_in_page.wait_for_timeout(3000)
+            logged_in_page.wait_for_timeout(800)
 
             # 验证有模型添加请求
             add_calls = [
@@ -1726,7 +1748,7 @@ def test_model_batch_add(logged_in_page, base_url):
 @allure.epic("模型库")
 @pytest.mark.order(623)
 @pytest.mark.p1
-def test_model_public_toggle(logged_in_page, base_url):
+def test_model_public_toggle(logged_in_page, base_url, request):
     """TC-MODEL-029: 模型公开/私密切换 — 切换 Provider 的公开状态"""
     provider_id = f"pub-toggle-{_TEST_PREFIX}"
     _create_provider_via_api(
@@ -1770,7 +1792,7 @@ def test_model_public_toggle(logged_in_page, base_url):
 @allure.epic("模型库")
 @pytest.mark.order(624)
 @pytest.mark.p0
-def test_model_provider_delete(logged_in_page, base_url):
+def test_model_provider_delete(logged_in_page, base_url, request):
     """TC-MODEL-030: Provider 删除确认 — 删除 Provider 弹出确认对话框"""
     provider_id = f"del-confirm-{_TEST_PREFIX}"
     _create_provider_via_api(
@@ -1795,7 +1817,7 @@ def test_model_provider_delete(logged_in_page, base_url):
 
         # 确认删除
         mc.confirm_alert_dialog()
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.wait_for_timeout(800)
 
         # 刷新验证 Provider 已删除
         mc.goto()

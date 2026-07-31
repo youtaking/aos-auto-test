@@ -8,6 +8,12 @@
 """
 import httpx
 import pytest
+from tests.api_contracts.workflow_run_schemas import (
+    WORKFLOW_RUN_ITEM,
+    WORKFLOW_RUN_DETAIL,
+    WORKFLOW_RUN_EVENT,
+    WORKFLOW_RUN_APPROVAL,
+)
 
 
 class TestWorkflowRunWebAPI:
@@ -22,12 +28,13 @@ class TestWorkflowRunWebAPI:
         resp = web_client.list_workflow_runs()
         # 可能是数组或分页对象
         if isinstance(resp, list):
-            assert isinstance(resp, list)
             if len(resp) > 0:
-                assert "run_id" in resp[0] or "id" in resp[0]
+                web_client.validate_schema(resp[0], WORKFLOW_RUN_ITEM)
         else:
             assert "items" in resp
             assert isinstance(resp["items"], list)
+            if len(resp["items"]) > 0:
+                web_client.validate_schema(resp["items"][0], WORKFLOW_RUN_ITEM)
 
     def test_get_workflow_run(self, web_client):
         """获取工作流运行详情：先拿列表取第一个 runId"""
@@ -38,8 +45,8 @@ class TestWorkflowRunWebAPI:
         run_id = items[0].get("run_id") or items[0].get("id")
 
         detail = web_client.get_workflow_run(run_id)
+        web_client.validate_schema(detail, WORKFLOW_RUN_DETAIL)
         assert detail.get("run_id", detail.get("id")) == run_id
-        assert "status" in detail or "workflow_id" in detail or "dag_status" in detail or "run_id" in detail
 
     def test_get_workflow_run_events(self, web_client):
         """获取工作流运行事件：先拿列表取第一个 runId"""
@@ -51,6 +58,8 @@ class TestWorkflowRunWebAPI:
 
         events = web_client.get_workflow_run_events(run_id)
         assert isinstance(events, list)
+        if len(events) > 0:
+            web_client.validate_schema(events[0], WORKFLOW_RUN_EVENT)
 
     def test_get_workflow_run_approvals(self, web_client):
         """获取工作流审批列表：先拿列表取第一个 runId"""
@@ -62,12 +71,19 @@ class TestWorkflowRunWebAPI:
 
         approvals = web_client.get_workflow_run_approvals(run_id)
         assert isinstance(approvals, list)
+        if len(approvals) > 0:
+            web_client.validate_schema(approvals[0], WORKFLOW_RUN_APPROVAL)
 
     def test_get_nonexistent_workflow_run(self, web_client):
-        """获取不存在的运行记录 — 应返回空或抛异常"""
+        """获取不存在的运行记录 — 应返回 404/500 或返回 None/空对象"""
         try:
             resp = web_client.get_workflow_run("nonexistent-run-id-99999")
-            assert resp is None or isinstance(resp, dict)
+            # 服务端可能返回 None 或空对象（非异常路径）
+            assert resp is None or isinstance(resp, dict), \
+                f"预期 None/dict 响应，实际: {type(resp)}"
+            if isinstance(resp, dict):
+                assert len(resp) == 0 or "id" not in resp, \
+                    "不应返回包含有效 id 的运行记录"
         except (httpx.HTTPStatusError, RuntimeError) as e:
-            import logging
-            logging.getLogger("test").warning(f"Nonexistent workflow run request failed: {e}")
+            assert "404" in str(e) or "400" in str(e) or "500" in str(e), \
+                f"非预期错误: {e}"

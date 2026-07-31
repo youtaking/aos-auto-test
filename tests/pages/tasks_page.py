@@ -14,7 +14,6 @@ class TasksPage:
     def goto(self):
         self.page.goto(self.url)
         self.page.wait_for_load_state("networkidle")
-        self.page.wait_for_timeout(2000)
 
     def is_loaded(self) -> bool:
         """页面加载完成：URL 正确 + 面板内容可见"""
@@ -209,7 +208,7 @@ class TasksPage:
         btn = d.locator("button").filter(has_text="保存")
         if btn.count() > 0:
             btn.first.click()
-            self.page.wait_for_timeout(2000)
+            self.page.wait_for_timeout(1000)
 
     def cancel_dialog(self):
         """取消弹窗"""

@@ -8,6 +8,8 @@ import re
 import pytest
 import allure
 from tests.pages.apikey_page import ApiKeyPage
+from tests.pages import locators as loc
+from tests.conftest import register_cleanup
 
 _PREFIX = f"e2e-{uuid.uuid4().hex[:6]}"
 
@@ -29,6 +31,16 @@ def _get_keys_api(page, base_url):
     if r.status == 200:
         return r.json().get("data", [])
     return []
+
+
+def _register_key_cleanup(request, page, base_url, name_prefix):
+    """注册密钥清理：只删除名称包含 name_prefix 的密钥"""
+    def _cleanup():
+        keys = _get_keys_api(page, base_url)
+        for k in keys:
+            if name_prefix in k.get("name", ""):
+                _delete_key_api(page, base_url, k["id"])
+    register_cleanup(request, _cleanup)
 
 
 # ==================== 测试 ====================
@@ -73,9 +85,10 @@ def test_apikey_001_list_loads(logged_in_page, base_url):
 @allure.epic("API密钥")
 @pytest.mark.order(341)
 @pytest.mark.p0
-def test_apikey_002_create_key(logged_in_page, base_url):
+def test_apikey_002_create_key(logged_in_page, base_url, request):
     """✅ 人工评审通过 | TC-APIKEY-002: 创建 API 密钥"""
     ak = ApiKeyPage(logged_in_page, base_url)
+    _register_key_cleanup(request, logged_in_page, base_url, f"key-{_PREFIX}")
     ak.goto()
     initial_count = ak.get_key_count()
 
@@ -93,11 +106,11 @@ def test_apikey_002_create_key(logged_in_page, base_url):
         name_input.first.fill(f"key-{_PREFIX}")
 
     ak.submit_dialog()
-    logged_in_page.wait_for_timeout(1000)
+    logged_in_page.wait_for_timeout(800)
 
     # 关闭创建成功后的密钥展示弹窗
     ak.close_dialog()
-    logged_in_page.wait_for_timeout(1000)
+    logged_in_page.wait_for_timeout(800)
 
     # API 请求验证
     post_calls = [r for r in api_resp if r["method"] == "POST"
@@ -136,9 +149,7 @@ def test_apikey_003_name_empty_validation(logged_in_page, base_url):
     assert ak.is_dialog_open(), "弹窗未打开"
 
     dialog = logged_in_page.locator("[role=dialog]")
-    save_btn = dialog.get_by_role("button", name="保存").or_(
-        dialog.locator("button[type=submit]")
-    )
+    save_btn = loc.save_or_submit_button(dialog)
 
     if save_btn.count() > 0:
         is_disabled = save_btn.first.is_disabled()
@@ -146,7 +157,7 @@ def test_apikey_003_name_empty_validation(logged_in_page, base_url):
             assert save_btn.first.is_disabled(), "保存按钮在名称为空时被禁用"
         else:
             save_btn.first.click(force=True)
-            logged_in_page.wait_for_timeout(1000)
+            logged_in_page.wait_for_timeout(800)
             has_error = len(ak.get_form_validation_text()) > 0
             dialog_still_open = ak.is_dialog_open()
             assert has_error or dialog_still_open, f"名称为空时未拦截: has_error={has_error}, dialog_still_open={dialog_still_open}"
@@ -162,10 +173,11 @@ def test_apikey_003_name_empty_validation(logged_in_page, base_url):
 @allure.epic("API密钥")
 @pytest.mark.order(343)
 @pytest.mark.p0
-def test_apikey_004_one_time_display(logged_in_page, base_url):
+def test_apikey_004_one_time_display(logged_in_page, base_url, request):
     """✅ 人工评审通过 | TC-APIKEY-004: 密钥一次性展示
     验证：创建后列表只显示前缀，API 也不返回完整密钥
     """
+    _register_key_cleanup(request, logged_in_page, base_url, f"onetime-{_PREFIX}")
     # 通过 API 创建密钥
     create_resp = _create_key_api(logged_in_page, base_url, f"onetime-{_PREFIX}")
     assert create_resp.status == 200, "创建密钥失败"
@@ -219,7 +231,7 @@ def test_apikey_005_list_no_full_key(logged_in_page, base_url):
     ak = ApiKeyPage(logged_in_page, base_url)
     ak.goto()
 
-    logged_in_page.wait_for_timeout(1000)
+    logged_in_page.wait_for_timeout(800)
 
     assert len(api_resp) > 0, "未捕获到密钥列表 API 响应"
     data = api_resp[0].get("data", [])
@@ -240,8 +252,9 @@ def test_apikey_005_list_no_full_key(logged_in_page, base_url):
 @allure.epic("API密钥")
 @pytest.mark.order(345)
 @pytest.mark.p1
-def test_apikey_006_security_warning(logged_in_page, base_url):
+def test_apikey_006_security_warning(logged_in_page, base_url, request):
     """✅ 人工评审通过 | TC-APIKEY-006: 安全警告提示"""
+    _register_key_cleanup(request, logged_in_page, base_url, f"warn-{_PREFIX}")
     ak = ApiKeyPage(logged_in_page, base_url)
     ak.goto()
 
@@ -261,7 +274,7 @@ def test_apikey_006_security_warning(logged_in_page, base_url):
         print("\n⚠️ 未找到名称输入框")
 
     ak.submit_dialog()
-    logged_in_page.wait_for_timeout(2000)
+    logged_in_page.wait_for_timeout(800)
 
     # 检查创建后弹窗
     has_post_warning = False
@@ -305,7 +318,7 @@ def _create_and_get_key_dialog(page, base_url, ak, name_prefix):
         name_input.first.fill(f"{name_prefix}-{_PREFIX}")
 
     ak.submit_dialog()
-    page.wait_for_timeout(2000)
+    page.wait_for_timeout(800)
 
     assert ak.is_dialog_open(), "创建成功后应弹出密钥展示弹窗"
     post_text = ak.get_dialog_text()
@@ -317,8 +330,9 @@ def _create_and_get_key_dialog(page, base_url, ak, name_prefix):
 @allure.epic("API密钥")
 @pytest.mark.order(346)
 @pytest.mark.p1
-def test_apikey_006b_copy_button(logged_in_page, base_url):
+def test_apikey_006b_copy_button(logged_in_page, base_url, request):
     """✅ 人工评审通过 | TC-APIKEY-006b: 复制按钮能将完整密钥复制到剪贴板"""
+    _register_key_cleanup(request, logged_in_page, base_url, f"copy-btn-{_PREFIX}")
     ak = ApiKeyPage(logged_in_page, base_url)
     shown_key, dialog = _create_and_get_key_dialog(
         logged_in_page, base_url, ak, "copy-btn"
@@ -329,7 +343,7 @@ def test_apikey_006b_copy_button(logged_in_page, base_url):
     has_copy = ak.has_copy_button()
     assert has_copy, "创建后弹窗中缺少复制按钮"
     ak.click_copy()
-    logged_in_page.wait_for_timeout(1000)
+    logged_in_page.wait_for_timeout(800)
 
     # 读取剪贴板（通过 JS evaluate）
     try:
@@ -358,8 +372,9 @@ def test_apikey_006b_copy_button(logged_in_page, base_url):
 @allure.epic("API密钥")
 @pytest.mark.order(347)
 @pytest.mark.p2
-def test_apikey_006c_close_button_bottom(logged_in_page, base_url):
+def test_apikey_006c_close_button_bottom(logged_in_page, base_url, request):
     """✅ 人工评审通过 | TC-APIKEY-006c: 创建后弹窗底部的"关闭"按钮能关闭弹窗"""
+    _register_key_cleanup(request, logged_in_page, base_url, f"close-bottom-{_PREFIX}")
     ak = ApiKeyPage(logged_in_page, base_url)
     shown_key, dialog = _create_and_get_key_dialog(
         logged_in_page, base_url, ak, "close-bottom"
@@ -375,7 +390,7 @@ def test_apikey_006c_close_button_bottom(logged_in_page, base_url):
 
     assert close_btn.count() > 0, "创建后弹窗底部未找到关闭按钮"
     close_btn.first.click()
-    logged_in_page.wait_for_timeout(1000)
+    logged_in_page.wait_for_timeout(800)
 
     assert not ak.is_dialog_open(), "点击底部关闭按钮后弹窗未关闭"
 
@@ -389,8 +404,9 @@ def test_apikey_006c_close_button_bottom(logged_in_page, base_url):
 @allure.epic("API密钥")
 @pytest.mark.order(348)
 @pytest.mark.p2
-def test_apikey_006d_close_button_x(logged_in_page, base_url):
+def test_apikey_006d_close_button_x(logged_in_page, base_url, request):
     """✅ 人工评审通过 | TC-APIKEY-006d: 创建后弹窗右上角 X 按钮能关闭弹窗"""
+    _register_key_cleanup(request, logged_in_page, base_url, f"close-x-{_PREFIX}")
     ak = ApiKeyPage(logged_in_page, base_url)
     shown_key, dialog = _create_and_get_key_dialog(
         logged_in_page, base_url, ak, "close-x"
@@ -406,7 +422,7 @@ def test_apikey_006d_close_button_x(logged_in_page, base_url):
 
     assert x_btn.count() > 0, "创建后弹窗右上角未找到 X 关闭按钮"
     x_btn.first.click()
-    logged_in_page.wait_for_timeout(1000)
+    logged_in_page.wait_for_timeout(800)
 
     assert not ak.is_dialog_open(), "点击右上角 X 按钮后弹窗未关闭"
 
@@ -420,8 +436,9 @@ def test_apikey_006d_close_button_x(logged_in_page, base_url):
 @allure.epic("API密钥")
 @pytest.mark.order(349)
 @pytest.mark.p1
-def test_apikey_007_delete_key(logged_in_page, base_url):
+def test_apikey_007_delete_key(logged_in_page, base_url, request):
     """✅ 人工评审通过 | TC-APIKEY-007: 删除 API 密钥"""
+    _register_key_cleanup(request, logged_in_page, base_url, f"del-{_PREFIX}")
     # 前置：创建密钥
     create_resp = _create_key_api(logged_in_page, base_url, f"del-{_PREFIX}")
     assert create_resp.status == 200, "创建密钥失败"
@@ -446,10 +463,10 @@ def test_apikey_007_delete_key(logged_in_page, base_url):
             assert "吊销" in alert_text or "确认" in alert_text or "删除" in alert_text, \
                 f"确认弹窗文本不正确: {alert_text}"
             ak.confirm_alert()
-            logged_in_page.wait_for_timeout(2000)
+            logged_in_page.wait_for_timeout(800)
         elif ak.is_dialog_open():
             ak.submit_dialog()
-            logged_in_page.wait_for_timeout(2000)
+            logged_in_page.wait_for_timeout(800)
 
     # 刷新验证
     ak.goto()
@@ -468,8 +485,13 @@ def test_apikey_007_delete_key(logged_in_page, base_url):
 @allure.epic("API密钥")
 @pytest.mark.order(350)
 @pytest.mark.p2
-def test_apikey_008_delete_cancel(logged_in_page, base_url):
+def test_apikey_008_delete_cancel(logged_in_page, base_url, request):
     """✅ 人工评审通过 | TC-APIKEY-008: 删除取消操作"""
+    _register_key_cleanup(request, logged_in_page, base_url, f"cancel-{_PREFIX}")
+    # 先创建自己的测试 key，避免操作用户已有的 key
+    create_resp = _create_key_api(logged_in_page, base_url, f"cancel-{_PREFIX}")
+    assert create_resp.status == 200, "创建测试密钥失败"
+
     ak = ApiKeyPage(logged_in_page, base_url)
     ak.goto()
     initial_count = ak.get_key_count()
@@ -477,8 +499,8 @@ def test_apikey_008_delete_cancel(logged_in_page, base_url):
     if initial_count == 0:
         pytest.skip("没有密钥可操作")
 
-    # 点击吊销
-    clicked = ak.click_revoke()
+    # 点击吊销（只操作自己创建的 key）
+    clicked = ak.click_revoke(f"cancel-{_PREFIX}")
     if not clicked:
         pytest.skip("未找到吊销按钮")
 
@@ -503,8 +525,9 @@ def test_apikey_008_delete_cancel(logged_in_page, base_url):
 @allure.epic("API密钥")
 @pytest.mark.order(351)
 @pytest.mark.p2
-def test_apikey_009_copy_key(logged_in_page, base_url):
+def test_apikey_009_copy_key(logged_in_page, base_url, request):
     """✅ 人工评审通过 | TC-APIKEY-009: 密钥复制功能"""
+    _register_key_cleanup(request, logged_in_page, base_url, f"copy-{_PREFIX}")
     ak = ApiKeyPage(logged_in_page, base_url)
     ak.goto()
 
@@ -517,7 +540,7 @@ def test_apikey_009_copy_key(logged_in_page, base_url):
         name_input.first.fill(f"copy-{_PREFIX}")
 
     ak.submit_dialog()
-    logged_in_page.wait_for_timeout(1000)
+    logged_in_page.wait_for_timeout(800)
 
     # 检查创建后是否有显示密钥的弹窗
     if ak.is_dialog_open():

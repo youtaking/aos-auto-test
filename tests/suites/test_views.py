@@ -7,6 +7,8 @@ import uuid
 import pytest
 import allure
 from tests.pages.views_page import ViewsPage
+from tests.pages import locators as loc
+from tests.conftest import register_cleanup
 
 
 _PREFIX = f"e2e-{uuid.uuid4().hex[:6]}"
@@ -38,11 +40,22 @@ def _get_first_agent_id(page, base_url):
 
 
 def _create_view_api(page, base_url, name=None, description="e2e test view"):
-    """POST /web/config/prod-views → created view
+    """POST /web/config/prod-views → created view（自动注册清理）
 
     源码 schema (CreateProdViewSchema):
       name (必填), agentId (必填, UUID), description?, modulesConfig?
     """
+    import sys as _sys
+    _req = None
+    _frame = _sys._getframe(1)
+    for _i in range(5):
+        _req = _frame.f_locals.get('request')
+        if _req:
+            break
+        _frame = _frame.f_back
+        if _frame is None:
+            break
+
     name = name or f"e2e-view-{_PREFIX}"
     agent_id = _get_first_agent_id(page, base_url)
     if not agent_id:
@@ -57,10 +70,16 @@ def _create_view_api(page, base_url, name=None, description="e2e test view"):
         data=json.dumps(payload),
         headers={"Content-Type": "application/json"},
     )
+    view_data = {}
     if r.status in (200, 201):
         body = r.json()
-        return body.get("data", {})
-    return {}
+        view_data = body.get("data", {})
+
+    if _req and view_data.get("id"):
+        _vid = view_data["id"]
+        register_cleanup(_req, lambda: _delete_view_api(page, base_url, _vid))
+
+    return view_data
 
 
 def _delete_view_api(page, base_url, view_id):
@@ -113,11 +132,8 @@ class TestViews:
         v.goto()
         if not v.has_create_button():
             pytest.skip("当前无新建视图按钮")
-        btn = logged_in_page.get_by_role("button", name="新建").or_(
-            logged_in_page.get_by_role("button", name="创建")
-        )
-        btn.first.click()
-        logged_in_page.wait_for_timeout(1000)
+        v.click_create_button()
+        logged_in_page.wait_for_timeout(1500)
         dialog = logged_in_page.locator('[role="dialog"]')
         assert dialog.count() > 0, "新建视图弹窗未打开"
         # 关闭弹窗
@@ -140,9 +156,7 @@ class TestViews:
             v = ViewsPage(logged_in_page, base_url)
             v.goto()
             # 查找编辑入口：编辑按钮或卡片点击
-            edit_btn = logged_in_page.locator("button").filter(has_text="编辑").or_(
-                logged_in_page.locator('[title="编辑"]')
-            ).or_(
+            edit_btn = loc.edit_button(logged_in_page).or_(
                 logged_in_page.locator('[role="menuitem"]').filter(has_text="编辑")
             )
             # 尝试通过三点菜单
@@ -154,7 +168,7 @@ class TestViews:
                 )
                 if ellipsis.count() > 0:
                     ellipsis.first.click()
-                    logged_in_page.wait_for_timeout(1000)
+                    logged_in_page.wait_for_timeout(800)
                     edit_btn = logged_in_page.locator('[role="menu"]').locator(
                         '[role="menuitem"]'
                     ).filter(has_text="编辑")
@@ -198,9 +212,7 @@ class TestViews:
             v.goto()
             initial_count = v.get_view_count()
             # 查找删除入口
-            delete_btn = logged_in_page.locator("button").filter(has_text="删除").or_(
-                logged_in_page.locator('[title="删除"]')
-            ).or_(
+            delete_btn = loc.delete_button(logged_in_page).or_(
                 logged_in_page.locator('[role="menuitem"]').filter(has_text="删除")
             )
             # 尝试通过三点菜单
@@ -212,22 +224,20 @@ class TestViews:
                 )
                 if ellipsis.count() > 0:
                     ellipsis.first.click()
-                    logged_in_page.wait_for_timeout(1000)
+                    logged_in_page.wait_for_timeout(800)
                     delete_btn = logged_in_page.locator('[role="menu"]').locator(
                         '[role="menuitem"]'
                     ).filter(has_text="删除")
             if delete_btn.count() > 0:
                 delete_btn.first.click()
-                logged_in_page.wait_for_timeout(1000)
+                logged_in_page.wait_for_timeout(800)
                 # 确认弹窗
                 alert = logged_in_page.locator('[role="alertdialog"]')
                 if alert.count() > 0:
-                    confirm = alert.locator("button").filter(has_text="确认").or_(
-                        alert.locator("button").filter(has_text="删除")
-                    )
+                    confirm = loc.confirm_button(alert)
                     if confirm.count() > 0:
                         confirm.first.click()
-                        logged_in_page.wait_for_timeout(2000)
+                        logged_in_page.wait_for_timeout(800)
                 v.goto()
                 new_count = v.get_view_count()
                 assert new_count < initial_count or new_count == initial_count, \
@@ -263,7 +273,6 @@ class TestViews:
             for detail_url in detail_urls:
                 logged_in_page.goto(detail_url)
                 logged_in_page.wait_for_load_state("networkidle")
-                logged_in_page.wait_for_timeout(1500)
                 panel = logged_in_page.locator("div.agent-panel-content, main")
                 if panel.count() > 0:
                     loaded = True
@@ -294,16 +303,14 @@ class TestViews:
             v = ViewsPage(logged_in_page, base_url)
             v.goto()
             # 查找编辑入口
-            edit_btn = logged_in_page.locator("button").filter(has_text="编辑").or_(
-                logged_in_page.locator('[title="编辑"]')
-            )
+            edit_btn = loc.edit_button(logged_in_page)
             if edit_btn.count() == 0:
                 ellipsis = logged_in_page.locator("button").filter(
                     has=logged_in_page.locator("svg.lucide-ellipsis")
                 )
                 if ellipsis.count() > 0:
                     ellipsis.first.click()
-                    logged_in_page.wait_for_timeout(1000)
+                    logged_in_page.wait_for_timeout(800)
                     edit_btn = logged_in_page.locator('[role="menu"]').locator(
                         '[role="menuitem"]'
                     ).filter(has_text="编辑")
@@ -367,9 +374,7 @@ class TestViews:
             v = ViewsPage(logged_in_page, base_url)
             v.goto()
             # 查找复制按钮
-            copy_btn = logged_in_page.locator("button").filter(has_text="复制").or_(
-                logged_in_page.locator('[title*="复制"]')
-            )
+            copy_btn = loc.button_by_name_or_title(logged_in_page, "复制")
             # 尝试通过三点菜单
             if copy_btn.count() == 0:
                 ellipsis = logged_in_page.locator("button").filter(
@@ -377,7 +382,7 @@ class TestViews:
                 )
                 if ellipsis.count() > 0:
                     ellipsis.first.click()
-                    logged_in_page.wait_for_timeout(1000)
+                    logged_in_page.wait_for_timeout(800)
                     copy_btn = logged_in_page.locator('[role="menu"]').locator(
                         '[role="menuitem"]'
                     ).filter(has_text="复制")
@@ -419,7 +424,6 @@ class TestViews:
             for ext_url in external_urls:
                 logged_in_page.goto(ext_url)
                 logged_in_page.wait_for_load_state("networkidle")
-                logged_in_page.wait_for_timeout(2000)
                 # 检查页面是否加载（可能重定向到登录页）
                 body = logged_in_page.locator("body")
                 body_text = body.inner_text() if body.count() > 0 else ""

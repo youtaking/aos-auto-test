@@ -67,7 +67,7 @@ def test_auth_002_login_wrong_password(logged_in_page, base_url):
         auth.fill_email("xiaochun@agent.com")
         auth.fill_password("wrong_password_123")
         auth.click_login()
-        page.wait_for_timeout(3000)
+        page.wait_for_timeout(800)
 
         # 1. 登录失败，不跳转
         assert auth.is_on_login_page(), "错误凭证登录后不应跳转"
@@ -112,7 +112,7 @@ def test_auth_003_email_empty_validation(logged_in_page, base_url):
         # 只填密码不填邮箱
         auth.fill_password("12345678")
         auth.click_login()
-        page.wait_for_timeout(1000)
+        page.wait_for_timeout(800)
 
         # 1. 前端校验拦截（HTML5 required）
         validation = auth.get_email_validation()
@@ -146,7 +146,7 @@ def test_auth_004_password_empty_validation(logged_in_page, base_url):
 
         auth.fill_email("xiaochun@agent.com")
         auth.click_login()
-        page.wait_for_timeout(1000)
+        page.wait_for_timeout(800)
 
         # 1. 前端校验拦截
         validation = auth.get_password_validation()
@@ -183,7 +183,7 @@ def test_auth_005_email_format_validation(logged_in_page, base_url):
             auth.fill_email(bad_email)
             auth.fill_password("12345678")
             auth.click_login()
-            page.wait_for_timeout(1000)
+            page.wait_for_timeout(800)
 
             validation = auth.get_email_validation()
             assert len(validation) > 0, \
@@ -245,7 +245,7 @@ def test_auth_007_login_no_sensitive_info(logged_in_page, base_url):
         auth.goto()
 
         auth.login("xiaochun@agent.com", "12345678")
-        page.wait_for_timeout(3000)
+        page.wait_for_timeout(800)
 
         # 1. 登录 API 请求
         sign_in_calls = [r for r in api_resp if "sign-in" in r["url"]
@@ -305,14 +305,10 @@ def test_auth_008_token_expired_redirect(logged_in_page, base_url):
     page = ctx.new_page()
 
     try:
-        # 先登录
-        page.goto(f"{base_url}/ctrl/login")
-        page.wait_for_load_state("networkidle")
-        page.fill("#auth-email", "xiaochun@agent.com")
-        page.fill("#auth-password", "12345678")
-        page.click("button.auth-light-submit")
-        page.wait_for_load_state("networkidle")
-        page.wait_for_timeout(3000)
+        # 先登录（使用 AuthPage 封装方法，含 URL 等待）
+        auth = AuthPage(page, base_url)
+        auth.goto()
+        auth.login("xiaochun@agent.com", "12345678")
         assert "/ctrl/login" not in page.url, "应先成功登录"
 
         # 清除 cookie 模拟 token 过期
@@ -320,7 +316,7 @@ def test_auth_008_token_expired_redirect(logged_in_page, base_url):
 
         # 访问受保护页面
         page.goto(f"{base_url}/ctrl/agent/chat")
-        page.wait_for_timeout(3000)
+        page.wait_for_timeout(800)
 
         # 应自动跳转到登录页
         assert "/ctrl/login" in page.url, \
@@ -342,7 +338,7 @@ def test_auth_009_unauthenticated_redirect(logged_in_page, base_url):
     try:
         # 直接访问受保护页面
         page.goto(f"{base_url}/ctrl/agent/chat")
-        page.wait_for_timeout(3000)
+        page.wait_for_timeout(800)
 
         # 1. 自动重定向到登录页
         assert "/ctrl/login" in page.url, \
@@ -364,12 +360,12 @@ def test_auth_011_refresh_keeps_login(logged_in_page, base_url):
     """✅ 人工评审通过 | TC-AUTH-011: 登录后刷新页面保持登录状态"""
     # 确保已登录
     logged_in_page.goto(f"{base_url}/ctrl/agent/home")
-    logged_in_page.wait_for_timeout(2000)
+    logged_in_page.wait_for_timeout(800)
     assert "/ctrl/login" not in logged_in_page.url, "应先确保已登录"
 
     # 刷新页面
     logged_in_page.reload()
-    logged_in_page.wait_for_timeout(3000)
+    logged_in_page.wait_for_timeout(800)
 
     # 1. 刷新后仍保持登录
     assert "/ctrl/login" not in logged_in_page.url, \
@@ -390,16 +386,11 @@ def test_auth_012_logout_clears_auth(logged_in_page, base_url):
     page = ctx.new_page()
 
     try:
-        # 先登录
-        page.goto(f"{base_url}/ctrl/login")
-        page.wait_for_load_state("networkidle")
-        page.fill("#auth-email", "xiaochun@agent.com")
-        page.fill("#auth-password", "12345678")
-        page.click("button.auth-light-submit")
-        page.wait_for_load_state("networkidle")
-        page.wait_for_timeout(3000)
-
+        # 先登录（使用 AuthPage 封装方法，含 URL 等待）
         auth = AuthPage(page, base_url)
+        auth.goto()
+        auth.login("xiaochun@agent.com", "12345678")
+        page.wait_for_timeout(1000)
 
         # 记录当前 cookie
         assert auth.has_session_cookie(), "退出前应有 session cookie"
@@ -409,7 +400,7 @@ def test_auth_012_logout_clears_auth(logged_in_page, base_url):
 
         # 点击退出
         auth.click_logout()
-        page.wait_for_timeout(3000)
+        page.wait_for_timeout(800)
 
         # 1. 跳转到登录页
         assert "/ctrl/login" in page.url, \
@@ -436,7 +427,7 @@ def test_auth_014_change_password_ui(logged_in_page, base_url):
     """
     # 确保已登录
     logged_in_page.goto(f"{base_url}/ctrl/agent/home")
-    logged_in_page.wait_for_timeout(2000)
+    logged_in_page.wait_for_timeout(800)
 
     auth = AuthPage(logged_in_page, base_url)
 
@@ -466,7 +457,7 @@ def test_auth_014_change_password_ui(logged_in_page, base_url):
 def test_auth_015_change_password_validation(logged_in_page, base_url):
     """✅ 人工评审通过 | TC-AUTH-015: 密码修改校验 — 验证前端校验逻辑"""
     logged_in_page.goto(f"{base_url}/ctrl/agent/home")
-    logged_in_page.wait_for_timeout(2000)
+    logged_in_page.wait_for_timeout(800)
 
     auth = AuthPage(logged_in_page, base_url)
     auth.click_change_password()
@@ -495,7 +486,7 @@ def test_auth_015_change_password_validation(logged_in_page, base_url):
         else:
             # 尝试提交
             submit_btn.first.click(force=True)
-            logged_in_page.wait_for_timeout(1000)
+            logged_in_page.wait_for_timeout(800)
             error = auth.get_dialog_error()
             dialog_still_open = auth.is_dialog_open()
             assert error or dialog_still_open, \
@@ -510,7 +501,7 @@ def test_auth_015_change_password_validation(logged_in_page, base_url):
 def test_auth_015b_change_password_required_fields(logged_in_page, base_url):
     """✅ 人工评审通过 | TC-AUTH-015b: 修改密码弹窗三个输入框均为必填项（逐个留空验证）"""
     logged_in_page.goto(f"{base_url}/ctrl/agent/home")
-    logged_in_page.wait_for_timeout(2000)
+    logged_in_page.wait_for_timeout(800)
 
     auth = AuthPage(logged_in_page, base_url)
     field_names = ["当前密码", "新密码", "确认新密码"]
@@ -533,7 +524,7 @@ def test_auth_015b_change_password_required_fields(logged_in_page, base_url):
         submit_btn = dialog.get_by_role("button", name="修改密码")
         if submit_btn.count() > 0 and not submit_btn.first.is_disabled():
             submit_btn.first.click()
-            logged_in_page.wait_for_timeout(1000)
+            logged_in_page.wait_for_timeout(800)
 
         # 验证：弹窗仍打开（提交被拦截）或有校验提示
         still_open = auth.is_dialog_open()
@@ -557,7 +548,7 @@ def test_auth_016_default_account_resources(logged_in_page, base_url):
     """✅ 人工评审通过 | TC-AUTH-016: 默认系统账号和公开资源"""
     # 确保已登录
     logged_in_page.goto(f"{base_url}/ctrl/agent/home")
-    logged_in_page.wait_for_timeout(2000)
+    logged_in_page.wait_for_timeout(800)
 
     auth = AuthPage(logged_in_page, base_url)
 

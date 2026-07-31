@@ -14,7 +14,6 @@ class ViewsPage:
     def goto(self):
         self.page.goto(self.url)
         self.page.wait_for_load_state("networkidle")
-        self.page.wait_for_timeout(2000)
 
     def is_loaded(self) -> bool:
         return "/ctrl/agent/views" in self.page.url and \
@@ -42,11 +41,20 @@ class ViewsPage:
         return cards.count()
 
     def has_create_button(self) -> bool:
-        """是否有新建按钮"""
+        """是否有新建按钮（"创建 ProdView" 或 "新建"）"""
         btns = self.page.get_by_role("button", name="新建").or_(
-            self.page.get_by_role("button", name="创建")
+            self.page.locator("button").filter(has_text="创建")
         )
         return btns.count() > 0
+
+    def click_create_button(self):
+        """点击创建 ProdView 按钮"""
+        btn = self.page.locator("button").filter(has_text="创建 ProdView")
+        if btn.count() == 0:
+            btn = self.page.get_by_role("button", name="新建").or_(
+                self.page.locator("button").filter(has_text="创建")
+            )
+        btn.first.click()
 
     def get_page_text(self) -> str:
         """获取页面主内容文本"""

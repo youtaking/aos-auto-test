@@ -6,6 +6,8 @@ import time
 import uuid
 import pytest
 from tests.pages.tasks_page import TasksPage
+from tests.pages import locators as loc
+from tests.conftest import register_cleanup
 
 
 _PREFIX = f"e2e-{int(time.time())}"
@@ -29,13 +31,24 @@ def _list_tasks_api(page, base_url):
 
 def _create_task_api(page, base_url, name=None, cron="0 9 * * *",
                       task_type="http", url="https://httpbin.org/get"):
-    """POST /web/tasks/v2 → created task
+    """POST /web/tasks/v2 → created task（自动注册清理）
 
     源码 schema (CreateTaskV2RequestSchema):
       name, cron, type: "http"|"agent",
       definition: { url, method } | { prompt },
       timeoutSeconds?, agentId?
     """
+    import sys as _sys
+    _req = None
+    _frame = _sys._getframe(1)
+    for _i in range(5):
+        _req = _frame.f_locals.get('request')
+        if _req:
+            break
+        _frame = _frame.f_back
+        if _frame is None:
+            break
+
     name = name or f"e2e-task-{uuid.uuid4().hex[:6]}"
     # Build definition based on task type
     if task_type == "agent":
@@ -55,9 +68,15 @@ def _create_task_api(page, base_url, name=None, cron="0 9 * * *",
         data=json.dumps(payload),
         headers={"Content-Type": "application/json"},
     )
+    task_data = {}
     if r.status in (200, 201):
-        return r.json().get("data", {})
-    return {}
+        task_data = r.json().get("data", {})
+
+    if _req and task_data.get("id"):
+        _tid = task_data["id"]
+        register_cleanup(_req, lambda: _delete_task_api(page, base_url, _tid))
+
+    return task_data
 
 
 def _delete_task_api(page, base_url, task_id):
@@ -119,11 +138,10 @@ def test_create_http_task(logged_in_page, base_url):
     tasks.click_menu_item("删除")
     alert = logged_in_page.locator('[role="alertdialog"]')
     if alert.count() > 0:
-        confirm = alert.locator("button").filter(has_text="确认").or_(
-            alert.locator("button").filter(has_text="删除"))
+        confirm = loc.confirm_button(alert)
         if confirm.count() > 0:
             confirm.first.click()
-            logged_in_page.wait_for_timeout(2000)
+            logged_in_page.wait_for_timeout(800)
 
 
 # === TC-TASK-003: Cron 表达式配置 ===
@@ -224,11 +242,10 @@ def test_manual_execute_task(logged_in_page, base_url):
     tasks.click_menu_item("删除")
     alert = logged_in_page.locator('[role="alertdialog"]')
     if alert.count() > 0:
-        confirm = alert.locator("button").filter(has_text="确认").or_(
-            alert.locator("button").filter(has_text="删除"))
+        confirm = loc.confirm_button(alert)
         if confirm.count() > 0:
             confirm.first.click()
-            logged_in_page.wait_for_timeout(2000)
+            logged_in_page.wait_for_timeout(800)
 
     # 移除监听器
     try:
@@ -262,7 +279,7 @@ def test_view_task_log(logged_in_page, base_url):
     tasks.click_menu_item("日志")
 
     # 验证有日志相关内容
-    logged_in_page.wait_for_timeout(2000)
+    logged_in_page.wait_for_timeout(800)
     # 检查弹窗或面板
     dialog = logged_in_page.locator('[role="dialog"]')
     body = logged_in_page.locator("div.agent-panel-content")
@@ -358,7 +375,7 @@ def test_delete_task(logged_in_page, base_url):
     tasks.click_menu_item("删除")
 
     # 确认弹窗
-    logged_in_page.wait_for_timeout(1000)
+    logged_in_page.wait_for_timeout(800)
     alert = logged_in_page.locator('[role="alertdialog"]')
     if alert.count() > 0:
         confirm = alert.locator("button").filter(
@@ -366,7 +383,7 @@ def test_delete_task(logged_in_page, base_url):
         ).or_(alert.locator("button").filter(has_text="删除"))
         if confirm.count() > 0:
             confirm.first.click()
-            logged_in_page.wait_for_timeout(2000)
+            logged_in_page.wait_for_timeout(800)
 
     # 刷新验证
     tasks.goto()
@@ -397,7 +414,7 @@ def test_required_fields_validation(logged_in_page, base_url):
     if not is_disabled:
         # 尝试点击保存
         save_btn.first.click(force=True)
-        logged_in_page.wait_for_timeout(1000)
+        logged_in_page.wait_for_timeout(800)
         # 弹窗应该还在（未成功创建）
         still_open = tasks.is_dialog_open()
         assert still_open or is_disabled, f"名称为空时未拦截: still_open={still_open}, is_disabled={is_disabled}"
@@ -448,11 +465,10 @@ def test_create_http_task_v2(logged_in_page, base_url):
     tasks.click_menu_item("删除")
     alert = logged_in_page.locator('[role="alertdialog"]')
     if alert.count() > 0:
-        confirm = alert.locator("button").filter(has_text="确认").or_(
-            alert.locator("button").filter(has_text="删除"))
+        confirm = loc.confirm_button(alert)
         if confirm.count() > 0:
             confirm.first.click()
-            logged_in_page.wait_for_timeout(2000)
+            logged_in_page.wait_for_timeout(800)
 
 
 # === TC-TASK-015: 创建 Agent 类型任务 ===
@@ -504,11 +520,10 @@ def test_create_agent_task(logged_in_page, base_url):
     tasks.click_menu_item("删除")
     alert = logged_in_page.locator('[role="alertdialog"]')
     if alert.count() > 0:
-        confirm = alert.locator("button").filter(has_text="确认").or_(
-            alert.locator("button").filter(has_text="删除"))
+        confirm = loc.confirm_button(alert)
         if confirm.count() > 0:
             confirm.first.click()
-            logged_in_page.wait_for_timeout(2000)
+            logged_in_page.wait_for_timeout(800)
 
 
 # === TC-TASK-016: Chat 右侧 TasksPanel 面板展示 ===
@@ -520,14 +535,13 @@ def test_chat_tasks_panel(logged_in_page, base_url):
     # 进入对话页面
     logged_in_page.goto(f"{base_url}/ctrl/agent/home")
     logged_in_page.wait_for_load_state("networkidle")
-    logged_in_page.wait_for_timeout(1500)
 
     # 选择一个 Agent
     agent_card = logged_in_page.locator("button.agent-sidebar-agent-card")
     if agent_card.count() == 0:
         pytest.skip("侧边栏没有可用的 Agent")
     agent_card.first.click()
-    logged_in_page.wait_for_timeout(2000)
+    logged_in_page.wait_for_timeout(800)
 
     # 查找「定时任务」按钮
     tasks_btn = logged_in_page.locator("div.agent-panel-content button").filter(
@@ -694,7 +708,7 @@ def test_task_log_view(logged_in_page, base_url):
     assert log_item.count() > 0, "菜单中无'日志'选项"
 
     log_item.first.click()
-    logged_in_page.wait_for_timeout(2000)
+    logged_in_page.wait_for_timeout(800)
 
     # 验证日志对话框或面板打开
     dialog = logged_in_page.locator('[role="dialog"]')

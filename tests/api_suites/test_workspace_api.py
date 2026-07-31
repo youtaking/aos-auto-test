@@ -39,7 +39,7 @@ class TestWorkspaceOpenAPI:
 
         # 构造 multipart 请求
         files = {"files": ("test.txt", io.BytesIO(b"hello"), "text/plain")}
-        with pytest.raises(httpx.HTTPStatusError, match=r"(404|400)"):
+        with pytest.raises(httpx.HTTPStatusError, match=r"404"):
             api_client.client.post(
                 "/api/environments/nonexistent-env-id-99999/workspace/files",
                 files=files,
@@ -50,10 +50,7 @@ class TestWorkspaceOpenAPI:
         if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
             pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
 
-        env_id = self._get_first_environment_id(
-            pytest.importorskip("tests.api_clients.web_client", reason="需要 web_client")
-        )
-        # 使用一个假 env_id 验证空文件上传的处理
+        # 使用假 env_id 验证缺少 files 字段时的服务端处理
         with pytest.raises(httpx.HTTPStatusError, match=r"(400|404)"):
             api_client.client.post(
                 "/api/environments/fake-env-id/workspace/files",

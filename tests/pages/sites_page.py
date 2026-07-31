@@ -14,7 +14,6 @@ class SitesListPage:
     def goto(self):
         self.page.goto(self.url)
         self.page.wait_for_load_state("networkidle")
-        self.page.wait_for_timeout(1000)
 
     def is_loaded(self) -> bool:
         return "/ctrl/agent/sites" in self.page.url and self.page.locator("div.agent-panel-content").count() > 0
@@ -142,7 +141,7 @@ class SitesListPage:
         btn = d.locator("button").filter(has_text="保存")
         if btn.count() > 0:
             btn.first.click()
-            self.page.wait_for_timeout(2000)
+            self.page.wait_for_timeout(1000)
 
     # === 打开应用（独立 URL）===
 
@@ -234,7 +233,7 @@ class SitesListPage:
         renew_item = self.page.get_by_role("menuitem", name="重签 Token")
         if renew_item.count() > 0:
             renew_item.click()
-            self.page.wait_for_timeout(2000)
+            self.page.wait_for_timeout(1000)
 
     def delete_app(self, app_name: str):
         """通过三点菜单删除应用"""
@@ -259,7 +258,7 @@ class SitesListPage:
                 confirm_btn.first.click()
 
             # 等待删除完成：对话框关闭 + 列表更新
-            self.page.wait_for_timeout(3000)
+            self.page.wait_for_timeout(1000)
 
             # 等待对话框消失（确认删除成功）
             for _ in range(5):
@@ -289,7 +288,6 @@ class SiteBuilderChatPage:
         # 先到首页
         self.page.goto(f"{self.base_url}/ctrl/agent/home")
         self.page.wait_for_load_state("networkidle")
-        self.page.wait_for_timeout(2000)
 
         # 滚动侧边栏找到建站助手
         builder_card = self.page.locator("button.agent-sidebar-agent-card").filter(
@@ -299,7 +297,7 @@ class SiteBuilderChatPage:
             builder_card.first.scroll_into_view_if_needed()
             self.page.wait_for_timeout(300)
             builder_card.first.click()
-            self.page.wait_for_timeout(3000)
+            self.page.wait_for_timeout(1000)
 
     def is_chat_loaded(self) -> bool:
         """对话页是否加载"""

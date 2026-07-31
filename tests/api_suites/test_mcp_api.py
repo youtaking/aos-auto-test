@@ -13,6 +13,7 @@ from tests.api_contracts.mcp_schemas import (
     API_MCP_LIST_RESPONSE,
     API_MCP_DETAIL_RESPONSE,
     API_CREATE_MCP_RESPONSE,
+    API_DELETE_MCP_RESPONSE,
     WEB_MCP_ENABLE_DATA,
     WEB_MCP_DISABLE_DATA,
     WEB_MCP_TOOLS_DATA,
@@ -136,7 +137,7 @@ class TestMcpWebAPI:
 
     def test_get_nonexistent_mcp_server(self, web_client):
         """获取不存在的 MCP Server：应抛出 404 异常"""
-        with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(404|500)"):
+        with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"404"):
             web_client.get_mcp_server("nonexistent-mcp-name-99999")
 
     def test_enable_disable_mcp_server(self, web_client):
@@ -242,8 +243,9 @@ class TestMcpOpenAPI:
             get_resp = api_client.get_mcp_server(server_id)
             assert get_resp["name"] == test_name
             # 删除并验证资源已消失
-            api_client.delete_mcp_server(server_id)
-            with pytest.raises(httpx.HTTPStatusError, match=r"(404|500)"):
+            del_resp = api_client.delete_mcp_server(server_id)
+            api_client.validate_schema(del_resp, API_DELETE_MCP_RESPONSE)
+            with pytest.raises(httpx.HTTPStatusError, match=r"404"):
                 api_client.get_mcp_server(server_id)
         finally:
             _cleanup_api_mcp(api_client, test_name)
@@ -292,6 +294,25 @@ class TestMcpOpenAPI:
         with pytest.raises(httpx.HTTPStatusError, match=r"(404|500)"):
             api_client.get_mcp_server("nonexistent-mcp-id-99999")
 
+    def test_delete_mcp_idempotent(self, api_client, api_test_config):
+        """MCP DELETE 幂等性：第二次删除返回 404"""
+        if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
+            pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
+        test_name = "test-idempotent-delete-mcp"
+        _cleanup_api_mcp(api_client, test_name)
+        try:
+            create_resp = api_client.create_mcp_server({
+                "name": test_name,
+                "type": "remote",
+                "url": "https://example.com/mcp",
+            })
+            server_id = create_resp["id"]
+            api_client.delete_mcp_server(server_id)
+            with pytest.raises(httpx.HTTPStatusError, match=r"404"):
+                api_client.delete_mcp_server(server_id)
+        finally:
+            _cleanup_api_mcp(api_client, test_name)
+
     def test_create_mcp_server_duplicate_name(self, api_client, api_test_config):
         """创建同名 MCP Server：应返回 409 或抛出冲突异常"""
         if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
@@ -306,7 +327,7 @@ class TestMcpOpenAPI:
             "url": "https://example.com/mcp",
         })
         try:
-            with pytest.raises(httpx.HTTPStatusError, match=r"(409|400|500)"):
+            with pytest.raises(httpx.HTTPStatusError, match=r"(409|400)"):
                 api_client.create_mcp_server({
                     "name": test_name,
                     "type": "remote",

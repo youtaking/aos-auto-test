@@ -2,15 +2,97 @@
 """AI 分析 API：LLM 分析报告 → 生成 Bug → 推送禅道"""
 import json
 import httpx
+from pathlib import Path
+from datetime import datetime
 from fastapi import APIRouter, Depends, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from backend.db.config import get_async_session
-from backend.db.models import TestRun, TestResult, Project, LLMConfig, ZentaoConfig, AIAnalysisReport
+from backend.db.models import TestRun, TestResult, LLMConfig, ZentaoConfig
 from backend.schemas.common import ApiResponse
 from pydantic import BaseModel
 
 router = APIRouter()
+
+# ── 报告文件存储目录 ───────────────────────────────────────────────
+REPORTS_DIR = Path(__file__).resolve().parent.parent.parent / "ai_reports"
+
+
+def _ensure_reports_dir():
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _write_report_files(run_id: int, report_md: str, bugs: list[dict], model: str) -> str:
+    """将报告写入文件，返回报告 ID（时间戳目录名）"""
+    _ensure_reports_dir()
+    report_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    # 处理同一秒内的并发：加后缀避免覆盖
+    report_dir = REPORTS_DIR / report_id
+    suffix = 1
+    while report_dir.exists():
+        report_id = datetime.now().strftime("%Y%m%d_%H%M%S") + f"_{suffix}"
+        report_dir = REPORTS_DIR / report_id
+        suffix += 1
+    report_dir.mkdir(parents=True)
+
+    (report_dir / "report.md").write_text(report_md, encoding="utf-8")
+    (report_dir / "bugs.json").write_text(
+        json.dumps(bugs, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    meta = {
+        "run_id": run_id,
+        "llm_model": model,
+        "created_at": datetime.now().isoformat(),
+    }
+    (report_dir / "meta.json").write_text(
+        json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return report_id
+
+
+def _read_report_files(report_id: str) -> dict | None:
+    """读取单份报告，不存在则返回 None"""
+    report_dir = REPORTS_DIR / report_id
+    if not report_dir.exists():
+        return None
+    try:
+        meta = json.loads((report_dir / "meta.json").read_text(encoding="utf-8"))
+        report_md = (report_dir / "report.md").read_text(encoding="utf-8")
+        bugs = json.loads((report_dir / "bugs.json").read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+    return {
+        "id": report_id,
+        "run_id": meta.get("run_id", 0),
+        "report_md": report_md,
+        "bugs": bugs,
+        "llm_model": meta.get("llm_model", ""),
+        "created_at": meta.get("created_at", ""),
+    }
+
+
+def _list_all_reports() -> list[dict]:
+    """列出所有已保存的报告（按时间倒序）"""
+    _ensure_reports_dir()
+    items = []
+    for d in REPORTS_DIR.iterdir():
+        if not d.is_dir():
+            continue
+        data = _read_report_files(d.name)
+        if data:
+            items.append(data)
+    items.sort(key=lambda x: x["created_at"], reverse=True)
+    return items
+
+
+def _delete_report_dir(report_id: str) -> bool:
+    """删除报告目录，成功返回 True"""
+    import shutil
+    report_dir = REPORTS_DIR / report_id
+    if not report_dir.exists():
+        return False
+    shutil.rmtree(report_dir)
+    return True
 
 # ── 第一步：分析报告 ──────────────────────────────────────────────
 
@@ -235,7 +317,7 @@ async def upload_report(file: UploadFile = File(...)):
         return ApiResponse(success=False, error=f"上传失败: {str(e)}")
 
 
-# ── 端点：保存到数据库 ────────────────────────────────────────────
+# ── 端点：保存到文件 ──────────────────────────────────────────────
 
 class SaveReportRequest(BaseModel):
     run_id: int
@@ -244,95 +326,71 @@ class SaveReportRequest(BaseModel):
 
 
 @router.post("/ai/save-report", response_model=ApiResponse)
-async def save_report(body: SaveReportRequest, db: AsyncSession = Depends(get_async_session)):
-    """保存 AI 分析报告到数据库"""
-    from datetime import datetime as dt
-    llm_result = await db.execute(select(LLMConfig).where(LLMConfig.is_active == 1))
-    llm = llm_result.scalar_one_or_none()
-    model_name = llm.model if llm else ""
+async def save_report(body: SaveReportRequest):
+    """保存 AI 分析报告到文件"""
+    # 获取当前激活的 LLM 模型名称（可选，失败不影响保存）
+    model_name = ""
+    try:
+        from backend.db.config import async_session
+        async with async_session() as db:
+            llm_result = await db.execute(select(LLMConfig).where(LLMConfig.is_active == 1))
+            llm = llm_result.scalar_one_or_none()
+            model_name = llm.model if llm else ""
+    except Exception:
+        pass
 
-    # 同一 run_id 只保留最新一份
-    existing = await db.execute(
-        select(AIAnalysisReport).where(AIAnalysisReport.run_id == body.run_id)
-    )
-    old = existing.scalar_one_or_none()
-    if old:
-        old.report_md = body.report_md
-        old.bugs_json = json.dumps([b.model_dump() for b in body.bugs], ensure_ascii=False)
-        old.llm_model = model_name
-        old.created_at = dt.now()
-        await db.commit()
-        await db.refresh(old)
-        return ApiResponse(data={"id": old.id, "message": "报告已更新"})
-
-    report = AIAnalysisReport(
-        run_id=body.run_id,
-        report_md=body.report_md,
-        bugs_json=json.dumps([b.model_dump() for b in body.bugs], ensure_ascii=False),
-        llm_model=model_name,
-    )
-    db.add(report)
-    await db.commit()
-    await db.refresh(report)
-    return ApiResponse(data={"id": report.id, "message": "报告已保存"})
+    bugs_data = [b.model_dump() for b in body.bugs]
+    report_id = _write_report_files(body.run_id, body.report_md, bugs_data, model_name)
+    return ApiResponse(data={"id": report_id, "message": "报告已保存"})
 
 
 # ── 端点：历史报告 CRUD ──────────────────────────────────────────
 
 @router.get("/ai/reports", response_model=ApiResponse)
-async def list_reports(db: AsyncSession = Depends(get_async_session)):
+async def list_reports():
     """获取所有已保存的 AI 分析报告"""
-    result = await db.execute(
-        select(AIAnalysisReport).order_by(AIAnalysisReport.created_at.desc())
-    )
-    reports = result.scalars().all()
     items = []
-    for r in reports:
-        run = await db.get(TestRun, r.run_id)
+    for data in _list_all_reports():
         items.append({
-            "id": r.id,
-            "run_id": r.run_id,
-            "run_status": run.status if run else "",
-            "run_total": run.total if run else 0,
-            "run_passed": run.passed if run else 0,
-            "run_failed": run.failed if run else 0,
-            "report_md": r.report_md,
-            "bugs": json.loads(r.bugs_json) if r.bugs_json else [],
-            "llm_model": r.llm_model,
-            "created_at": r.created_at.isoformat() if r.created_at else "",
+            "id": data["id"],
+            "run_id": data["run_id"],
+            "run_status": "",
+            "run_total": 0,
+            "run_passed": 0,
+            "run_failed": 0,
+            "report_md": data["report_md"],
+            "bugs": data["bugs"],
+            "llm_model": data["llm_model"],
+            "created_at": data["created_at"],
         })
     return ApiResponse(data=items)
 
 
 @router.get("/ai/reports/{report_id}", response_model=ApiResponse)
-async def get_report(report_id: int, db: AsyncSession = Depends(get_async_session)):
+async def get_report(report_id: str):
     """获取单份 AI 分析报告"""
-    r = await db.get(AIAnalysisReport, report_id)
-    if not r:
+    data = _read_report_files(report_id)
+    if not data:
         return ApiResponse(success=False, error="报告不存在")
-    run = await db.get(TestRun, r.run_id)
     return ApiResponse(data={
-        "id": r.id,
-        "run_id": r.run_id,
-        "run_status": run.status if run else "",
-        "run_total": run.total if run else 0,
-        "run_passed": run.passed if run else 0,
-        "run_failed": run.failed if run else 0,
-        "report_md": r.report_md,
-        "bugs": json.loads(r.bugs_json) if r.bugs_json else [],
-        "llm_model": r.llm_model,
-        "created_at": r.created_at.isoformat() if r.created_at else "",
+        "id": data["id"],
+        "run_id": data["run_id"],
+        "run_status": "",
+        "run_total": 0,
+        "run_passed": 0,
+        "run_failed": 0,
+        "report_md": data["report_md"],
+        "bugs": data["bugs"],
+        "llm_model": data["llm_model"],
+        "created_at": data["created_at"],
     })
 
 
 @router.delete("/ai/reports/{report_id}", response_model=ApiResponse)
-async def delete_report(report_id: int, db: AsyncSession = Depends(get_async_session)):
+async def delete_report(report_id: str):
     """删除已保存的 AI 分析报告"""
-    r = await db.get(AIAnalysisReport, report_id)
-    if not r:
+    if not _delete_report_dir(report_id):
         return ApiResponse(success=False, error="报告不存在")
-    await db.delete(r)
-    await db.commit()
     return ApiResponse(data={"message": "已删除"})
 
 

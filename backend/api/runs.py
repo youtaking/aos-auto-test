@@ -2,8 +2,10 @@
 """测试运行 API"""
 import asyncio
 import json
+import os
 import re
 import sys
+import traceback
 from datetime import datetime
 from pathlib import Path
 from fastapi import APIRouter, Depends, BackgroundTasks
@@ -20,12 +22,11 @@ router = APIRouter()
 
 ALLURE_RESULTS_DIR = "allure-results"
 ALLURE_REPORT_DIR = "allure-report"
+LOG_DIR = Path("run_logs")
 
 
 def _parse_pytest_line(line: str) -> dict | None:
     """解析 pytest -v 输出的单行结果"""
-    # 格式：tests/suites/test_login.py::test_login_page_loads PASSED
-    # 或：tests/api_suites/test_agent_api.py::TestAgentWebAPI::test_list_agents PASSED
     m = re.match(r"^(tests/\S+::\w+)\s+(PASSED|FAILED|SKIPPED|ERROR)", line.strip())
     if not m:
         return None
@@ -44,7 +45,14 @@ def _parse_pytest_line(line: str) -> dict | None:
     }
 
 
-async def _execute_tests(run_id: int, project_url: str, headed: bool = False, step_delay: float = 0, case_ids: list[int] | None = None, auth_env: dict | None = None):
+async def _execute_tests(
+    run_id: int,
+    project_url: str,
+    headed: bool = False,
+    step_delay: float = 0,
+    case_ids: list[int] | None = None,
+    auth_env: dict | None = None,
+):
     """后台任务：执行 pytest，逐条实时更新结果 + WebSocket 广播日志 + 生成 Allure 报告"""
     async with async_session() as db:
         run = await db.get(TestRun, run_id)
@@ -55,180 +63,192 @@ async def _execute_tests(run_id: int, project_url: str, headed: bool = False, st
         run.started_at = datetime.utcnow()
         await db.commit()
 
-        # 广播运行开始
         await ws_module.broadcast(run_id, "run_start", {"run_id": run_id, "status": "running"})
 
-        # 清理旧的 allure 结果
-        allure_dir = Path(ALLURE_RESULTS_DIR)
-        if allure_dir.exists():
-            for f in allure_dir.iterdir():
-                f.unlink()
-        else:
-            allure_dir.mkdir(parents=True, exist_ok=True)
-
-        report_path = f"report_{run_id}.json"
-        cmd = [
-            sys.executable, "-m", "pytest",
-            "tests/suites/", "tests/api_suites/",
-            "-v", "--tb=short",
-            f"--base-url={project_url}",
-            f"--step-delay={step_delay}",
-            "--json-report", f"--json-report-file={report_path}",
-            f"--alluredir={ALLURE_RESULTS_DIR}",
-        ]
-
-        # 如果指定了 case_ids，直接传完整 nodeid 给 pytest
-        if case_ids:
-            cases_query = await db.execute(
-                select(TestCase).where(TestCase.id.in_(case_ids))
-            )
-            selected_cases = cases_query.scalars().all()
-            if selected_cases:
-                # 构建完整 nodeid: file_path::function_name
-                # UI: tests/suites/test_xxx.py::test_func
-                # API: tests/api_suites/test_xxx.py::TestClass::test_func
-                nodeids = [f"{c.file_path}::{c.function_name}" for c in selected_cases]
-                cmd.extend(nodeids)
-                # 不再需要扫描整个目录，去掉目录参数
-                cmd = [c for c in cmd if c not in ("tests/suites/", "tests/api_suites/")]
-
-        env = {
-            **__import__("os").environ,
-            "HEADLESS": "false" if headed else "true",
-            "STEP_DELAY": str(step_delay),
-            "FENIX_URL": project_url,
-        }
-        if auth_env:
-            env.update(auth_env)
-
-        # 用 asyncio 子进程，非阻塞读取输出
-        import os as _os
-        proc = await asyncio.create_subprocess_exec(
-            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
-            env=env, cwd=_os.getcwd(),
-        )
-
-        passed = 0
-        failed = 0
-        skipped = 0
-
-        # 非阻塞逐行读取 pytest 输出 + WebSocket 广播日志
-        while True:
-            raw = await proc.stdout.readline()
-            if not raw:
-                break
-            line = raw.decode("utf-8", errors="replace")
-            # 广播每一行日志
-            stripped = line.rstrip()
-            if stripped:
-                await ws_module.broadcast(run_id, "log", {"line": stripped})
-
-            parsed = _parse_pytest_line(line)
-            if not parsed:
-                continue
-
-            func_name = parsed["func_name"]
-            outcome = parsed["outcome"]
-
-            # 查找匹配的 TestCase
-            case_query = await db.execute(
-                select(TestCase).where(TestCase.function_name == func_name)
-            )
-            case = case_query.scalar_one_or_none()
-
-            result = TestResult(
-                run_id=run_id,
-                case_id=case.id if case else None,
-                case_name=func_name,
-                suite_name=parsed["suite_name"],
-                status=outcome if outcome in ("passed", "failed", "skipped") else "error",
-                duration_ms=0,
-            )
-            db.add(result)
-
-            if outcome == "passed":
-                passed += 1
-            elif outcome in ("failed", "error"):
-                failed += 1
+        try:
+            # 清理旧的 allure 结果
+            allure_dir = Path(ALLURE_RESULTS_DIR)
+            if allure_dir.exists():
+                for f in allure_dir.iterdir():
+                    f.unlink()
             else:
-                skipped += 1
+                allure_dir.mkdir(parents=True, exist_ok=True)
 
-            run.total = passed + failed + skipped
-            run.passed = passed
-            run.failed = failed
-            run.skipped = skipped
+            report_path = f"report_{run_id}.json"
+            cmd = [
+                sys.executable, "-m", "pytest",
+                "tests/suites/", "tests/api_suites/",
+                "-v", "--tb=short",
+                f"--base-url={project_url}",
+                f"--step-delay={step_delay}",
+                "--json-report", f"--json-report-file={report_path}",
+                f"--alluredir={ALLURE_RESULTS_DIR}",
+            ]
+
+            if case_ids:
+                cases_query = await db.execute(
+                    select(TestCase).where(TestCase.id.in_(case_ids))
+                )
+                selected_cases = cases_query.scalars().all()
+                if selected_cases:
+                    nodeids = [f"{c.file_path}::{c.function_name}" for c in selected_cases]
+                    cmd.extend(nodeids)
+                    cmd = [c for c in cmd if c not in ("tests/suites/", "tests/api_suites/")]
+
+            env = {
+                **os.environ,
+                "HEADLESS": "false" if headed else "true",
+                "STEP_DELAY": str(step_delay),
+                "FENIX_URL": project_url,
+                "PYTHONUNBUFFERED": "1",
+            }
+            if auth_env:
+                env.update(auth_env)
+
+            print(f"[Run #{run_id}] 执行命令: {' '.join(cmd)}", flush=True)
+
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                env=env,
+                cwd=os.getcwd(),
+            )
+
+            passed = 0
+            failed = 0
+            skipped = 0
+
+            LOG_DIR.mkdir(parents=True, exist_ok=True)
+            log_path = LOG_DIR / f"{run_id}.log"
+            with open(log_path, "w", encoding="utf-8") as log_file:
+                while True:
+                    raw = await proc.stdout.readline()
+                    if not raw:
+                        break
+                    line = raw.decode("utf-8", errors="replace")
+                    stripped = line.rstrip()
+                    if stripped:
+                        log_file.write(stripped + "\n")
+                        print(f"[Run #{run_id}] {stripped}", flush=True)
+                        await ws_module.broadcast(run_id, "log", {"line": stripped})
+
+                    parsed = _parse_pytest_line(line)
+                    if not parsed:
+                        continue
+
+                    func_name = parsed["func_name"]
+                    outcome = parsed["outcome"]
+
+                    case_query = await db.execute(
+                        select(TestCase).where(TestCase.function_name == func_name)
+                    )
+                    case = case_query.scalars().first()
+
+                    result = TestResult(
+                        run_id=run_id,
+                        case_id=case.id if case else None,
+                        case_name=func_name,
+                        suite_name=parsed["suite_name"],
+                        status=outcome if outcome in ("passed", "failed", "skipped") else "error",
+                        duration_ms=0,
+                    )
+                    db.add(result)
+
+                    if outcome == "passed":
+                        passed += 1
+                    elif outcome in ("failed", "error"):
+                        failed += 1
+                    else:
+                        skipped += 1
+
+                    run.total = passed + failed + skipped
+                    run.passed = passed
+                    run.failed = failed
+                    run.skipped = skipped
+                    await db.commit()
+
+                    await ws_module.broadcast(run_id, "result_update", {
+                        "case_name": func_name,
+                        "suite_name": parsed["suite_name"],
+                        "status": outcome,
+                        "passed": passed, "failed": failed, "skipped": skipped,
+                    })
+
+            await proc.wait()
+            finished = datetime.utcnow()
+
+            # 用 JSON 报告补充 duration 和 error 信息
+            try:
+                rf = Path(report_path)
+                if rf.exists():
+                    with open(rf, "r", encoding="utf-8") as f:
+                        report = json.load(f)
+                    for test in report.get("tests", []):
+                        nodeid = test.get("nodeid", "")
+                        func_name = nodeid.split("::")[-1] if "::" in nodeid else ""
+                        call_info = test.get("call", {})
+                        duration_ms = int(call_info.get("duration", 0) * 1000)
+                        longrepr = str(call_info.get("longrepr", "")) if call_info.get("longrepr") else None
+                        existing = await db.execute(
+                            select(TestResult).where(
+                                TestResult.run_id == run_id,
+                                TestResult.case_name == func_name,
+                            )
+                        )
+                        r = existing.scalars().first()
+                        if r:
+                            r.duration_ms = duration_ms
+                            r.error_message = longrepr[:500] if longrepr else None
+                            r.stack_trace = longrepr
+                    rf.unlink(missing_ok=True)
+            except Exception as e:
+                print(f"[Run #{run_id}] JSON 报告处理失败: {e}", flush=True)
+
+            run.status = "passed" if failed == 0 else "failed"
+            run.finished_at = finished
+            run.duration_ms = int((finished - run.started_at).total_seconds() * 1000)
             await db.commit()
 
-            # 广播单条结果更新
-            await ws_module.broadcast(run_id, "result_update", {
-                "case_name": func_name,
-                "suite_name": parsed["suite_name"],
-                "status": outcome,
-                "passed": passed, "failed": failed, "skipped": skipped,
+            # 生成 Allure 报告
+            try:
+                import shutil
+                allure_bin = shutil.which("allure") or r"C:\Users\52686\AppData\Roaming\npm\allure.cmd"
+                report_dir = Path(ALLURE_REPORT_DIR) / str(run_id)
+                cmd_str = f'"{allure_bin}" generate "{allure_dir}" -o "{report_dir}" --clean'
+                allure_proc = await asyncio.create_subprocess_shell(
+                    cmd_str,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                stdout, stderr = await asyncio.wait_for(allure_proc.communicate(), timeout=60)
+                if allure_proc.returncode != 0:
+                    print(f"[Allure] stderr: {stderr.decode(errors='replace')}")
+                else:
+                    print(f"[Allure] 报告生成成功: {report_dir}")
+            except Exception as e:
+                print(f"[Allure] 报告生成失败: {e}")
+
+            # 广播运行完成
+            await ws_module.broadcast(run_id, "run_complete", {
+                "run_id": run_id,
+                "status": run.status,
+                "total": run.total,
+                "passed": run.passed,
+                "failed": run.failed,
+                "skipped": run.skipped,
+                "duration_ms": run.duration_ms,
             })
 
-        await proc.wait()
-        finished = datetime.utcnow()
-
-        # 用 JSON 报告补充 duration 和 error 信息
-        rf = Path(report_path)
-        if rf.exists():
-            with open(rf, "r", encoding="utf-8") as f:
-                report = json.load(f)
-            for test in report.get("tests", []):
-                nodeid = test.get("nodeid", "")
-                func_name = nodeid.split("::")[-1] if "::" in nodeid else ""
-                call_info = test.get("call", {})
-                duration_ms = int(call_info.get("duration", 0) * 1000)
-                longrepr = str(call_info.get("longrepr", "")) if call_info.get("longrepr") else None
-                # 更新已有结果
-                existing = await db.execute(
-                    select(TestResult).where(
-                        TestResult.run_id == run_id,
-                        TestResult.case_name == func_name,
-                    )
-                )
-                r = existing.scalar_one_or_none()
-                if r:
-                    r.duration_ms = duration_ms
-                    r.error_message = longrepr[:500] if longrepr else None
-                    r.stack_trace = longrepr
-            rf.unlink(missing_ok=True)
-
-        run.status = "passed" if failed == 0 else "failed"
-        run.finished_at = finished
-        run.duration_ms = int((finished - run.started_at).total_seconds() * 1000)
-        await db.commit()
-
-        # 生成 Allure 报告
-        try:
-            import shutil
-            allure_bin = shutil.which("allure") or r"C:\Users\52686\AppData\Roaming\npm\allure.cmd"
-            report_dir = Path(ALLURE_REPORT_DIR) / str(run_id)
-            cmd_str = f'"{allure_bin}" generate "{allure_dir}" -o "{report_dir}" --clean'
-            allure_proc = await asyncio.create_subprocess_shell(
-                cmd_str,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, stderr = await asyncio.wait_for(allure_proc.communicate(), timeout=60)
-            if allure_proc.returncode != 0:
-                print(f"[Allure] stderr: {stderr.decode(errors='replace')}")
-            else:
-                print(f"[Allure] 报告生成成功: {report_dir}")
         except Exception as e:
-            print(f"[Allure] 报告生成失败: {e}")
-
-        # 广播运行完成
-        await ws_module.broadcast(run_id, "run_complete", {
-            "run_id": run_id,
-            "status": run.status,
-            "total": run.total,
-            "passed": run.passed,
-            "failed": run.failed,
-            "skipped": run.skipped,
-            "duration_ms": run.duration_ms,
-        })
+            print(f"[Run #{run_id}] 执行异常: {type(e).__name__}: {e}", flush=True)
+            traceback.print_exc()
+            run.status = "error"
+            run.finished_at = datetime.utcnow()
+            await db.commit()
+            await ws_module.broadcast(run_id, "run_complete", {
+                "run_id": run_id, "status": "error", "error": str(e),
+            })
 
 
 @router.get("/runs", response_model=ApiResponse)
@@ -322,7 +342,22 @@ async def delete_run(run_id: int, db: AsyncSession = Depends(get_async_session))
         await db.delete(r)
     await db.delete(run)
     await db.commit()
+    # 删除日志文件
+    log_file = LOG_DIR / f"{run_id}.log"
+    log_file.unlink(missing_ok=True)
+
     return ApiResponse(data={"deleted": True})
+
+
+@router.get("/runs/{run_id}/logs", response_model=ApiResponse)
+async def get_run_logs(run_id: int):
+    """获取运行日志（从文件读取）"""
+    log_file = LOG_DIR / f"{run_id}.log"
+    if not log_file.exists():
+        return ApiResponse(data=[])
+    with open(log_file, "r", encoding="utf-8") as f:
+        lines = [line.rstrip() for line in f]
+    return ApiResponse(data=lines)
 
 
 @router.get("/runs/{run_id}/results", response_model=ApiResponse)
@@ -486,7 +521,6 @@ async def generate_md_report(run_id: int, db: AsyncSession = Depends(get_async_s
         error_groups: dict[str, list] = {}
         for r in failed_results:
             msg = r.error_message or "未知错误"
-            # 提取错误类型（第一行中的 XxxError 或前缀）
             first_line = msg.strip().split("\n")[0][:120]
             err_type = "其他"
             for keyword in ["AssertionError", "AssertError", "assert ", "TimeoutError", "timeout",
@@ -541,9 +575,7 @@ async def generate_md_report(run_id: int, db: AsyncSession = Depends(get_async_s
     lines.append("### 建议")
     lines.append("")
     if failed_results:
-        # 统计连续失败（如果有历史数据可进一步分析，这里简单建议）
         lines.append(f"- 优先修复 {len(failed_results)} 条失败用例，按错误类型集中处理可提高效率")
-        # 检查是否有超时
         timeout_cases = [r for r in failed_results if r.error_message and "timeout" in r.error_message.lower()]
         if timeout_cases:
             lines.append(f"- {len(timeout_cases)} 条用例疑似超时问题，建议检查网络或被测服务性能")

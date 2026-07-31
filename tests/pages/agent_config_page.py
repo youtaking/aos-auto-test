@@ -15,16 +15,15 @@ class AgentConfigPage:
     # ==================== 导航 ====================
 
     def goto_agents(self):
-        self.page.goto(self.agents_url)
+        # 使用 /ctrl/agent/home（与 chat 测试一致），侧边栏更可靠
+        self.page.goto(self.create_url)
         self.page.wait_for_load_state("networkidle")
-        self.page.wait_for_timeout(2000)
 
     def goto_create(self):
         # 如果已在创建页面，先导航离开再回来，确保页面重置
         if "/ctrl/agent/home" in self.page.url:
             self.page.goto(self.agents_url)
             self.page.wait_for_load_state("networkidle")
-            self.page.wait_for_timeout(1000)
 
         nav = self.page.locator("button.agent-sidebar-nav-item").filter(
             has_text="新建智能体"
@@ -32,7 +31,6 @@ class AgentConfigPage:
         if nav.count() > 0:
             nav.first.click()
             self.page.wait_for_load_state("networkidle")
-            self.page.wait_for_timeout(2000)
         # 等待 textarea 和模版卡片出现（SPA 动态渲染）
         try:
             self.page.locator("textarea").first.wait_for(
@@ -78,13 +76,38 @@ class AgentConfigPage:
         names = self.get_agent_names()
         return any(name in n for n in names)
 
-    def click_agent(self, name: str):
-        cards = self.page.locator("button.agent-sidebar-agent-card")
-        for i in range(cards.count()):
-            if name in cards.nth(i).text_content():
-                cards.nth(i).click()
+    def wait_for_agent_card(self, name: str, retries: int = 2):
+        """等待 agent 卡片出现在侧边栏，找不到时自动刷新重试。
+        返回 card locator（count > 0 表示找到），供后续操作使用。
+        """
+        card = self.page.locator("button.agent-sidebar-agent-card").filter(has_text=name)
+        for attempt in range(retries + 1):
+            if card.count() > 0:
+                card.first.scroll_into_view_if_needed()
+                self.page.wait_for_timeout(300)
+                return card
+            if attempt < retries:
                 self.page.wait_for_timeout(2000)
-                return True
+                self.page.reload(wait_until="networkidle")
+                self.page.wait_for_timeout(1000)
+                card = self.page.locator("button.agent-sidebar-agent-card").filter(has_text=name)
+        return card
+
+    def click_agent(self, name: str, retries: int = 2):
+        """在侧边栏查找并点击 agent，找不到时自动刷新重试（参考 chat 测试实现）"""
+        card = self.wait_for_agent_card(name, retries)
+        if card.count() > 0:
+            # force=True 避免被 hover 操作按钮遮挡
+            card.first.click(force=True)
+            # 等待 SPA 路由跳转完成
+            try:
+                self.page.wait_for_url(
+                    lambda url: "/ctrl/agent/chat/" in url, timeout=10000
+                )
+            except Exception:
+                pass
+            self.page.wait_for_timeout(1000)
+            return True
         return False
 
     def click_agent_in_main(self, name: str):
@@ -92,7 +115,7 @@ class AgentConfigPage:
         badge = self.page.locator(f"div.agent-badge[data-badge-name='{name}']")
         if badge.count() > 0:
             badge.first.click()
-            self.page.wait_for_timeout(2000)
+            self.page.wait_for_timeout(1000)
             return True
         return False
 
@@ -145,7 +168,7 @@ class AgentConfigPage:
         for i in range(pills.count()):
             if pills.nth(i).inner_text().startswith(name):
                 pills.nth(i).click()
-                self.page.wait_for_timeout(2000)
+                self.page.wait_for_timeout(1000)
                 return True
         return False
 
@@ -174,7 +197,6 @@ class AgentConfigPage:
             ta.first.fill(text)
             ta.first.press("Enter")
             self.page.wait_for_load_state("networkidle")
-            self.page.wait_for_timeout(3000)
 
     def get_last_message(self) -> str:
         """获取最后一条 AI 回复"""
@@ -186,6 +208,58 @@ class AgentConfigPage:
         return ""
 
     # ==================== 右侧面板（技能/文件/配置） ====================
+
+    def open_agent_config_modal(self, agent_name: str):
+        """打开 Agent 配置 modal 并等待内容加载完成。
+        返回 (modal, agent_wrapper) 元组。"""
+        card = self.wait_for_agent_card(agent_name)
+        if card.count() == 0:
+            return None, None
+        agent_wrapper = card.first.locator(
+            "xpath=ancestor::div[contains(@class,'agent-sidebar-agent')]"
+        )
+        agent_wrapper.hover()
+        config_btn = agent_wrapper.locator('button[title="智能体配置"]')
+        config_btn.click()
+        modal = self.page.locator("div.absolute.inset-0.z-50")
+        modal.wait_for(state="visible", timeout=10000)
+        # 等待 modal 内容加载（API 请求完成）
+        try:
+            self.page.wait_for_load_state("networkidle", timeout=5000)
+        except Exception:
+            pass
+        self.page.wait_for_timeout(1000)
+        return modal, agent_wrapper
+
+    def wait_for_ai_reply(self, timeout_ms: int = 30000) -> str:
+        """轮询等待 AI 回复完成（不再显示"思考中"），返回最终回复文本。"""
+        import time
+        start = time.time()
+        last_reply = ""
+        stable_count = 0
+        while (time.time() - start) * 1000 < timeout_ms:
+            reply = self.get_last_message()
+            if reply and "思考中" not in reply and len(reply) > 5:
+                if reply == last_reply:
+                    stable_count += 1
+                    if stable_count >= 2:
+                        return reply
+                else:
+                    stable_count = 0
+                last_reply = reply
+            self.page.wait_for_timeout(1000)
+        return last_reply or self.get_last_message()
+
+    def wait_for_env_ready(self, env_id: str, timeout_ms: int = 15000) -> bool:
+        """轮询等待 environment 就绪（GET 返回 200）。"""
+        import time
+        start = time.time()
+        while (time.time() - start) * 1000 < timeout_ms:
+            resp = self.page.request.get(f"{self.base_url}/web/environments/{env_id}")
+            if resp.status == 200:
+                return True
+            self.page.wait_for_timeout(1000)
+        return False
 
     def has_skill_section(self) -> bool:
         body = self.get_chat_page_text()
@@ -249,6 +323,12 @@ class AgentConfigPage:
                     headers={"Content-Type": "application/json"},
                 )
                 result["env_status"] = env_resp.status
+                try:
+                    env_data = env_resp.json()
+                    env_id = (env_data.get("data") or {}).get("id", "")
+                    result["env_id"] = env_id
+                except Exception:
+                    pass
 
         return result
 

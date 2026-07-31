@@ -135,7 +135,6 @@ def test_workflow_create_and_return(logged_in_page, base_url):
 
     logged_in_page.locator("[role='dialog'] button").filter(has_text="创建并编辑").first.click()
     logged_in_page.wait_for_load_state("networkidle")
-    logged_in_page.wait_for_timeout(2000)
 
     # ── Step 3: 验证跳转到编辑页 ──
     assert "/workflow/" in logged_in_page.url and "/edit" in logged_in_page.url, \
@@ -150,11 +149,11 @@ def test_workflow_create_and_return(logged_in_page, base_url):
     back_link = logged_in_page.locator("a").filter(has_text="工作流")
     assert back_link.count() > 0, "编辑页未找到返回'工作流'链接"
     back_link.first.click()
-    logged_in_page.wait_for_timeout(3000)
+    logged_in_page.wait_for_timeout(800)
 
     # ── Step 5: 回到列表页并刷新，验证新工作流可见 ──
     page.goto()  # 强制刷新确保数据最新
-    logged_in_page.wait_for_timeout(2000)
+    logged_in_page.wait_for_timeout(800)
     assert "/ctrl/agent/workflow" in logged_in_page.url and "/edit" not in logged_in_page.url, \
         f"返回后 URL 不正确: {logged_in_page.url}"
 

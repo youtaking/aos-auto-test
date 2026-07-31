@@ -140,7 +140,7 @@ def test_memories_detail_modal(logged_in_page, base_url):
 
     # 点击第一个记忆项
     items.first.click()
-    logged_in_page.wait_for_timeout(1000)
+    logged_in_page.wait_for_timeout(800)
 
     # 验证详情弹窗/面板出现
     dialog = logged_in_page.locator("[role='dialog']")

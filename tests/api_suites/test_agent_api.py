@@ -13,6 +13,7 @@ from tests.api_contracts.agent_schemas import (
     API_AGENT_LIST_RESPONSE,
     API_AGENT_DETAIL_RESPONSE,
     API_CREATE_AGENT_RESPONSE,
+    API_DELETE_AGENT_RESPONSE,
     WEB_AGENT_TEMPLATES_DATA,
     WEB_SET_DEFAULT_AGENT_DATA,
 )
@@ -142,9 +143,21 @@ class TestAgentWebAPI:
             pytest.skip("Agent 列表为空，无法测试设置默认")
         agent_name = list_data["agents"][0]["name"]
 
-        resp = web_client.set_default_agent(agent_name)
-        web_client.validate_schema(resp, WEB_SET_DEFAULT_AGENT_DATA)
-        assert resp["default_agent"] == agent_name
+        # 记录原始默认 Agent，测试后恢复
+        original_default = list_data.get("default_agent")
+
+        try:
+            resp = web_client.set_default_agent(agent_name)
+            web_client.validate_schema(resp, WEB_SET_DEFAULT_AGENT_DATA)
+            assert resp["default_agent"] == agent_name
+        finally:
+            # 恢复原始默认 Agent
+            if original_default and original_default != agent_name:
+                try:
+                    web_client.set_default_agent(original_default)
+                except Exception as e:
+                    import logging
+                    logging.getLogger("cleanup").warning(f"Restore default agent failed: {e}")
 
 
 # ── 对外 OpenAPI 测试 ──
@@ -204,8 +217,9 @@ class TestAgentOpenAPI:
             get_resp = api_client.get_agent(agent_id)
             assert get_resp["name"] == test_name
             # 删除并验证资源已消失
-            api_client.delete_agent(agent_id)
-            with pytest.raises(httpx.HTTPStatusError, match=r"(404|500)"):
+            del_resp = api_client.delete_agent(agent_id)
+            api_client.validate_schema(del_resp, API_DELETE_AGENT_RESPONSE)
+            with pytest.raises(httpx.HTTPStatusError, match=r"404"):
                 api_client.get_agent(agent_id)
         finally:
             # 清理
@@ -353,3 +367,43 @@ class TestAgentOpenAPIExtra:
         assert page2["page"] == 2
         if page1["items"] and page2["items"]:
             assert page1["items"][0]["id"] != page2["items"][0]["id"]
+
+    def test_list_agents_pagination_boundary(self, api_client, api_test_config):
+        """分页边界：超大 pageSize 的处理"""
+        if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
+            pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
+
+        try:
+            resp = api_client.list_agents({"page": 1, "pageSize": 99999})
+            api_client.validate_schema(resp, API_AGENT_LIST_RESPONSE)
+            assert isinstance(resp["items"], list)
+        except httpx.HTTPStatusError as e:
+            # 服务端可能拒绝超大 pageSize（422/400）
+            if "422" in str(e) or "400" in str(e):
+                pass  # 合理的服务端校验
+            else:
+                raise
+
+    def test_create_agent_special_characters(self, api_client, api_test_config):
+        """name 含特殊字符的处理"""
+        if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
+            pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
+
+        test_name = "api-test-special-chars-<>&\"'"
+        _cleanup_api_agent(api_client, test_name)
+        try:
+            create_resp = api_client.create_agent({
+                "name": test_name,
+                "description": "Special characters test",
+            })
+            agent_id = create_resp["id"]
+            # 验证 name 被正确处理（原样保存或转义）
+            get_resp = api_client.get_agent(agent_id)
+            assert get_resp["name"] == test_name
+            api_client.delete_agent(agent_id)
+        except (httpx.HTTPStatusError, RuntimeError) as e:
+            if "400" in str(e) or "422" in str(e):
+                pytest.skip("服务端拒绝特殊字符 name")
+            raise
+        finally:
+            _cleanup_api_agent(api_client, test_name)
