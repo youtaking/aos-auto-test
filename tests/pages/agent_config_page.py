@@ -20,21 +20,18 @@ class AgentConfigPage:
         self.page.wait_for_load_state("networkidle")
 
     def goto_create(self):
-        # 如果已在创建页面，先导航离开再回来，确保页面重置
+        """导航到新建智能体页面（直接 URL 导航，不依赖侧边栏按钮）"""
         if "/ctrl/agent/home" in self.page.url:
+            # 已在创建页面，先导航离开再回来确保 SPA 状态重置
             self.page.goto(self.agents_url)
             self.page.wait_for_load_state("networkidle")
-
-        nav = self.page.locator("button.agent-sidebar-nav-item").filter(
-            has_text="新建智能体"
-        )
-        if nav.count() > 0:
-            nav.first.click()
-            self.page.wait_for_load_state("networkidle")
+        # 直接 URL 导航到创建页面（比侧边栏按钮更可靠，尤其在删除 agent 后的 chat 页面）
+        self.page.goto(self.create_url)
+        self.page.wait_for_load_state("networkidle")
         # 等待 textarea 和模版卡片出现（SPA 动态渲染）
         try:
             self.page.locator("textarea").first.wait_for(
-                state="visible", timeout=5000
+                state="visible", timeout=10000
             )
         except Exception:
             pass
@@ -76,16 +73,41 @@ class AgentConfigPage:
         names = self.get_agent_names()
         return any(name in n for n in names)
 
+    def _scroll_sidebar_to_load(self):
+        """滚动侧边栏到底部触发懒加载，再滚回顶部"""
+        container = self.page.locator("div.agent-sidebar-tree")
+        if container.count() > 0:
+            container.first.evaluate("el => el.scrollTop = el.scrollHeight")
+            self.page.wait_for_timeout(800)
+            container.first.evaluate("el => el.scrollTop = 0")
+            self.page.wait_for_timeout(300)
+
     def wait_for_agent_card(self, name: str, retries: int = 2):
-        """等待 agent 卡片出现在侧边栏，找不到时自动刷新重试。
+        """等待 agent 卡片出现在侧边栏，滚动触发懒加载，找不到时自动刷新重试。
         返回 card locator（count > 0 表示找到），供后续操作使用。
         """
         card = self.page.locator("button.agent-sidebar-agent-card").filter(has_text=name)
         for attempt in range(retries + 1):
+            # 先滚动侧边栏触发懒加载
+            self._scroll_sidebar_to_load()
             if card.count() > 0:
                 card.first.scroll_into_view_if_needed()
                 self.page.wait_for_timeout(300)
                 return card
+            # 逐段向下滚动，查找未渲染的卡片
+            container = self.page.locator("div.agent-sidebar-tree")
+            if container.count() > 0:
+                scroll_height = container.first.evaluate("el => el.scrollHeight")
+                step = 200
+                pos = 0
+                while pos < scroll_height:
+                    pos += step
+                    container.first.evaluate(f"el => el.scrollTop = {pos}")
+                    self.page.wait_for_timeout(200)
+                    if card.count() > 0:
+                        card.first.scroll_into_view_if_needed()
+                        self.page.wait_for_timeout(300)
+                        return card
             if attempt < retries:
                 self.page.wait_for_timeout(2000)
                 self.page.reload(wait_until="networkidle")
@@ -179,6 +201,63 @@ class AgentConfigPage:
     def get_quick_create_button(self):
         """获取"一键创建"按钮"""
         return self.page.get_by_role("button", name="一键创建")
+
+    def create_agent_ui(self, name: str, system_prompt: str = "") -> dict:
+        """通过 UI 创建智能体（描述 → AI 生成 → 替换名称/SP → 创建）
+        返回 {"status": 200, "agent_name": 实际使用的名称} 或错误信息
+        """
+        self.goto_create()
+
+        # 等待 textarea 加载
+        cards = self.page.locator("button.agent-home-template-pill")
+        cards.first.wait_for(state="visible", timeout=10000)
+
+        # 填写描述并点击一键创建
+        desc = system_prompt if system_prompt else f"创建一个名为{name}的助手"
+        self.fill_create_description(desc)
+        quick_btn = self.get_quick_create_button()
+        quick_btn.scroll_into_view_if_needed()
+        quick_btn.click()
+
+        # 等待 AI 生成表单出现
+        create_btn = self.page.get_by_role("button", name="创建 Agent")
+        create_btn.wait_for(state="visible", timeout=30000)
+        self.page.wait_for_timeout(1000)
+
+        # 替换名称
+        name_input = self.page.locator("input[data-slot='input']").first
+        name_input.wait_for(state="visible", timeout=15000)
+        name_input.fill(name)
+        self.page.wait_for_timeout(300)
+
+        # 替换 System Prompt（包括清空）
+        sp_ta = self.page.locator("textarea").first
+        sp_ta.fill(system_prompt)  # fill("") 会清空 textarea
+        self.page.wait_for_timeout(300)
+
+        # 点击创建
+        create_btn.scroll_into_view_if_needed()
+        create_btn.click()
+
+        # 等待跳转
+        try:
+            self.page.wait_for_url(
+                lambda url: "/ctrl/agent/chat/" in url, timeout=15000
+            )
+        except Exception:
+            pass
+
+        is_chat = "/ctrl/agent/chat/" in self.page.url
+        # 等待聊天输入框就绪（环境启动完成）
+        if is_chat:
+            ta = self.page.locator("textarea[placeholder*='发送']")
+            try:
+                ta.first.wait_for(state="visible", timeout=15000)
+                self.page.wait_for_timeout(1000)
+            except Exception:
+                pass
+
+        return {"status": 200 if is_chat else 500, "agent_name": name}
 
     # ==================== 对话页面 ====================
 
@@ -284,34 +363,69 @@ class AgentConfigPage:
     # ==================== API ====================
 
     def create_agent_api(self, name: str, system_prompt: str = "",
-                         model_id: str = "") -> dict:
+                         model_id: str = "", _max_retries: int = 3) -> dict:
         """通过 API 创建智能体（含 environment）
         1. POST /web/config/agents 创建 Agent 配置
         2. POST /web/environments 创建运行环境
+        遇到 500 或假成功（success=true 但无 id）时自动重试
         """
         import json
+        import time
         data = {"prompt": system_prompt, "skillIds": []}
         if model_id:
             data["modelId"] = model_id
         body = {"name": name, "data": data}
 
-        resp = self.page.request.post(
-            f"{self.base_url}/web/config/agents",
-            data=json.dumps(body),
-            headers={"Content-Type": "application/json"},
-        )
+        resp = None
+        for attempt in range(_max_retries):
+            resp = self.page.request.post(
+                f"{self.base_url}/web/config/agents",
+                data=json.dumps(body),
+                headers={"Content-Type": "application/json"},
+            )
+            # 判断是否需要重试：500 错误或假成功（200 但无 agent id）
+            need_retry = False
+            if resp.status >= 500:
+                need_retry = True
+            elif resp.status == 200:
+                try:
+                    rj = resp.json()
+                    agent_id = (rj.get("data") or {}).get("id", "") if isinstance(rj, dict) else ""
+                    if not agent_id:
+                        need_retry = True
+                except Exception:
+                    pass
+            if not need_retry:
+                break
+            print(f"  [create_agent_api] '{name}': status={resp.status}, 需要重试 {attempt+1}/{_max_retries}")
+            if attempt < _max_retries - 1:
+                time.sleep(3 * (attempt + 1))
+
         result = {"status": resp.status}
         try:
             resp_data = resp.json()
             result["data"] = resp_data
+            success = resp_data.get("success") if isinstance(resp_data, dict) else None
+            agent_id_preview = (resp_data.get("data") or {}).get("id", "") if isinstance(resp_data, dict) else ""
+            print(f"  [create_agent_api] '{name}': status={resp.status}, success={success}, id={agent_id_preview[:12]}")
         except Exception:
             result["text"] = resp.text()
+            print(f"  [create_agent_api] '{name}': status={resp.status}, parse_error, text={resp.text()[:200]}")
             return result
 
         # 创建 environment（点击 Agent 进入对话需要）
         if resp.status == 200 and isinstance(resp_data, dict):
             agent_id = (resp_data.get("data") or {}).get("id", "")
             if agent_id:
+                # 创建后立即 GET 验证 agent 是否真正存在
+                verify = self.page.request.get(
+                    f"{self.base_url}/web/config/agents",
+                    params={"name": name},
+                )
+                v_data = verify.json() if verify.status == 200 else {}
+                v_found = bool((v_data.get("data") or {}).get("id"))
+                print(f"  [create_agent_api] verify GET: status={verify.status}, found={v_found}")
+
                 env_body = json.dumps({
                     "name": f"env-{agent_id[:8]}",
                     "agentConfigId": agent_id,

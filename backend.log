@@ -1,0 +1,9 @@
+INFO:     Will watch for changes in these directories: ['D:\\chxu\\AI中台\\AgentTest']
+INFO:     Uvicorn running on http://0.0.0.0:8002 (Press CTRL+C to quit)
+INFO:     Started reloader process [38300] using WatchFiles
+INFO:     Started server process [11020]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+[AutoDiscover] UI: 扫描 300 条，新增 0，清理 0，删除空套件 0
+[AutoDiscover] API: 扫描 174 条，新增 0，清理 0，删除空套件 0
+INFO:     127.0.0.1:61854 - "GET /api/runs/1/logs HTTP/1.1" 200 OK

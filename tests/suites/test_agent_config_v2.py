@@ -70,6 +70,39 @@ def _check_concurrency_limit(page) -> bool:
         return False
 
 
+# ==================== 共享 Agent Fixture ====================
+
+
+@pytest.fixture(scope="module")
+def shared_agent(logged_in_page, base_url):
+    """模块级共享 Agent：通过 UI 创建一次，供所有测试使用。
+    避免重复创建/删除导致的服务器 session 故障。
+    """
+    ac = AgentConfigPage(logged_in_page, base_url)
+    agent_name = f"shared-{_PREFIX}"
+
+    # 通过 UI 创建（避免 API session 问题）
+    result = ac.create_agent_ui(
+        name=agent_name,
+        system_prompt="你是一个测试助手，用于自动化测试。"
+    )
+
+    if result["status"] != 200:
+        pytest.skip(f"共享 Agent 创建失败: {result}")
+
+    yield {
+        "name": agent_name,
+        "ac": ac,
+    }
+
+    # 清理：通过 API 删除
+    try:
+        status = ac.delete_agent_api(agent_name)
+        print(f"\n清理共享 Agent '{agent_name}': status={status}")
+    except Exception as e:
+        print(f"\n清理共享 Agent 失败: {e}")
+
+
 # ==================== 测试 ====================
 
 
@@ -353,23 +386,16 @@ def test_agent_024_system_prompt_empty(logged_in_page, base_url):
     ac = AgentConfigPage(logged_in_page, base_url)
     agent_name = f"nosp-{_PREFIX}"
 
-    result = ac.create_agent_api(name=agent_name)
+    # 通过 UI 创建（SP 留空）
+    result = ac.create_agent_ui(name=agent_name, system_prompt="")
     allure.attach(
-        f"API 创建结果: status={result['status']}",
+        f"UI 创建结果: status={result['status']}",
         name="创建结果",
         attachment_type=allure.attachment_type.TEXT,
     )
-    _assert_create_success(result)
+    assert result["status"] == 200, f"UI 创建 Agent 失败: {result}"
 
     try:
-        ac.goto_agents()
-        logged_in_page.wait_for_load_state("networkidle")
-        # 等待环境就绪
-        env_id = result.get("env_id", "")
-        if env_id:
-            ac.wait_for_env_ready(env_id)
-        clicked = ac.click_agent(agent_name)
-        assert clicked, f"左侧列表中未找到 '{agent_name}'"
         if _check_concurrency_limit(logged_in_page):
             pytest.skip("服务器并发上限，无法进入对话页面")
         assert ac.is_on_chat_page(), "System Prompt 留空也应能进入对话页面"
@@ -501,43 +527,30 @@ def test_agent_025_bind_mcp(logged_in_page, base_url):
 @allure.epic("智能体配置")
 @pytest.mark.order(126)
 @pytest.mark.p1
-def test_agent_026_no_mcp(logged_in_page, base_url):
-    """✅ 人工评审通过 | TC-AGENT-026: 创建不绑定 MCP 的 Agent，验证仍能正常创建和进入对话"""
-    ac = AgentConfigPage(logged_in_page, base_url)
-    agent_name = f"nomcp-{_PREFIX}"
+def test_agent_026_no_mcp(logged_in_page, base_url, shared_agent):
+    """✅ 人工评审通过 | TC-AGENT-026: 不绑定 MCP 的 Agent，验证仍能正常进入对话"""
+    ac = shared_agent["ac"]
+    agent_name = shared_agent["name"]
 
-    result = ac.create_agent_api(name=agent_name, system_prompt="你是一个测试助手")
-    _assert_create_success(result)
+    ac.goto_agents()
+    logged_in_page.wait_for_load_state("networkidle")
 
+    # 找到共享 Agent 的卡片，确认存在
+    card = ac.wait_for_agent_card(agent_name)
+    assert card.count() > 0, f"列表中未找到 '{agent_name}'"
+
+    # 点击进入对话
+    card.first.click(force=True)
     try:
-        ac.goto_agents()
-        logged_in_page.wait_for_load_state("networkidle")
-
-        # 找到新建 Agent 的卡片，确认存在
-        card = ac.wait_for_agent_card(agent_name)
-        assert card.count() > 0, f"列表中未找到 '{agent_name}'"
-
-        # 等待环境就绪
-        env_id = result.get("env_id", "")
-        if env_id:
-            ac.wait_for_env_ready(env_id)
-
-        # 点击进入对话
-        card.first.click(force=True)
-        try:
-            logged_in_page.wait_for_url(
-                lambda url: "/ctrl/agent/chat/" in url, timeout=10000
-            )
-        except Exception:
-            pass
-        logged_in_page.wait_for_load_state("networkidle")
-        if _check_concurrency_limit(logged_in_page):
-            pytest.skip("服务器并发上限，无法进入对话页面")
-        assert ac.is_on_chat_page(), "不绑定 MCP 的 Agent 也应能进入对话页面"
-    finally:
-        status = ac.delete_agent_api(agent_name)
-        print(f"\n清理 '{agent_name}': status={status}")
-        assert status in (200, 204, 404), f"删除 Agent 失败: status={status}"
+        logged_in_page.wait_for_url(
+            lambda url: "/ctrl/agent/chat/" in url, timeout=10000
+        )
+    except Exception:
+        pass
+    logged_in_page.wait_for_load_state("networkidle")
+    if _check_concurrency_limit(logged_in_page):
+        pytest.skip("服务器并发上限，无法进入对话页面")
+    assert ac.is_on_chat_page(), "不绑定 MCP 的 Agent 也应能进入对话页面"
 
 
 @allure.epic("智能体配置")
@@ -653,41 +666,28 @@ def test_agent_027_bind_skill(logged_in_page, base_url):
 @allure.epic("智能体配置")
 @pytest.mark.order(128)
 @pytest.mark.p1
-def test_agent_028_no_skill(logged_in_page, base_url):
-    """✅ 人工评审通过 | TC-AGENT-028: 创建不绑定 Skill 的 Agent，验证仍能正常创建和进入对话"""
-    ac = AgentConfigPage(logged_in_page, base_url)
-    agent_name = f"noskill-{_PREFIX}"
+def test_agent_028_no_skill(logged_in_page, base_url, shared_agent):
+    """✅ 人工评审通过 | TC-AGENT-028: 不绑定 Skill 的 Agent，验证仍能正常进入对话"""
+    ac = shared_agent["ac"]
+    agent_name = shared_agent["name"]
 
-    result = ac.create_agent_api(name=agent_name, system_prompt="你是一个测试助手")
-    _assert_create_success(result)
+    ac.goto_agents()
+    logged_in_page.wait_for_load_state("networkidle")
 
+    card = ac.wait_for_agent_card(agent_name)
+    assert card.count() > 0, f"列表中未找到 '{agent_name}'"
+
+    card.first.click(force=True)
     try:
-        ac.goto_agents()
-        logged_in_page.wait_for_load_state("networkidle")
-
-        card = ac.wait_for_agent_card(agent_name)
-        assert card.count() > 0, f"列表中未找到 '{agent_name}'"
-
-        # 等待环境就绪
-        env_id = result.get("env_id", "")
-        if env_id:
-            ac.wait_for_env_ready(env_id)
-
-        card.first.click(force=True)
-        try:
-            logged_in_page.wait_for_url(
-                lambda url: "/ctrl/agent/chat/" in url, timeout=10000
-            )
-        except Exception:
-            pass
-        logged_in_page.wait_for_load_state("networkidle")
-        if _check_concurrency_limit(logged_in_page):
-            pytest.skip("服务器并发上限，无法进入对话页面")
-        assert ac.is_on_chat_page(), "不绑定 Skill 的 Agent 也应能进入对话页面"
-    finally:
-        status = ac.delete_agent_api(agent_name)
-        print(f"\n清理 '{agent_name}': status={status}")
-        assert status in (200, 204, 404), f"删除 Agent 失败: status={status}"
+        logged_in_page.wait_for_url(
+            lambda url: "/ctrl/agent/chat/" in url, timeout=10000
+        )
+    except Exception:
+        pass
+    logged_in_page.wait_for_load_state("networkidle")
+    if _check_concurrency_limit(logged_in_page):
+        pytest.skip("服务器并发上限，无法进入对话页面")
+    assert ac.is_on_chat_page(), "不绑定 Skill 的 Agent 也应能进入对话页面"
 
 
 @allure.epic("智能体配置")

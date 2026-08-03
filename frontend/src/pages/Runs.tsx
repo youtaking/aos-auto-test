@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { Link } from "react-router-dom";
-import { listRuns } from "../api/runs";
+import { listRuns, cancelRun } from "../api/runs";
 import type { TestRun } from "../api/types";
 
 const statusBadge: Record<string, string> = {
@@ -9,6 +9,7 @@ const statusBadge: Record<string, string> = {
   running: "bg-blue-100 text-blue-700",
   pending: "bg-gray-100 text-gray-700",
   error: "bg-yellow-100 text-yellow-700",
+  cancelled: "bg-orange-100 text-orange-700",
 };
 
 export default function Runs() {
@@ -33,6 +34,16 @@ export default function Runs() {
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, []);
 
+  const handleCancel = async (runId: number) => {
+    if (!confirm(`确定停止运行 #${runId}？`)) return;
+    try {
+      await cancelRun(runId);
+      listRuns().then(setRuns).catch(console.error);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">运行记录</h1>
@@ -46,6 +57,7 @@ export default function Runs() {
               <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">通过率</th>
               <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">耗时</th>
               <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">时间</th>
+              <th className="px-4 py-3 text-center text-sm font-medium text-gray-500">操作</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -61,6 +73,16 @@ export default function Runs() {
                 <td className="px-4 py-3 text-sm">{run.total > 0 ? `${((run.passed / run.total) * 100).toFixed(1)}%` : "-"}</td>
                 <td className="px-4 py-3 text-sm">{(run.duration_ms / 1000).toFixed(1)}s</td>
                 <td className="px-4 py-3 text-sm">{new Date(run.created_at).toLocaleString()}</td>
+                <td className="px-4 py-3 text-center">
+                  {(run.status === "running" || run.status === "pending") && (
+                    <button
+                      onClick={() => handleCancel(run.id)}
+                      className="px-2 py-1 text-xs text-red-600 border border-red-300 rounded hover:bg-red-50 transition-colors"
+                    >
+                      停止
+                    </button>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>

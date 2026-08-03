@@ -65,7 +65,7 @@ def context(browser_instance):
     is_headless = os.environ.get("HEADLESS", "true").lower() == "true"
     ctx_kwargs = {"ignore_https_errors": True}
     if not is_headless:
-        ctx_kwargs["no_viewport"] = True  # 有头模式下使用最大化窗口
+        ctx_kwargs["no_viewport"] = True  # 有头模式下配合 --start-maximized 使用实际窗口大小
     else:
         ctx_kwargs["viewport"] = {"width": 1920, "height": 1080}
     ctx = browser_instance.new_context(**ctx_kwargs)
@@ -429,10 +429,15 @@ def pytest_runtest_makereport(item, call):
     if report.when == "call":
         page = item.funcargs.get("logged_in_page") or item.funcargs.get("page")
         if page and not page.is_closed():
-            screenshot = page.screenshot(full_page=True)
-            name = "失败截图" if report.failed else "页面截图"
-            allure.attach(
-                screenshot,
-                name=name,
-                attachment_type=allure.attachment_type.PNG,
-            )
+            try:
+                screenshot = page.screenshot(full_page=False, timeout=5000)
+                name = "失败截图" if report.failed else "页面截图"
+                allure.attach(
+                    screenshot,
+                    name=name,
+                    attachment_type=allure.attachment_type.PNG,
+                )
+            except Exception as e:
+                # 截图失败不影响测试结果
+                import logging
+                logging.getLogger("screenshot").warning(f"截图失败: {e}")

@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { listApiCases, triggerApiRun, listApiRuns, getApiRun } from "../api/apiTests";
+import { cancelRun } from "../api/runs";
 import { listProjects } from "../api/projects";
 import type { ApiTestCase, ApiRunDetail } from "../api/apiTests";
 import type { TestRun, TestResult, Project } from "../api/types";
@@ -15,6 +16,7 @@ const statusBadge: Record<string, string> = {
   failed: "bg-red-100 text-red-700",
   running: "bg-blue-100 text-blue-700",
   pending: "bg-gray-100 text-gray-700",
+  cancelled: "bg-orange-100 text-orange-700",
 };
 
 export default function ApiTests() {
@@ -80,8 +82,12 @@ export default function ApiTests() {
       }).catch(console.error);
     };
     fetch();
-    return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, []);
+    // 当有新运行启动时，确保轮询开始
+    if (running && !timerRef.current) {
+      timerRef.current = setInterval(fetch, 2000);
+    }
+    return () => { if (timerRef.current) clearInterval(timerRef.current); timerRef.current = null; };
+  }, [running]);
 
   // WebSocket 实时日志
   useEffect(() => {
@@ -129,6 +135,16 @@ export default function ApiTests() {
     }
   };
 
+  const handleCancel = async (runId: number) => {
+    if (!confirm(`确定停止运行 #${runId}？`)) return;
+    try {
+      await cancelRun(runId);
+      listApiRuns().then(setRuns).catch(console.error);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   const handleRun = async (caseIds?: number[]) => {
     const activeProject = projects.find((p) => p.is_active) ?? projects[0];
     if (!activeProject || running) return;
@@ -142,6 +158,8 @@ export default function ApiTests() {
       const run = await triggerApiRun(activeProject.id, caseIds);
       setActiveRunId(run.id);
       setActiveRun(run);
+      // 立即刷新运行历史，让当前运行出现在列表中
+      listApiRuns().then(setRuns).catch(console.error);
     } catch (e) {
       console.error(e);
       setRunning(false);
@@ -404,6 +422,7 @@ export default function ApiTests() {
               <th className="px-4 py-2 text-left text-sm font-medium text-gray-500">通过率</th>
               <th className="px-4 py-2 text-left text-sm font-medium text-gray-500">耗时</th>
               <th className="px-4 py-2 text-left text-sm font-medium text-gray-500">时间</th>
+              <th className="px-4 py-2 text-center text-sm font-medium text-gray-500">操作</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -424,6 +443,16 @@ export default function ApiTests() {
                 </td>
                 <td className="px-4 py-2 text-sm">{(run.duration_ms / 1000).toFixed(1)}s</td>
                 <td className="px-4 py-2 text-sm">{new Date(run.created_at).toLocaleString()}</td>
+                <td className="px-4 py-2 text-center">
+                  {(run.status === "running" || run.status === "pending") && (
+                    <button
+                      onClick={() => handleCancel(run.id)}
+                      className="px-2 py-1 text-xs text-red-600 border border-red-300 rounded hover:bg-red-50 transition-colors"
+                    >
+                      停止
+                    </button>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>

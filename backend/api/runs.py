@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import re
+import subprocess
 import sys
 import traceback
 from datetime import datetime
@@ -23,6 +24,9 @@ router = APIRouter()
 ALLURE_RESULTS_DIR = "allure-results"
 ALLURE_REPORT_DIR = "allure-report"
 LOG_DIR = Path("run_logs")
+
+# 运行中的进程跟踪：run_id -> subprocess.Popen
+_running_processes: dict[int, subprocess.Popen] = {}
 
 
 def _parse_pytest_line(line: str) -> dict | None:
@@ -107,13 +111,14 @@ async def _execute_tests(
 
             print(f"[Run #{run_id}] 执行命令: {' '.join(cmd)}", flush=True)
 
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
                 env=env,
                 cwd=os.getcwd(),
             )
+            _running_processes[run_id] = proc
 
             passed = 0
             failed = 0
@@ -123,7 +128,7 @@ async def _execute_tests(
             log_path = LOG_DIR / f"{run_id}.log"
             with open(log_path, "w", encoding="utf-8") as log_file:
                 while True:
-                    raw = await proc.stdout.readline()
+                    raw = await asyncio.to_thread(proc.stdout.readline)
                     if not raw:
                         break
                     line = raw.decode("utf-8", errors="replace")
@@ -175,7 +180,7 @@ async def _execute_tests(
                         "passed": passed, "failed": failed, "skipped": skipped,
                     })
 
-            await proc.wait()
+            await asyncio.to_thread(proc.wait)
             finished = datetime.utcnow()
 
             # 用 JSON 报告补充 duration 和 error 信息
@@ -205,10 +210,13 @@ async def _execute_tests(
             except Exception as e:
                 print(f"[Run #{run_id}] JSON 报告处理失败: {e}", flush=True)
 
-            run.status = "passed" if failed == 0 else "failed"
-            run.finished_at = finished
-            run.duration_ms = int((finished - run.started_at).total_seconds() * 1000)
-            await db.commit()
+            # 重新读取 run，避免覆盖 cancel 状态
+            await db.refresh(run)
+            if run.status != "cancelled":
+                run.status = "passed" if failed == 0 else "failed"
+                run.finished_at = finished
+                run.duration_ms = int((finished - run.started_at).total_seconds() * 1000)
+                await db.commit()
 
             # 生成 Allure 报告
             try:
@@ -216,29 +224,29 @@ async def _execute_tests(
                 allure_bin = shutil.which("allure") or r"C:\Users\52686\AppData\Roaming\npm\allure.cmd"
                 report_dir = Path(ALLURE_REPORT_DIR) / str(run_id)
                 cmd_str = f'"{allure_bin}" generate "{allure_dir}" -o "{report_dir}" --clean'
-                allure_proc = await asyncio.create_subprocess_shell(
-                    cmd_str,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                stdout, stderr = await asyncio.wait_for(allure_proc.communicate(), timeout=60)
-                if allure_proc.returncode != 0:
-                    print(f"[Allure] stderr: {stderr.decode(errors='replace')}")
+
+                def _run_allure():
+                    return subprocess.run(cmd_str, shell=True, capture_output=True, timeout=60)
+
+                allure_result = await asyncio.to_thread(_run_allure)
+                if allure_result.returncode != 0:
+                    print(f"[Allure] stderr: {allure_result.stderr.decode(errors='replace')}")
                 else:
                     print(f"[Allure] 报告生成成功: {report_dir}")
             except Exception as e:
                 print(f"[Allure] 报告生成失败: {e}")
 
-            # 广播运行完成
-            await ws_module.broadcast(run_id, "run_complete", {
-                "run_id": run_id,
-                "status": run.status,
-                "total": run.total,
-                "passed": run.passed,
-                "failed": run.failed,
-                "skipped": run.skipped,
-                "duration_ms": run.duration_ms,
-            })
+            # 广播运行完成（取消时由 cancel 端点广播，不重复）
+            if run.status != "cancelled":
+                await ws_module.broadcast(run_id, "run_complete", {
+                    "run_id": run_id,
+                    "status": run.status,
+                    "total": run.total,
+                    "passed": run.passed,
+                    "failed": run.failed,
+                    "skipped": run.skipped,
+                    "duration_ms": run.duration_ms,
+                })
 
         except Exception as e:
             print(f"[Run #{run_id}] 执行异常: {type(e).__name__}: {e}", flush=True)
@@ -249,6 +257,8 @@ async def _execute_tests(
             await ws_module.broadcast(run_id, "run_complete", {
                 "run_id": run_id, "status": "error", "error": str(e),
             })
+        finally:
+            _running_processes.pop(run_id, None)
 
 
 @router.get("/runs", response_model=ApiResponse)
@@ -347,6 +357,47 @@ async def delete_run(run_id: int, db: AsyncSession = Depends(get_async_session))
     log_file.unlink(missing_ok=True)
 
     return ApiResponse(data={"deleted": True})
+
+
+@router.post("/runs/{run_id}/cancel", response_model=ApiResponse)
+async def cancel_run(run_id: int, db: AsyncSession = Depends(get_async_session)):
+    """取消正在运行的测试"""
+    run = await db.get(TestRun, run_id)
+    if not run:
+        return ApiResponse(success=False, error="运行记录不存在")
+    if run.status not in ("pending", "running"):
+        return ApiResponse(success=False, error=f"当前状态 {run.status} 不可取消")
+
+    # 从 runs.py 和 api_tests.py 的进程字典中查找
+    from backend.api import api_tests as api_tests_module
+    proc = _running_processes.get(run_id) or api_tests_module._running_processes.get(run_id)
+
+    killed = False
+    if proc and proc.poll() is None:
+        proc.terminate()
+        try:
+            await asyncio.to_thread(proc.wait, timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        killed = True
+
+    run.status = "cancelled"
+    run.finished_at = datetime.utcnow()
+    if run.started_at:
+        run.duration_ms = int((run.finished_at - run.started_at).total_seconds() * 1000)
+    await db.commit()
+
+    await ws_module.broadcast(run_id, "run_complete", {
+        "run_id": run_id,
+        "status": "cancelled",
+        "total": run.total,
+        "passed": run.passed,
+        "failed": run.failed,
+        "skipped": run.skipped,
+        "duration_ms": run.duration_ms,
+    })
+
+    return ApiResponse(data={"cancelled": True, "killed_process": killed})
 
 
 @router.get("/runs/{run_id}/logs", response_model=ApiResponse)

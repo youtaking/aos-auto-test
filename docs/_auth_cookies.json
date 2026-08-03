@@ -1,0 +1,12 @@
+[
+  {
+    "name": "better-auth.session_token",
+    "value": "v1TEG5u5qbBZUhBOMgIEmfvIsQiprnPA.BBTJqJmGdnWBTHjXrj%2B02nvsDp3x7Vs9URj4loUUM6A%3D",
+    "domain": "100.105.9.16",
+    "path": "/",
+    "expires": 1786086228.200881,
+    "httpOnly": true,
+    "secure": false,
+    "sameSite": "Lax"
+  }
+]

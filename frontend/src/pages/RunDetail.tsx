@@ -1,10 +1,10 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams } from "react-router-dom";
-import { getRun, getRunResults, getRunLogs } from "../api/runs";
+import { getRun, getRunResults, getRunLogs, cancelRun } from "../api/runs";
 import type { TestRun, TestResult } from "../api/types";
 
 const statusIcon: Record<string, string> = {
-  passed: "✅", failed: "❌", skipped: "⏭️", error: "⚠️", running: "🔄", pending: "⏳",
+  passed: "✅", failed: "❌", skipped: "⏭️", error: "⚠️", running: "🔄", pending: "⏳", cancelled: "🚫",
 };
 
 interface WsMessage {
@@ -61,6 +61,16 @@ export default function RunDetail() {
     if (!showLogs) loadLogs();
     setShowLogs(!showLogs);
   }, [showLogs, loadLogs]);
+
+  const handleCancel = async () => {
+    if (!run || !confirm(`确定停止运行 #${run.id}？`)) return;
+    try {
+      await cancelRun(run.id);
+      getRun(Number(id)).then(setRun).catch(console.error);
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   // 数据获取（轮询 fallback）
   useEffect(() => {
@@ -132,6 +142,14 @@ export default function RunDetail() {
           )}
         </h1>
         <div className="flex items-center gap-3">
+          {!isFinished && (
+            <button
+              onClick={handleCancel}
+              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors text-sm"
+            >
+              停止运行
+            </button>
+          )}
           <button
             onClick={handleToggleLogs}
             className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${

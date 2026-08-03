@@ -6,6 +6,7 @@ export const listRuns = (params?: { project_id?: number; status?: string; page?:
 export const getRun = (id: number) => get<TestRun>(`/runs/${id}`);
 export const getRunResults = (runId: number) => get<TestResult[]>(`/runs/${runId}/results`);
 export const getRunLogs = (runId: number) => get<string[]>(`/runs/${runId}/logs`);
+export const cancelRun = (id: number) => post<{ cancelled: boolean; killed_process: boolean }>(`/runs/${id}/cancel`);
 export const getRunMdReport = (runId: number) =>
   fetch(`/api/runs/${runId}/md-report`).then((r) => {
     if (!r.ok) throw new Error(`HTTP ${r.status}`);

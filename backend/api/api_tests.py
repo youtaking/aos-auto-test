@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import re
+import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -24,6 +25,11 @@ router = APIRouter()
 API_TEST_DIR = "tests/api_suites/"
 TEST_DATA_YAML = "tests/fixtures/test_data.yaml"
 LOG_DIR = Path("run_logs")
+ALLURE_RESULTS_DIR = "allure-results"
+ALLURE_REPORT_DIR = "allure-report"
+
+# 运行中的进程跟踪：run_id -> subprocess.Popen
+_running_processes: dict[int, subprocess.Popen] = {}
 
 
 def _load_api_key() -> str:
@@ -84,12 +90,21 @@ async def _execute_api_tests(
         await ws_module.broadcast(run_id, "run_start", {"run_id": run_id, "status": "running"})
 
         try:
+            # 清理旧的 allure 结果
+            allure_dir = Path(ALLURE_RESULTS_DIR)
+            if allure_dir.exists():
+                for f in allure_dir.iterdir():
+                    f.unlink()
+            else:
+                allure_dir.mkdir(parents=True, exist_ok=True)
+
             report_path = f"api_report_{run_id}.json"
             cmd = [
                 sys.executable, "-m", "pytest", API_TEST_DIR,
                 "-v", "--tb=short",
                 f"--base-url={api_base_url}",
                 "--json-report", f"--json-report-file={report_path}",
+                f"--alluredir={ALLURE_RESULTS_DIR}",
             ]
 
             if case_ids:
@@ -108,13 +123,14 @@ async def _execute_api_tests(
                 "PYTHONUNBUFFERED": "1",
             }
 
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
                 env=env,
                 cwd=os.getcwd(),
             )
+            _running_processes[run_id] = proc
 
             passed = 0
             failed = 0
@@ -123,7 +139,10 @@ async def _execute_api_tests(
             LOG_DIR.mkdir(parents=True, exist_ok=True)
             log_path = LOG_DIR / f"{run_id}.log"
             with open(log_path, "w", encoding="utf-8") as log_file:
-                async for raw_line in proc.stdout:
+                while True:
+                    raw_line = await asyncio.to_thread(proc.stdout.readline)
+                    if not raw_line:
+                        break
                     line = raw_line.decode("utf-8", errors="replace")
                     stripped = line.rstrip()
                     if stripped:
@@ -172,7 +191,7 @@ async def _execute_api_tests(
                         "passed": passed, "failed": failed, "skipped": skipped,
                     })
 
-            await proc.wait()
+            await asyncio.to_thread(proc.wait)
             finished = datetime.utcnow()
 
             # 用 JSON 报告补充 duration 和 error 信息
@@ -206,20 +225,50 @@ async def _execute_api_tests(
                         r.stack_trace = longrepr
                 rf.unlink(missing_ok=True)
 
-            run.status = "passed" if failed == 0 else "failed"
-            run.finished_at = finished
-            run.duration_ms = int((finished - run.started_at).total_seconds() * 1000)
-            await db.commit()
+            # 重新读取 run，避免覆盖 cancel 状态
+            await db.refresh(run)
+            if run.status != "cancelled":
+                run.status = "passed" if failed == 0 else "failed"
+                run.finished_at = finished
+                run.duration_ms = int((finished - run.started_at).total_seconds() * 1000)
+                await db.commit()
 
-            await ws_module.broadcast(run_id, "run_complete", {
-                "run_id": run_id,
-                "status": run.status,
-                "total": run.total,
-                "passed": run.passed,
-                "failed": run.failed,
-                "skipped": run.skipped,
-                "duration_ms": run.duration_ms,
-            })
+            # 生成 Allure 报告
+            try:
+                import shutil
+                allure_bin = shutil.which("allure") or r"C:\Users\52686\AppData\Roaming\npm\allure.cmd"
+                report_dir = Path(ALLURE_REPORT_DIR) / str(run_id)
+                abs_allure_dir = str(Path(ALLURE_RESULTS_DIR).resolve())
+                abs_report_dir = str(report_dir.resolve())
+                cmd_str = f'"{allure_bin}" generate "{abs_allure_dir}" -o "{abs_report_dir}" --clean'
+                print(f"[Run #{run_id}] Allure 命令: {cmd_str}", flush=True)
+
+                # 检查 allure-results 是否有数据
+                result_files = list(Path(ALLURE_RESULTS_DIR).glob("*"))
+                print(f"[Run #{run_id}] allure-results 文件数: {len(result_files)}", flush=True)
+
+                def _run_allure():
+                    return subprocess.run(cmd_str, shell=True, capture_output=True, timeout=60)
+
+                allure_result = await asyncio.to_thread(_run_allure)
+                if allure_result.returncode != 0:
+                    print(f"[Run #{run_id}] Allure 失败: {allure_result.stderr.decode(errors='replace')}", flush=True)
+                else:
+                    print(f"[Run #{run_id}] Allure 报告生成成功: {report_dir}", flush=True)
+            except Exception as e:
+                print(f"[Run #{run_id}] Allure 报告生成失败: {type(e).__name__}: {e}", flush=True)
+
+            # 广播运行完成（取消时由 cancel 端点广播，不重复）
+            if run.status != "cancelled":
+                await ws_module.broadcast(run_id, "run_complete", {
+                    "run_id": run_id,
+                    "status": run.status,
+                    "total": run.total,
+                    "passed": run.passed,
+                    "failed": run.failed,
+                    "skipped": run.skipped,
+                    "duration_ms": run.duration_ms,
+                })
 
         except Exception as e:
             # 异常保护：确保 run 状态不会卡在 "running"
@@ -231,6 +280,8 @@ async def _execute_api_tests(
                 "status": "error",
                 "error": str(e),
             })
+        finally:
+            _running_processes.pop(run_id, None)
 
 
 @router.get("/api-tests/cases", response_model=ApiResponse)
