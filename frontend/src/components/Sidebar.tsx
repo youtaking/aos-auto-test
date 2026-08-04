@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, PlayCircle, ListChecks, Settings, Eye, Plug, FileText, Brain } from "lucide-react";
+import { LayoutDashboard, PlayCircle, ListChecks, Settings, Eye, Plug, FileText, Brain, GitPullRequest } from "lucide-react";
 
 const navItems = [
   { to: "/dashboard", icon: LayoutDashboard, label: "总览" },
@@ -8,6 +8,7 @@ const navItems = [
   { to: "/api-tests", icon: Plug, label: "接口测试" },
   { to: "/reports", icon: FileText, label: "测试报告" },
   { to: "/ai-analysis", icon: Brain, label: "AI 分析" },
+  { to: "/pipelines", icon: GitPullRequest, label: "PR Pipeline" },
   { to: "/settings", icon: Settings, label: "设置" },
 ];
 

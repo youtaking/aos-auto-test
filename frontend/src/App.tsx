@@ -7,6 +7,7 @@ import Cases from "./pages/Cases";
 import ApiTests from "./pages/ApiTests";
 import Reports from "./pages/Reports";
 import AIAnalysis from "./pages/AIAnalysis";
+import PRPipeline from "./pages/PRPipeline";
 import Settings from "./pages/Settings";
 
 export default function App() {
@@ -22,6 +23,7 @@ export default function App() {
           <Route path="api-tests" element={<ApiTests />} />
           <Route path="reports" element={<Reports />} />
           <Route path="ai-analysis" element={<AIAnalysis />} />
+          <Route path="pipelines" element={<PRPipeline />} />
           <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>
