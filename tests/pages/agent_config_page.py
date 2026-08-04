@@ -495,12 +495,37 @@ class AgentConfigPage:
         except Exception:
             return []
 
-    def delete_agent_api(self, agent_id: str) -> int:
-        """删除智能体（通过 id 或 name）"""
-        resp = self.page.request.delete(
-            f"{self.base_url}/web/config/agents?name={agent_id}"
-        )
-        return resp.status
+    def delete_agent_api(self, agent_id: str, retries: int = 2) -> int:
+        """删除智能体（通过 id 或 name），500 时自动重试
+
+        返回: status code (int)
+        """
+        import logging
+        logger = logging.getLogger("cleanup")
+
+        for attempt in range(retries + 1):
+            resp = self.page.request.delete(
+                f"{self.base_url}/web/config/agents?name={agent_id}"
+            )
+            status = resp.status
+
+            if status in (200, 204, 404):
+                return status
+
+            # 500 或其他错误，记录详情
+            try:
+                body = resp.text()[:200]
+            except Exception:
+                body = ""
+
+            if status == 500 and attempt < retries:
+                logger.warning(f"删除 '{agent_id}' 返回 500 (尝试 {attempt + 1}/{retries + 1})，2秒后重试。body: {body}")
+                self.page.wait_for_timeout(2000)
+            else:
+                logger.error(f"删除 '{agent_id}' 失败: status={status}, body: {body}")
+                return status
+
+        return status
 
     def update_agent_api(self, agent_id: str, updates: dict) -> dict:
         """更新智能体配置"""
