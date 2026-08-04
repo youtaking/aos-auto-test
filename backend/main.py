@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.db.config import init_db, close_db
-from backend.api import projects, suites, runs, cases, dashboard, api_tests, auth_configs, llm_configs, zentao_configs, ai_analysis
+from backend.api import projects, suites, runs, cases, dashboard, api_tests, auth_configs, llm_configs, zentao_configs, ai_analysis, ci, slots
 from backend import ws as ws_module
 
 
@@ -12,13 +12,14 @@ from backend import ws as ws_module
 async def lifespan(app: FastAPI):
     """应用生命周期：启动时建表 + 自动发现用例，关闭时释放连接"""
     await init_db()
+    from backend.db.config import async_session
+    from sqlalchemy import select
+
     # 启动时自动扫描并全量同步测试用例
     try:
         from engine.runner import TestRunner
-        from backend.db.config import async_session
         from backend.db.models import Project
         from backend.api.cases import sync_test_cases, SUITE_LABELS, API_SUITE_LABELS
-        from sqlalchemy import select
 
         runner = TestRunner()
 
@@ -50,7 +51,38 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[AutoDiscover] 用例同步失败: {e}")
 
+    # 初始化默认 Slot（如果不存在）
+    try:
+        async with async_session() as db:
+            from backend.db.models import EnvironmentSlot
+            result = await db.execute(select(EnvironmentSlot))
+            existing_slots = result.scalars().all()
+            if not existing_slots:
+                default_slots = [
+                    EnvironmentSlot(name="Slot 1", rcs_port=3101, postgres_port=5501, litellm_port=4101),
+                    EnvironmentSlot(name="Slot 2", rcs_port=3102, postgres_port=5502, litellm_port=4102),
+                    EnvironmentSlot(name="Slot 3", rcs_port=3103, postgres_port=5503, litellm_port=4103),
+                ]
+                db.add_all(default_slots)
+                await db.commit()
+                print("[Init] 已创建 3 个默认 Slot")
+    except Exception as e:
+        print(f"[Init] Slot 初始化失败: {e}")
+
+    # 启动超时检查后台任务
+    try:
+        from backend.services.timeout_checker import start_timeout_checker
+        start_timeout_checker()
+    except Exception as e:
+        print(f"[Init] 超时检查任务启动失败: {e}")
+
     yield
+    # 停止超时检查
+    try:
+        from backend.services.timeout_checker import stop_timeout_checker
+        stop_timeout_checker()
+    except Exception:
+        pass
     await close_db()
 
 
@@ -74,6 +106,8 @@ app.include_router(auth_configs.router, prefix="/api", tags=["auth-configs"])
 app.include_router(llm_configs.router, prefix="/api", tags=["llm-configs"])
 app.include_router(zentao_configs.router, prefix="/api", tags=["zentao-configs"])
 app.include_router(ai_analysis.router, prefix="/api", tags=["ai-analysis"])
+app.include_router(ci.router, prefix="/api", tags=["ci-pipelines"])
+app.include_router(slots.router, prefix="/api", tags=["slots"])
 app.include_router(ws_module.router, tags=["websocket"])
 
 
