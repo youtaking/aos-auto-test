@@ -509,6 +509,7 @@ async def cancel_pipeline(pipeline_id: int):
             raise ValueError(f"Pipeline #{pipeline_id} 不存在")
 
         if pipeline.status == "queued":
+            original_queue_pos = pipeline.queue_position  # 保存原始位置，用于后续递减
             pipeline.status = "destroyed"
             pipeline.queue_position = 0
             pipeline.error_message = "用户取消"
@@ -518,7 +519,7 @@ async def cancel_pipeline(pipeline_id: int):
                 update(PRPipeline)
                 .where(
                     PRPipeline.status == "queued",
-                    PRPipeline.queue_position > pipeline.queue_position,
+                    PRPipeline.queue_position > original_queue_pos,
                 )
                 .values(queue_position=PRPipeline.queue_position - 1)
             )
