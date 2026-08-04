@@ -20,9 +20,6 @@ def test_site_builder_chat_loads(logged_in_page, base_url):
     # 2. 可与建站助手进行对话交互（有输入框）
     assert chat.has_textarea(), "对话页没有消息输入框"
 
-    # 3. 右侧 ArtifactsPanel 存在
-    assert chat.has_artifacts_panel(), "ArtifactsPanel（iframe 预览区）未出现"
-
 
 # === TC-SITE-011: 应用预览和独立 URL 访问 ===
 
@@ -127,31 +124,43 @@ def test_sites_list_edit_and_delete(logged_in_page, base_url):
 @pytest.mark.order(47)
 @pytest.mark.p1
 def test_artifacts_panel_with_bound_site(logged_in_page, base_url):
-    """应用绑定到 Agent 后 ArtifactsPanel 展示（TC-SITE-015） | ✅ 人工评审通过 |"""
+    """应用绑定到 Agent 后 ArtifactsPanel 展示（TC-SITE-015）"""
+    import random
     chat = SiteBuilderChatPage(logged_in_page, base_url)
     chat.goto_builder_chat()
 
     assert chat.is_chat_loaded(), "建站助手对话页未加载"
 
-    # 1. ArtifactsPanel 出现
-    assert chat.has_artifacts_panel(), "ArtifactsPanel 未出现"
+    # 0. 动态生成简单站点请求消息
+    styles = ["简约风", "清新风", "科技感", "文艺风", "极简风"]
+    colors = ["蓝色", "绿色", "暖色调", "渐变色", "黑白配色"]
+    msg = f"生成一个简单的个人主页，{random.choice(styles)}，主色调{random.choice(colors)}"
+    textarea = logged_in_page.locator("textarea")
+    assert textarea.count() > 0, "对话页没有输入框"
+    textarea.first.fill(msg)
+    textarea.first.press("Enter")
 
-    # 2. 预览区有内容（iframe 或 artifact div）
-    iframe = logged_in_page.locator("iframe")
-    artifact = logged_in_page.locator("[data-slot='artifact'], iframe[src*='artifact']")
-    has_preview = False
-    if iframe.count() > 0:
-        src = iframe.first.get_attribute("src") or ""
-        has_preview = "/web/site/" in src or "/deploy/" in src or len(src) > 0
-    if not has_preview and artifact.count() > 0:
-        has_preview = artifact.first.is_visible()
-    assert has_preview, "ArtifactsPanel 预览区无有效内容"
+    # 1. 等待对话区出现「您的站点已生成」卡片（最多 120 秒）
+    done_card = logged_in_page.locator("div.text-sm.text-text-primary", has_text="您的站点已生成")
+    appeared = False
+    for _ in range(120):
+        if done_card.count() > 0:
+            appeared = True
+            break
+        logged_in_page.wait_for_timeout(1000)
+    assert appeared, f"发消息后 120 秒内未出现「您的站点已生成」卡片（消息: {msg}）"
 
-    # 3. 「查看站点」按钮或相关操作按钮存在
+    # 2. 点击「查看站点」按钮，打开右侧预览
     view_btn = logged_in_page.get_by_role("button", name="查看站点")
-    open_btn = logged_in_page.get_by_role("button", name="打开")
-    has_action = view_btn.count() > 0 or open_btn.count() > 0
-    assert has_action, "预览区无「查看站点」或「打开」操作按钮"
+    assert view_btn.count() > 0, "未找到「查看站点」按钮"
+    view_btn.first.click()
+    logged_in_page.wait_for_timeout(3000)
+
+    # 3. 验证 iframe 预览区出现且 src 指向站点部署地址
+    iframe = logged_in_page.locator("iframe[src*='/web/site/deploy/']")
+    assert iframe.count() > 0, "点击「查看站点」后未出现预览 iframe"
+    src = iframe.first.get_attribute("src") or ""
+    assert "/web/site/deploy/" in src, f"iframe src 不是站点部署地址: {src}"
 
 
 # === TC-SITE-016: 创建者名称展示 ===

@@ -1,11 +1,11 @@
 fenixagent:
   url: http://localhost:8080
   admin:
-    email: admin@example.com
-    password: your-admin-password
-  api_key: test-api-key-placeholder
-  api_email: api-test@example.com
-  api_password: your-api-password
+    email: xiaochun@agent.com
+    password: '12345678'
+  api_key: rcs_VWZmmkoEsylWuDXZvaMbDlrwITaeptXLaXSGQURTvSZuveCgSmVjqGlbCiHfJoqm
+  api_email: xiaochun@agent.com
+  api_password: '12345678'
 test_users:
 - email: test@example.com
   password: test123
