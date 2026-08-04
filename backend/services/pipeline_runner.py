@@ -383,8 +383,11 @@ async def _execute_pipeline_tests(
             run.finished_at = datetime.utcnow()
             pipeline.status = "failed"
             pipeline.error_message = str(e)[:1000]
-            config = await slot_manager.get_ci_config(db)
-            pipeline.timeout_at = datetime.utcnow() + timedelta(minutes=config.timeout_minutes)
+            try:
+                config = await slot_manager.get_ci_config(db)
+                pipeline.timeout_at = datetime.utcnow() + timedelta(minutes=config.timeout_minutes)
+            except Exception:
+                pipeline.timeout_at = datetime.utcnow() + timedelta(minutes=30)
             await db.commit()
             await _broadcast(pipeline_id, "pipeline_complete", {
                 "status": "error",
@@ -399,7 +402,7 @@ async def rerun_pipeline(pipeline_id: int, case_ids: list[int] | None = None):
         if not pipeline:
             raise ValueError(f"Pipeline #{pipeline_id} 不存在")
 
-        if pipeline.status == "destroyed":
+        if pipeline.status in ("destroyed", "error"):
             # 需要重建
             config = await slot_manager.get_ci_config(db)
             slot = await slot_manager.allocate_slot(db)
@@ -510,10 +513,13 @@ async def cancel_pipeline(pipeline_id: int):
             pipeline.queue_position = 0
             pipeline.error_message = "用户取消"
             await db.commit()
-            # 后续排队位置前移
+            # 后续排队位置前移（仅影响被取消的 Pipeline 之后的）
             await db.execute(
                 update(PRPipeline)
-                .where(PRPipeline.status == "queued", PRPipeline.queue_position > 0)
+                .where(
+                    PRPipeline.status == "queued",
+                    PRPipeline.queue_position > pipeline.queue_position,
+                )
                 .values(queue_position=PRPipeline.queue_position - 1)
             )
             await db.commit()
@@ -565,7 +571,7 @@ async def handle_pr_update(pr_id: int, new_commit_sha: str):
             # 排队中 → 更新 commit
             pipeline.commit_sha = new_commit_sha
             await db.commit()
-        elif pipeline.status in ("building", "deploying", "running", "passed", "failed"):
+        elif pipeline.status in ("building", "deploying", "running", "passed", "failed", "error"):
             # 正在运行或已完成 → 销毁后重建
             old_id = pipeline.id
             await destroy_pipeline(old_id)
