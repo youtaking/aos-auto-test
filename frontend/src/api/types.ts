@@ -121,3 +121,55 @@ export interface ZentaoConfig {
   is_active: number;
   created_at: string;
 }
+
+export interface Pipeline {
+  id: number;
+  pr_id: number;
+  pr_title: string;
+  commit_sha: string;
+  branch: string;
+  repo_url: string;
+  author: string;
+  slot_id: number | null;
+  slot_name: string | null;
+  status: string;
+  docker_image: string;
+  rcs_url: string;
+  run_id: number | null;
+  queue_position: number;
+  timeout_at: string | null;
+  environment_info: string;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+  test_total: number;
+  test_passed: number;
+  test_failed: number;
+  test_skipped: number;
+}
+
+export interface EnvironmentSlot {
+  id: number;
+  name: string;
+  rcs_port: number;
+  postgres_port: number;
+  litellm_port: number;
+  status: string;
+  pipeline_id: number | null;
+  pipeline_pr_id: number | null;
+  pipeline_status: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CIConfig {
+  id: number;
+  timeout_minutes: number;
+  max_queue_size: number;
+  auth_token: string;
+  run_api_tests: number;
+  run_e2e_p0: number;
+  run_e2e_all: number;
+  created_at: string;
+  updated_at: string;
+}
