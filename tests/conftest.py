@@ -272,8 +272,13 @@ def _page_error_monitor(request):
             # 白名单：MCP 检测本地服务器返回"仅支持远程"的已知错误
             if "Inspect only supports remote" in msg.text or "检测失败" in msg.text:
                 return
-            # 白名单：页面导航切换时 AgentPanelLayout 轮询请求中断（SPA 瞬态错误）
-            if "Failed to fetch" in msg.text and ("/web/config" in msg.text or "/web/environments" in msg.text):
+            # 白名单：页面导航切换时轮询请求中断（SPA 瞬态错误）
+            if "Failed to fetch" in msg.text and (
+                "/web/config" in msg.text
+                or "/web/environments" in msg.text
+                or "/web/sidebar-config" in msg.text
+                or "/web/agent-sites" in msg.text
+            ):
                 return
             if "网络异常" in msg.text and "ApiError" in msg.text:
                 return
@@ -417,7 +422,16 @@ def _page_error_monitor(request):
     if console_errors:
         all_errors.append(f"控制台错误 ({len(console_errors)}):\n" + "\n".join(console_errors[:5]))
 
-    assert not all_errors, "页面检测到错误:\n\n" + "\n\n".join(all_errors)
+    # 若测试主体已失败，teardown 不再重复断言（避免 Allure 中同一错误出现两次）
+    if all_errors:
+        test_failed = getattr(request.node, "_test_call_failed", False)
+        if not test_failed:
+            assert False, "页面检测到错误:\n\n" + "\n\n".join(all_errors)
+        else:
+            # 测试已失败，仅打印错误信息作为补充
+            print(f"\n⚠️ 页面错误（测试已失败，不再重复断言）:")
+            for e in all_errors:
+                print(f"  {e[:200]}")
 
 
 @pytest.hookimpl(hookwrapper=True)
@@ -425,6 +439,10 @@ def pytest_runtest_makereport(item, call):
     """每条用例结束后截图并附加到 Allure 报告"""
     outcome = yield
     report = outcome.get_result()
+
+    # 记录测试主体是否失败，供 fixture teardown 判断是否需要重复断言
+    if report.when == "call" and report.failed:
+        item._test_call_failed = True
 
     if report.when == "call":
         page = item.funcargs.get("logged_in_page") or item.funcargs.get("page")

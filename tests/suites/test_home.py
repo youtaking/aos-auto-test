@@ -111,8 +111,8 @@ def test_home_description_input(logged_in_page, base_url):
     textarea = logged_in_page.locator(
         "textarea[placeholder='描述你想要的 Agent 能力...']"
     )
-    if textarea.count() == 0:
-        pytest.skip("首页无描述输入框")
+    assert textarea.count() > 0, \
+        "首页应有描述输入框（textarea[placeholder='描述你想要的 Agent 能力...']），但未找到"
 
     # 输入描述
     textarea.first.fill("帮我写一封正式的商务邮件")

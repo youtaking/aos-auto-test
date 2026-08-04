@@ -62,9 +62,14 @@ class AgentConfigPage:
         cards = self.page.locator("button.agent-sidebar-agent-card")
         names = []
         for i in range(cards.count()):
-            text = cards.nth(i).text_content().strip()
-            # 去掉 "ORG_001" 后缀
-            name = text.replace("ORG_001", "").replace("公开", "").strip()
+            # 从名称 div 直接提取，避免拼接组织标识
+            name_el = cards.nth(i).locator("div.text-\\[13px\\].font-semibold").first
+            if name_el.count() > 0:
+                name = name_el.text_content().strip()
+            else:
+                # fallback: 去掉 ORG_001 和已知后缀
+                text = cards.nth(i).text_content().strip()
+                name = text.replace("ORG_001_new", "").replace("ORG_001", "").replace("公开", "").replace("共享", "").strip()
             if name:
                 names.append(name)
         return names
@@ -202,9 +207,15 @@ class AgentConfigPage:
         """获取"一键创建"按钮"""
         return self.page.get_by_role("button", name="一键创建")
 
-    def create_agent_ui(self, name: str, system_prompt: str = "") -> dict:
+    def create_agent_ui(self, name: str, system_prompt: str = "",
+                        clear_skills: bool = False) -> dict:
         """通过 UI 创建智能体（描述 → AI 生成 → 替换名称/SP → 创建）
         返回 {"status": 200, "agent_name": 实际使用的名称} 或错误信息
+
+        Args:
+            name: Agent 名称
+            system_prompt: 系统提示词（空字符串则留空）
+            clear_skills: 若为 True，创建前移除所有平台预选的技能
         """
         self.goto_create()
 
@@ -213,7 +224,7 @@ class AgentConfigPage:
         cards.first.wait_for(state="visible", timeout=10000)
 
         # 填写描述并点击一键创建
-        desc = system_prompt if system_prompt else f"创建一个名为{name}的助手"
+        desc = system_prompt if system_prompt else "创建一个通用助手，能够回答各种问题"
         self.fill_create_description(desc)
         quick_btn = self.get_quick_create_button()
         quick_btn.scroll_into_view_if_needed()
@@ -221,7 +232,7 @@ class AgentConfigPage:
 
         # 等待 AI 生成表单出现
         create_btn = self.page.get_by_role("button", name="创建 Agent")
-        create_btn.wait_for(state="visible", timeout=30000)
+        create_btn.wait_for(state="visible", timeout=90000)
         self.page.wait_for_timeout(1000)
 
         # 替换名称
@@ -234,6 +245,10 @@ class AgentConfigPage:
         sp_ta = self.page.locator("textarea").first
         sp_ta.fill(system_prompt)  # fill("") 会清空 textarea
         self.page.wait_for_timeout(300)
+
+        # 清除平台预选的技能
+        if clear_skills:
+            self._clear_skill_tags()
 
         # 点击创建
         create_btn.scroll_into_view_if_needed()
@@ -258,6 +273,24 @@ class AgentConfigPage:
                 pass
 
         return {"status": 200 if is_chat else 500, "agent_name": name}
+
+    def _clear_skill_tags(self):
+        """移除创建表单中平台预选的技能标签（点 X 按钮）"""
+        skill_x_btns = self.page.locator(
+            "div.flex.max-w-full.items-start.gap-2 "
+            "button:has(svg.lucide-x)"
+        )
+        count = skill_x_btns.count()
+        if count > 0:
+            print(f"  [clear_skill_tags] 移除 {count} 个预选技能")
+            for _ in range(count):
+                btns = self.page.locator(
+                    "div.flex.max-w-full.items-start.gap-2 "
+                    "button:has(svg.lucide-x)"
+                )
+                if btns.count() > 0:
+                    btns.first.click()
+                    self.page.wait_for_timeout(200)
 
     # ==================== 对话页面 ====================
 

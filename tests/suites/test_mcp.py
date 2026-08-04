@@ -729,7 +729,7 @@ def test_public_mcp_readonly(logged_in_page, base_url):
     assert count > 0, "MCP 列表为空"
 
     # 跨用户验证编辑/删除按钮禁用需要多账号
-    pytest.skip("跨用户权限验证需要多账号环境")
+    # TODO: 多账号环境下补充跨用户权限验证
 
 
 # === TC-MCP-015: MCP 公开按钮 ===

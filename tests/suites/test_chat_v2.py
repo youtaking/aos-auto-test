@@ -37,8 +37,8 @@ def test_markdown_rendering(logged_in_page, base_url):
             break
         logged_in_page.wait_for_timeout(1000)
 
-    if not chat.has_heading():
-        pytest.skip("AI 模型未按指令生成标题元素，跳过 Markdown 渲染测试")
+    assert chat.has_heading(), \
+        "AI 未按指令生成标题元素（h1-h6），Markdown 渲染失败"
 
     # 至少再渲染 1 种其他 Markdown 元素
     rendered_count = sum([
@@ -72,8 +72,8 @@ def test_code_block_highlight(logged_in_page, base_url):
             break
         logged_in_page.wait_for_timeout(1000)
 
-    if not chat.has_code_block():
-        pytest.skip("AI 模型未按指令生成代码块（pre 元素），跳过语法高亮测试")
+    assert chat.has_code_block(), \
+        "AI 未按指令生成代码块（pre 元素不存在），语法高亮测试无法进行"
 
     # 验证 code 元素存在
     code = logged_in_page.locator("pre code")
@@ -105,8 +105,8 @@ def test_long_code_block_layout(logged_in_page, base_url):
             break
         logged_in_page.wait_for_timeout(1000)
 
-    if not chat.has_code_block():
-        pytest.skip("AI 未按指令生成代码块（pre 元素不存在），跳过长代码块布局测试")
+    assert chat.has_code_block(), \
+        "AI 未按指令生成代码块（pre 元素不存在），长代码块布局测试无法进行"
 
     # 验证代码块没有导致页面横向溢出
     body_width = logged_in_page.evaluate("document.body.scrollWidth")
@@ -166,8 +166,8 @@ def test_markdown_table_rendering(logged_in_page, base_url):
             break
         logged_in_page.wait_for_timeout(1000)
 
-    if not chat.has_table():
-        pytest.skip("AI 未按指令生成表格（table 元素不存在），跳过表格渲染测试")
+    assert chat.has_table(), \
+        "AI 未按指令生成表格（table 元素不存在），表格渲染测试失败"
 
     table = logged_in_page.locator("table").first
     # 验证表格至少有 2 行数据

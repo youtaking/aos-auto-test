@@ -48,8 +48,8 @@ def test_chat_artifacts_panel(logged_in_page, base_url):
     iframe = logged_in_page.locator("iframe")
 
     has_artifacts = artifacts_panel.count() > 0 or iframe.count() > 0
-    if not has_artifacts:
-        pytest.skip("当前 Agent 未绑定 Sites，无 Artifacts 面板")
+    assert has_artifacts, \
+        "当前 Agent 应绑定 Sites 并显示 Artifacts 面板，但未找到"
 
     # 如果有 Artifacts，验证面板可见
     if artifacts_panel.count() > 0:
@@ -70,13 +70,11 @@ def test_chat_copy_message(logged_in_page, base_url):
 
     # 在 AI 消息上寻找复制按钮
     log_area = logged_in_page.locator("div[role='log']")
-    if log_area.count() == 0:
-        pytest.skip("消息日志区域不存在")
+    assert log_area.count() > 0, "消息日志区域（div[role='log']）不存在"
 
     # Hover 最后一条消息，触发操作按钮显示
     last_msg = log_area.first.locator("> div").last
-    if last_msg.count() == 0:
-        pytest.skip("无消息气泡")
+    assert last_msg.count() > 0, "无消息气泡"
 
     last_msg.hover()
     logged_in_page.wait_for_timeout(800)
@@ -91,8 +89,8 @@ def test_chat_copy_message(logged_in_page, base_url):
         )
     )
 
-    if copy_btn.count() == 0:
-        pytest.skip("AI 消息上无复制按钮")
+    assert copy_btn.count() > 0, \
+        "AI 消息上应有复制按钮，但未找到（title/aria-label 含 'copy' 或 '复制'）"
 
     assert copy_btn.first.is_visible(), "复制按钮存在但不可见"
 
@@ -223,8 +221,8 @@ def test_chat_artifacts_panel_collapse_expand(logged_in_page, base_url):
     )
     iframe = logged_in_page.locator("iframe")
 
-    if artifacts_panel.count() == 0 and iframe.count() == 0:
-        pytest.skip("当前 Agent 未绑定 Sites，无 Artifacts 面板")
+    assert artifacts_panel.count() > 0 or iframe.count() > 0, \
+        "当前 Agent 应绑定 Sites 并显示 Artifacts 面板，但未找到"
 
     # 查找折叠/展开按钮
     collapse_btn = logged_in_page.locator(
