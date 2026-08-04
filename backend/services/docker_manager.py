@@ -1,9 +1,7 @@
 # backend/services/docker_manager.py
 """Docker 构建与部署管理"""
 import asyncio
-import os
 import shutil
-import subprocess
 from pathlib import Path
 
 import httpx
@@ -40,6 +38,7 @@ async def _run_cmd(cmd: list[str], cwd: str | None = None, timeout: int = 600) -
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except asyncio.TimeoutError:
         proc.kill()
+        await proc.wait()
         return -1, f"Command timed out after {timeout}s"
     output = stdout.decode("utf-8", errors="replace") if stdout else ""
     return proc.returncode or 0, output
@@ -149,14 +148,15 @@ async def deploy(pipeline: PRPipeline, slot: EnvironmentSlot) -> None:
 async def wait_healthy(slot: EnvironmentSlot, timeout: int = 120) -> bool:
     """轮询 RCS health endpoint，返回是否健康"""
     health_url = f"http://127.0.0.1:{slot.rcs_port}/health"
-    deadline = asyncio.get_event_loop().time() + timeout
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
     async with httpx.AsyncClient(timeout=5) as client:
-        while asyncio.get_event_loop().time() < deadline:
+        while loop.time() < deadline:
             try:
                 resp = await client.get(health_url)
                 if resp.status_code == 200:
                     return True
-            except Exception:
+            except (httpx.HTTPError, OSError, ConnectionError):
                 pass
             await asyncio.sleep(5)
     return False
