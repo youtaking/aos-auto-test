@@ -21,8 +21,15 @@ async def allocate_slot(db: AsyncSession) -> EnvironmentSlot | None:
     return slot
 
 
-async def release_slot(db: AsyncSession, slot_id: int) -> None:
-    """释放 Slot，标记为 available"""
+async def release_slot(db: AsyncSession, slot_id: int, pipeline_id: int) -> None:
+    """释放 Slot，标记为 available。
+
+    通过 pipeline_id 查询 PRPipeline，校验该 Pipeline 确实持有此 Slot，
+    校验通过后才执行释放，防止误释放其他 Pipeline 占用的 Slot。
+    """
+    pipeline = await db.get(PRPipeline, pipeline_id)
+    if not pipeline or pipeline.slot_id != slot_id:
+        return
     slot = await db.get(EnvironmentSlot, slot_id)
     if slot and slot.status == "occupied":
         slot.status = "available"
@@ -53,15 +60,14 @@ async def dequeue_next(db: AsyncSession) -> PRPipeline | None:
     pipeline = result.scalar_one_or_none()
     if pipeline:
         pipeline.queue_position = 0
-        await db.commit()
-        await db.refresh(pipeline)
-        # 后续排队的 pipeline 位置前移
+        # 后续排队的 pipeline 位置前移（同一事务内完成）
         await db.execute(
             update(PRPipeline)
             .where(PRPipeline.status == "queued", PRPipeline.queue_position > 0)
             .values(queue_position=PRPipeline.queue_position - 1)
         )
         await db.commit()
+        await db.refresh(pipeline)
     return pipeline
 
 
