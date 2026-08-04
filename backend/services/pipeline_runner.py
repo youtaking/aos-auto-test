@@ -448,6 +448,8 @@ async def rerun_pipeline(pipeline_id: int, case_ids: list[int] | None = None):
             await db.commit()
         else:
             slot = await slot_manager.get_slot_for_pipeline(db, pipeline)
+            if not slot:
+                raise ValueError(f"Pipeline #{pipeline_id} 关联的 Slot (id={pipeline.slot_id}) 不存在")
 
         # 暂停超时计时
         pipeline.timeout_at = None
@@ -573,9 +575,31 @@ async def handle_pr_update(pr_id: int, new_commit_sha: str):
             pipeline.commit_sha = new_commit_sha
             await db.commit()
         elif pipeline.status in ("building", "deploying", "running", "passed", "failed", "error"):
-            # 正在运行或已完成 → 销毁后重建
-            old_id = pipeline.id
-            await destroy_pipeline(old_id)
+            # 正在运行或已完成 → 在当前 session 内直接销毁（避免嵌套 session）
+            slot = await slot_manager.get_slot_for_pipeline(db, pipeline)
+            if slot:
+                pipeline.environment_info = json.dumps({
+                    "slot_name": slot.name,
+                    "rcs_port": slot.rcs_port,
+                    "postgres_port": slot.postgres_port,
+                    "litellm_port": slot.litellm_port,
+                    "docker_image": pipeline.docker_image,
+                    "rcs_url": pipeline.rcs_url,
+                    "destroyed_at": datetime.utcnow().isoformat(),
+                    "destroyed_reason": "pr_update",
+                })
+                await docker_manager.destroy(pipeline, slot)
+                await slot_manager.release_slot(db, slot.id, pipeline.id)
+
+            pipeline.status = "destroyed"
+            pipeline.timeout_at = None
+            await db.commit()
+
+            await _broadcast(pipeline.id, "pipeline_timeout", {
+                "status": "destroyed",
+                "reason": "pr_update",
+            })
+            # 注意：不调用 _process_queue()，新 Pipeline 的启动会自行处理 Slot 分配
 
             # 创建新 Pipeline
             new_pipeline = PRPipeline(

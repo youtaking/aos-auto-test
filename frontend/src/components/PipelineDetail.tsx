@@ -50,7 +50,12 @@ export default function PipelineDetail({ pipeline, onClose, onRerun, onDestroy }
     logEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [logs]);
 
-  const envInfo = pipeline.environment_info ? JSON.parse(pipeline.environment_info) : null;
+  let envInfo: any = null;
+  try {
+    envInfo = pipeline.environment_info ? JSON.parse(pipeline.environment_info) : null;
+  } catch {
+    envInfo = null;
+  }
   const passRate = pipeline.test_total > 0
     ? ((pipeline.test_passed / pipeline.test_total) * 100).toFixed(1)
     : "-";
