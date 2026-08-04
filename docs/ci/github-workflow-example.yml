@@ -1,0 +1,45 @@
+# ============================================================
+# 此文件需要复制到 FenixAgent 仓库的 .github/workflows/ 目录下
+# ============================================================
+#
+# 使用前需要在 FenixAgent 仓库的 Settings -> Secrets -> Actions 中配置：
+#   AUTO_TEST_URL   - AutoTest 后端地址，如 http://your-server:8000
+#   AUTO_TEST_TOKEN - 认证 Token，在 AutoTest 看板 CI 配置页面获取
+# ============================================================
+
+name: AutoTest PR Trigger
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+    branches: [main, develop]
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger AutoTest Pipeline
+        run: |
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            "${{ secrets.AUTO_TEST_URL }}/api/ci/pr-trigger" \
+            -H "Authorization: Bearer ${{ secrets.AUTO_TEST_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "pr_id": ${{ github.event.pull_request.number }},
+              "pr_title": "${{ github.event.pull_request.title }}",
+              "commit_sha": "${{ github.event.pull_request.head.sha }}",
+              "branch": "${{ github.event.pull_request.head.ref }}",
+              "repo_url": "${{ github.event.pull_request.head.repo.clone_url }}",
+              "author": "${{ github.event.pull_request.user.login }}"
+            }')
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+
+          echo "Response: $BODY"
+
+          if [ "$HTTP_CODE" -ge 400 ]; then
+            echo "::warning::AutoTest trigger failed (HTTP $HTTP_CODE): $BODY"
+          else
+            echo "::notice::AutoTest pipeline triggered successfully"
+          fi
