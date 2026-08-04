@@ -130,8 +130,10 @@ async def connect_global(ws: WebSocket):
 
 async def disconnect_global(ws: WebSocket):
     """移除全局 WebSocket 连接"""
-    if ws in _global_connections:
+    try:
         _global_connections.remove(ws)
+    except ValueError:
+        pass
 
 
 async def broadcast_global(event: str, data: dict):
