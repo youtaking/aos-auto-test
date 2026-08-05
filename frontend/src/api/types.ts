@@ -64,6 +64,7 @@ export interface TestRun {
   started_at: string | null;
   finished_at: string | null;
   created_at: string;
+  collection_ids: number[] | null;
 }
 
 export interface TestResult {
@@ -170,6 +171,17 @@ export interface CIConfig {
   run_api_tests: number;
   run_e2e_p0: number;
   run_e2e_all: number;
+  collection_ids: number[] | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Collection {
+  id: number;
+  project_id: number;
+  name: string;
+  description: string;
+  case_ids: number[];
   created_at: string;
   updated_at: string;
 }
