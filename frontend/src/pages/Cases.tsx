@@ -234,7 +234,16 @@ export default function Cases() {
             共 {cases.length} 个用例，{suites.length} 个套件
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
+          <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer px-3 py-2 border rounded-lg hover:bg-gray-50">
+            <input
+              type="checkbox"
+              checked={headed}
+              onChange={(e) => setHeaded(e.target.checked)}
+              className="w-4 h-4 rounded"
+            />
+            显示浏览器
+          </label>
           {collections.length > 0 && (
             <div className="relative">
               <button
@@ -302,15 +311,6 @@ export default function Cases() {
             </span>
           </div>
           <div className="flex items-center gap-3">
-            <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={headed}
-                onChange={(e) => setHeaded(e.target.checked)}
-                className="w-4 h-4 rounded"
-              />
-              显示浏览器
-            </label>
             <button
               onClick={handleRunSelected}
               disabled={running}
