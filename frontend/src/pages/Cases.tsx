@@ -3,7 +3,9 @@ import { useNavigate } from "react-router-dom";
 import { listProjects, listSuites, discoverCases } from "../api/projects";
 import { get } from "../api/client";
 import { triggerRun } from "../api/runs";
-import { ChevronDown, RefreshCw } from "lucide-react";
+import { getCollection, updateCollection } from "../api/collections";
+import { ChevronDown, RefreshCw, FolderOpen } from "lucide-react";
+import CollectionManager from "../components/CollectionManager";
 import type { TestSuite, TestCase } from "../api/types";
 
 export default function Cases() {
@@ -14,6 +16,7 @@ export default function Cases() {
   const [running, setRunning] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [headed, setHeaded] = useState(true);
+  const [showCollections, setShowCollections] = useState(false);
   const [projectId, setProjectId] = useState<number | null>(null);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
@@ -88,6 +91,12 @@ export default function Cases() {
       console.error(e);
       setRunning(false);
     }
+  };
+
+  const handleAddSelectedToCollection = async (collectionId: number, caseIds: number[]) => {
+    const col = await getCollection(collectionId);
+    const merged = [...new Set([...col.case_ids, ...caseIds])];
+    await updateCollection(collectionId, { case_ids: merged });
   };
 
   const toggleCollapse = (key: string) => {
@@ -205,16 +214,24 @@ export default function Cases() {
             共 {cases.length} 个用例，{suites.length} 个套件
           </p>
         </div>
-        <button
-          onClick={handleSync}
-          disabled={syncing}
-          className={`flex items-center gap-2 px-4 py-2 text-white rounded-lg text-sm font-medium transition-colors ${
-            syncing ? "bg-gray-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700"
-          }`}
-        >
-          <RefreshCw className={`w-4 h-4 ${syncing ? "animate-spin" : ""}`} />
-          {syncing ? "同步中..." : "重新扫描"}
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setShowCollections(true)}
+            className="flex items-center gap-2 px-4 py-2 border rounded-lg text-sm font-medium hover:bg-gray-50"
+          >
+            <FolderOpen className="w-4 h-4" /> 用例集
+          </button>
+          <button
+            onClick={handleSync}
+            disabled={syncing}
+            className={`flex items-center gap-2 px-4 py-2 text-white rounded-lg text-sm font-medium transition-colors ${
+              syncing ? "bg-gray-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700"
+            }`}
+          >
+            <RefreshCw className={`w-4 h-4 ${syncing ? "animate-spin" : ""}`} />
+            {syncing ? "同步中..." : "重新扫描"}
+          </button>
+        </div>
       </div>
 
       {/* 浮动操作栏 */}
@@ -256,6 +273,14 @@ export default function Cases() {
 
       {/* Web API 测试 */}
       {renderSuiteSection("section-api", "Web API 测试", apiSuites, apiCases, "bg-orange-500")}
+
+      {showCollections && (
+        <CollectionManager
+          selectedCaseIds={Array.from(selectedIds)}
+          onAddSelectedToCollection={handleAddSelectedToCollection}
+          onClose={() => setShowCollections(false)}
+        />
+      )}
     </div>
   );
 }
