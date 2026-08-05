@@ -74,6 +74,7 @@ class CIConfigResponse(BaseModel):
     run_api_tests: int
     run_e2e_p0: int
     run_e2e_all: int
+    collection_ids: Optional[List[int]] = None
     created_at: datetime
     updated_at: datetime
 
@@ -88,3 +89,4 @@ class CIConfigUpdate(BaseModel):
     run_api_tests: Optional[int] = None
     run_e2e_p0: Optional[int] = None
     run_e2e_all: Optional[int] = None
+    collection_ids: Optional[List[int]] = None
