@@ -208,7 +208,8 @@ async def update_ci_config(
     """更新 CI 配置"""
     config = await slot_manager.get_ci_config(db)
     for field in ["timeout_minutes", "max_queue_size", "auth_token",
-                   "run_api_tests", "run_e2e_p0", "run_e2e_all"]:
+                   "run_api_tests", "run_e2e_p0", "run_e2e_all",
+                   "collection_ids"]:
         value = getattr(body, field, None)
         if value is not None:
             setattr(config, field, value)
