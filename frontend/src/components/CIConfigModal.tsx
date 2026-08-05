@@ -42,6 +42,12 @@ export default function CIConfigModal({ onClose }: Props) {
           rcs_port: s.rcs_port,
           postgres_port: s.postgres_port,
           litellm_port: s.litellm_port,
+          host: s.host,
+          ssh_user: s.ssh_user,
+          ssh_port: s.ssh_port,
+          ssh_key_path: s.ssh_key_path,
+          ssh_password: s.ssh_password,
+          work_dir: s.work_dir,
         });
       }
       onClose();
@@ -150,8 +156,96 @@ export default function CIConfigModal({ onClose }: Props) {
         <div className="space-y-3">
           <h3 className="font-semibold">Slot 配置</h3>
           {slots.map((s, i) => (
-            <div key={s.id} className="border rounded-lg p-3">
-              <div className="font-medium text-sm mb-2">{s.name}</div>
+            <div key={s.id} className="border rounded-lg p-3 space-y-2">
+              <div className="font-medium text-sm">{s.name}</div>
+              {/* 服务器 + SSH */}
+              <div className="grid grid-cols-4 gap-2">
+                <div className="col-span-2">
+                  <label className="block text-xs text-gray-500">服务器地址</label>
+                  <input
+                    type="text"
+                    value={s.host || "localhost"}
+                    onChange={(e) => {
+                      const updated = [...slots];
+                      updated[i] = { ...s, host: e.target.value };
+                      setSlots(updated);
+                    }}
+                    placeholder="localhost 或 IP 地址"
+                    className="w-full px-2 py-1 border rounded text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500">SSH 用户</label>
+                  <input
+                    type="text"
+                    value={s.ssh_user || "root"}
+                    onChange={(e) => {
+                      const updated = [...slots];
+                      updated[i] = { ...s, ssh_user: e.target.value };
+                      setSlots(updated);
+                    }}
+                    className="w-full px-2 py-1 border rounded text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500">SSH 端口</label>
+                  <input
+                    type="number"
+                    value={s.ssh_port || 22}
+                    onChange={(e) => {
+                      const updated = [...slots];
+                      updated[i] = { ...s, ssh_port: Number(e.target.value) };
+                      setSlots(updated);
+                    }}
+                    className="w-full px-2 py-1 border rounded text-sm"
+                  />
+                </div>
+              </div>
+              {/* SSH 密钥 + 密码 + 工作目录 */}
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="block text-xs text-gray-500">SSH 密钥路径</label>
+                  <input
+                    type="text"
+                    value={s.ssh_key_path || ""}
+                    onChange={(e) => {
+                      const updated = [...slots];
+                      updated[i] = { ...s, ssh_key_path: e.target.value };
+                      setSlots(updated);
+                    }}
+                    placeholder="如 ~/.ssh/id_rsa（留空用密码）"
+                    className="w-full px-2 py-1 border rounded text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500">SSH 密码</label>
+                  <input
+                    type="password"
+                    value={s.ssh_password || ""}
+                    onChange={(e) => {
+                      const updated = [...slots];
+                      updated[i] = { ...s, ssh_password: e.target.value };
+                      setSlots(updated);
+                    }}
+                    placeholder="密钥留空时用密码"
+                    className="w-full px-2 py-1 border rounded text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500">远程工作目录</label>
+                  <input
+                    type="text"
+                    value={s.work_dir || "/tmp/pr-environments"}
+                    onChange={(e) => {
+                      const updated = [...slots];
+                      updated[i] = { ...s, work_dir: e.target.value };
+                      setSlots(updated);
+                    }}
+                    className="w-full px-2 py-1 border rounded text-sm"
+                  />
+                </div>
+              </div>
+              {/* 端口配置 */}
               <div className="grid grid-cols-3 gap-2">
                 <div>
                   <label className="block text-xs text-gray-500">RCS 端口</label>

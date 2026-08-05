@@ -170,7 +170,7 @@ class TestResult(Base):
 
 
 class EnvironmentSlot(Base):
-    """环境 Slot 配置：每个 Slot 对应一组端口，用于部署 PR 环境"""
+    """环境 Slot 配置：每个 Slot 对应一组端口和目标服务器，用于部署 PR 环境"""
     __tablename__ = "environment_slots"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -179,6 +179,13 @@ class EnvironmentSlot(Base):
     postgres_port = Column(Integer, nullable=False)
     litellm_port = Column(Integer, nullable=False)
     status = Column(String(20), default="available")  # available / occupied / maintenance
+    # 远程服务器配置（host=localhost 时本地执行）
+    host = Column(String(200), default="localhost")
+    ssh_user = Column(String(50), default="root")
+    ssh_port = Column(Integer, default=22)
+    ssh_key_path = Column(String(500), default="")
+    ssh_password = Column(String(200), default="")
+    work_dir = Column(String(500), default="/tmp/pr-environments")
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

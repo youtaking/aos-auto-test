@@ -13,6 +13,12 @@ class SlotResponse(BaseModel):
     postgres_port: int
     litellm_port: int
     status: str
+    # 远程服务器配置
+    host: Optional[str] = "localhost"
+    ssh_user: Optional[str] = "root"
+    ssh_port: Optional[int] = 22
+    ssh_key_path: Optional[str] = ""
+    work_dir: Optional[str] = "/tmp/pr-environments"
     # 当前关联的 Pipeline 信息
     pipeline_id: Optional[int] = None
     pipeline_pr_id: Optional[int] = None
@@ -30,3 +36,10 @@ class SlotUpdate(BaseModel):
     postgres_port: Optional[int] = None
     litellm_port: Optional[int] = None
     status: Optional[str] = None
+    # 远程服务器配置
+    host: Optional[str] = None
+    ssh_user: Optional[str] = None
+    ssh_port: Optional[int] = None
+    ssh_key_path: Optional[str] = None
+    ssh_password: Optional[str] = None
+    work_dir: Optional[str] = None

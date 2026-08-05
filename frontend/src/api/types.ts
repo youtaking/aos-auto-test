@@ -156,6 +156,12 @@ export interface EnvironmentSlot {
   postgres_port: number;
   litellm_port: number;
   status: string;
+  host: string;
+  ssh_user: string;
+  ssh_port: number;
+  ssh_key_path: string;
+  ssh_password: string;
+  work_dir: string;
   pipeline_id: number | null;
   pipeline_pr_id: number | null;
   pipeline_status: string | null;

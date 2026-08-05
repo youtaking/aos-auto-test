@@ -14,7 +14,15 @@ from backend.db.models import (
     CIConfig, AuthConfig, TestCollection,
 )
 from backend.services import slot_manager, docker_manager
+from backend.services.executor import create_executor, init_executor, CommandExecutor, SSHExecutor
 from backend import ws as ws_module
+
+
+async def _get_executor(slot: EnvironmentSlot) -> CommandExecutor | SSHExecutor:
+    """根据 Slot 配置创建并初始化执行器"""
+    executor = create_executor(slot)
+    await init_executor(executor, slot)
+    return executor
 
 
 async def resolve_collection_case_ids(db, collection_ids: list[int]) -> list[int]:
@@ -124,6 +132,7 @@ async def start_pipeline(pipeline_id: int, test_config: dict | None = None):
         config = await slot_manager.get_ci_config(db)
 
         allocated_slot_id = None  # 记录初始分配的 slot_id，防止 rerun 并发修改
+        executor = None
         try:
             # ── 1. 分配 Slot ──
             slot = await slot_manager.allocate_slot(db)
@@ -150,14 +159,18 @@ async def start_pipeline(pipeline_id: int, test_config: dict | None = None):
             pipeline.status = "building"
             await db.commit()
 
+            # 根据 Slot 配置创建执行器（本地或 SSH）
+            executor = await _get_executor(slot)
+
             await _broadcast(pipeline_id, "pipeline_start", {
                 "pr_id": pipeline.pr_id,
                 "status": "building",
                 "slot": slot.name,
+                "host": slot.host,
             })
 
             # ── 2. Clone + Build ──
-            image_tag = await docker_manager.clone_and_build(pipeline)
+            image_tag = await docker_manager.clone_and_build(pipeline, slot, executor)
             pipeline.docker_image = image_tag
             await db.commit()
 
@@ -174,7 +187,7 @@ async def start_pipeline(pipeline_id: int, test_config: dict | None = None):
                 "slot": slot.name,
             })
 
-            await docker_manager.deploy(pipeline, slot)
+            await docker_manager.deploy(pipeline, slot, executor)
 
             # ── 4. Health Check ──
             await _broadcast(pipeline_id, "health_check", {
@@ -187,7 +200,7 @@ async def start_pipeline(pipeline_id: int, test_config: dict | None = None):
                 pipeline.error_message = "Health check 超时（120s）"
                 await db.commit()
                 # 销毁失败的部署
-                await docker_manager.destroy(pipeline, slot)
+                await docker_manager.destroy(pipeline, slot, executor)
                 await slot_manager.release_slot(db, slot.id, pipeline.id)
                 await _broadcast(pipeline_id, "pipeline_error", {
                     "error": "Health check 超时",
@@ -196,7 +209,9 @@ async def start_pipeline(pipeline_id: int, test_config: dict | None = None):
                 await _process_queue()
                 return
 
-            pipeline.rcs_url = f"http://127.0.0.1:{slot.rcs_port}"
+            # 使用 slot.host 作为 RCS URL（支持远程服务器）
+            host = slot.host if slot.host and slot.host not in ("localhost",) else "127.0.0.1"
+            pipeline.rcs_url = f"http://{host}:{slot.rcs_port}"
             await db.commit()
 
             await _broadcast(pipeline_id, "deploy_progress", {
@@ -204,7 +219,7 @@ async def start_pipeline(pipeline_id: int, test_config: dict | None = None):
                 "rcs_url": pipeline.rcs_url,
             })
 
-            # ── 5. 跑测试 ──
+            # ── 5. 跑测试（本地执行 pytest，指向远程环境 URL）──
             await _run_tests(db, pipeline, slot, config, test_config)
 
         except Exception as e:
@@ -218,11 +233,19 @@ async def start_pipeline(pipeline_id: int, test_config: dict | None = None):
             if allocated_slot_id:
                 slot = await db.get(EnvironmentSlot, allocated_slot_id)
                 if slot:
-                    await docker_manager.destroy(pipeline, slot)
+                    try:
+                        if not executor:
+                            executor = await _get_executor(slot)
+                        await docker_manager.destroy(pipeline, slot, executor)
+                    except Exception:
+                        pass
                 await slot_manager.release_slot(db, allocated_slot_id, pipeline.id)
 
             await _broadcast(pipeline_id, "pipeline_error", {"error": str(e)[:500]})
             await _process_queue()
+        finally:
+            if executor:
+                await executor.close()
 
 
 async def _run_tests(
@@ -437,6 +460,7 @@ async def rerun_pipeline(pipeline_id: int, case_ids: list[int] | None = None):
         if not pipeline:
             raise ValueError(f"Pipeline #{pipeline_id} 不存在")
 
+        executor = None
         if pipeline.status in ("destroyed", "error"):
             # 需要重建
             config = await slot_manager.get_ci_config(db)
@@ -457,34 +481,42 @@ async def rerun_pipeline(pipeline_id: int, case_ids: list[int] | None = None):
             pipeline.timeout_at = None
             await db.commit()
 
+            executor = await _get_executor(slot)
+
             await _broadcast(pipeline_id, "pipeline_start", {
                 "pr_id": pipeline.pr_id,
                 "status": "rebuilding",
                 "slot": slot.name,
             })
 
-            image_tag = await docker_manager.clone_and_build(pipeline)
-            pipeline.docker_image = image_tag
-            pipeline.status = "deploying"
-            await db.commit()
-
-            await docker_manager.deploy(pipeline, slot)
-            healthy = await docker_manager.wait_healthy(slot, timeout=120)
-            if not healthy:
-                pipeline.status = "error"
-                pipeline.error_message = "重建后 Health check 超时"
+            try:
+                image_tag = await docker_manager.clone_and_build(pipeline, slot, executor)
+                pipeline.docker_image = image_tag
+                pipeline.status = "deploying"
                 await db.commit()
-                await docker_manager.destroy(pipeline, slot)
-                await slot_manager.release_slot(db, slot.id, pipeline.id)
-                await _process_queue()
-                return
 
-            pipeline.rcs_url = f"http://127.0.0.1:{slot.rcs_port}"
-            await db.commit()
+                await docker_manager.deploy(pipeline, slot, executor)
+                healthy = await docker_manager.wait_healthy(slot, timeout=120)
+                if not healthy:
+                    pipeline.status = "error"
+                    pipeline.error_message = "重建后 Health check 超时"
+                    await db.commit()
+                    await docker_manager.destroy(pipeline, slot, executor)
+                    await slot_manager.release_slot(db, slot.id, pipeline.id)
+                    await _process_queue()
+                    return
+
+                host = slot.host if slot.host and slot.host not in ("localhost",) else "127.0.0.1"
+                pipeline.rcs_url = f"http://{host}:{slot.rcs_port}"
+                await db.commit()
+            except Exception:
+                await executor.close()
+                raise
         else:
             slot = await slot_manager.get_slot_for_pipeline(db, pipeline)
             if not slot:
                 raise ValueError(f"Pipeline #{pipeline_id} 关联的 Slot (id={pipeline.slot_id}) 不存在")
+            executor = await _get_executor(slot)
 
         # 暂停超时计时
         pipeline.timeout_at = None
@@ -496,8 +528,12 @@ async def rerun_pipeline(pipeline_id: int, case_ids: list[int] | None = None):
         if case_ids is None:
             case_ids = await _resolve_test_cases(db, config, None)
 
-        # 跑测试
-        await _run_tests(db, pipeline, slot, config, {"custom_case_ids": case_ids} if case_ids else None)
+        try:
+            # 跑测试
+            await _run_tests(db, pipeline, slot, config, {"custom_case_ids": case_ids} if case_ids else None)
+        finally:
+            if executor:
+                await executor.close()
 
 
 async def destroy_pipeline(pipeline_id: int):
@@ -515,6 +551,7 @@ async def destroy_pipeline(pipeline_id: int):
             # 保存环境信息快照
             pipeline.environment_info = json.dumps({
                 "slot_name": slot.name,
+                "host": slot.host,
                 "rcs_port": slot.rcs_port,
                 "postgres_port": slot.postgres_port,
                 "litellm_port": slot.litellm_port,
@@ -523,7 +560,11 @@ async def destroy_pipeline(pipeline_id: int):
                 "destroyed_at": datetime.utcnow().isoformat(),
                 "destroyed_reason": "manual",
             })
-            await docker_manager.destroy(pipeline, slot)
+            executor = await _get_executor(slot)
+            try:
+                await docker_manager.destroy(pipeline, slot, executor)
+            finally:
+                await executor.close()
             await slot_manager.release_slot(db, slot.id, pipeline.id)
 
         pipeline.status = "destroyed"
@@ -566,6 +607,7 @@ async def cancel_pipeline(pipeline_id: int):
             if slot:
                 pipeline.environment_info = json.dumps({
                     "slot_name": slot.name,
+                    "host": slot.host,
                     "rcs_port": slot.rcs_port,
                     "postgres_port": slot.postgres_port,
                     "litellm_port": slot.litellm_port,
@@ -574,7 +616,11 @@ async def cancel_pipeline(pipeline_id: int):
                     "destroyed_at": datetime.utcnow().isoformat(),
                     "destroyed_reason": "cancelled",
                 })
-                await docker_manager.destroy(pipeline, slot)
+                executor = await _get_executor(slot)
+                try:
+                    await docker_manager.destroy(pipeline, slot, executor)
+                finally:
+                    await executor.close()
                 await slot_manager.release_slot(db, slot.id, pipeline.id)
             pipeline.status = "destroyed"
             pipeline.error_message = "用户取消"
@@ -615,6 +661,7 @@ async def handle_pr_update(pr_id: int, new_commit_sha: str):
             if slot:
                 pipeline.environment_info = json.dumps({
                     "slot_name": slot.name,
+                    "host": slot.host,
                     "rcs_port": slot.rcs_port,
                     "postgres_port": slot.postgres_port,
                     "litellm_port": slot.litellm_port,
@@ -623,7 +670,11 @@ async def handle_pr_update(pr_id: int, new_commit_sha: str):
                     "destroyed_at": datetime.utcnow().isoformat(),
                     "destroyed_reason": "pr_update",
                 })
-                await docker_manager.destroy(pipeline, slot)
+                executor = await _get_executor(slot)
+                try:
+                    await docker_manager.destroy(pipeline, slot, executor)
+                finally:
+                    await executor.close()
                 await slot_manager.release_slot(db, slot.id, pipeline.id)
 
             pipeline.status = "destroyed"

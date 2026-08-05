@@ -37,6 +37,11 @@ async def list_slots(db: AsyncSession = Depends(get_async_session)):
             postgres_port=s.postgres_port,
             litellm_port=s.litellm_port,
             status=s.status,
+            host=s.host,
+            ssh_user=s.ssh_user,
+            ssh_port=s.ssh_port,
+            ssh_key_path=s.ssh_key_path,
+            work_dir=s.work_dir,
             pipeline_id=pipeline.id if pipeline else None,
             pipeline_pr_id=pipeline.pr_id if pipeline else None,
             pipeline_status=pipeline.status if pipeline else None,
@@ -58,7 +63,10 @@ async def update_slot(
     if not slot:
         return ApiResponse(success=False, error="Slot 不存在")
 
-    for field in ["name", "rcs_port", "postgres_port", "litellm_port", "status"]:
+    for field in [
+        "name", "rcs_port", "postgres_port", "litellm_port", "status",
+        "host", "ssh_user", "ssh_port", "ssh_key_path", "ssh_password", "work_dir",
+    ]:
         value = getattr(body, field, None)
         if value is not None:
             setattr(slot, field, value)
@@ -71,6 +79,11 @@ async def update_slot(
         postgres_port=slot.postgres_port,
         litellm_port=slot.litellm_port,
         status=slot.status,
+        host=slot.host,
+        ssh_user=slot.ssh_user,
+        ssh_port=slot.ssh_port,
+        ssh_key_path=slot.ssh_key_path,
+        work_dir=slot.work_dir,
         created_at=slot.created_at,
         updated_at=slot.updated_at,
     ).model_dump())

@@ -10,6 +10,7 @@ from sqlalchemy import select
 from backend.db.config import async_session
 from backend.db.models import PRPipeline, EnvironmentSlot
 from backend.services import slot_manager, docker_manager
+from backend.services.executor import create_executor, init_executor
 from backend import ws as ws_module
 
 _CHECK_INTERVAL = 300  # 5 分钟
@@ -35,6 +36,7 @@ async def check_and_destroy_expired():
                 if slot:
                     pipeline.environment_info = json.dumps({
                         "slot_name": slot.name,
+                        "host": slot.host,
                         "rcs_port": slot.rcs_port,
                         "postgres_port": slot.postgres_port,
                         "litellm_port": slot.litellm_port,
@@ -43,7 +45,12 @@ async def check_and_destroy_expired():
                         "destroyed_at": now.isoformat(),
                         "destroyed_reason": "timeout",
                     })
-                    await docker_manager.destroy(pipeline, slot)
+                    executor = create_executor(slot)
+                    await init_executor(executor, slot)
+                    try:
+                        await docker_manager.destroy(pipeline, slot, executor)
+                    finally:
+                        await executor.close()
                     await slot_manager.release_slot(db, pipeline.slot_id, pipeline.id)
 
                 pipeline.status = "destroyed"
