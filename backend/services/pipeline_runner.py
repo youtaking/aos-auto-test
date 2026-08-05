@@ -226,7 +226,8 @@ async def start_pipeline(pipeline_id: int, test_config: dict | None = None):
             print(f"[Pipeline #{pipeline_id}] 异常: {e}", flush=True)
             traceback.print_exc()
             pipeline.status = "error"
-            pipeline.error_message = str(e)[:1000]
+            err_msg = str(e)
+            pipeline.error_message = err_msg[-3000:] if len(err_msg) > 3000 else err_msg
             await db.commit()
 
             # 释放 Slot（使用初始分配的 slot_id，防止 rerun 并发导致 slot_id 变化）
@@ -440,7 +441,8 @@ async def _execute_pipeline_tests(
             run.status = "error"
             run.finished_at = datetime.utcnow()
             pipeline.status = "failed"
-            pipeline.error_message = str(e)[:1000]
+            err_msg = str(e)
+            pipeline.error_message = err_msg[-3000:] if len(err_msg) > 3000 else err_msg
             try:
                 config = await slot_manager.get_ci_config(db)
                 pipeline.timeout_at = datetime.utcnow() + timedelta(minutes=config.timeout_minutes)

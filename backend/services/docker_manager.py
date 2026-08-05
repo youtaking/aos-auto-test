@@ -91,17 +91,33 @@ async def clone_and_build(
         "--branch", pipeline.branch,
         pipeline.repo_url,
         pr_dir,
-    ], timeout=300)
+    ], timeout=900)
     if code != 0:
         raise RuntimeError(f"git clone 失败: {output}")
 
-    # docker build
+    # docker build（注入 HUSKY=0 跳过 git hooks）
     tag = _image_tag(pipeline.pr_id, pipeline.commit_sha)
+    dockerfile_path = f"{pr_dir}/Dockerfile"
+    original_dockerfile = ""
+    try:
+        code, original_dockerfile = await executor.run(
+            ["cat", dockerfile_path], timeout=10
+        )
+        if code == 0 and "HUSKY" not in original_dockerfile:
+            patched = original_dockerfile.replace(
+                "RUN bun install",
+                "ENV HUSKY=0\nRUN bun install",
+                1,
+            )
+            await executor.write_file(dockerfile_path, patched)
+    except Exception:
+        pass
+
     code, output = await executor.run([
         "docker", "build",
         "-t", tag,
         pr_dir,
-    ], cwd=pr_dir, timeout=600)
+    ], cwd=pr_dir, timeout=1800)
     if code != 0:
         raise RuntimeError(f"docker build 失败: {output}")
 
