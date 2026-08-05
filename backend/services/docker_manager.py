@@ -114,7 +114,8 @@ async def clone_and_build(
         pass
 
     code, output = await executor.run([
-        "docker", "build",
+        "docker", "buildx", "build",
+        "--load",
         "-t", tag,
         pr_dir,
     ], cwd=pr_dir, timeout=1800)
