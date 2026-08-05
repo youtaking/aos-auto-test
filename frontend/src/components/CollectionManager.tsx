@@ -67,7 +67,7 @@ export default function CollectionManager({ selectedCaseIds, onAddSelectedToColl
   };
 
   return (
-    <div className="fixed right-0 top-0 h-full w-80 bg-white shadow-xl border-l z-50 flex flex-col">
+    <div className="fixed right-0 top-0 h-full w-96 bg-white shadow-xl border-l z-50 flex flex-col">
       <div className="flex items-center justify-between p-4 border-b">
         <h2 className="font-semibold text-lg">用例集管理</h2>
         <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded"><X className="w-5 h-5" /></button>
@@ -149,7 +149,7 @@ export default function CollectionManager({ selectedCaseIds, onAddSelectedToColl
               )}
             </div>
             {expanded === c.id && (
-              <div className="border-t bg-gray-50 p-2 max-h-60 overflow-y-auto">
+              <div className="border-t bg-gray-50 p-2 max-h-[60vh] overflow-y-auto">
                 {loadingCases ? (
                   <div className="text-center text-xs text-gray-400 py-3">加载中...</div>
                 ) : expandedCases.length === 0 ? (
@@ -157,12 +157,12 @@ export default function CollectionManager({ selectedCaseIds, onAddSelectedToColl
                 ) : (
                   <div className="space-y-1">
                     {expandedCases.map(tc => (
-                      <div key={tc.id} className="flex items-center gap-2 px-2 py-1 bg-white rounded text-xs">
-                        <span className={`font-mono px-1 py-0.5 rounded ${
+                      <div key={tc.id} className="flex items-start gap-2 px-2 py-1.5 bg-white rounded text-sm">
+                        <span className={`font-mono px-1 py-0.5 rounded text-xs ${
                           tc.priority === "P0" ? "bg-red-100 text-red-700" : "bg-yellow-100 text-yellow-700"
                         }`}>{tc.priority}</span>
-                        <span className="flex-1 truncate">{tc.name}</span>
-                        <span className="text-gray-400 truncate max-w-[80px]">{tc.function_name}</span>
+                        <span className="flex-1">{tc.name}</span>
+                        <span className="text-gray-400 text-xs">{tc.function_name}</span>
                       </div>
                     ))}
                   </div>
