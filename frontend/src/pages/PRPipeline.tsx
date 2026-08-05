@@ -22,11 +22,26 @@ export default function PRPipeline() {
   const [slots, setSlots] = useState<EnvironmentSlot[]>([]);
   const [selected, setSelected] = useState<Pipeline | null>(null);
   const [showConfig, setShowConfig] = useState(false);
+  const [loading, setLoading] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
 
-  const load = () => {
-    listPipelines({ page_size: 50 }).then(setPipelines).catch(console.error);
-    listSlots().then(setSlots).catch(console.error);
+  const load = async () => {
+    const start = Date.now();
+    setLoading(true);
+    try {
+      const [p, s] = await Promise.all([
+        listPipelines({ page_size: 50 }),
+        listSlots(),
+      ]);
+      setPipelines(p);
+      setSlots(s);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      const elapsed = Date.now() - start;
+      if (elapsed < 600) await new Promise(r => setTimeout(r, 600 - elapsed));
+      setLoading(false);
+    }
   };
 
   useEffect(() => { load(); }, []);
@@ -79,8 +94,8 @@ export default function PRPipeline() {
           <button onClick={() => setShowConfig(true)} className="flex items-center gap-1.5 px-3 py-1.5 text-sm border rounded-lg hover:bg-gray-50">
             <Settings className="w-4 h-4" /> CI 配置
           </button>
-          <button onClick={load} className="flex items-center gap-1.5 px-3 py-1.5 text-sm border rounded-lg hover:bg-gray-50">
-            <RefreshCw className="w-4 h-4" /> 刷新
+          <button onClick={load} disabled={loading} className="flex items-center gap-1.5 px-3 py-1.5 text-sm border rounded-lg hover:bg-gray-50 disabled:opacity-50">
+            <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} /> {loading ? "加载中..." : "刷新"}
           </button>
         </div>
       </div>
