@@ -2,7 +2,7 @@
 """数据库 ORM 模型"""
 from datetime import datetime
 from sqlalchemy import (
-    Column, Integer, String, Text, DateTime, ForeignKey, Index
+    Column, Integer, String, Text, DateTime, ForeignKey, Index, JSON
 )
 from sqlalchemy.orm import relationship
 from backend.db.base import Base
@@ -122,6 +122,7 @@ class TestRun(Base):
     git_branch = Column(String(200), default="")
     pr_id = Column(Integer, nullable=True)
     pipeline_id = Column(Integer, nullable=True)
+    collection_ids = Column(JSON, nullable=True)  # 本次运行使用的用例集 ID 数组
     status = Column(String(20), default="pending")
     total = Column(Integer, default=0)
     passed = Column(Integer, default=0)
@@ -216,6 +217,25 @@ class PRPipeline(Base):
     )
 
 
+class TestCollection(Base):
+    """用户自定义测试用例集"""
+    __tablename__ = "test_collections"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
+    name = Column(String(200), nullable=False)
+    description = Column(Text, default="")
+    case_ids = Column(JSON, default=list)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    project = relationship("Project", backref="collections")
+
+    __table_args__ = (
+        Index("ix_test_collections_project_id", "project_id"),
+    )
+
+
 class CIConfig(Base):
     """CI 全局配置：超时时间、队列上限、认证 Token 等"""
     __tablename__ = "ci_configs"
@@ -227,6 +247,7 @@ class CIConfig(Base):
     run_api_tests = Column(Integer, default=1)
     run_e2e_p0 = Column(Integer, default=1)
     run_e2e_all = Column(Integer, default=0)
+    collection_ids = Column(JSON, nullable=True)  # 选中的用例集 ID 数组
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
