@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { listCollections, createCollection, deleteCollection, updateCollection } from "../api/collections";
+import { listCollections, createCollection, deleteCollection, updateCollection, getCollection } from "../api/collections";
 import type { Collection } from "../api/types";
+import type { CollectionCaseInfo } from "../api/collections";
 import { X, Plus, Trash2, Edit2, FolderOpen } from "lucide-react";
 
 interface Props {
@@ -15,6 +16,9 @@ export default function CollectionManager({ selectedCaseIds, onAddSelectedToColl
   const [newName, setNewName] = useState("");
   const [newDesc, setNewDesc] = useState("");
   const [editing, setEditing] = useState<number | null>(null);
+  const [expanded, setExpanded] = useState<number | null>(null);
+  const [expandedCases, setExpandedCases] = useState<CollectionCaseInfo[]>([]);
+  const [loadingCases, setLoadingCases] = useState(false);
   const [editName, setEditName] = useState("");
 
   const load = () => {
@@ -30,6 +34,24 @@ export default function CollectionManager({ selectedCaseIds, onAddSelectedToColl
     setNewDesc("");
     setShowCreate(false);
     load();
+  };
+
+  const handleToggleExpand = async (id: number) => {
+    if (expanded === id) {
+      setExpanded(null);
+      setExpandedCases([]);
+      return;
+    }
+    setExpanded(id);
+    setLoadingCases(true);
+    try {
+      const data = await getCollection(id);
+      setExpandedCases(data.cases);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoadingCases(false);
+    }
   };
 
   const handleDelete = async (id: number) => {
@@ -98,26 +120,53 @@ export default function CollectionManager({ selectedCaseIds, onAddSelectedToColl
           </div>
         )}
         {collections.map(c => (
-          <div key={c.id} className="p-3 border rounded-lg hover:bg-gray-50">
-            {editing === c.id ? (
-              <div className="flex gap-1">
-                <input value={editName} onChange={e => setEditName(e.target.value)}
-                  className="flex-1 px-2 py-1 border rounded text-sm" />
-                <button onClick={() => handleSaveEdit(c.id)} className="text-green-600 text-sm">保存</button>
-                <button onClick={() => setEditing(null)} className="text-gray-400 text-sm">取消</button>
-              </div>
-            ) : (
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="font-medium text-sm">{c.name}</div>
-                  <div className="text-xs text-gray-400">{c.case_ids.length} 个用例{c.description ? ` · ${c.description}` : ""}</div>
-                </div>
+          <div key={c.id} className="border rounded-lg overflow-hidden">
+            <div className="p-3 hover:bg-gray-50">
+              {editing === c.id ? (
                 <div className="flex gap-1">
-                  <button onClick={() => { setEditing(c.id); setEditName(c.name); }}
-                    className="p-1 hover:bg-gray-200 rounded"><Edit2 className="w-3.5 h-3.5 text-gray-400" /></button>
-                  <button onClick={() => handleDelete(c.id)}
-                    className="p-1 hover:bg-red-50 rounded"><Trash2 className="w-3.5 h-3.5 text-red-400" /></button>
+                  <input value={editName} onChange={e => setEditName(e.target.value)}
+                    className="flex-1 px-2 py-1 border rounded text-sm" />
+                  <button onClick={() => handleSaveEdit(c.id)} className="text-green-600 text-sm">保存</button>
+                  <button onClick={() => setEditing(null)} className="text-gray-400 text-sm">取消</button>
                 </div>
+              ) : (
+                <div className="flex items-center justify-between">
+                  <div className="flex-1 cursor-pointer" onClick={() => handleToggleExpand(c.id)}>
+                    <div className="font-medium text-sm">{c.name}</div>
+                    <div className="text-xs text-gray-400">{c.case_ids.length} 个用例{c.description ? ` · ${c.description}` : ""}</div>
+                  </div>
+                  <div className="flex gap-1">
+                    <button onClick={() => handleToggleExpand(c.id)}
+                      className="p-1 hover:bg-gray-200 rounded text-xs text-gray-500">
+                      {expanded === c.id ? "收起" : "查看"}
+                    </button>
+                    <button onClick={() => { setEditing(c.id); setEditName(c.name); }}
+                      className="p-1 hover:bg-gray-200 rounded"><Edit2 className="w-3.5 h-3.5 text-gray-400" /></button>
+                    <button onClick={() => handleDelete(c.id)}
+                      className="p-1 hover:bg-red-50 rounded"><Trash2 className="w-3.5 h-3.5 text-red-400" /></button>
+                  </div>
+                </div>
+              )}
+            </div>
+            {expanded === c.id && (
+              <div className="border-t bg-gray-50 p-2 max-h-60 overflow-y-auto">
+                {loadingCases ? (
+                  <div className="text-center text-xs text-gray-400 py-3">加载中...</div>
+                ) : expandedCases.length === 0 ? (
+                  <div className="text-center text-xs text-gray-400 py-3">无用例（部分用例可能已被删除）</div>
+                ) : (
+                  <div className="space-y-1">
+                    {expandedCases.map(tc => (
+                      <div key={tc.id} className="flex items-center gap-2 px-2 py-1 bg-white rounded text-xs">
+                        <span className={`font-mono px-1 py-0.5 rounded ${
+                          tc.priority === "P0" ? "bg-red-100 text-red-700" : "bg-yellow-100 text-yellow-700"
+                        }`}>{tc.priority}</span>
+                        <span className="flex-1 truncate">{tc.name}</span>
+                        <span className="text-gray-400 truncate max-w-[80px]">{tc.function_name}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
