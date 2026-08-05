@@ -11,10 +11,31 @@ from sqlalchemy import select, update
 from backend.db.config import async_session
 from backend.db.models import (
     PRPipeline, EnvironmentSlot, TestRun, TestCase,
-    CIConfig, AuthConfig,
+    CIConfig, AuthConfig, TestCollection,
 )
 from backend.services import slot_manager, docker_manager
 from backend import ws as ws_module
+
+
+async def resolve_collection_case_ids(db, collection_ids: list[int]) -> list[int]:
+    """解析多个用例集，合并去重，跳过已删除的用例"""
+    if not collection_ids:
+        return []
+    result = await db.execute(
+        select(TestCollection).where(TestCollection.id.in_(collection_ids))
+    )
+    collections = result.scalars().all()
+    all_case_ids: set[int] = set()
+    for c in collections:
+        if c.case_ids:
+            all_case_ids.update(c.case_ids)
+    if not all_case_ids:
+        return []
+    # 验证用例是否存在
+    valid = await db.execute(
+        select(TestCase.id).where(TestCase.id.in_(list(all_case_ids)))
+    )
+    return [r[0] for r in valid.all()]
 
 
 async def _broadcast(pipeline_id: int, event: str, data: dict):
@@ -29,6 +50,18 @@ async def _resolve_test_cases(
     test_config: dict | None,
 ) -> list[int] | None:
     """根据配置解析要运行的测试用例 ID 列表。返回 None 表示跑全部"""
+
+    # 优先使用 collection_ids
+    collection_ids = None
+    if test_config and test_config.get("collection_ids"):
+        collection_ids = test_config["collection_ids"]
+    elif config.collection_ids:
+        collection_ids = config.collection_ids
+
+    if collection_ids:
+        case_ids = await resolve_collection_case_ids(db, collection_ids)
+        return case_ids if case_ids else None
+
     run_api = False
     run_e2e_p0 = False
     run_e2e_all = False
