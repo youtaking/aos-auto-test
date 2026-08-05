@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { getCIConfig, updateCIConfig, regenerateToken } from "../api/ciConfig";
 import { listSlots, updateSlot } from "../api/slots";
-import type { CIConfig, EnvironmentSlot } from "../api/types";
+import { listCollections } from "../api/collections";
+import type { CIConfig, EnvironmentSlot, Collection } from "../api/types";
 import { X, Eye, EyeOff, RefreshCw, Copy } from "lucide-react";
 
 interface Props {
@@ -13,10 +14,16 @@ export default function CIConfigModal({ onClose }: Props) {
   const [slots, setSlots] = useState<EnvironmentSlot[]>([]);
   const [showToken, setShowToken] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [collections, setCollections] = useState<Collection[]>([]);
+  const [selectedCollectionIds, setSelectedCollectionIds] = useState<number[]>([]);
 
   const load = () => {
-    getCIConfig().then(setConfig).catch(console.error);
+    getCIConfig().then((c) => {
+      setConfig(c);
+      if (c.collection_ids) setSelectedCollectionIds(c.collection_ids);
+    }).catch(console.error);
     listSlots().then(setSlots).catch(console.error);
+    listCollections().then(setCollections).catch(console.error);
   };
   useEffect(() => { load(); }, []);
 
@@ -30,6 +37,7 @@ export default function CIConfigModal({ onClose }: Props) {
         run_api_tests: config.run_api_tests,
         run_e2e_p0: config.run_e2e_p0,
         run_e2e_all: config.run_e2e_all,
+        collection_ids: selectedCollectionIds.length > 0 ? selectedCollectionIds : null,
       });
       for (const s of slots) {
         await updateSlot(s.id, {
@@ -147,6 +155,27 @@ export default function CIConfigModal({ onClose }: Props) {
                 <span className="text-sm">E2E 全部</span>
               </label>
             </div>
+          </div>
+
+          <div className="mt-4">
+            <label className="block text-sm font-medium mb-1">用例集（选中后优先使用，覆盖上方开关）</label>
+            {collections.length === 0 ? (
+              <p className="text-xs text-gray-400">暂无用例集，请先在用例管理页创建</p>
+            ) : (
+              <div className="space-y-1 max-h-32 overflow-y-auto border rounded p-2">
+                {collections.map(c => (
+                  <label key={c.id} className="flex items-center gap-2 text-sm">
+                    <input type="checkbox"
+                      checked={selectedCollectionIds.includes(c.id)}
+                      onChange={e => {
+                        if (e.target.checked) setSelectedCollectionIds(prev => [...prev, c.id]);
+                        else setSelectedCollectionIds(prev => prev.filter(id => id !== c.id));
+                      }} />
+                    {c.name} <span className="text-gray-400">({c.case_ids.length} 用例)</span>
+                  </label>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
