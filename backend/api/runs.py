@@ -290,9 +290,10 @@ async def trigger_run(
     headed: bool = False,
     step_delay: float = 0,
     case_ids: str = "",
+    collection_ids: str = "",
     db: AsyncSession = Depends(get_async_session),
 ):
-    """触发一次测试运行。case_ids: 逗号分隔的用例 ID，为空则运行全部"""
+    """触发一次测试运行。case_ids: 逗号分隔的用例 ID；collection_ids: 逗号分隔的用例集 ID（优先级高于 case_ids）"""
     project = await db.get(Project, project_id)
     project_url = project.url if project else "http://localhost:3001"
 
@@ -317,11 +318,23 @@ async def trigger_run(
         except ValueError:
             parsed_case_ids = None
 
+    # 解析 collection_ids（优先级高于 case_ids）
+    parsed_collection_ids = None
+    if collection_ids:
+        try:
+            parsed_collection_ids = [int(x.strip()) for x in collection_ids.split(",") if x.strip()]
+            from backend.services.pipeline_runner import resolve_collection_case_ids
+            parsed_case_ids = await resolve_collection_case_ids(db, parsed_collection_ids)
+        except (ValueError, Exception):
+            parsed_case_ids = None
+            parsed_collection_ids = None
+
     run = TestRun(
         project_id=project_id,
         trigger_type=trigger_type,
         status="pending",
         started_at=datetime.utcnow(),
+        collection_ids=parsed_collection_ids,
     )
     db.add(run)
     await db.commit()
