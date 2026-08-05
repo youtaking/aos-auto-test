@@ -105,9 +105,24 @@ async def list_pipelines(
     db: AsyncSession = Depends(get_async_session),
 ):
     """获取 Pipeline 列表"""
-    query = select(PRPipeline).order_by(PRPipeline.created_at.desc())
+    base_query = select(PRPipeline)
     if status:
-        query = query.where(PRPipeline.status == status)
+        # 支持逗号分隔的多状态筛选，如 "building,deploying,running,queued"
+        statuses = [s.strip() for s in status.split(",") if s.strip()]
+        if len(statuses) > 1:
+            base_query = base_query.where(PRPipeline.status.in_(statuses))
+        elif statuses:
+            base_query = base_query.where(PRPipeline.status == statuses[0])
+
+    # 总数
+    from sqlalchemy import func
+    count_result = await db.execute(
+        select(func.count()).select_from(base_query.subquery())
+    )
+    total = count_result.scalar() or 0
+
+    # 分页
+    query = base_query.order_by(PRPipeline.created_at.desc())
     query = query.offset((page - 1) * page_size).limit(page_size)
 
     result = await db.execute(query)
@@ -138,7 +153,12 @@ async def list_pipelines(
         )
         items.append(item)
 
-    return ApiResponse(data=[i.model_dump() for i in items])
+    return ApiResponse(data={
+        "items": [i.model_dump() for i in items],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    })
 
 
 @router.get("/pipelines/{pipeline_id}", response_model=ApiResponse)

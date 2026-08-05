@@ -24,12 +24,9 @@ async def allocate_slot(db: AsyncSession) -> EnvironmentSlot | None:
 async def release_slot(db: AsyncSession, slot_id: int, pipeline_id: int) -> None:
     """释放 Slot，标记为 available。
 
-    通过 pipeline_id 查询 PRPipeline，校验该 Pipeline 确实持有此 Slot，
-    校验通过后才执行释放，防止误释放其他 Pipeline 占用的 Slot。
+    即使 Pipeline 已被 rerun 重新绑定到其他 Slot，仍强制释放此 Slot，
+    防止 Slot 状态永久卡在 occupied（并发 rerun 场景）。
     """
-    pipeline = await db.get(PRPipeline, pipeline_id)
-    if not pipeline or pipeline.slot_id != slot_id:
-        return
     slot = await db.get(EnvironmentSlot, slot_id)
     if slot and slot.status == "occupied":
         slot.status = "available"

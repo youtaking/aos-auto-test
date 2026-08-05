@@ -123,6 +123,7 @@ async def start_pipeline(pipeline_id: int, test_config: dict | None = None):
 
         config = await slot_manager.get_ci_config(db)
 
+        allocated_slot_id = None  # 记录初始分配的 slot_id，防止 rerun 并发修改
         try:
             # ── 1. 分配 Slot ──
             slot = await slot_manager.allocate_slot(db)
@@ -144,6 +145,7 @@ async def start_pipeline(pipeline_id: int, test_config: dict | None = None):
                 })
                 return
 
+            allocated_slot_id = slot.id
             pipeline.slot_id = slot.id
             pipeline.status = "building"
             await db.commit()
@@ -212,12 +214,12 @@ async def start_pipeline(pipeline_id: int, test_config: dict | None = None):
             pipeline.error_message = str(e)[:1000]
             await db.commit()
 
-            # 释放 Slot
-            if pipeline.slot_id:
-                slot = await db.get(EnvironmentSlot, pipeline.slot_id)
+            # 释放 Slot（使用初始分配的 slot_id，防止 rerun 并发导致 slot_id 变化）
+            if allocated_slot_id:
+                slot = await db.get(EnvironmentSlot, allocated_slot_id)
                 if slot:
                     await docker_manager.destroy(pipeline, slot)
-                await slot_manager.release_slot(db, pipeline.slot_id, pipeline.id)
+                await slot_manager.release_slot(db, allocated_slot_id, pipeline.id)
 
             await _broadcast(pipeline_id, "pipeline_error", {"error": str(e)[:500]})
             await _process_queue()

@@ -5,7 +5,7 @@ import type { Pipeline, EnvironmentSlot } from "../api/types";
 import SlotCard from "../components/SlotCard";
 import PipelineDetail from "../components/PipelineDetail";
 import CIConfigModal from "../components/CIConfigModal";
-import { Settings, RefreshCw } from "lucide-react";
+import { Settings, RefreshCw, ChevronLeft, ChevronRight } from "lucide-react";
 
 const statusIcons: Record<string, string> = {
   queued: "⏳", building: "🔨", deploying: "🚀", running: "🔄",
@@ -17,34 +17,58 @@ const statusLabels: Record<string, string> = {
   passed: "通过", failed: "失败", error: "异常", destroyed: "已销毁",
 };
 
+const PAGE_SIZE = 20;
+
+const statusFilters = [
+  { key: "", label: "全部" },
+  { key: "running", label: "运行中", group: ["building", "deploying", "running", "queued"] },
+  { key: "passed", label: "通过" },
+  { key: "failed", label: "失败" },
+  { key: "destroyed", label: "已销毁" },
+];
+
 export default function PRPipeline() {
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [slots, setSlots] = useState<EnvironmentSlot[]>([]);
   const [selected, setSelected] = useState<Pipeline | null>(null);
   const [showConfig, setShowConfig] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [statusFilter, setStatusFilter] = useState("");
   const wsRef = useRef<WebSocket | null>(null);
 
-  const load = async () => {
+  const load = async (p?: number, sf?: string) => {
+    const curPage = p ?? page;
+    const curStatus = sf ?? statusFilter;
+    // "running" 筛选包含多个状态
+    const statusParam = curStatus === "running"
+      ? "building,deploying,running,queued"
+      : curStatus || undefined;
     const start = Date.now();
     setLoading(true);
     try {
-      const [p, s] = await Promise.all([
-        listPipelines({ page_size: 50 }),
+      const [res, s] = await Promise.all([
+        listPipelines({
+          page: curPage,
+          page_size: PAGE_SIZE,
+          status: statusParam,
+        }),
         listSlots(),
       ]);
-      setPipelines(p);
+      setPipelines(res.items);
+      setTotal(res.total);
       setSlots(s);
     } catch (e) {
       console.error(e);
     } finally {
       const elapsed = Date.now() - start;
-      if (elapsed < 600) await new Promise(r => setTimeout(r, 600 - elapsed));
+      if (elapsed < 400) await new Promise(r => setTimeout(r, 400 - elapsed));
       setLoading(false);
     }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(1, ""); }, []);
 
   // 全局 WebSocket 监听
   useEffect(() => {
@@ -53,7 +77,19 @@ export default function PRPipeline() {
     wsRef.current = ws;
     ws.onmessage = () => { load(); };
     return () => { ws.close(); wsRef.current = null; };
-  }, []);
+  }, [page, statusFilter]);
+
+  const handlePageChange = (newPage: number) => {
+    setPage(newPage);
+    load(newPage);
+  };
+
+  const handleStatusFilter = (sf: string) => {
+    setStatusFilter(sf);
+    setPage(1);
+    setSelected(null);
+    load(1, sf);
+  };
 
   const handleRerun = async (caseIds?: number[]) => {
     if (!selected) return;
@@ -86,6 +122,8 @@ export default function PRPipeline() {
     return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
   };
 
+  const totalPages = Math.ceil(total / PAGE_SIZE);
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -94,7 +132,7 @@ export default function PRPipeline() {
           <button onClick={() => setShowConfig(true)} className="flex items-center gap-1.5 px-3 py-1.5 text-sm border rounded-lg hover:bg-gray-50">
             <Settings className="w-4 h-4" /> CI 配置
           </button>
-          <button onClick={load} disabled={loading} className="flex items-center gap-1.5 px-3 py-1.5 text-sm border rounded-lg hover:bg-gray-50 disabled:opacity-50">
+          <button onClick={() => load()} disabled={loading} className="flex items-center gap-1.5 px-3 py-1.5 text-sm border rounded-lg hover:bg-gray-50 disabled:opacity-50">
             <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} /> {loading ? "加载中..." : "刷新"}
           </button>
         </div>
@@ -117,6 +155,24 @@ export default function PRPipeline() {
         />
       )}
 
+      {/* 状态筛选 */}
+      <div className="flex items-center gap-1">
+        {statusFilters.map((f) => (
+          <button
+            key={f.key}
+            onClick={() => handleStatusFilter(f.key)}
+            className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
+              statusFilter === f.key
+                ? "bg-blue-600 text-white"
+                : "text-gray-600 hover:bg-gray-100"
+            }`}
+          >
+            {f.label}
+          </button>
+        ))}
+        <span className="ml-auto text-sm text-gray-400">共 {total} 条</span>
+      </div>
+
       {/* Pipeline 列表 */}
       <div className="bg-white rounded-xl shadow-sm overflow-hidden">
         <table className="w-full text-sm">
@@ -135,7 +191,7 @@ export default function PRPipeline() {
             {pipelines.map((p) => (
               <tr
                 key={p.id}
-                onClick={() => setSelected(p)}
+                onClick={() => setSelected(selected?.id === p.id ? null : p)}
                 className={`border-b cursor-pointer hover:bg-blue-50 transition-colors ${
                   selected?.id === p.id ? "bg-blue-50" : ""
                 }`}
@@ -174,6 +230,37 @@ export default function PRPipeline() {
           </tbody>
         </table>
       </div>
+
+      {/* 分页 */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-2">
+          <button
+            onClick={() => handlePageChange(page - 1)}
+            disabled={page <= 1}
+            className="p-1.5 border rounded-lg hover:bg-gray-50 disabled:opacity-30"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+          {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+            <button
+              key={p}
+              onClick={() => handlePageChange(p)}
+              className={`w-8 h-8 text-sm rounded-lg transition-colors ${
+                p === page ? "bg-blue-600 text-white" : "hover:bg-gray-100"
+              }`}
+            >
+              {p}
+            </button>
+          ))}
+          <button
+            onClick={() => handlePageChange(page + 1)}
+            disabled={page >= totalPages}
+            className="p-1.5 border rounded-lg hover:bg-gray-50 disabled:opacity-30"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {showConfig && <CIConfigModal onClose={() => { setShowConfig(false); load(); }} />}
     </div>
