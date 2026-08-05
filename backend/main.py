@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.db.config import init_db, close_db
-from backend.api import projects, suites, runs, cases, dashboard, api_tests, auth_configs, llm_configs, zentao_configs, ai_analysis, ci, slots
+from backend.api import projects, suites, runs, cases, dashboard, api_tests, auth_configs, llm_configs, zentao_configs, ai_analysis, ci, slots, collections
 from backend import ws as ws_module
 
 
@@ -108,6 +108,7 @@ app.include_router(zentao_configs.router, prefix="/api", tags=["zentao-configs"]
 app.include_router(ai_analysis.router, prefix="/api", tags=["ai-analysis"])
 app.include_router(ci.router, prefix="/api", tags=["ci-pipelines"])
 app.include_router(slots.router, prefix="/api", tags=["slots"])
+app.include_router(collections.router, prefix="/api", tags=["collections"])
 app.include_router(ws_module.router, tags=["websocket"])
 
 
