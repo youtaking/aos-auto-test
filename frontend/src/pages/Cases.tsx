@@ -3,10 +3,10 @@ import { useNavigate } from "react-router-dom";
 import { listProjects, listSuites, discoverCases } from "../api/projects";
 import { get } from "../api/client";
 import { triggerRun } from "../api/runs";
-import { getCollection, updateCollection } from "../api/collections";
+import { getCollection, updateCollection, listCollections } from "../api/collections";
 import { ChevronDown, RefreshCw, FolderOpen } from "lucide-react";
 import CollectionManager from "../components/CollectionManager";
-import type { TestSuite, TestCase } from "../api/types";
+import type { TestSuite, TestCase, Collection } from "../api/types";
 
 export default function Cases() {
   const navigate = useNavigate();
@@ -17,6 +17,9 @@ export default function Cases() {
   const [syncing, setSyncing] = useState(false);
   const [headed, setHeaded] = useState(true);
   const [showCollections, setShowCollections] = useState(false);
+  const [collections, setCollections] = useState<Collection[]>([]);
+  const [runCollectionIds, setRunCollectionIds] = useState<number[]>([]);
+  const [showCollectionPicker, setShowCollectionPicker] = useState(false);
   const [projectId, setProjectId] = useState<number | null>(null);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
@@ -31,6 +34,10 @@ export default function Cases() {
   };
 
   useEffect(() => { loadCases(); }, []);
+
+  useEffect(() => {
+    listCollections().then(setCollections).catch(console.error);
+  }, []);
 
   useEffect(() => {
     if (suites.length === 0) return;
@@ -91,6 +98,19 @@ export default function Cases() {
       console.error(e);
       setRunning(false);
     }
+  };
+
+  const handleRunCollection = async () => {
+    if (!projectId || runCollectionIds.length === 0 || running) return;
+    setRunning(true);
+    try {
+      const run = await triggerRun(projectId, "manual", headed, 0, [], runCollectionIds);
+      navigate(`/runs/${run.id}`);
+    } catch (e) {
+      console.error(e);
+      setRunning(false);
+    }
+    setShowCollectionPicker(false);
   };
 
   const handleAddSelectedToCollection = async (collectionId: number, caseIds: number[]) => {
@@ -264,6 +284,42 @@ export default function Cases() {
             >
               {running ? "正在触发..." : `运行选中 (${selectedCount})`}
             </button>
+            {collections.length > 0 && (
+              <div className="relative">
+                <button
+                  onClick={() => setShowCollectionPicker(!showCollectionPicker)}
+                  className="px-4 py-2 border rounded-lg text-sm font-medium hover:bg-gray-50"
+                >
+                  运行用例集
+                </button>
+                {showCollectionPicker && (
+                  <div className="absolute right-0 top-full mt-1 w-64 bg-white border rounded-lg shadow-lg z-20 p-2">
+                    <div className="space-y-1 max-h-48 overflow-y-auto">
+                      {collections.map(c => (
+                        <label key={c.id} className="flex items-center gap-2 px-2 py-1 rounded hover:bg-gray-50 text-sm cursor-pointer">
+                          <input type="checkbox"
+                            checked={runCollectionIds.includes(c.id)}
+                            onChange={e => {
+                              if (e.target.checked) setRunCollectionIds(prev => [...prev, c.id]);
+                              else setRunCollectionIds(prev => prev.filter(id => id !== c.id));
+                            }} />
+                          {c.name} <span className="text-gray-400">({c.case_ids.length})</span>
+                        </label>
+                      ))}
+                    </div>
+                    {runCollectionIds.length > 0 && (
+                      <button
+                        onClick={handleRunCollection}
+                        disabled={running}
+                        className="w-full mt-2 px-3 py-1.5 bg-green-600 text-white rounded text-sm hover:bg-green-700 disabled:bg-gray-300"
+                      >
+                        运行选中的 {runCollectionIds.length} 个集合
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -18,6 +18,7 @@ export const triggerRun = (
   headed = false,
   stepDelay = 0,
   caseIds?: number[],
+  collectionIds?: number[],
 ) => {
   const params = new URLSearchParams({
     project_id: String(projectId),
@@ -27,6 +28,9 @@ export const triggerRun = (
   });
   if (caseIds && caseIds.length > 0) {
     params.set("case_ids", caseIds.join(","));
+  }
+  if (collectionIds && collectionIds.length > 0) {
+    params.set("collection_ids", collectionIds.join(","));
   }
   return post<TestRun>(`/runs?${params}`);
 };
