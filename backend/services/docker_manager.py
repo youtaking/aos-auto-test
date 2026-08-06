@@ -31,6 +31,7 @@ def generate_compose_file(pipeline: PRPipeline, slot: EnvironmentSlot) -> str:
     return f"""services:
   postgres:
     image: postgres:16-alpine
+    privileged: true
     ports:
       - "{slot.postgres_port}:5432"
     environment:
@@ -67,6 +68,7 @@ def generate_compose_file(pipeline: PRPipeline, slot: EnvironmentSlot) -> str:
       DATABASE_URL: postgres://rcs:rcs@postgres:5432/rcs
       RCS_HOST: 0.0.0.0
       RCS_PORT: 3000
+      RCS_API_KEYS: sk-rcs-dev-key
       RCS_SECRET_LITELLM_ADMIN_KEY: sk-litellm-admin-dev-key
     command: ["sh", "-lc", "bun migrate.js && exec bun --no-install run dist/index.js"]
 """
