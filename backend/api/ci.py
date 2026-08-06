@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from backend.db.config import get_async_session, async_session
-from backend.db.models import PRPipeline, CIConfig, TestRun
+from backend.db.models import PRPipeline, CIConfig, TestRun, TestCollection, TestCase
 from backend.schemas.ci import (
     CreatePipelineRequest, UpdatePipelineStatusRequest,
     PipelineResponse, CIConfigResponse, CIConfigUpdate,
@@ -313,3 +313,35 @@ async def get_pipeline_logs(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
     )
+
+
+@router.get("/ci/resolve-tests", response_model=ApiResponse)
+async def resolve_tests(db: AsyncSession = Depends(get_async_session)):
+    """根据 CI 配置的用例集，解析出 pytest node ID 列表"""
+    config = await _get_ci_config(db)
+
+    if not config.collection_ids:
+        return ApiResponse(data={"node_ids": []})
+
+    # 查询用例集，合并所有 case_ids
+    result = await db.execute(
+        select(TestCollection).where(TestCollection.id.in_(config.collection_ids))
+    )
+    collections = result.scalars().all()
+
+    all_case_ids: set[int] = set()
+    for c in collections:
+        if c.case_ids:
+            all_case_ids.update(c.case_ids)
+
+    if not all_case_ids:
+        return ApiResponse(data={"node_ids": []})
+
+    # 查询 TestCase，生成 pytest node IDs
+    cases_result = await db.execute(
+        select(TestCase).where(TestCase.id.in_(list(all_case_ids)))
+    )
+    cases = cases_result.scalars().all()
+
+    node_ids = [f"{c.file_path}::{c.function_name}" for c in cases]
+    return ApiResponse(data={"node_ids": node_ids})

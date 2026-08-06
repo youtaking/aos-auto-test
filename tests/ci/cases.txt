@@ -1,0 +1,5 @@
+# P0 核心用例 - CI 兜底列表
+# AutoTest API 不可用时，Jenkins 读这个文件跑测试
+
+tests/suites/test_auth.py::test_login
+tests/suites/test_auth.py::test_logout
