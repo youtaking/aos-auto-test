@@ -5,34 +5,32 @@ from typing import Optional, List
 from pydantic import BaseModel
 
 
-class TestConfigOverride(BaseModel):
-    """PR 触发时的测试配置覆盖"""
-    run_api_tests: Optional[bool] = None
-    run_e2e_p0: Optional[bool] = None
-    run_e2e_all: Optional[bool] = None
-    custom_case_ids: Optional[List[int]] = None
+class BuildInfo(BaseModel):
+    """Jenkins 构建信息"""
+    jenkins_url: str = ""
+    build_number: int = 0
+    docker_image: str = ""
+    rcs_port: int = 0
+    pg_port: int = 0
+    litellm_port: int = 0
 
 
-class PRTriggerRequest(BaseModel):
-    """PR 触发请求"""
+class CreatePipelineRequest(BaseModel):
+    """Jenkins 创建 Pipeline 记录"""
     pr_id: int
     pr_title: str = ""
     commit_sha: str
     branch: str = ""
     repo_url: str = ""
     author: str = ""
-    test_config: Optional[TestConfigOverride] = None
+    target_url: str = ""
+    build_info: Optional[BuildInfo] = None
 
 
-class PRUpdateRequest(BaseModel):
-    """同一 PR 新 commit 更新请求"""
-    pr_id: int
-    commit_sha: str
-
-
-class RerunRequest(BaseModel):
-    """重跑测试请求"""
-    case_ids: Optional[List[int]] = None
+class UpdatePipelineStatusRequest(BaseModel):
+    """更新 Pipeline 状态"""
+    status: str
+    error_message: Optional[str] = None
 
 
 class PipelineResponse(BaseModel):
@@ -44,19 +42,15 @@ class PipelineResponse(BaseModel):
     branch: str
     repo_url: str
     author: str
-    slot_id: Optional[int] = None
-    slot_name: Optional[str] = None
     status: str
     docker_image: str
+    target_url: str = ""
     rcs_url: str
     run_id: Optional[int] = None
-    queue_position: int
-    timeout_at: Optional[datetime] = None
-    environment_info: str
+    build_info: Optional[dict] = None
     error_message: Optional[str] = None
     created_at: datetime
     updated_at: datetime
-    # 关联的测试统计（可选）
     test_total: int = 0
     test_passed: int = 0
     test_failed: int = 0

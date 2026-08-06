@@ -1,19 +1,17 @@
 import { useEffect, useState, useRef } from "react";
-import { listPipelines, rerunPipeline, destroyPipeline, cancelPipeline } from "../api/pipelines";
-import { listSlots } from "../api/slots";
-import type { Pipeline, EnvironmentSlot } from "../api/types";
-import SlotCard from "../components/SlotCard";
+import { listPipelines } from "../api/pipelines";
+import type { Pipeline } from "../api/types";
 import PipelineDetail from "../components/PipelineDetail";
 import CIConfigModal from "../components/CIConfigModal";
 import { Settings, RefreshCw, ChevronLeft, ChevronRight } from "lucide-react";
 
 const statusIcons: Record<string, string> = {
-  queued: "⏳", building: "🔨", deploying: "🚀", running: "🔄",
+  building: "🔨", deploying: "🚀", running: "🔄",
   passed: "✅", failed: "❌", error: "⚠️", destroyed: "🗑️",
 };
 
 const statusLabels: Record<string, string> = {
-  queued: "等待中", building: "构建中", deploying: "部署中", running: "测试中",
+  building: "构建中", deploying: "部署中", running: "测试中",
   passed: "通过", failed: "失败", error: "异常", destroyed: "已销毁",
 };
 
@@ -21,7 +19,7 @@ const PAGE_SIZE = 20;
 
 const statusFilters = [
   { key: "", label: "全部" },
-  { key: "running", label: "运行中", group: ["building", "deploying", "running", "queued"] },
+  { key: "running", label: "运行中", group: ["building", "deploying", "running"] },
   { key: "passed", label: "通过" },
   { key: "failed", label: "失败" },
   { key: "destroyed", label: "已销毁" },
@@ -29,7 +27,6 @@ const statusFilters = [
 
 export default function PRPipeline() {
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
-  const [slots, setSlots] = useState<EnvironmentSlot[]>([]);
   const [selected, setSelected] = useState<Pipeline | null>(null);
   const [showConfig, setShowConfig] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -43,22 +40,18 @@ export default function PRPipeline() {
     const curStatus = sf ?? statusFilter;
     // "running" 筛选包含多个状态
     const statusParam = curStatus === "running"
-      ? "building,deploying,running,queued"
+      ? "building,deploying,running"
       : curStatus || undefined;
     const start = Date.now();
     setLoading(true);
     try {
-      const [res, s] = await Promise.all([
-        listPipelines({
-          page: curPage,
-          page_size: PAGE_SIZE,
-          status: statusParam,
-        }),
-        listSlots(),
-      ]);
+      const res = await listPipelines({
+        page: curPage,
+        page_size: PAGE_SIZE,
+        status: statusParam,
+      });
       setPipelines(res.items);
       setTotal(res.total);
-      setSlots(s);
     } catch (e) {
       console.error(e);
     } finally {
@@ -91,26 +84,6 @@ export default function PRPipeline() {
     load(1, sf);
   };
 
-  const handleRerun = async (caseIds?: number[]) => {
-    if (!selected) return;
-    await rerunPipeline(selected.id, caseIds);
-    load();
-  };
-
-  const handleDestroy = async () => {
-    if (!selected) return;
-    if (!confirm("确定销毁此环境？")) return;
-    await destroyPipeline(selected.id);
-    setSelected(null);
-    load();
-  };
-
-  const handleCancel = async () => {
-    if (!selected) return;
-    await cancelPipeline(selected.id);
-    load();
-  };
-
   const calcDuration = (p: Pipeline) => {
     if (!p.run_id) return "-";
     const start = new Date(p.created_at).getTime();
@@ -138,20 +111,11 @@ export default function PRPipeline() {
         </div>
       </div>
 
-      {/* Slot 状态栏 */}
-      <div className="grid grid-cols-3 gap-4">
-        {slots.map((s) => (
-          <SlotCard key={s.id} slot={s} />
-        ))}
-      </div>
-
       {/* Pipeline 详情（展开） */}
       {selected && (
         <PipelineDetail
           pipeline={selected}
           onClose={() => setSelected(null)}
-          onRerun={handleRerun}
-          onDestroy={handleDestroy}
         />
       )}
 
@@ -181,7 +145,6 @@ export default function PRPipeline() {
               <th className="px-4 py-3">PR</th>
               <th className="px-4 py-3">Commit</th>
               <th className="px-4 py-3">分支</th>
-              <th className="px-4 py-3">Slot</th>
               <th className="px-4 py-3">状态</th>
               <th className="px-4 py-3">测试</th>
               <th className="px-4 py-3">耗时</th>
@@ -204,7 +167,6 @@ export default function PRPipeline() {
                   <code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded">{p.commit_sha.slice(0, 8)}</code>
                 </td>
                 <td className="px-4 py-3 text-gray-600">{p.branch}</td>
-                <td className="px-4 py-3">{p.slot_name || (p.queue_position > 0 ? `队列 #${p.queue_position}` : "-")}</td>
                 <td className="px-4 py-3">
                   <span className="inline-flex items-center gap-1">
                     {statusIcons[p.status]} {statusLabels[p.status]}
@@ -222,7 +184,7 @@ export default function PRPipeline() {
             ))}
             {pipelines.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-gray-400">
+                <td colSpan={6} className="px-4 py-8 text-center text-gray-400">
                   暂无 Pipeline 记录
                 </td>
               </tr>

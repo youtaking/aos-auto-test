@@ -2,21 +2,19 @@ import { useEffect, useState, useRef } from "react";
 import type { Pipeline } from "../api/types";
 import { getRunResults, getRunLogs } from "../api/runs";
 import type { TestResult } from "../api/types";
-import { X, RefreshCw, Trash2, ExternalLink } from "lucide-react";
+import { X, ExternalLink } from "lucide-react";
 
 interface Props {
   pipeline: Pipeline;
   onClose: () => void;
-  onRerun: (caseIds?: number[]) => void;
-  onDestroy: () => void;
 }
 
 const statusIcons: Record<string, string> = {
-  queued: "⏳", building: "🔨", deploying: "🚀", running: "🔄",
+  building: "🔨", deploying: "🚀", running: "🔄",
   passed: "✅", failed: "❌", error: "⚠️", destroyed: "🗑️",
 };
 
-export default function PipelineDetail({ pipeline, onClose, onRerun, onDestroy }: Props) {
+export default function PipelineDetail({ pipeline, onClose }: Props) {
   const [results, setResults] = useState<TestResult[]>([]);
   const [logs, setLogs] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<"info" | "results" | "logs">("info");
@@ -50,12 +48,6 @@ export default function PipelineDetail({ pipeline, onClose, onRerun, onDestroy }
     logEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [logs]);
 
-  let envInfo: any = null;
-  try {
-    envInfo = pipeline.environment_info ? JSON.parse(pipeline.environment_info) : null;
-  } catch {
-    envInfo = null;
-  }
   const passRate = pipeline.test_total > 0
     ? ((pipeline.test_passed / pipeline.test_total) * 100).toFixed(1)
     : "-";
@@ -99,17 +91,24 @@ export default function PipelineDetail({ pipeline, onClose, onRerun, onDestroy }
             )}
           </div>
           <div className="space-y-2">
-            <div><span className="text-gray-500">Slot:</span> {pipeline.slot_name || "排队中"}</div>
-            {envInfo && (
-              <>
-                <div><span className="text-gray-500">RCS URL:</span> <code>{envInfo.rcs_url}</code></div>
-                <div><span className="text-gray-500">镜像:</span> <code className="text-xs">{pipeline.docker_image}</code></div>
-              </>
+            {pipeline.target_url && (
+              <div>
+                <span className="text-gray-500">Target URL:</span>{" "}
+                <a href={pipeline.target_url} target="_blank" rel="noopener noreferrer"
+                   className="text-blue-600 hover:underline">{pipeline.target_url}</a>
+              </div>
             )}
+            {pipeline.build_info && (pipeline.build_info as any).jenkins_url && (
+              <div>
+                <span className="text-gray-500">Jenkins:</span>{" "}
+                <a href={(pipeline.build_info as any).jenkins_url} target="_blank"
+                   rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                  Build #{(pipeline.build_info as any).build_number || "?"}
+                </a>
+              </div>
+            )}
+            <div><span className="text-gray-500">镜像:</span> <code className="text-xs">{pipeline.docker_image}</code></div>
             <div><span className="text-gray-500">测试:</span> {pipeline.test_passed}✅ {pipeline.test_failed}❌ {pipeline.test_skipped}⏭️ ({passRate}%)</div>
-            {pipeline.timeout_at && (
-              <div><span className="text-gray-500">超时销毁:</span> {new Date(pipeline.timeout_at).toLocaleString()}</div>
-            )}
           </div>
         </div>
       )}
@@ -151,38 +150,6 @@ export default function PipelineDetail({ pipeline, onClose, onRerun, onDestroy }
       )}
 
       <div className="flex gap-2 pt-2 border-t">
-        {pipeline.status !== "destroyed" && pipeline.status !== "queued" && (
-          <>
-            <button
-              onClick={() => onRerun()}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-            >
-              <RefreshCw className="w-4 h-4" /> 重跑测试
-            </button>
-            <button
-              onClick={onDestroy}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700"
-            >
-              <Trash2 className="w-4 h-4" /> 销毁环境
-            </button>
-          </>
-        )}
-        {pipeline.status === "destroyed" && (
-          <button
-            onClick={() => onRerun()}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-orange-600 text-white rounded-lg hover:bg-orange-700"
-          >
-            <RefreshCw className="w-4 h-4" /> 重建并重跑
-          </button>
-        )}
-        {pipeline.status === "queued" && (
-          <button
-            onClick={() => onRerun()}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-600 text-white rounded-lg hover:bg-gray-700"
-          >
-            <X className="w-4 h-4" /> 取消排队
-          </button>
-        )}
         {pipeline.run_id && (
           <a
             href={`/runs/${pipeline.run_id}`}

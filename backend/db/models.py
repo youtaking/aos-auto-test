@@ -203,15 +203,19 @@ class PRPipeline(Base):
     branch = Column(String(200), default="")
     repo_url = Column(String(500), default="")
     author = Column(String(200), default="")
-    slot_id = Column(Integer, ForeignKey("environment_slots.id"), nullable=True)
+    slot_id = Column(Integer, ForeignKey("environment_slots.id"), nullable=True)  # 废弃：Jenkins 集成后不再使用 Slot
     status = Column(String(20), default="queued")  # queued/building/deploying/running/passed/failed/error/destroyed
     docker_image = Column(String(500), default="")
     rcs_url = Column(String(500), default="")
     run_id = Column(Integer, ForeignKey("test_runs.id"), nullable=True)
-    queue_position = Column(Integer, default=0)
+    queue_position = Column(Integer, default=0)  # 废弃：Jenkins 集成后不再使用队列
     timeout_at = Column(DateTime, nullable=True)
     environment_info = Column(Text, default="")
     error_message = Column(Text, nullable=True)
+    # Jenkins 集成字段
+    target_url = Column(String(500), default="")       # Jenkins 部署后的 PR 环境地址
+    build_info = Column(JSON, nullable=True)            # Jenkins 构建信息（job URL、镜像 tag 等）
+    test_report = Column(JSON, nullable=True)           # test-runner 提交的完整 pytest JSON 报告
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

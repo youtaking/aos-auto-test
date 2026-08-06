@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse, RedirectResponse, PlainTextResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from backend.db.config import get_async_session, async_session
-from backend.db.models import TestRun, TestResult, TestCase, Project, AuthConfig
+from backend.db.models import TestRun, TestResult, TestCase, Project, AuthConfig, TestCollection
 from backend.schemas.run import RunResponse, RunReport, ResultResponse
 from backend.schemas.common import ApiResponse
 from backend import ws as ws_module
@@ -27,6 +27,26 @@ LOG_DIR = Path("run_logs")
 
 # 运行中的进程跟踪：run_id -> subprocess.Popen
 _running_processes: dict[int, subprocess.Popen] = {}
+
+
+async def _resolve_collection_case_ids(db, collection_ids: list[int]) -> list[int]:
+    """解析多个用例集，合并去重，跳过已删除的用例"""
+    if not collection_ids:
+        return []
+    result = await db.execute(
+        select(TestCollection).where(TestCollection.id.in_(collection_ids))
+    )
+    collections = result.scalars().all()
+    all_case_ids: set[int] = set()
+    for c in collections:
+        if c.case_ids:
+            all_case_ids.update(c.case_ids)
+    if not all_case_ids:
+        return []
+    valid = await db.execute(
+        select(TestCase).where(TestCase.id.in_(list(all_case_ids)))
+    )
+    return [r[0] for r in valid.all()]
 
 
 def _parse_pytest_line(line: str) -> dict | None:
@@ -323,8 +343,7 @@ async def trigger_run(
     if collection_ids:
         try:
             parsed_collection_ids = [int(x.strip()) for x in collection_ids.split(",") if x.strip()]
-            from backend.services.pipeline_runner import resolve_collection_case_ids
-            parsed_case_ids = await resolve_collection_case_ids(db, parsed_collection_ids)
+            parsed_case_ids = await _resolve_collection_case_ids(db, parsed_collection_ids)
         except (ValueError, Exception):
             parsed_case_ids = None
             parsed_collection_ids = None

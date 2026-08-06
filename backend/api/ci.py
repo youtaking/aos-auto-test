@@ -1,25 +1,22 @@
 # backend/api/ci.py
-"""CI/CD 触发 + Pipeline 管理 + CI 配置 API"""
+"""Pipeline + CI 配置 API：供 Jenkins 调用和前端看板使用"""
 import asyncio
 import secrets
 from datetime import datetime
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, BackgroundTasks, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from backend.db.config import get_async_session, async_session
-from backend.db.models import PRPipeline, CIConfig, TestRun, EnvironmentSlot
+from backend.db.models import PRPipeline, CIConfig, TestRun
 from backend.schemas.ci import (
-    PRTriggerRequest, PRUpdateRequest, PipelineResponse,
-    RerunRequest, CIConfigResponse, CIConfigUpdate,
+    CreatePipelineRequest, UpdatePipelineStatusRequest,
+    PipelineResponse, CIConfigResponse, CIConfigUpdate,
 )
 from backend.schemas.common import ApiResponse
-from backend.services import slot_manager
-from backend.services.pipeline_runner import (
-    start_pipeline, rerun_pipeline, destroy_pipeline,
-    cancel_pipeline, handle_pr_update,
-)
 
 router = APIRouter()
 
@@ -30,33 +27,55 @@ async def _verify_token(authorization: str = Header(default="")):
         raise HTTPException(status_code=401, detail="缺少认证 Token")
     token = authorization[7:]
     async with async_session() as db:
-        config = await slot_manager.get_ci_config(db)
+        result = await db.execute(select(CIConfig).limit(1))
+        config = result.scalars().first()
+        if not config:
+            return  # 未配置 Token 时允许访问
         if config.auth_token and config.auth_token != token:
             raise HTTPException(status_code=403, detail="认证 Token 无效")
 
 
-@router.post("/ci/pr-trigger", response_model=ApiResponse)
-async def pr_trigger(
-    body: PRTriggerRequest,
-    background_tasks: BackgroundTasks,
+async def _get_ci_config(db):
+    """获取或创建 CIConfig"""
+    result = await db.execute(select(CIConfig).limit(1))
+    config = result.scalars().first()
+    if not config:
+        config = CIConfig()
+        db.add(config)
+        await db.commit()
+        await db.refresh(config)
+    return config
+
+
+def _pipeline_to_response(p: PRPipeline, run: TestRun | None = None) -> dict:
+    """将 PRPipeline 转为响应 dict"""
+    return PipelineResponse(
+        id=p.id, pr_id=p.pr_id, pr_title=p.pr_title,
+        commit_sha=p.commit_sha, branch=p.branch,
+        repo_url=p.repo_url, author=p.author,
+        status=p.status, docker_image=p.docker_image,
+        target_url=p.target_url or "",
+        rcs_url=p.rcs_url,
+        run_id=p.run_id,
+        build_info=p.build_info,
+        error_message=p.error_message,
+        created_at=p.created_at, updated_at=p.updated_at,
+        test_total=run.total if run else 0,
+        test_passed=run.passed if run else 0,
+        test_failed=run.failed if run else 0,
+        test_skipped=run.skipped if run else 0,
+    ).model_dump()
+
+
+@router.post("/pipelines", response_model=ApiResponse)
+async def create_pipeline(
+    body: CreatePipelineRequest,
     db: AsyncSession = Depends(get_async_session),
     authorization: str = Header(default=""),
 ):
-    """接收 GitHub Actions 的 PR 触发请求"""
-    # 验证 Token
+    """Jenkins 创建 Pipeline 记录"""
     await _verify_token(authorization)
 
-    # 幂等检查：同一 PR 同一 commit 不重复创建
-    existing = await db.execute(
-        select(PRPipeline).where(
-            PRPipeline.pr_id == body.pr_id,
-            PRPipeline.commit_sha == body.commit_sha,
-        )
-    )
-    if existing.scalar_one_or_none():
-        return ApiResponse(data={"message": "同一 PR 同一 commit 已存在，跳过"})
-
-    # 创建 Pipeline 记录
     pipeline = PRPipeline(
         pr_id=body.pr_id,
         pr_title=body.pr_title,
@@ -64,37 +83,101 @@ async def pr_trigger(
         branch=body.branch,
         repo_url=body.repo_url,
         author=body.author,
+        status="building",
+        target_url=body.target_url,
+        build_info=body.build_info.model_dump() if body.build_info else None,
     )
     db.add(pipeline)
     await db.commit()
     await db.refresh(pipeline)
 
-    # 解析 test_config
-    test_config = None
-    if body.test_config:
-        test_config = body.test_config.model_dump(exclude_none=True)
-
-    # 异步启动流水线
-    background_tasks.add_task(start_pipeline, pipeline.id, test_config)
-
-    return ApiResponse(data={
-        "pipeline_id": pipeline.id,
-        "status": "pending",
-        "message": f"PR #{body.pr_id} 已接收，正在处理",
-    })
+    return ApiResponse(data=_pipeline_to_response(pipeline))
 
 
-@router.post("/ci/pr-update", response_model=ApiResponse)
-async def pr_update(
-    body: PRUpdateRequest,
-    background_tasks: BackgroundTasks,
+@router.put("/pipelines/{pipeline_id}/status", response_model=ApiResponse)
+async def update_pipeline_status(
+    pipeline_id: int,
+    body: UpdatePipelineStatusRequest,
     db: AsyncSession = Depends(get_async_session),
     authorization: str = Header(default=""),
 ):
-    """同一 PR 新 commit 更新"""
+    """Jenkins 更新 Pipeline 状态"""
     await _verify_token(authorization)
-    background_tasks.add_task(handle_pr_update, body.pr_id, body.commit_sha)
-    return ApiResponse(data={"message": f"PR #{body.pr_id} 更新已接收"})
+
+    pipeline = await db.get(PRPipeline, pipeline_id)
+    if not pipeline:
+        return ApiResponse(success=False, error="Pipeline 不存在")
+
+    pipeline.status = body.status
+    if body.error_message:
+        pipeline.error_message = body.error_message
+    await db.commit()
+    await db.refresh(pipeline)
+
+    return ApiResponse(data=_pipeline_to_response(pipeline))
+
+
+@router.post("/pipelines/{pipeline_id}/results", response_model=ApiResponse)
+async def submit_results(
+    pipeline_id: int,
+    report: dict,
+    db: AsyncSession = Depends(get_async_session),
+    authorization: str = Header(default=""),
+):
+    """接收 test-runner/Jenkins 提交的 pytest JSON 报告"""
+    await _verify_token(authorization)
+
+    pipeline = await db.get(PRPipeline, pipeline_id)
+    if not pipeline:
+        return ApiResponse(success=False, error="Pipeline 不存在")
+
+    # 保存原始报告
+    pipeline.test_report = report
+
+    # 解析摘要
+    summary = report.get("summary", {})
+    total = summary.get("num_tests", 0)
+    passed = summary.get("num_passed", 0)
+    failed = summary.get("num_failed", 0)
+    skipped = summary.get("num_skipped", 0)
+    duration = report.get("duration", 0)
+
+    # 创建或更新 TestRun
+    if pipeline.run_id:
+        run = await db.get(TestRun, pipeline.run_id)
+    else:
+        run = TestRun(
+            project_id=1,
+            trigger_type="ci",
+            git_commit=pipeline.commit_sha,
+            git_branch=pipeline.branch,
+            pr_id=pipeline.pr_id,
+            pipeline_id=pipeline.id,
+            started_at=datetime.utcnow(),
+        )
+        db.add(run)
+        await db.flush()
+
+    if run:
+        run.total = total
+        run.passed = passed
+        run.failed = failed
+        run.skipped = skipped
+        run.duration_ms = int(duration * 1000)
+        run.status = "passed" if failed == 0 else "failed"
+        run.finished_at = datetime.utcnow()
+        pipeline.run_id = run.id
+
+    await db.commit()
+    await db.refresh(pipeline)
+
+    return ApiResponse(data={
+        **_pipeline_to_response(pipeline, run),
+        "test_total": total,
+        "test_passed": passed,
+        "test_failed": failed,
+        "test_skipped": skipped,
+    })
 
 
 @router.get("/pipelines", response_model=ApiResponse)
@@ -104,58 +187,35 @@ async def list_pipelines(
     page_size: int = 20,
     db: AsyncSession = Depends(get_async_session),
 ):
-    """获取 Pipeline 列表"""
+    """Pipeline 列表（支持状态筛选和分页）"""
+    from sqlalchemy import func
+
     base_query = select(PRPipeline)
     if status:
-        # 支持逗号分隔的多状态筛选，如 "building,deploying,running,queued"
         statuses = [s.strip() for s in status.split(",") if s.strip()]
         if len(statuses) > 1:
             base_query = base_query.where(PRPipeline.status.in_(statuses))
         elif statuses:
             base_query = base_query.where(PRPipeline.status == statuses[0])
 
-    # 总数
-    from sqlalchemy import func
     count_result = await db.execute(
         select(func.count()).select_from(base_query.subquery())
     )
-    total = count_result.scalar() or 0
+    total_count = count_result.scalar() or 0
 
-    # 分页
     query = base_query.order_by(PRPipeline.created_at.desc())
     query = query.offset((page - 1) * page_size).limit(page_size)
-
     result = await db.execute(query)
     pipelines = result.scalars().all()
 
     items = []
     for p in pipelines:
-        slot = await db.get(EnvironmentSlot, p.slot_id) if p.slot_id else None
         run = await db.get(TestRun, p.run_id) if p.run_id else None
-
-        item = PipelineResponse(
-            id=p.id, pr_id=p.pr_id, pr_title=p.pr_title,
-            commit_sha=p.commit_sha, branch=p.branch,
-            repo_url=p.repo_url, author=p.author,
-            slot_id=p.slot_id,
-            slot_name=slot.name if slot else None,
-            status=p.status, docker_image=p.docker_image,
-            rcs_url=p.rcs_url, run_id=p.run_id,
-            queue_position=p.queue_position,
-            timeout_at=p.timeout_at,
-            environment_info=p.environment_info,
-            error_message=p.error_message,
-            created_at=p.created_at, updated_at=p.updated_at,
-            test_total=run.total if run else 0,
-            test_passed=run.passed if run else 0,
-            test_failed=run.failed if run else 0,
-            test_skipped=run.skipped if run else 0,
-        )
-        items.append(item)
+        items.append(_pipeline_to_response(p, run))
 
     return ApiResponse(data={
-        "items": [i.model_dump() for i in items],
-        "total": total,
+        "items": items,
+        "total": total_count,
         "page": page,
         "page_size": page_size,
     })
@@ -163,60 +223,19 @@ async def list_pipelines(
 
 @router.get("/pipelines/{pipeline_id}", response_model=ApiResponse)
 async def get_pipeline(pipeline_id: int, db: AsyncSession = Depends(get_async_session)):
-    """获取单个 Pipeline 详情"""
+    """Pipeline 详情"""
     p = await db.get(PRPipeline, pipeline_id)
     if not p:
         return ApiResponse(success=False, error="Pipeline 不存在")
 
-    slot = await db.get(EnvironmentSlot, p.slot_id) if p.slot_id else None
     run = await db.get(TestRun, p.run_id) if p.run_id else None
-
-    return ApiResponse(data=PipelineResponse(
-        id=p.id, pr_id=p.pr_id, pr_title=p.pr_title,
-        commit_sha=p.commit_sha, branch=p.branch,
-        repo_url=p.repo_url, author=p.author,
-        slot_id=p.slot_id,
-        slot_name=slot.name if slot else None,
-        status=p.status, docker_image=p.docker_image,
-        rcs_url=p.rcs_url, run_id=p.run_id,
-        queue_position=p.queue_position,
-        timeout_at=p.timeout_at,
-        environment_info=p.environment_info,
-        error_message=p.error_message,
-        created_at=p.created_at, updated_at=p.updated_at,
-        test_total=run.total if run else 0,
-        test_passed=run.passed if run else 0,
-        test_failed=run.failed if run else 0,
-        test_skipped=run.skipped if run else 0,
-    ).model_dump())
-
-
-@router.post("/pipelines/{pipeline_id}/rerun", response_model=ApiResponse)
-async def rerun(pipeline_id: int, body: RerunRequest = None, background_tasks: BackgroundTasks = None):
-    """重跑测试"""
-    case_ids = body.case_ids if body else None
-    background_tasks.add_task(rerun_pipeline, pipeline_id, case_ids)
-    return ApiResponse(data={"message": "重跑已触发"})
-
-
-@router.delete("/pipelines/{pipeline_id}", response_model=ApiResponse)
-async def destroy(pipeline_id: int, background_tasks: BackgroundTasks):
-    """手动销毁环境"""
-    background_tasks.add_task(destroy_pipeline, pipeline_id)
-    return ApiResponse(data={"message": "销毁已触发"})
-
-
-@router.post("/pipelines/{pipeline_id}/cancel", response_model=ApiResponse)
-async def cancel(pipeline_id: int, background_tasks: BackgroundTasks):
-    """取消 Pipeline"""
-    background_tasks.add_task(cancel_pipeline, pipeline_id)
-    return ApiResponse(data={"message": "取消已触发"})
+    return ApiResponse(data=_pipeline_to_response(p, run))
 
 
 @router.get("/ci/config", response_model=ApiResponse)
 async def get_ci_config(db: AsyncSession = Depends(get_async_session)):
     """获取 CI 配置"""
-    config = await slot_manager.get_ci_config(db)
+    config = await _get_ci_config(db)
     return ApiResponse(data=CIConfigResponse.model_validate(config).model_dump())
 
 
@@ -226,7 +245,7 @@ async def update_ci_config(
     db: AsyncSession = Depends(get_async_session),
 ):
     """更新 CI 配置"""
-    config = await slot_manager.get_ci_config(db)
+    config = await _get_ci_config(db)
     for field in ["timeout_minutes", "max_queue_size", "auth_token",
                    "run_api_tests", "run_e2e_p0", "run_e2e_all",
                    "collection_ids"]:
@@ -241,8 +260,56 @@ async def update_ci_config(
 @router.post("/ci/config/regenerate-token", response_model=ApiResponse)
 async def regenerate_token(db: AsyncSession = Depends(get_async_session)):
     """重新生成认证 Token"""
-    config = await slot_manager.get_ci_config(db)
+    config = await _get_ci_config(db)
     config.auth_token = secrets.token_urlsafe(32)
     await db.commit()
     await db.refresh(config)
     return ApiResponse(data={"token": config.auth_token})
+
+
+@router.get("/pipelines/{pipeline_id}/logs")
+async def get_pipeline_logs(
+    pipeline_id: int,
+    follow: bool = False,
+    db: AsyncSession = Depends(get_async_session),
+):
+    """获取 Pipeline 测试日志。follow=true 时返回 SSE 流。"""
+    pipeline = await db.get(PRPipeline, pipeline_id)
+    if not pipeline:
+        raise HTTPException(status_code=404, detail="Pipeline 不存在")
+
+    log_path = Path("run_logs") / f"pipeline_{pipeline_id}.log"
+
+    if not follow:
+        lines = ""
+        if log_path.exists():
+            lines = log_path.read_text(encoding="utf-8")
+        return ApiResponse(data={"logs": lines, "pipeline_id": pipeline_id})
+
+    async def generate_sse():
+        last_size = 0
+        while True:
+            if log_path.exists():
+                current_size = log_path.stat().st_size
+                if current_size > last_size:
+                    with open(log_path, "r", encoding="utf-8") as f:
+                        f.seek(last_size)
+                        new_content = f.read()
+                    for line in new_content.splitlines():
+                        yield f"data: {line}\n\n"
+                    last_size = current_size
+
+                # 检查 Pipeline 是否已结束
+                async with async_session() as check_db:
+                    p = await check_db.get(PRPipeline, pipeline_id)
+                    if p and p.status in ("passed", "failed", "error", "destroyed"):
+                        yield "data: [END]\n\n"
+                        break
+
+            await asyncio.sleep(1)
+
+    return StreamingResponse(
+        generate_sse(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+    )

@@ -131,15 +131,12 @@ export interface Pipeline {
   branch: string;
   repo_url: string;
   author: string;
-  slot_id: number | null;
-  slot_name: string | null;
   status: string;
   docker_image: string;
+  target_url: string;
   rcs_url: string;
   run_id: number | null;
-  queue_position: number;
-  timeout_at: string | null;
-  environment_info: string;
+  build_info: Record<string, unknown> | null;
   error_message: string | null;
   created_at: string;
   updated_at: string;
@@ -147,26 +144,6 @@ export interface Pipeline {
   test_passed: number;
   test_failed: number;
   test_skipped: number;
-}
-
-export interface EnvironmentSlot {
-  id: number;
-  name: string;
-  rcs_port: number;
-  postgres_port: number;
-  litellm_port: number;
-  status: string;
-  host: string;
-  ssh_user: string;
-  ssh_port: number;
-  ssh_key_path: string;
-  ssh_password: string;
-  work_dir: string;
-  pipeline_id: number | null;
-  pipeline_pr_id: number | null;
-  pipeline_status: string | null;
-  created_at: string;
-  updated_at: string;
 }
 
 export interface CIConfig {

@@ -1,11 +1,8 @@
 import { useEffect, useState } from "react";
 import { getCIConfig, updateCIConfig, regenerateToken } from "../api/ciConfig";
-import { listSlots, updateSlot, createSlot, deleteSlot } from "../api/slots";
 import { listCollections } from "../api/collections";
-import type { CIConfig, EnvironmentSlot, Collection } from "../api/types";
-import { X, Eye, EyeOff, RefreshCw, Copy, Plus, Trash2 } from "lucide-react";
-
-const DEFAULT_SLOT_IDS = [1, 2, 3];
+import type { CIConfig, Collection } from "../api/types";
+import { X, Eye, EyeOff, RefreshCw, Copy } from "lucide-react";
 
 interface Props {
   onClose: () => void;
@@ -13,7 +10,6 @@ interface Props {
 
 export default function CIConfigModal({ onClose }: Props) {
   const [config, setConfig] = useState<CIConfig | null>(null);
-  const [slots, setSlots] = useState<EnvironmentSlot[]>([]);
   const [showToken, setShowToken] = useState(false);
   const [saving, setSaving] = useState(false);
   const [collections, setCollections] = useState<Collection[]>([]);
@@ -24,7 +20,6 @@ export default function CIConfigModal({ onClose }: Props) {
       setConfig(c);
       if (c.collection_ids) setSelectedCollectionIds(c.collection_ids);
     }).catch(console.error);
-    listSlots().then(setSlots).catch(console.error);
     listCollections().then(setCollections).catch(console.error);
   };
   useEffect(() => { load(); }, []);
@@ -38,21 +33,6 @@ export default function CIConfigModal({ onClose }: Props) {
         max_queue_size: config.max_queue_size,
         collection_ids: selectedCollectionIds.length > 0 ? selectedCollectionIds : null,
       });
-      for (const s of slots) {
-        await updateSlot(s.id, {
-          name: s.name,
-          rcs_port: s.rcs_port,
-          postgres_port: s.postgres_port,
-          litellm_port: s.litellm_port,
-          host: s.host,
-          ssh_user: s.ssh_user,
-          ssh_port: s.ssh_port,
-          ssh_key_path: s.ssh_key_path,
-          ssh_password: s.ssh_password,
-          work_dir: s.work_dir,
-          status: s.status,
-        });
-      }
       onClose();
     } catch (e) {
       console.error(e);
@@ -153,203 +133,6 @@ export default function CIConfigModal({ onClose }: Props) {
               </div>
             )}
           </div>
-        </div>
-
-        {/* Slot 配置 */}
-        <div className="space-y-3">
-          <h3 className="font-semibold">Slot 配置</h3>
-          {slots.map((s, i) => (
-            <div key={s.id} className={`border rounded-lg p-3 space-y-2 ${s.status === "maintenance" ? "opacity-50" : ""}`}>
-              <div className="flex items-center justify-between">
-                <span className="font-medium text-sm">{s.name}</span>
-                <div className="flex items-center gap-3">
-                  <label className="flex items-center gap-1.5 text-xs cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={s.status !== "maintenance"}
-                      onChange={(e) => {
-                        const updated = [...slots];
-                        updated[i] = { ...s, status: e.target.checked ? "available" : "maintenance" };
-                        setSlots(updated);
-                      }}
-                      className="rounded"
-                    />
-                    {s.status === "maintenance" ? "已停用" : "启用"}
-                  </label>
-                  {!DEFAULT_SLOT_IDS.includes(s.id) && (
-                    <button
-                      onClick={async () => {
-                        if (!confirm(`确定删除 ${s.name}？`)) return;
-                        try {
-                          await deleteSlot(s.id);
-                          setSlots(slots.filter(x => x.id !== s.id));
-                        } catch (e: any) {
-                          alert(e?.message || "删除失败");
-                        }
-                      }}
-                      className="p-1 text-red-400 hover:text-red-600"
-                      title="删除"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-              </div>
-              {/* 服务器 + SSH */}
-              <div className="grid grid-cols-4 gap-2">
-                <div className="col-span-2">
-                  <label className="block text-xs text-gray-500">服务器地址</label>
-                  <input
-                    type="text"
-                    value={s.host || "localhost"}
-                    onChange={(e) => {
-                      const updated = [...slots];
-                      updated[i] = { ...s, host: e.target.value };
-                      setSlots(updated);
-                    }}
-                    placeholder="localhost 或 IP 地址"
-                    className="w-full px-2 py-1 border rounded text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500">SSH 用户</label>
-                  <input
-                    type="text"
-                    value={s.ssh_user || "root"}
-                    onChange={(e) => {
-                      const updated = [...slots];
-                      updated[i] = { ...s, ssh_user: e.target.value };
-                      setSlots(updated);
-                    }}
-                    className="w-full px-2 py-1 border rounded text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500">SSH 端口</label>
-                  <input
-                    type="number"
-                    value={s.ssh_port || 22}
-                    onChange={(e) => {
-                      const updated = [...slots];
-                      updated[i] = { ...s, ssh_port: Number(e.target.value) };
-                      setSlots(updated);
-                    }}
-                    className="w-full px-2 py-1 border rounded text-sm"
-                  />
-                </div>
-              </div>
-              {/* SSH 密钥 + 密码 + 工作目录 */}
-              <div className="grid grid-cols-3 gap-2">
-                <div>
-                  <label className="block text-xs text-gray-500">SSH 密钥路径</label>
-                  <input
-                    type="text"
-                    value={s.ssh_key_path || ""}
-                    onChange={(e) => {
-                      const updated = [...slots];
-                      updated[i] = { ...s, ssh_key_path: e.target.value };
-                      setSlots(updated);
-                    }}
-                    placeholder="如 ~/.ssh/id_rsa（留空用密码）"
-                    className="w-full px-2 py-1 border rounded text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500">SSH 密码</label>
-                  <input
-                    type="password"
-                    value={s.ssh_password || ""}
-                    onChange={(e) => {
-                      const updated = [...slots];
-                      updated[i] = { ...s, ssh_password: e.target.value };
-                      setSlots(updated);
-                    }}
-                    placeholder="密钥留空时用密码"
-                    className="w-full px-2 py-1 border rounded text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500">远程工作目录</label>
-                  <input
-                    type="text"
-                    value={s.work_dir || "/tmp/pr-environments"}
-                    onChange={(e) => {
-                      const updated = [...slots];
-                      updated[i] = { ...s, work_dir: e.target.value };
-                      setSlots(updated);
-                    }}
-                    className="w-full px-2 py-1 border rounded text-sm"
-                  />
-                </div>
-              </div>
-              {/* 端口配置 */}
-              <div className="grid grid-cols-3 gap-2">
-                <div>
-                  <label className="block text-xs text-gray-500">RCS 端口</label>
-                  <input
-                    type="number"
-                    value={s.rcs_port}
-                    onChange={(e) => {
-                      const updated = [...slots];
-                      updated[i] = { ...s, rcs_port: Number(e.target.value) };
-                      setSlots(updated);
-                    }}
-                    className="w-full px-2 py-1 border rounded text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500">PG 端口</label>
-                  <input
-                    type="number"
-                    value={s.postgres_port}
-                    onChange={(e) => {
-                      const updated = [...slots];
-                      updated[i] = { ...s, postgres_port: Number(e.target.value) };
-                      setSlots(updated);
-                    }}
-                    className="w-full px-2 py-1 border rounded text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500">LLM 端口</label>
-                  <input
-                    type="number"
-                    value={s.litellm_port}
-                    onChange={(e) => {
-                      const updated = [...slots];
-                      updated[i] = { ...s, litellm_port: Number(e.target.value) };
-                      setSlots(updated);
-                    }}
-                    className="w-full px-2 py-1 border rounded text-sm"
-                  />
-                </div>
-              </div>
-            </div>
-          ))}
-          {/* 添加 Slot */}
-          {(() => {
-            const allDefaultsEnabled = DEFAULT_SLOT_IDS.every(
-              id => slots.find(s => s.id === id)?.status !== "maintenance"
-            );
-            return (
-              <button
-                onClick={async () => {
-                  try {
-                    const newSlot = await createSlot();
-                    setSlots([...slots, newSlot]);
-                  } catch (e: any) {
-                    alert(e?.message || "请先启用所有默认 Slot（1/2/3）再添加");
-                  }
-                }}
-                disabled={!allDefaultsEnabled}
-                className="w-full py-2 border-2 border-dashed border-gray-300 rounded-lg text-sm text-gray-500 hover:border-blue-400 hover:text-blue-500 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1"
-              >
-                <Plus className="w-4 h-4" />
-                添加 Slot
-                {!allDefaultsEnabled && <span className="text-xs">（需先启用默认 3 个 Slot）</span>}
-              </button>
-            );
-          })()}
         </div>
 
         <div className="flex justify-end gap-2 pt-4 border-t">
