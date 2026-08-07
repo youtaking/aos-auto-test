@@ -345,7 +345,7 @@ services:
       FENIX_API_BASE_URL: http://rcs:3001
       HEADLESS: "true"
       PYTHONUNBUFFERED: "1"
-    command: 'pytest __TEST_TARGETS__ -v --tb=short --base-url=http://rcs:3001 --json-report --json-report-file=/app/results/report.json'
+    command: 'pytest __TEST_TARGETS__ -v --tb=short --base-url=http://rcs:3001 --json-report --json-report-file=/app/tests/results/report.json'
 
   unit-runner:
     image: unit-runner:latest
