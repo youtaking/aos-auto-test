@@ -20,7 +20,7 @@ pipeline {
                     set +x
                     echo "############################################################"
                     echo "#                                                          #"
-                    echo "#   PR Pipeline — Build #__BUILD_NUMBER__"
+                    echo "#   PR Pipeline (Build) — Build #__BUILD_NUMBER__"
                     echo "#                                                          #"
                     echo "#   Project:    __PROJECT_NAME__"
                     echo "#   Branch:     __PR_BRANCH__"
@@ -582,9 +582,9 @@ except:
                     set +x
                 echo ">>> Stopping and removing containers..."
                 docker-compose -p __PROJECT_NAME__ down -v || true
-                echo ">>> Removing images..."
-                docker rmi -f __IMAGE_TAG__ || true
-                docker rmi -f __MIGRATE_IMAGE_TAG__ || true
+                echo ">>> Images kept for debug use:"
+                echo "    __IMAGE_TAG__"
+                echo "    __MIGRATE_IMAGE_TAG__"
                 echo ""
                 echo "<<< Cleanup — DONE"
                 echo ""
