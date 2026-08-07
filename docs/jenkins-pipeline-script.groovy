@@ -188,7 +188,7 @@ pipeline {
                         echo ">>> test-runner:latest already exists, skipping build."
                     else
                         echo ">>> test-runner:latest not found, building..."
-                        docker build -t test-runner:latest -f Dockerfile.runner autotest/
+                        docker build -t test-runner:latest -f autotest/Dockerfile.runner autotest/
                         echo "    test-runner:latest built."
                     fi
 
@@ -196,7 +196,7 @@ pipeline {
                         echo ">>> unit-runner:latest already exists, skipping build."
                     else
                         echo ">>> unit-runner:latest not found, building..."
-                        docker build -t unit-runner:latest -f Dockerfile.unit-runner autotest/
+                        docker build -t unit-runner:latest -f autotest/Dockerfile.unit-runner autotest/
                         echo "    unit-runner:latest built."
                     fi
 
