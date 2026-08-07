@@ -98,7 +98,7 @@ pipeline {
                 sh '''
                     set +x
                     echo ">>> Verifying image..."
-                    docker run --rm unit-runner:latest --version
+                    docker run --rm --entrypoint bun unit-runner:latest --version
                     echo ""
                     echo ">>> Image details:"
                     docker image inspect unit-runner:latest --format '{{.Id}} {{.Created}} {{.Size}}'
