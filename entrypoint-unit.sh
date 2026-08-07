@@ -43,4 +43,18 @@ fi
 echo ">>> Running bun test..."
 mkdir -p /app/tests/results
 cd /app/tests
-bun test --reporter=junit --reporter-outfile=results/unit-junit.xml
+
+# --reporter=junit 输出 XML 到 stdout，重定向到文件
+# stderr（进度信息）单独输出到终端
+bun test --reporter=junit > results/unit-junit.xml
+TEST_EXIT=$?
+
+# 检查结果文件
+if [ -s results/unit-junit.xml ]; then
+    echo ">>> junit XML written: $(wc -c < results/unit-junit.xml) bytes"
+else
+    echo "    WARNING: junit XML is empty or missing!"
+fi
+
+echo ">>> Test exit code: $TEST_EXIT"
+exit $TEST_EXIT

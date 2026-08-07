@@ -10,7 +10,7 @@ import httpx
 class AutoTestReporter:
     """pytest 插件：在每条用例开始/结束时推送状态到后端 API"""
 
-    def __init__(self, run_id: int, backend_url: str = "http://localhost:8000"):
+    def __init__(self, run_id: int, backend_url: str = "http://localhost:8111"):
         self.run_id = run_id
         self.backend_url = backend_url
         self._client = httpx.Client(timeout=5.0)

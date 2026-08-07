@@ -52,7 +52,7 @@ async def lifespan(app: FastAPI):
     # 单元测试用例自动发现
     try:
         from backend.api.unit_tests import discover_unit_tests, UNIT_TESTS_DIR
-        from backend.db.models import UnitTestCase
+        from backend.db.models import UnitTestCase, UnitTestResult
         from sqlalchemy import delete as sql_delete
 
         if UNIT_TESTS_DIR.exists():
@@ -65,7 +65,8 @@ async def lifespan(app: FastAPI):
                     seen.add(c["full_name"])
                     unique_discovered.append(c)
             async with async_session() as db:
-                # 先提交 DELETE，释放唯一约束
+                # 先删 results 再删 cases，避免外键冲突
+                await db.execute(sql_delete(UnitTestResult))
                 await db.execute(sql_delete(UnitTestCase))
                 await db.commit()
             async with async_session() as db:

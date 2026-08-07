@@ -15,7 +15,7 @@ services:
       context: .
       dockerfile: Dockerfile.backend
     ports:
-      - "8000:8000"
+      - "8111:8111"
     environment:
       DATABASE_URL: postgresql+asyncpg://re:re@db:5432/auto_test
       SCREENSHOTS_DIR: /screenshots
@@ -38,7 +38,7 @@ services:
       context: .
       dockerfile: Dockerfile.runner
     environment:
-      BACKEND_URL: http://backend:8000
+      BACKEND_URL: http://backend:8111
     volumes:
       - screenshots:/screenshots
     profiles:

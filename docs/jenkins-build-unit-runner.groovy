@@ -56,7 +56,7 @@ pipeline {
                             for i in 1 2 3; do
                                 if curl --fail -SL --connect-timeout 10 --max-time 300 \\
                                   "${full_url}" -o "${output}" 2>/dev/null; then
-                                    if [ -s "${output}" ]; then
+                                    if [ -s "${output}" ] && tar tzf "${output}" > /dev/null 2>&1; then
                                         echo "    OK (proxy: ${proxy:-direct})"
                                         return 0
                                     fi

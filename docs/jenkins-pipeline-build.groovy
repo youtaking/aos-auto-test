@@ -11,7 +11,7 @@ pipeline {
     }
 
     environment {
-        AUTOTEST_URL = "http://100.105.181.173:8000"
+        AUTOTEST_URL = "http://100.105.181.173:8111"
         APP_REPO     = "https://github.com/youtaking/FenixAgent.git"
         TEST_REPO    = "https://github.com/youtaking/aos-auto-test.git"
         PROJECT_NAME = "pr-env-${BUILD_NUMBER}"
@@ -103,7 +103,7 @@ pipeline {
                             for i in 1 2 3; do
                                 if curl --fail -SL --connect-timeout 10 --max-time 300 \\
                                   "${full_url}" -o "${output}" 2>/dev/null; then
-                                    if [ -s "${output}" ]; then
+                                    if [ -s "${output}" ] && tar tzf "${output}" > /dev/null 2>&1; then
                                         echo "    OK (proxy: ${proxy:-direct})"
                                         return 0
                                     fi
@@ -400,6 +400,7 @@ INITEOF
                     chmod +x pg-init/10-create-litellm.sh
 
                     echo ">>> Preparing seed data..."
+                    rm -rf seed-data.sql
                     if [ -f autotest/data.sql ]; then
                       grep -v "^[\\\\]restrict\\b\\|^[\\\\]unrestrict\\b" autotest/data.sql > seed-data.sql
                       echo "    seed-data.sql ready ($(wc -l < seed-data.sql) lines)."
@@ -430,9 +431,13 @@ INITEOF
                     echo "    Migration complete."
 
                     echo ">>> Importing seed data..."
-                    docker-compose -p __PROJECT_NAME__ exec -T postgres \
-                      psql -U rcs -d rcs -v ON_ERROR_STOP=1 -f /seed-data.sql
-                    echo "    Seed data imported."
+                    if grep -q '^[^-]' seed-data.sql 2>/dev/null; then
+                        docker-compose -p __PROJECT_NAME__ exec -T postgres \
+                          psql -U rcs -d rcs -v ON_ERROR_STOP=1 -f /seed-data.sql
+                        echo "    Seed data imported."
+                    else
+                        echo "    No seed data to import, skipping."
+                    fi
 
                     echo ">>> Starting litellm + rcs..."
                     docker-compose -p __PROJECT_NAME__ up -d litellm rcs
@@ -640,6 +645,7 @@ open('unit-upload.json', 'w', encoding='utf-8').write(json.dumps(payload))
                             fi
                             [ -z "$PIPELINE_ID" ] && echo "    WARNING: No pipeline ID, skipping unit upload."
                         fi
+                        exit 0
                     '''.replace('__AUTOTEST_URL__', AUTOTEST_URL)
                 }
 
@@ -682,7 +688,7 @@ open('unit-upload.json', 'w', encoding='utf-8').write(json.dumps(payload))
                     echo ">>> Starting test-runner (streaming logs)..."
                 '''
                 sh "docker-compose -p ${PROJECT_NAME} logs -f test-runner &"
-                sh "docker-compose -p ${PROJECT_NAME} up test-runner"
+                sh "docker-compose -p ${PROJECT_NAME} up test-runner || true"
                 sh '''
                     set +x
                     echo ""

@@ -5,9 +5,9 @@ from engine.reporter import AutoTestReporter
 
 def test_reporter_init():
     """测试 Reporter 初始化"""
-    reporter = AutoTestReporter(run_id=1, backend_url="http://localhost:8000")
+    reporter = AutoTestReporter(run_id=1, backend_url="http://localhost:8111")
     assert reporter.run_id == 1
-    assert reporter.backend_url == "http://localhost:8000"
+    assert reporter.backend_url == "http://localhost:8111"
     assert reporter._results == []
     reporter._client.close()
 

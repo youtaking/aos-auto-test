@@ -152,7 +152,8 @@ async def discover_tests(db: AsyncSession = Depends(get_async_session)):
             seen.add(c["full_name"])
             unique_discovered.append(c)
 
-    # 先提交 DELETE，释放唯一约束
+    # 先提交 DELETE（results → cases 顺序，避免外键冲突），释放唯一约束
+    await db.execute(delete(UnitTestResult))
     await db.execute(delete(UnitTestCase))
     await db.commit()
 
