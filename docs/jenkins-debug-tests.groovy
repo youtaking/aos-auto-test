@@ -385,7 +385,25 @@ INITEOF
                     echo ">>> Preparing seed data..."
                     rm -rf seed-data.sql
                     if [ -f autotest/data.sql ]; then
-                      grep -v "^[\\\\]restrict\\b\\|^[\\\\]unrestrict\\b" autotest/data.sql > seed-data.sql
+                      python3 -c "
+lines = open('autotest/data.sql', encoding='utf-8').readlines()
+out = []
+skip = False
+for line in lines:
+    s = line.strip()
+    if s.startswith('\\\\restrict') or s.startswith('\\\\unrestrict'):
+        continue
+    if 'COPY drizzle.__drizzle_migrations' in line:
+        skip = True
+        continue
+    if skip and s == '\\\\.':
+        skip = False
+        continue
+    if skip:
+        continue
+    out.append(line)
+open('seed-data.sql', 'w', encoding='utf-8').writelines(out)
+"
                       echo "    seed-data.sql ready ($(wc -l < seed-data.sql) lines)."
                     else
                       echo "    WARNING: autotest/data.sql not found, creating empty seed."
