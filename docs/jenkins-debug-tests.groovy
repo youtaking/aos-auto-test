@@ -384,7 +384,7 @@ INITEOF
 
                     echo ">>> Preparing seed data..."
                     if [ -f autotest/data.sql ]; then
-                      grep -v "^[\\\\]restrict\b\|^[\\\\]unrestrict\b" autotest/data.sql > seed-data.sql
+                      grep -v "^[\\\\]restrict\\b\\|^[\\\\]unrestrict\\b" autotest/data.sql > seed-data.sql
                       echo "    seed-data.sql ready ($(wc -l < seed-data.sql) lines)."
                     else
                       echo "    WARNING: autotest/data.sql not found, creating empty seed."
