@@ -85,7 +85,7 @@ pipeline {
                 sh '''
                     set +x
                     echo ">>> Building unit-runner:latest..."
-                    docker build -t unit-runner:latest -f autotest/Dockerfile.unit-runner .
+                    docker build -t unit-runner:latest -f Dockerfile.unit-runner autotest/
                     echo ""
                     echo ">>> Build complete:"
                     docker images | grep unit-runner
