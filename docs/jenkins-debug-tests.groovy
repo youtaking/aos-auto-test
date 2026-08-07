@@ -90,18 +90,51 @@ pipeline {
                     echo "============================================================"
                     echo "[1/5] Clone Test Code — START"
                     echo "============================================================"
+                    rm -rf autotest app
+                    mkdir -p autotest app
+
+                    download_repo() {
+                        local url="$1"
+                        local output="$2"
+                        local proxies="https://gh-proxy.com https://mirror.ghproxy.com https://ghfast.top https://ghproxy.net"
+                        for proxy in $proxies ""; do
+                            if [ -n "$proxy" ]; then
+                                full_url="${proxy}/${url}"
+                            else
+                                full_url="$url"
+                            fi
+                            echo "    Trying: ${full_url}"
+                            for i in 1 2 3; do
+                                if curl --fail -SL --connect-timeout 10 --max-time 300 \\
+                                  "${full_url}" -o "${output}" 2>/dev/null; then
+                                    if [ -s "${output}" ]; then
+                                        echo "    OK (proxy: ${proxy:-direct})"
+                                        return 0
+                                    fi
+                                fi
+                                echo "    Attempt $i failed, retrying..."
+                                sleep 3
+                            done
+                            echo "    Proxy ${proxy:-direct} failed, trying next..."
+                        done
+                        echo "    ERROR: All proxies failed!"
+                        return 1
+                    }
+
                     echo ">>> Downloading aos-auto-test (feat/jenkins-pipeline)..."
-                    rm -rf autotest
-                    mkdir -p autotest
-                    curl -SL "https://gh-proxy.com/https://api.github.com/repos/youtaking/aos-auto-test/tarball/feat/jenkins-pipeline" \\
-                      | tar xz --strip-components=1 -C autotest
+                    download_repo \\
+                      "https://github.com/youtaking/aos-auto-test/archive/refs/heads/feat/jenkins-pipeline.tar.gz" \\
+                      /tmp/autotest.tar.gz
+                    tar xzf /tmp/autotest.tar.gz --strip-components=1 -C autotest
+                    rm -f /tmp/autotest.tar.gz
                     echo "    aos-auto-test: $(ls autotest/ | wc -l) files/dirs"
 
                     echo ">>> Downloading FenixAgent source (main branch, for unit tests)..."
-                    rm -rf app
-                    mkdir -p app
-                    curl -SL "https://gh-proxy.com/https://github.com/youtaking/FenixAgent/archive/refs/heads/main.tar.gz" \\
-                      | tar xz --strip-components=1 -C app
+                    download_repo \\
+                      "https://github.com/youtaking/FenixAgent/archive/refs/heads/main.tar.gz" \\
+                      /tmp/fenix.tar.gz
+                    tar xzf /tmp/fenix.tar.gz --strip-components=1 -C app
+                    rm -f /tmp/fenix.tar.gz
                     echo "    FenixAgent: $(ls app/ | wc -l) files/dirs"
                     echo ""
                     echo "<<< [1/5] Clone Test Code — DONE"
@@ -109,17 +142,33 @@ pipeline {
             }
         }
 
-        stage('Build Unit Runner') {
+        stage('Check Runner Images') {
             steps {
                 sh '''
                     set +x
                     echo ""
                     echo "============================================================"
-                    echo "[1b] Build Unit Runner — START"
+                    echo "[1b] Check Runner Images — START"
                     echo "============================================================"
-                    docker build -t unit-runner:latest -f autotest/Dockerfile.unit-runner .
+
+                    if docker image inspect test-runner:latest > /dev/null 2>&1; then
+                        echo ">>> test-runner:latest already exists, skipping build."
+                    else
+                        echo ">>> test-runner:latest not found, building..."
+                        docker build -t test-runner:latest -f autotest/Dockerfile.runner .
+                        echo "    test-runner:latest built."
+                    fi
+
+                    if docker image inspect unit-runner:latest > /dev/null 2>&1; then
+                        echo ">>> unit-runner:latest already exists, skipping build."
+                    else
+                        echo ">>> unit-runner:latest not found, building..."
+                        docker build -t unit-runner:latest -f autotest/Dockerfile.unit-runner .
+                        echo "    unit-runner:latest built."
+                    fi
+
                     echo ""
-                    echo "<<< [1b] Build Unit Runner — DONE"
+                    echo "<<< [1b] Check Runner Images — DONE"
                 '''
             }
         }
@@ -171,7 +220,7 @@ try:
 except Exception as e:
     import sys
     print(f'Parse error: {e}', file=sys.stderr)
-" > test_targets.txt 2>&1
+" > test_targets.txt 2>/dev/null
 
                                 if [ -s test_targets.txt ]; then
                                     echo "    Source: AutoTest API"
@@ -221,6 +270,7 @@ services:
       POSTGRES_DB: rcs
     volumes:
       - ./pg-init:/docker-entrypoint-initdb.d
+      - ./seed-data.sql:/seed-data.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U rcs"]
       interval: 5s
@@ -287,9 +337,7 @@ services:
     image: unit-runner:latest
     volumes:
       - __WORKSPACE__/autotest/unit_tests:/app/tests
-      - __WORKSPACE__/app/src:/app/tests/app/src:ro
-    working_dir: /app/tests
-    command: 'sh -c "mkdir -p results && bun test --reporter=junit --reporter-outfile=results/unit-junit.xml"'
+      - __WORKSPACE__/app:/app/fenix-source-parent:ro
 '''.replace('__PG_PORT__', PG_PORT)
   .replace('__LITE_PORT__', LITE_PORT)
   .replace('__IMAGE_TAG__', IMAGE_TAG)
@@ -333,6 +381,15 @@ EOSQL
 INITEOF
                     chmod +x pg-init/10-create-litellm.sh
 
+                    echo ">>> Preparing seed data..."
+                    if [ -f autotest/data.sql ]; then
+                      grep -v "^[\\\\]restrict\b\|^[\\\\]unrestrict\b" autotest/data.sql > seed-data.sql
+                      echo "    seed-data.sql ready ($(wc -l < seed-data.sql) lines)."
+                    else
+                      echo "    WARNING: autotest/data.sql not found, creating empty seed."
+                      echo "-- No seed data" > seed-data.sql
+                    fi
+
                     echo ">>> Starting postgres..."
                     docker-compose -p __PROJECT_NAME__ up -d postgres
 
@@ -353,6 +410,11 @@ INITEOF
                     echo ">>> Running database migration..."
                     docker-compose -p __PROJECT_NAME__ run --rm --no-deps migrate
                     echo "    Migration complete."
+
+                    echo ">>> Importing seed data..."
+                    docker-compose -p __PROJECT_NAME__ exec -T postgres \
+                      psql -U rcs -d rcs -v ON_ERROR_STOP=1 -f /seed-data.sql
+                    echo "    Seed data imported."
 
                     echo ">>> Starting litellm + rcs..."
                     docker-compose -p __PROJECT_NAME__ up -d litellm rcs
@@ -390,7 +452,7 @@ INITEOF
                     echo "============================================================"
                     echo ">>> Starting unit-runner (bun:test)..."
                 '''
-                sh "docker-compose -p ${PROJECT_NAME} up unit-runner"
+                sh "docker-compose -p ${PROJECT_NAME} up unit-runner || true"
                 sh '''
                     set +x
                     echo ""
@@ -432,8 +494,8 @@ INITEOF
                     echo "============================================================"
                     echo "Collect Results — START"
                     echo "============================================================"
-                    echo ">>> Copying unit-junit.xml..."
-                    docker cp __PROJECT_NAME__-unit-runner-1:/app/tests/results/unit-junit.xml unit-junit.xml || true
+                    echo ">>> Copying unit-junit.xml from volume..."
+                    cp __WORKSPACE__/autotest/unit_tests/results/unit-junit.xml unit-junit.xml 2>/dev/null || true
 
                     if [ -f unit-junit.xml ]; then
                         echo ">>> Unit test summary:"
@@ -442,10 +504,17 @@ import xml.etree.ElementTree as ET
 tree = ET.parse('unit-junit.xml')
 total = passed = failed = skipped = 0
 for ts in tree.findall('.//testsuite'):
-    total += int(ts.get('tests', 0))
-    failed += int(ts.get('failures', 0))
-    skipped += int(ts.get('skipped', 0))
-    passed = total - failed - skipped
+    cases = ts.findall('testcase')
+    if not cases:
+        continue
+    for tc in cases:
+        total += 1
+        if tc.find('failure') is not None:
+            failed += 1
+        elif tc.find('skipped') is not None:
+            skipped += 1
+        else:
+            passed += 1
 print(f'    Total:   {total}')
 print(f'    Passed:  {passed}')
 print(f'    Failed:  {failed}')
@@ -456,8 +525,8 @@ print(f'    Skipped: {skipped}')
                     fi
 
                     echo ""
-                    echo ">>> Copying report.json..."
-                    docker cp __PROJECT_NAME__-test-runner-1:/app/results/report.json report.json || true
+                    echo ">>> Copying report.json from volume..."
+                    cp __WORKSPACE__/autotest/tests/results/report.json report.json 2>/dev/null || true
 
                     if [ -f report.json ]; then
                         echo ">>> API/UI Test summary:"
@@ -480,6 +549,7 @@ except Exception as e:
                     echo ""
                     echo "<<< Collect Results — DONE"
                 '''.replace('__PROJECT_NAME__', PROJECT_NAME)
+                  .replace('__WORKSPACE__', env.WORKSPACE.replace('/var/jenkins_home', '/opt/1panel/apps/jenkins/jenkins/data'))
             }
         }
     }

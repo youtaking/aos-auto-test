@@ -188,6 +188,8 @@ export interface UnitTestFile {
 export interface UnitTestResult {
   id: number;
   test_case_id: number | null;
+  name: string;
+  classname: string;
   status: string;
   duration_ms: number;
   failure_message: string | null;
@@ -195,10 +197,13 @@ export interface UnitTestResult {
 }
 
 export interface UnitTestSummary {
+  status: string;  // not_run / running / completed / failed
+  run_id: number | null;
   total: number;
   passed: number;
   failed: number;
   skipped: number;
   duration_ms: number;
+  started_at: string | null;
   results: UnitTestResult[];
 }

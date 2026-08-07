@@ -281,23 +281,57 @@ class UnitTestCase(Base):
     )
 
 
+class UnitTestRun(Base):
+    """单元测试运行记录"""
+    __tablename__ = "unit_test_runs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    total = Column(Integer, default=0)
+    passed = Column(Integer, default=0)
+    failed = Column(Integer, default=0)
+    skipped = Column(Integer, default=0)
+    duration_ms = Column(Integer, default=0)
+    status = Column(String(20), default="completed")  # running / completed / failed
+    trigger_type = Column(String(20), default="manual")  # manual / pipeline
+    pipeline_id = Column(Integer, ForeignKey("pr_pipelines.id"), nullable=True)
+    started_at = Column(DateTime, default=datetime.utcnow)
+
+    results = relationship("UnitTestResult", back_populates="run", cascade="all, delete-orphan")
+
+
 class UnitTestResult(Base):
     """单元测试运行结果"""
     __tablename__ = "unit_test_results"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    run_id = Column(Integer, ForeignKey("unit_test_runs.id"), nullable=True)
     pipeline_id = Column(Integer, ForeignKey("pr_pipelines.id"), nullable=True)
     test_case_id = Column(Integer, ForeignKey("unit_test_cases.id"), nullable=True)
+    name = Column(String(300), default="")          # 测试名
+    classname = Column(String(300), default="")     # describe 名
     status = Column(String(20), nullable=False)  # passed / failed / skipped / error
     duration_ms = Column(Integer, default=0)
     failure_message = Column(Text, nullable=True)
     ran_at = Column(DateTime, default=datetime.utcnow)
 
     case = relationship("UnitTestCase", back_populates="results")
+    run = relationship("UnitTestRun", back_populates="results")
 
     __table_args__ = (
+        Index("ix_unit_test_results_run_id", "run_id"),
         Index("ix_unit_test_results_pipeline_id", "pipeline_id"),
         Index("ix_unit_test_results_test_case_id", "test_case_id"),
     )
+
+
+class Setting(Base):
+    """系统配置（key-value 存储）"""
+    __tablename__ = "settings"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    key = Column(String(200), nullable=False, unique=True, index=True)
+    value = Column(Text, default="")
+    description = Column(String(500), default="")
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 

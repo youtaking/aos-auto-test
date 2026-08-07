@@ -4,6 +4,7 @@ import Dashboard from "./pages/Dashboard";
 import Runs from "./pages/Runs";
 import RunDetail from "./pages/RunDetail";
 import Cases from "./pages/Cases";
+import UnitTests from "./pages/UnitTests";
 import ApiTests from "./pages/ApiTests";
 import Reports from "./pages/Reports";
 import AIAnalysis from "./pages/AIAnalysis";
@@ -20,6 +21,7 @@ export default function App() {
           <Route path="runs" element={<Runs />} />
           <Route path="runs/:id" element={<RunDetail />} />
           <Route path="cases" element={<Cases />} />
+          <Route path="unit-tests" element={<UnitTests />} />
           <Route path="api-tests" element={<ApiTests />} />
           <Route path="reports" element={<Reports />} />
           <Route path="ai-analysis" element={<AIAnalysis />} />

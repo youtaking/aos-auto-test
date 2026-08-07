@@ -6,12 +6,10 @@ import { triggerRun } from "../api/runs";
 import { getCollection, updateCollection, listCollections } from "../api/collections";
 import { ChevronDown, RefreshCw, FolderOpen } from "lucide-react";
 import CollectionManager from "../components/CollectionManager";
-import UnitTestTree from "../components/UnitTestTree";
 import type { TestSuite, TestCase, Collection } from "../api/types";
 
 export default function Cases() {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<"api-ui" | "unit">("api-ui");
   const [suites, setSuites] = useState<TestSuite[]>([]);
   const [cases, setCases] = useState<TestCase[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -233,14 +231,10 @@ export default function Cases() {
         <div>
           <h1 className="text-2xl font-bold">用例管理</h1>
           <p className="text-gray-500 mt-1">
-            {activeTab === "api-ui"
-              ? `共 ${cases.length} 个用例，${suites.length} 个套件`
-              : "单元测试用例"}
+            共 {cases.length} 个用例，{suites.length} 个套件
           </p>
         </div>
         <div className="flex gap-2 items-center">
-          {activeTab === "api-ui" && (
-            <>
               <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer px-3 py-2 border rounded-lg hover:bg-gray-50">
                 <input
                   type="checkbox"
@@ -302,40 +296,10 @@ export default function Cases() {
                 <RefreshCw className={`w-4 h-4 ${syncing ? "animate-spin" : ""}`} />
                 {syncing ? "同步中..." : "重新扫描"}
               </button>
-            </>
-          )}
         </div>
       </div>
 
-      {/* Tab 切换 */}
-      <div className="flex gap-2">
-        <button
-          onClick={() => setActiveTab("api-ui")}
-          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-            activeTab === "api-ui"
-              ? "bg-blue-600 text-white"
-              : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-          }`}
-        >
-          API/UI 测试
-        </button>
-        <button
-          onClick={() => setActiveTab("unit")}
-          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-            activeTab === "unit"
-              ? "bg-blue-600 text-white"
-              : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-          }`}
-        >
-          单元测试
-        </button>
-      </div>
-
-      {activeTab === "unit" && <UnitTestTree />}
-
-      {activeTab === "api-ui" && (
-        <>
-          {/* 浮动操作栏 */}
+      {/* 浮动操作栏 */}
           {selectedCount > 0 && (
             <div className="sticky top-0 z-10 bg-white rounded-xl shadow-md border border-blue-200 p-3 flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -365,8 +329,6 @@ export default function Cases() {
 
           {/* Web API 测试 */}
           {renderSuiteSection("section-api", "Web API 测试", apiSuites, apiCases, "bg-orange-500")}
-        </>
-      )}
 
       {showCollections && (
         <CollectionManager

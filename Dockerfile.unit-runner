@@ -1,5 +1,8 @@
 FROM oven/bun:latest
 WORKDIR /app
-# 测试代码和 FenixAgent 源码通过 volume 挂载
-# tsconfig paths (@fenix/*) 解析到 ./app/src/*
-CMD ["sh", "-c", "mkdir -p /app/tests/results && cd /app/tests && bun test --reporter=junit --reporter-outfile=/app/tests/results/unit-junit.xml"]
+
+# Entrypoint: 生成 tsconfig → 安装依赖 → 运行测试
+COPY entrypoint-unit.sh /app/entrypoint-unit.sh
+RUN chmod +x /app/entrypoint-unit.sh
+
+ENTRYPOINT ["/app/entrypoint-unit.sh"]

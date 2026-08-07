@@ -7,7 +7,7 @@ from backend.db.config import init_db, close_db
 from backend.api import (
     projects, suites, runs, cases, dashboard, api_tests,
     auth_configs, llm_configs, zentao_configs, ai_analysis,
-    ci, collections, unit_tests,
+    ci, collections, unit_tests, settings,
 )
 from backend import ws as ws_module
 
@@ -57,12 +57,22 @@ async def lifespan(app: FastAPI):
 
         if UNIT_TESTS_DIR.exists():
             discovered = discover_unit_tests(UNIT_TESTS_DIR)
+            # 按 full_name 去重，防止解析出重复用例
+            seen = set()
+            unique_discovered = []
+            for c in discovered:
+                if c["full_name"] not in seen:
+                    seen.add(c["full_name"])
+                    unique_discovered.append(c)
             async with async_session() as db:
+                # 先提交 DELETE，释放唯一约束
                 await db.execute(sql_delete(UnitTestCase))
-                for case_data in discovered:
+                await db.commit()
+            async with async_session() as db:
+                for case_data in unique_discovered:
                     db.add(UnitTestCase(**case_data))
                 await db.commit()
-            print(f"[AutoDiscover] Unit: discovered {len(discovered)} test cases")
+            print(f"[AutoDiscover] Unit: discovered {len(unique_discovered)} test cases")
     except Exception as e:
         print(f"[AutoDiscover] Unit test discovery failed: {e}")
 
@@ -93,6 +103,7 @@ app.include_router(ai_analysis.router, prefix="/api", tags=["ai-analysis"])
 app.include_router(ci.router, prefix="/api", tags=["ci-pipelines"])
 app.include_router(collections.router, prefix="/api", tags=["collections"])
 app.include_router(unit_tests.router, prefix="/api", tags=["unit-tests"])
+app.include_router(settings.router, prefix="/api", tags=["settings"])
 app.include_router(ws_module.router, tags=["websocket"])
 
 

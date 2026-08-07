@@ -1,7 +1,8 @@
 import { useEffect, useState, useRef } from "react";
 import type { Pipeline } from "../api/types";
 import { getRunResults, getRunLogs } from "../api/runs";
-import type { TestResult } from "../api/types";
+import { getPipelineUnitResults } from "../api/unitTests";
+import type { TestResult, UnitTestSummary } from "../api/types";
 import { X, ExternalLink } from "lucide-react";
 
 interface Props {
@@ -17,7 +18,8 @@ const statusIcons: Record<string, string> = {
 export default function PipelineDetail({ pipeline, onClose }: Props) {
   const [results, setResults] = useState<TestResult[]>([]);
   const [logs, setLogs] = useState<string[]>([]);
-  const [activeTab, setActiveTab] = useState<"info" | "results" | "logs">("info");
+  const [unitResults, setUnitResults] = useState<UnitTestSummary | null>(null);
+  const [activeTab, setActiveTab] = useState<"info" | "unit" | "results" | "logs">("info");
   const logEndRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -26,7 +28,8 @@ export default function PipelineDetail({ pipeline, onClose }: Props) {
       getRunResults(pipeline.run_id).then(setResults).catch(console.error);
       getRunLogs(pipeline.run_id).then(setLogs).catch(console.error);
     }
-  }, [pipeline.run_id]);
+    getPipelineUnitResults(pipeline.id).then(setUnitResults).catch(console.error);
+  }, [pipeline.run_id, pipeline.id]);
 
   useEffect(() => {
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -64,7 +67,7 @@ export default function PipelineDetail({ pipeline, onClose }: Props) {
       </div>
 
       <div className="flex gap-2 border-b">
-        {(["info", "results", "logs"] as const).map((tab) => (
+        {(["info", "unit", "results", "logs"] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -74,7 +77,10 @@ export default function PipelineDetail({ pipeline, onClose }: Props) {
                 : "border-transparent text-gray-500 hover:text-gray-700"
             }`}
           >
-            {tab === "info" ? "基本信息" : tab === "results" ? `测试结果 (${pipeline.test_total})` : "实时日志"}
+            {tab === "info" ? "基本信息"
+              : tab === "unit" ? `单元测试${unitResults && unitResults.status !== "not_run" ? ` (${unitResults.total})` : ""}`
+              : tab === "results" ? `集成测试 (${pipeline.test_total})`
+              : "实时日志"}
           </button>
         ))}
       </div>
@@ -110,6 +116,61 @@ export default function PipelineDetail({ pipeline, onClose }: Props) {
             <div><span className="text-gray-500">镜像:</span> <code className="text-xs">{pipeline.docker_image}</code></div>
             <div><span className="text-gray-500">测试:</span> {pipeline.test_passed}✅ {pipeline.test_failed}❌ {pipeline.test_skipped}⏭️ ({passRate}%)</div>
           </div>
+        </div>
+      )}
+
+      {activeTab === "unit" && (
+        <div>
+          {!unitResults || unitResults.status === "not_run" ? (
+            <div className="text-center py-12 text-gray-400">
+              <div className="text-3xl mb-2">⏸️</div>
+              <div>未运行单元测试</div>
+            </div>
+          ) : unitResults.status === "running" ? (
+            <div className="text-center py-12 text-blue-500">
+              <div className="text-3xl mb-2 animate-spin">🔄</div>
+              <div>单元测试运行中...</div>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center gap-4 mb-4 text-sm">
+                <span className={`font-medium ${unitResults.failed > 0 ? "text-red-600" : "text-green-600"}`}>
+                  {unitResults.failed > 0 ? "❌ 失败" : "✅ 通过"}
+                </span>
+                <span>{unitResults.passed}✅ {unitResults.failed}❌ {unitResults.skipped}⏭️</span>
+                <span className="text-gray-400">{unitResults.duration_ms}ms</span>
+              </div>
+              <div className="max-h-96 overflow-y-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-left">
+                      <th className="py-2">状态</th>
+                      <th className="py-2">Describe</th>
+                      <th className="py-2">用例</th>
+                      <th className="py-2">耗时</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {unitResults.results.map((r) => (
+                      <tr key={r.id} className="border-b">
+                        <td className="py-1.5">
+                          {r.status === "passed" ? "✅" : r.status === "failed" ? "❌" : r.status === "skipped" ? "⏭️" : "⚠️"}
+                        </td>
+                        <td className="py-1.5 text-gray-500 text-xs">{r.classname}</td>
+                        <td className="py-1.5 font-mono text-xs">
+                          {r.name}
+                          {r.failure_message && (
+                            <div className="text-red-500 mt-1 text-xs font-normal whitespace-pre-wrap">{r.failure_message}</div>
+                          )}
+                        </td>
+                        <td className="py-1.5">{r.duration_ms}ms</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
         </div>
       )}
 

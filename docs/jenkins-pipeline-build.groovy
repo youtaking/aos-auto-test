@@ -1,6 +1,14 @@
 pipeline {
     agent any
 
+    parameters {
+        string(name: 'PR_BRANCH',    description: 'PR 分支名（如 feat/xxx）',           defaultValue: 'main')
+        string(name: 'PR_ID',        description: 'PR 编号（如 42）',                   defaultValue: '0')
+        string(name: 'PR_TITLE',     description: 'PR 标题',                            defaultValue: 'manual build')
+        string(name: 'COMMIT_SHA',   description: 'Commit SHA',                        defaultValue: 'unknown')
+        string(name: 'AUTHOR',       description: '作者',                               defaultValue: 'unknown')
+    }
+
     environment {
         AUTOTEST_URL = "http://100.105.181.173:8000"
         APP_REPO     = "https://github.com/youtaking/FenixAgent.git"
@@ -167,17 +175,33 @@ pipeline {
             }
         }
 
-        stage('Build Unit Runner') {
+        stage('Check Runner Images') {
             steps {
                 sh '''
                     set +x
                     echo ""
                     echo "============================================================"
-                    echo "[2b] Build Unit Runner — START"
+                    echo "[2b] Check Runner Images — START"
                     echo "============================================================"
-                    docker build -t unit-runner:latest -f autotest/Dockerfile.unit-runner .
+
+                    if docker image inspect test-runner:latest > /dev/null 2>&1; then
+                        echo ">>> test-runner:latest already exists, skipping build."
+                    else
+                        echo ">>> test-runner:latest not found, building..."
+                        docker build -t test-runner:latest -f autotest/Dockerfile.runner .
+                        echo "    test-runner:latest built."
+                    fi
+
+                    if docker image inspect unit-runner:latest > /dev/null 2>&1; then
+                        echo ">>> unit-runner:latest already exists, skipping build."
+                    else
+                        echo ">>> unit-runner:latest not found, building..."
+                        docker build -t unit-runner:latest -f autotest/Dockerfile.unit-runner .
+                        echo "    unit-runner:latest built."
+                    fi
+
                     echo ""
-                    echo "<<< [2b] Build Unit Runner — DONE"
+                    echo "<<< [2b] Check Runner Images — DONE"
                 '''
             }
         }
@@ -214,7 +238,7 @@ try:
 except Exception as e:
     import sys
     print(f'Parse error: {e}', file=sys.stderr)
-" > test_targets.txt 2>&1
+" > test_targets.txt 2>/dev/null
 
                         if [ -s test_targets.txt ]; then
                             echo "    Source: AutoTest API"
@@ -258,6 +282,7 @@ services:
       POSTGRES_DB: rcs
     volumes:
       - ./pg-init:/docker-entrypoint-initdb.d
+      - ./seed-data.sql:/seed-data.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U rcs"]
       interval: 5s
@@ -324,9 +349,7 @@ services:
     image: unit-runner:latest
     volumes:
       - __WORKSPACE__/autotest/unit_tests:/app/tests
-      - __WORKSPACE__/app/src:/app/tests/app/src:ro
-    working_dir: /app/tests
-    command: 'sh -c "mkdir -p results && bun test --reporter=junit --reporter-outfile=results/unit-junit.xml"'
+      - __WORKSPACE__/app:/app/fenix-source-parent:ro
 '''.replace('__PG_PORT__', PG_PORT)
   .replace('__LITE_PORT__', LITE_PORT)
   .replace('__IMAGE_TAG__', "${PROJECT_NAME}:${BUILD_NUMBER}")
@@ -374,6 +397,15 @@ EOSQL
 INITEOF
                     chmod +x pg-init/10-create-litellm.sh
 
+                    echo ">>> Preparing seed data..."
+                    if [ -f autotest/data.sql ]; then
+                      grep -v "^[\\\\]restrict\b\|^[\\\\]unrestrict\b" autotest/data.sql > seed-data.sql
+                      echo "    seed-data.sql ready ($(wc -l < seed-data.sql) lines)."
+                    else
+                      echo "    WARNING: autotest/data.sql not found, creating empty seed."
+                      echo "-- No seed data" > seed-data.sql
+                    fi
+
                     echo ">>> Starting postgres..."
                     docker-compose -p __PROJECT_NAME__ up -d postgres
 
@@ -394,6 +426,11 @@ INITEOF
                     echo ">>> Running database migration..."
                     docker-compose -p __PROJECT_NAME__ run --rm --no-deps migrate
                     echo "    Migration complete."
+
+                    echo ">>> Importing seed data..."
+                    docker-compose -p __PROJECT_NAME__ exec -T postgres \
+                      psql -U rcs -d rcs -v ON_ERROR_STOP=1 -f /seed-data.sql
+                    echo "    Seed data imported."
 
                     echo ">>> Starting litellm + rcs..."
                     docker-compose -p __PROJECT_NAME__ up -d litellm rcs
@@ -510,9 +547,100 @@ INITEOF
                     echo "============================================================"
                     echo "Run Unit Tests — START"
                     echo "============================================================"
+                '''
+
+                // 1. 获取 PIPELINE_ID 并通知后端"单元测试开始"
+                withCredentials([string(credentialsId: 'autotest-token', variable: 'TOKEN')]) {
+                    sh '''
+                    set +x
+                        PIPELINE_ID=""
+                        if [ -f pipeline.json ]; then
+                            PIPELINE_ID=$(python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    print(data.get('data', {}).get('id', ''))
+except:
+    print('')
+" < pipeline.json)
+                        fi
+                        echo "$PIPELINE_ID" > .pipeline_id
+
+                        if [ -n "$PIPELINE_ID" ]; then
+                            echo ">>> Notifying backend: unit tests starting (pipeline_id=$PIPELINE_ID)..."
+                            START_RESP=$(curl -s -X POST __AUTOTEST_URL__/api/unit-tests/runs/start \\
+                              -H "Authorization: Bearer $TOKEN" \\
+                              -H "Content-Type: application/json" \\
+                              -d "{\\"pipeline_id\\": $PIPELINE_ID}")
+                            echo "$START_RESP"
+                            UNIT_RUN_ID=$(echo "$START_RESP" | python3 -c "
+import sys, json
+try:
+    print(json.load(sys.stdin).get('data', {}).get('run_id', ''))
+except:
+    print('')
+" 2>/dev/null)
+                            echo "    Unit run_id: $UNIT_RUN_ID"
+                            echo "$UNIT_RUN_ID" > .unit_run_id
+                        else
+                            echo "    WARNING: No pipeline ID, skipping start notification."
+                            echo "" > .unit_run_id
+                        fi
+                    '''.replace('__AUTOTEST_URL__', AUTOTEST_URL)
+                }
+
+                // 2. 运行单元测试（失败不阻塞 pipeline）
+                sh '''
+                    set +x
                     echo ">>> Starting unit-runner (bun:test)..."
                 '''
-                sh "docker-compose -p ${PROJECT_NAME} up unit-runner"
+                sh "docker-compose -p ${PROJECT_NAME} up unit-runner || true"
+
+                // 3. 收集并上传结果（带上 run_id 更新已有记录）
+                sh '''
+                    set +x
+                    echo ">>> Copying unit-junit.xml from volume..."
+                    cp __WORKSPACE__/autotest/unit_tests/results/unit-junit.xml unit-junit.xml 2>/dev/null || true
+                '''.replace('__WORKSPACE__', env.WORKSPACE.replace('/var/jenkins_home', '/opt/1panel/apps/jenkins/jenkins/data'))
+
+                withCredentials([string(credentialsId: 'autotest-token', variable: 'TOKEN')]) {
+                    sh '''
+                    set +x
+                        UNIT_RUN_ID=$(cat .unit_run_id 2>/dev/null || echo "")
+                        PIPELINE_ID=$(cat .pipeline_id 2>/dev/null || echo "")
+
+                        if [ -f unit-junit.xml ] && [ -n "$PIPELINE_ID" ]; then
+                            echo ">>> Uploading unit test results..."
+                            python3 -c "
+import json, sys
+xml_content = open('unit-junit.xml', 'r', encoding='utf-8').read()
+run_id = '$UNIT_RUN_ID'.strip()
+payload = {'pipeline_id': int($PIPELINE_ID), 'junit_xml': xml_content}
+if run_id:
+    payload['run_id'] = int(run_id)
+open('unit-upload.json', 'w', encoding='utf-8').write(json.dumps(payload))
+"
+                            curl -s -X POST __AUTOTEST_URL__/api/unit-tests/results \\
+                              -H "Authorization: Bearer $TOKEN" \\
+                              -H "Content-Type: application/json" \\
+                              -d @unit-upload.json
+                            echo ""
+                            echo "    Unit test results uploaded."
+                        else
+                            UNIT_RUN_ID=$(cat .unit_run_id 2>/dev/null || echo "")
+                            if [ ! -f unit-junit.xml ] && [ -n "$UNIT_RUN_ID" ]; then
+                                echo "    WARNING: unit-junit.xml not found, marking unit run as error..."
+                                curl -s -X PUT __AUTOTEST_URL__/api/unit-tests/runs/\${UNIT_RUN_ID}/status \\
+                                  -H "Authorization: Bearer $TOKEN" \\
+                                  -H "Content-Type: application/json" \\
+                                  -d '{"status": "error"}'
+                                echo ""
+                            fi
+                            [ -z "$PIPELINE_ID" ] && echo "    WARNING: No pipeline ID, skipping unit upload."
+                        fi
+                    '''.replace('__AUTOTEST_URL__', AUTOTEST_URL)
+                }
+
                 sh '''
                     set +x
                     echo ""
@@ -529,6 +657,26 @@ INITEOF
                     echo "============================================================"
                     echo "[7/7] Run Tests — START"
                     echo "============================================================"
+                '''
+
+                // 通知后端：集成测试开始
+                withCredentials([string(credentialsId: 'autotest-token', variable: 'TOKEN')]) {
+                    sh '''
+                    set +x
+                        PIPELINE_ID=$(cat .pipeline_id 2>/dev/null || echo "")
+                        if [ -n "$PIPELINE_ID" ]; then
+                            echo ">>> Notifying backend: integration tests starting (pipeline_id=$PIPELINE_ID)..."
+                            curl -s -X PUT __AUTOTEST_URL__/api/pipelines/${PIPELINE_ID}/status \\
+                              -H "Authorization: Bearer $TOKEN" \\
+                              -H "Content-Type: application/json" \\
+                              -d '{"status": "running"}'
+                            echo ""
+                        fi
+                    '''.replace('__AUTOTEST_URL__', AUTOTEST_URL)
+                }
+
+                sh '''
+                    set +x
                     echo ">>> Starting test-runner (streaming logs)..."
                 '''
                 sh "docker-compose -p ${PROJECT_NAME} logs -f test-runner &"
@@ -549,12 +697,9 @@ INITEOF
                     echo "============================================================"
                     echo "Collect Results — START"
                     echo "============================================================"
-                    echo ">>> Copying unit-junit.xml from unit-runner container..."
-                    docker cp __PROJECT_NAME__-unit-runner-1:/app/tests/results/unit-junit.xml unit-junit.xml || true
-
-                    echo ">>> Copying report.json from test-runner container..."
-                    docker cp __PROJECT_NAME__-test-runner-1:/app/results/report.json report.json || true
-                '''.replace('__PROJECT_NAME__', PROJECT_NAME)
+                    echo ">>> Copying report.json from volume..."
+                    cp __WORKSPACE__/autotest/tests/results/report.json report.json 2>/dev/null || true
+                '''.replace('__WORKSPACE__', env.WORKSPACE.replace('/var/jenkins_home', '/opt/1panel/apps/jenkins/jenkins/data'))
 
                 withCredentials([string(credentialsId: 'autotest-token', variable: 'TOKEN')]) {
                     sh '''
@@ -582,18 +727,6 @@ except:
                         else
                             [ ! -f report.json ] && echo "    WARNING: report.json not found."
                             [ -z "$PIPELINE_ID" ] && echo "    WARNING: No valid pipeline ID, skipping result upload."
-                        fi
-
-                        if [ -f unit-junit.xml ] && [ -n "$PIPELINE_ID" ]; then
-                            echo ">>> Uploading unit test results..."
-                            curl -s -X POST __AUTOTEST_URL__/api/unit-tests/results \\
-                              -H "Authorization: Bearer $TOKEN" \\
-                              -H "Content-Type: application/json" \\
-                              -d "{\\"pipeline_id\\": $PIPELINE_ID, \\"junit_xml\\": $(python3 -c "import json,sys; print(json.dumps(open('unit-junit.xml').read()))" 2>/dev/null)}"
-                            echo ""
-                            echo "    Unit test results uploaded."
-                        else
-                            [ ! -f unit-junit.xml ] && echo "    WARNING: unit-junit.xml not found."
                         fi
                         echo ""
                         echo "<<< Collect Results — DONE"

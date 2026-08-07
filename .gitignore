@@ -76,3 +76,6 @@ ai_reports/
 
 # Excel 测试用例文件
 *_updated.xlsx
+
+# 被测源码联接（setup.js 创建，指向 FenixAgent 源码目录）
+fenix-source/

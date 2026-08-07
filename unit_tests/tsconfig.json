@@ -7,7 +7,7 @@
     "types": ["bun"],
     "strict": true,
     "paths": {
-      "@fenix/*": ["./app/src/*"]
+      "@fenix/*": ["../fenix-source/*"]
     }
   },
   "include": ["**/*.ts"]
