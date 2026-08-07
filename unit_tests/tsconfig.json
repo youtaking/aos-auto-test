@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "baseUrl": ".",
+    "types": ["bun"],
+    "strict": true,
+    "paths": {
+      "@fenix/*": ["./app/src/*"]
+    }
+  },
+  "include": ["**/*.ts"]
+}

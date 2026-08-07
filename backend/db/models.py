@@ -263,3 +263,41 @@ class CIConfig(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class UnitTestCase(Base):
+    """单元测试用例（从 .test.ts 文件扫描发现）"""
+    __tablename__ = "unit_test_cases"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    file_path = Column(String(500), nullable=False)        # 相对路径，如 services/phone-number.test.ts
+    describe_block = Column(String(200), default="")       # describe 名称
+    test_name = Column(String(300), nullable=False)         # test/it 名称
+    full_name = Column(String(500), nullable=False, unique=True)  # describe > test 完整名
+    discovered_at = Column(DateTime, default=datetime.utcnow)
+
+    results = relationship("UnitTestResult", back_populates="case", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        Index("ix_unit_test_cases_file_path", "file_path"),
+    )
+
+
+class UnitTestResult(Base):
+    """单元测试运行结果"""
+    __tablename__ = "unit_test_results"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    pipeline_id = Column(Integer, ForeignKey("pr_pipelines.id"), nullable=True)
+    test_case_id = Column(Integer, ForeignKey("unit_test_cases.id"), nullable=True)
+    status = Column(String(20), nullable=False)  # passed / failed / skipped / error
+    duration_ms = Column(Integer, default=0)
+    failure_message = Column(Text, nullable=True)
+    ran_at = Column(DateTime, default=datetime.utcnow)
+
+    case = relationship("UnitTestCase", back_populates="results")
+
+    __table_args__ = (
+        Index("ix_unit_test_results_pipeline_id", "pipeline_id"),
+        Index("ix_unit_test_results_test_case_id", "test_case_id"),
+    )
+
+

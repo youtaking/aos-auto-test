@@ -80,14 +80,48 @@ pipeline {
                     rm -rf app autotest
                     mkdir -p app autotest
 
+                    download_repo() {
+                        local url="$1"
+                        local output="$2"
+                        local proxies="https://gh-proxy.com https://mirror.ghproxy.com https://ghfast.top https://ghproxy.net"
+                        for proxy in $proxies ""; do
+                            if [ -n "$proxy" ]; then
+                                full_url="${proxy}/${url}"
+                            else
+                                full_url="$url"
+                            fi
+                            echo "    Trying: ${full_url}"
+                            for i in 1 2 3; do
+                                if curl --fail -SL --connect-timeout 10 --max-time 300 \\
+                                  "${full_url}" -o "${output}" 2>/dev/null; then
+                                    if [ -s "${output}" ]; then
+                                        echo "    OK (proxy: ${proxy:-direct})"
+                                        return 0
+                                    fi
+                                fi
+                                echo "    Attempt $i failed, retrying..."
+                                sleep 3
+                            done
+                            echo "    Proxy ${proxy:-direct} failed, trying next..."
+                        done
+                        echo "    ERROR: All proxies failed!"
+                        return 1
+                    }
+
                     echo ">>> Downloading FenixAgent (__PR_BRANCH__)..."
-                    curl -SL "https://gh-proxy.com/https://github.com/youtaking/FenixAgent/archive/refs/heads/__PR_BRANCH__.tar.gz" \\
-                      | tar xz --strip-components=1 -C app
+                    download_repo \\
+                      "https://github.com/youtaking/FenixAgent/archive/refs/heads/__PR_BRANCH__.tar.gz" \\
+                      /tmp/fenix.tar.gz
+                    tar xzf /tmp/fenix.tar.gz --strip-components=1 -C app
+                    rm -f /tmp/fenix.tar.gz
                     echo "    FenixAgent: $(ls app/ | wc -l) files/dirs in app/"
 
                     echo ">>> Downloading aos-auto-test (feat/jenkins-pipeline)..."
-                    curl -SL "https://gh-proxy.com/https://api.github.com/repos/youtaking/aos-auto-test/tarball/feat/jenkins-pipeline" \\
-                      | tar xz --strip-components=1 -C autotest
+                    download_repo \\
+                      "https://github.com/youtaking/aos-auto-test/archive/refs/heads/feat/jenkins-pipeline.tar.gz" \\
+                      /tmp/autotest.tar.gz
+                    tar xzf /tmp/autotest.tar.gz --strip-components=1 -C autotest
+                    rm -f /tmp/autotest.tar.gz
                     echo "    aos-auto-test: $(ls autotest/ | wc -l) files/dirs in autotest/"
 
                     echo ""
@@ -130,6 +164,21 @@ pipeline {
                     '''.replace('__PROJECT_NAME__', PROJECT_NAME)
                       .replace('__BUILD_NUMBER__', BUILD_NUMBER)
                 }
+            }
+        }
+
+        stage('Build Unit Runner') {
+            steps {
+                sh '''
+                    set +x
+                    echo ""
+                    echo "============================================================"
+                    echo "[2b] Build Unit Runner — START"
+                    echo "============================================================"
+                    docker build -t unit-runner:latest -f autotest/Dockerfile.unit-runner .
+                    echo ""
+                    echo "<<< [2b] Build Unit Runner — DONE"
+                '''
             }
         }
 
@@ -270,6 +319,14 @@ services:
       HEADLESS: "true"
       PYTHONUNBUFFERED: "1"
     command: 'pytest __TEST_TARGETS__ -v --tb=short --base-url=http://rcs:3001 --json-report --json-report-file=/app/results/report.json'
+
+  unit-runner:
+    image: unit-runner:latest
+    volumes:
+      - __WORKSPACE__/autotest/unit_tests:/app/tests
+      - __WORKSPACE__/app/src:/app/tests/app/src:ro
+    working_dir: /app/tests
+    command: 'sh -c "mkdir -p results && bun test --reporter=junit --reporter-outfile=results/unit-junit.xml"'
 '''.replace('__PG_PORT__', PG_PORT)
   .replace('__LITE_PORT__', LITE_PORT)
   .replace('__IMAGE_TAG__', "${PROJECT_NAME}:${BUILD_NUMBER}")
@@ -445,6 +502,25 @@ INITEOF
             }
         }
 
+        stage('Run Unit Tests') {
+            steps {
+                sh '''
+                    set +x
+                    echo ""
+                    echo "============================================================"
+                    echo "Run Unit Tests — START"
+                    echo "============================================================"
+                    echo ">>> Starting unit-runner (bun:test)..."
+                '''
+                sh "docker-compose -p ${PROJECT_NAME} up unit-runner"
+                sh '''
+                    set +x
+                    echo ""
+                    echo "<<< Run Unit Tests — DONE"
+                '''
+            }
+        }
+
         stage('Run Tests') {
             steps {
                 sh '''
@@ -473,6 +549,9 @@ INITEOF
                     echo "============================================================"
                     echo "Collect Results — START"
                     echo "============================================================"
+                    echo ">>> Copying unit-junit.xml from unit-runner container..."
+                    docker cp __PROJECT_NAME__-unit-runner-1:/app/tests/results/unit-junit.xml unit-junit.xml || true
+
                     echo ">>> Copying report.json from test-runner container..."
                     docker cp __PROJECT_NAME__-test-runner-1:/app/results/report.json report.json || true
                 '''.replace('__PROJECT_NAME__', PROJECT_NAME)
@@ -493,16 +572,28 @@ except:
                         fi
 
                         if [ -f report.json ] && [ -n "$PIPELINE_ID" ]; then
-                            echo ">>> Uploading results to AutoTest API (pipeline_id=$PIPELINE_ID)..."
+                            echo ">>> Uploading API/UI results to AutoTest API (pipeline_id=$PIPELINE_ID)..."
                             curl -s -X POST __AUTOTEST_URL__/api/pipelines/${PIPELINE_ID}/results \\
                               -H "Authorization: Bearer $TOKEN" \\
                               -H "Content-Type: application/json" \\
                               -d @report.json
                             echo ""
-                            echo "    Results uploaded."
+                            echo "    API/UI Results uploaded."
                         else
                             [ ! -f report.json ] && echo "    WARNING: report.json not found."
                             [ -z "$PIPELINE_ID" ] && echo "    WARNING: No valid pipeline ID, skipping result upload."
+                        fi
+
+                        if [ -f unit-junit.xml ] && [ -n "$PIPELINE_ID" ]; then
+                            echo ">>> Uploading unit test results..."
+                            curl -s -X POST __AUTOTEST_URL__/api/unit-tests/results \\
+                              -H "Authorization: Bearer $TOKEN" \\
+                              -H "Content-Type: application/json" \\
+                              -d "{\\"pipeline_id\\": $PIPELINE_ID, \\"junit_xml\\": $(python3 -c "import json,sys; print(json.dumps(open('unit-junit.xml').read()))" 2>/dev/null)}"
+                            echo ""
+                            echo "    Unit test results uploaded."
+                        else
+                            [ ! -f unit-junit.xml ] && echo "    WARNING: unit-junit.xml not found."
                         fi
                         echo ""
                         echo "<<< Collect Results — DONE"

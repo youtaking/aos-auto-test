@@ -168,3 +168,37 @@ export interface Collection {
   created_at: string;
   updated_at: string;
 }
+
+export interface UnitTestCaseInfo {
+  id: number;
+  test_name: string;
+  full_name: string;
+}
+
+export interface UnitTestDescribe {
+  name: string;
+  tests: UnitTestCaseInfo[];
+}
+
+export interface UnitTestFile {
+  file_path: string;
+  describes: UnitTestDescribe[];
+}
+
+export interface UnitTestResult {
+  id: number;
+  test_case_id: number | null;
+  status: string;
+  duration_ms: number;
+  failure_message: string | null;
+  ran_at: string | null;
+}
+
+export interface UnitTestSummary {
+  total: number;
+  passed: number;
+  failed: number;
+  skipped: number;
+  duration_ms: number;
+  results: UnitTestResult[];
+}

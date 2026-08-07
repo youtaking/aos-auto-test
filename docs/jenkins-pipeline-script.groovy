@@ -133,6 +133,21 @@ pipeline {
             }
         }
 
+        stage('Build Unit Runner') {
+            steps {
+                sh '''
+                    set +x
+                    echo ""
+                    echo "============================================================"
+                    echo "[2b] Build Unit Runner — START"
+                    echo "============================================================"
+                    docker build -t unit-runner:latest -f autotest/Dockerfile.unit-runner .
+                    echo ""
+                    echo "<<< [2b] Build Unit Runner — DONE"
+                '''
+            }
+        }
+
         stage('Resolve Tests') {
             steps {
                 sh '''
@@ -270,6 +285,14 @@ services:
       HEADLESS: "true"
       PYTHONUNBUFFERED: "1"
     command: 'pytest __TEST_TARGETS__ -v --tb=short --base-url=http://rcs:3001 --json-report --json-report-file=/app/results/report.json'
+
+  unit-runner:
+    image: unit-runner:latest
+    volumes:
+      - __WORKSPACE__/autotest/unit_tests:/app/tests
+      - __WORKSPACE__/app/src:/app/tests/app/src:ro
+    working_dir: /app/tests
+    command: 'sh -c "mkdir -p results && bun test --reporter=junit --reporter-outfile=results/unit-junit.xml"'
 '''.replace('__PG_PORT__', PG_PORT)
   .replace('__LITE_PORT__', LITE_PORT)
   .replace('__IMAGE_TAG__', "${PROJECT_NAME}:${BUILD_NUMBER}")
@@ -445,6 +468,25 @@ INITEOF
             }
         }
 
+        stage('Run Unit Tests') {
+            steps {
+                sh '''
+                    set +x
+                    echo ""
+                    echo "============================================================"
+                    echo "Run Unit Tests — START"
+                    echo "============================================================"
+                    echo ">>> Starting unit-runner (bun:test)..."
+                '''
+                sh "docker-compose -p ${PROJECT_NAME} up unit-runner"
+                sh '''
+                    set +x
+                    echo ""
+                    echo "<<< Run Unit Tests — DONE"
+                '''
+            }
+        }
+
         stage('Run Tests') {
             steps {
                 sh '''
@@ -473,6 +515,9 @@ INITEOF
                     echo "============================================================"
                     echo "Collect Results — START"
                     echo "============================================================"
+                    echo ">>> Copying unit-junit.xml from unit-runner container..."
+                    docker cp __PROJECT_NAME__-unit-runner-1:/app/tests/results/unit-junit.xml unit-junit.xml || true
+
                     echo ">>> Copying report.json from test-runner container..."
                     docker cp __PROJECT_NAME__-test-runner-1:/app/results/report.json report.json || true
                 '''.replace('__PROJECT_NAME__', PROJECT_NAME)
@@ -493,16 +538,46 @@ except:
                         fi
 
                         if [ -f report.json ] && [ -n "$PIPELINE_ID" ]; then
-                            echo ">>> Uploading results to AutoTest API (pipeline_id=$PIPELINE_ID)..."
+                            echo ">>> Uploading API/UI results to AutoTest API (pipeline_id=$PIPELINE_ID)..."
                             curl -s -X POST __AUTOTEST_URL__/api/pipelines/${PIPELINE_ID}/results \\
                               -H "Authorization: Bearer $TOKEN" \\
                               -H "Content-Type: application/json" \\
                               -d @report.json
                             echo ""
-                            echo "    Results uploaded."
+                            echo "    API/UI Results uploaded."
                         else
                             [ ! -f report.json ] && echo "    WARNING: report.json not found."
                             [ -z "$PIPELINE_ID" ] && echo "    WARNING: No valid pipeline ID, skipping result upload."
+                        fi
+
+                        if [ -f unit-junit.xml ] && [ -n "$PIPELINE_ID" ]; then
+                            echo ">>> Uploading unit test results..."
+                            python3 -c "
+import xml.etree.ElementTree as ET, json, sys
+tree = ET.parse('unit-junit.xml')
+results = []
+for ts in tree.findall('.//testsuite'):
+    for tc in ts.findall('testcase'):
+        r = {'name': tc.get('name'), 'status': 'passed', 'duration_ms': int(float(tc.get('time', 0)) * 1000)}
+        if tc.find('failure') is not None:
+            r['status'] = 'failed'
+            r['failure_message'] = tc.find('failure').get('message', '')
+        if tc.find('skipped') is not None:
+            r['status'] = 'skipped'
+        results.append(r)
+print(json.dumps(results))
+" > unit-results.json 2>/dev/null
+                            if [ -f unit-results.json ]; then
+                                JUNIT_XML=$(python3 -c "import sys; print(open('unit-junit.xml').read())" 2>/dev/null)
+                                curl -s -X POST __AUTOTEST_URL__/api/unit-tests/results \\
+                                  -H "Authorization: Bearer $TOKEN" \\
+                                  -H "Content-Type: application/json" \\
+                                  -d "{\"pipeline_id\": $PIPELINE_ID, \"junit_xml\": $(python3 -c "import json,sys; print(json.dumps(open('unit-junit.xml').read()))" 2>/dev/null)}"
+                                echo ""
+                                echo "    Unit test results uploaded."
+                            fi
+                        else
+                            [ ! -f unit-junit.xml ] && echo "    WARNING: unit-junit.xml not found."
                         fi
                         echo ""
                         echo "<<< Collect Results — DONE"

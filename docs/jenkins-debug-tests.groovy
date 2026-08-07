@@ -96,8 +96,30 @@ pipeline {
                     curl -SL "https://gh-proxy.com/https://api.github.com/repos/youtaking/aos-auto-test/tarball/feat/jenkins-pipeline" \\
                       | tar xz --strip-components=1 -C autotest
                     echo "    aos-auto-test: $(ls autotest/ | wc -l) files/dirs"
+
+                    echo ">>> Downloading FenixAgent source (main branch, for unit tests)..."
+                    rm -rf app
+                    mkdir -p app
+                    curl -SL "https://gh-proxy.com/https://github.com/youtaking/FenixAgent/archive/refs/heads/main.tar.gz" \\
+                      | tar xz --strip-components=1 -C app
+                    echo "    FenixAgent: $(ls app/ | wc -l) files/dirs"
                     echo ""
                     echo "<<< [1/5] Clone Test Code — DONE"
+                '''
+            }
+        }
+
+        stage('Build Unit Runner') {
+            steps {
+                sh '''
+                    set +x
+                    echo ""
+                    echo "============================================================"
+                    echo "[1b] Build Unit Runner — START"
+                    echo "============================================================"
+                    docker build -t unit-runner:latest -f autotest/Dockerfile.unit-runner .
+                    echo ""
+                    echo "<<< [1b] Build Unit Runner — DONE"
                 '''
             }
         }
@@ -260,6 +282,14 @@ services:
       HEADLESS: "true"
       PYTHONUNBUFFERED: "1"
     command: 'pytest __TEST_TARGETS__ -v --tb=short --base-url=http://rcs:3001 --json-report --json-report-file=/app/results/report.json'
+
+  unit-runner:
+    image: unit-runner:latest
+    volumes:
+      - __WORKSPACE__/autotest/unit_tests:/app/tests
+      - __WORKSPACE__/app/src:/app/tests/app/src:ro
+    working_dir: /app/tests
+    command: 'sh -c "mkdir -p results && bun test --reporter=junit --reporter-outfile=results/unit-junit.xml"'
 '''.replace('__PG_PORT__', PG_PORT)
   .replace('__LITE_PORT__', LITE_PORT)
   .replace('__IMAGE_TAG__', IMAGE_TAG)
@@ -350,6 +380,25 @@ INITEOF
             }
         }
 
+        stage('Run Unit Tests') {
+            steps {
+                sh '''
+                    set +x
+                    echo ""
+                    echo "============================================================"
+                    echo "Run Unit Tests — START"
+                    echo "============================================================"
+                    echo ">>> Starting unit-runner (bun:test)..."
+                '''
+                sh "docker-compose -p ${PROJECT_NAME} up unit-runner"
+                sh '''
+                    set +x
+                    echo ""
+                    echo "<<< Run Unit Tests — DONE"
+                '''
+            }
+        }
+
         stage('Run Tests') {
             steps {
                 sh '''
@@ -383,11 +432,35 @@ INITEOF
                     echo "============================================================"
                     echo "Collect Results — START"
                     echo "============================================================"
+                    echo ">>> Copying unit-junit.xml..."
+                    docker cp __PROJECT_NAME__-unit-runner-1:/app/tests/results/unit-junit.xml unit-junit.xml || true
+
+                    if [ -f unit-junit.xml ]; then
+                        echo ">>> Unit test summary:"
+                        python3 -c "
+import xml.etree.ElementTree as ET
+tree = ET.parse('unit-junit.xml')
+total = passed = failed = skipped = 0
+for ts in tree.findall('.//testsuite'):
+    total += int(ts.get('tests', 0))
+    failed += int(ts.get('failures', 0))
+    skipped += int(ts.get('skipped', 0))
+    passed = total - failed - skipped
+print(f'    Total:   {total}')
+print(f'    Passed:  {passed}')
+print(f'    Failed:  {failed}')
+print(f'    Skipped: {skipped}')
+" 2>/dev/null || echo "    Could not parse unit-junit.xml"
+                    else
+                        echo "    WARNING: unit-junit.xml not found."
+                    fi
+
+                    echo ""
                     echo ">>> Copying report.json..."
                     docker cp __PROJECT_NAME__-test-runner-1:/app/results/report.json report.json || true
 
                     if [ -f report.json ]; then
-                        echo ">>> Test summary:"
+                        echo ">>> API/UI Test summary:"
                         python3 -c "
 import json, sys
 try:

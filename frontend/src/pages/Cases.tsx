@@ -6,10 +6,12 @@ import { triggerRun } from "../api/runs";
 import { getCollection, updateCollection, listCollections } from "../api/collections";
 import { ChevronDown, RefreshCw, FolderOpen } from "lucide-react";
 import CollectionManager from "../components/CollectionManager";
+import UnitTestTree from "../components/UnitTestTree";
 import type { TestSuite, TestCase, Collection } from "../api/types";
 
 export default function Cases() {
   const navigate = useNavigate();
+  const [activeTab, setActiveTab] = useState<"api-ui" | "unit">("api-ui");
   const [suites, setSuites] = useState<TestSuite[]>([]);
   const [cases, setCases] = useState<TestCase[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -231,104 +233,140 @@ export default function Cases() {
         <div>
           <h1 className="text-2xl font-bold">用例管理</h1>
           <p className="text-gray-500 mt-1">
-            共 {cases.length} 个用例，{suites.length} 个套件
+            {activeTab === "api-ui"
+              ? `共 ${cases.length} 个用例，${suites.length} 个套件`
+              : "单元测试用例"}
           </p>
         </div>
         <div className="flex gap-2 items-center">
-          <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer px-3 py-2 border rounded-lg hover:bg-gray-50">
-            <input
-              type="checkbox"
-              checked={headed}
-              onChange={(e) => setHeaded(e.target.checked)}
-              className="w-4 h-4 rounded"
-            />
-            显示浏览器
-          </label>
-          {collections.length > 0 && (
-            <div className="relative">
-              <button
-                onClick={() => setShowCollectionPicker(!showCollectionPicker)}
-                className="flex items-center gap-2 px-4 py-2 border rounded-lg text-sm font-medium hover:bg-gray-50"
-              >
-                运行用例集
-              </button>
-              {showCollectionPicker && (
-                <div className="absolute right-0 top-full mt-1 w-64 bg-white border rounded-lg shadow-lg z-20 p-2">
-                  <div className="space-y-1 max-h-48 overflow-y-auto">
-                    {collections.map(c => (
-                      <label key={c.id} className="flex items-center gap-2 px-2 py-1 rounded hover:bg-gray-50 text-sm cursor-pointer">
-                        <input type="checkbox"
-                          checked={runCollectionIds.includes(c.id)}
-                          onChange={e => {
-                            if (e.target.checked) setRunCollectionIds(prev => [...prev, c.id]);
-                            else setRunCollectionIds(prev => prev.filter(id => id !== c.id));
-                          }} />
-                        {c.name} <span className="text-gray-400">({c.case_ids.length})</span>
-                      </label>
-                    ))}
-                  </div>
-                  {runCollectionIds.length > 0 && (
-                    <button
-                      onClick={handleRunCollection}
-                      disabled={running}
-                      className="w-full mt-2 px-3 py-1.5 bg-green-600 text-white rounded text-sm hover:bg-green-700 disabled:bg-gray-300"
-                    >
-                      运行选中的 {runCollectionIds.length} 个集合
-                    </button>
+          {activeTab === "api-ui" && (
+            <>
+              <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer px-3 py-2 border rounded-lg hover:bg-gray-50">
+                <input
+                  type="checkbox"
+                  checked={headed}
+                  onChange={(e) => setHeaded(e.target.checked)}
+                  className="w-4 h-4 rounded"
+                />
+                显示浏览器
+              </label>
+              {collections.length > 0 && (
+                <div className="relative">
+                  <button
+                    onClick={() => setShowCollectionPicker(!showCollectionPicker)}
+                    className="flex items-center gap-2 px-4 py-2 border rounded-lg text-sm font-medium hover:bg-gray-50"
+                  >
+                    运行用例集
+                  </button>
+                  {showCollectionPicker && (
+                    <div className="absolute right-0 top-full mt-1 w-64 bg-white border rounded-lg shadow-lg z-20 p-2">
+                      <div className="space-y-1 max-h-48 overflow-y-auto">
+                        {collections.map(c => (
+                          <label key={c.id} className="flex items-center gap-2 px-2 py-1 rounded hover:bg-gray-50 text-sm cursor-pointer">
+                            <input type="checkbox"
+                              checked={runCollectionIds.includes(c.id)}
+                              onChange={e => {
+                                if (e.target.checked) setRunCollectionIds(prev => [...prev, c.id]);
+                                else setRunCollectionIds(prev => prev.filter(id => id !== c.id));
+                              }} />
+                            {c.name} <span className="text-gray-400">({c.case_ids.length})</span>
+                          </label>
+                        ))}
+                      </div>
+                      {runCollectionIds.length > 0 && (
+                        <button
+                          onClick={handleRunCollection}
+                          disabled={running}
+                          className="w-full mt-2 px-3 py-1.5 bg-green-600 text-white rounded text-sm hover:bg-green-700 disabled:bg-gray-300"
+                        >
+                          运行选中的 {runCollectionIds.length} 个集合
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
               )}
-            </div>
+              <button
+                onClick={() => setShowCollections(true)}
+                className="flex items-center gap-2 px-4 py-2 border rounded-lg text-sm font-medium hover:bg-gray-50"
+              >
+                <FolderOpen className="w-4 h-4" /> 用例集
+              </button>
+              <button
+                onClick={handleSync}
+                disabled={syncing}
+                className={`flex items-center gap-2 px-4 py-2 text-white rounded-lg text-sm font-medium transition-colors ${
+                  syncing ? "bg-gray-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700"
+                }`}
+              >
+                <RefreshCw className={`w-4 h-4 ${syncing ? "animate-spin" : ""}`} />
+                {syncing ? "同步中..." : "重新扫描"}
+              </button>
+            </>
           )}
-          <button
-            onClick={() => setShowCollections(true)}
-            className="flex items-center gap-2 px-4 py-2 border rounded-lg text-sm font-medium hover:bg-gray-50"
-          >
-            <FolderOpen className="w-4 h-4" /> 用例集
-          </button>
-          <button
-            onClick={handleSync}
-            disabled={syncing}
-            className={`flex items-center gap-2 px-4 py-2 text-white rounded-lg text-sm font-medium transition-colors ${
-              syncing ? "bg-gray-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700"
-            }`}
-          >
-            <RefreshCw className={`w-4 h-4 ${syncing ? "animate-spin" : ""}`} />
-            {syncing ? "同步中..." : "重新扫描"}
-          </button>
         </div>
       </div>
 
-      {/* 浮动操作栏 */}
-      {selectedCount > 0 && (
-        <div className="sticky top-0 z-10 bg-white rounded-xl shadow-md border border-blue-200 p-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <button onClick={toggleAll} className="text-sm text-blue-600 hover:text-blue-800">
-              {selectedCount === cases.length ? "取消全选" : "全选"}
-            </button>
-            <span className="text-sm text-gray-600">
-              已选 <span className="font-bold text-blue-600">{selectedCount}</span> 条用例
-            </span>
-          </div>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={handleRunSelected}
-              disabled={running}
-              className={`px-4 py-2 text-white rounded-lg text-sm font-medium transition-colors ${
-                running ? "bg-gray-400 cursor-not-allowed" : "bg-green-600 hover:bg-green-700"
-              }`}
-            >
-              {running ? "正在触发..." : `运行选中 (${selectedCount})`}
-            </button>
-          </div>
-        </div>
+      {/* Tab 切换 */}
+      <div className="flex gap-2">
+        <button
+          onClick={() => setActiveTab("api-ui")}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+            activeTab === "api-ui"
+              ? "bg-blue-600 text-white"
+              : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+          }`}
+        >
+          API/UI 测试
+        </button>
+        <button
+          onClick={() => setActiveTab("unit")}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+            activeTab === "unit"
+              ? "bg-blue-600 text-white"
+              : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+          }`}
+        >
+          单元测试
+        </button>
+      </div>
+
+      {activeTab === "unit" && <UnitTestTree />}
+
+      {activeTab === "api-ui" && (
+        <>
+          {/* 浮动操作栏 */}
+          {selectedCount > 0 && (
+            <div className="sticky top-0 z-10 bg-white rounded-xl shadow-md border border-blue-200 p-3 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <button onClick={toggleAll} className="text-sm text-blue-600 hover:text-blue-800">
+                  {selectedCount === cases.length ? "取消全选" : "全选"}
+                </button>
+                <span className="text-sm text-gray-600">
+                  已选 <span className="font-bold text-blue-600">{selectedCount}</span> 条用例
+                </span>
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={handleRunSelected}
+                  disabled={running}
+                  className={`px-4 py-2 text-white rounded-lg text-sm font-medium transition-colors ${
+                    running ? "bg-gray-400 cursor-not-allowed" : "bg-green-600 hover:bg-green-700"
+                  }`}
+                >
+                  {running ? "正在触发..." : `运行选中 (${selectedCount})`}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* UI 测试 */}
+          {renderSuiteSection("section-ui", "UI 测试", uiSuites, uiCases, "bg-blue-500")}
+
+          {/* Web API 测试 */}
+          {renderSuiteSection("section-api", "Web API 测试", apiSuites, apiCases, "bg-orange-500")}
+        </>
       )}
-
-      {/* UI 测试 */}
-      {renderSuiteSection("section-ui", "UI 测试", uiSuites, uiCases, "bg-blue-500")}
-
-      {/* Web API 测试 */}
-      {renderSuiteSection("section-api", "Web API 测试", apiSuites, apiCases, "bg-orange-500")}
 
       {showCollections && (
         <CollectionManager
