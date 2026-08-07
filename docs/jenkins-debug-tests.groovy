@@ -4,6 +4,7 @@ pipeline {
     parameters {
         string(name: 'IMAGE_BUILD_NUMBER', description: 'Use images from which build number?', defaultValue: '')
         string(name: 'TEST_TARGETS', description: 'Custom test paths (leave empty to auto-resolve)', defaultValue: '')
+        string(name: 'TEST_REPO_BRANCH', description: 'aos-auto-test 分支',             defaultValue: 'feat/jenkins-pipeline')
     }
 
     environment {
@@ -121,9 +122,9 @@ pipeline {
                         return 1
                     }
 
-                    echo ">>> Downloading aos-auto-test (feat/jenkins-pipeline)..."
+                    echo ">>> Downloading aos-auto-test (__TEST_REPO_BRANCH__)..."
                     download_repo \\
-                      "https://github.com/youtaking/aos-auto-test/archive/refs/heads/feat/jenkins-pipeline.tar.gz" \\
+                      "https://github.com/youtaking/aos-auto-test/archive/refs/heads/__TEST_REPO_BRANCH__.tar.gz" \\
                       /tmp/autotest.tar.gz
                     tar xzf /tmp/autotest.tar.gz --strip-components=1 -C autotest
                     rm -f /tmp/autotest.tar.gz
@@ -138,7 +139,7 @@ pipeline {
                     echo "    FenixAgent: $(ls app/ | wc -l) files/dirs"
                     echo ""
                     echo "<<< [1/5] Clone Test Code — DONE"
-                '''
+                '''.replace('__TEST_REPO_BRANCH__', params.TEST_REPO_BRANCH)
             }
         }
 

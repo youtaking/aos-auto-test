@@ -7,6 +7,7 @@ pipeline {
         string(name: 'PR_TITLE',     description: 'PR 标题',                            defaultValue: 'manual build')
         string(name: 'COMMIT_SHA',   description: 'Commit SHA',                        defaultValue: 'unknown')
         string(name: 'AUTHOR',       description: '作者',                               defaultValue: 'unknown')
+        string(name: 'TEST_REPO_BRANCH', description: 'aos-auto-test 分支',             defaultValue: 'feat/jenkins-pipeline')
     }
 
     environment {
@@ -124,9 +125,9 @@ pipeline {
                     rm -f /tmp/fenix.tar.gz
                     echo "    FenixAgent: $(ls app/ | wc -l) files/dirs in app/"
 
-                    echo ">>> Downloading aos-auto-test (feat/jenkins-pipeline)..."
+                    echo ">>> Downloading aos-auto-test (__TEST_REPO_BRANCH__)..."
                     download_repo \\
-                      "https://github.com/youtaking/aos-auto-test/archive/refs/heads/feat/jenkins-pipeline.tar.gz" \\
+                      "https://github.com/youtaking/aos-auto-test/archive/refs/heads/__TEST_REPO_BRANCH__.tar.gz" \\
                       /tmp/autotest.tar.gz
                     tar xzf /tmp/autotest.tar.gz --strip-components=1 -C autotest
                     rm -f /tmp/autotest.tar.gz
@@ -135,6 +136,7 @@ pipeline {
                     echo ""
                     echo "<<< [1/7] Clone Repos — DONE"
                 '''.replace('__PR_BRANCH__', params.PR_BRANCH)
+                  .replace('__TEST_REPO_BRANCH__', params.TEST_REPO_BRANCH)
                   .replace('__PROJECT_NAME__', PROJECT_NAME)
                   .replace('__RCS_PORT__', RCS_PORT)
                   .replace('__PG_PORT__', PG_PORT)
