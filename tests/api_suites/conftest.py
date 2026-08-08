@@ -36,6 +36,17 @@ def web_client(api_base_url, api_test_config):
     email = os.environ.get("FENIX_API_EMAIL") or fenix.get("api_email") or fenix["admin"]["email"]
     password = os.environ.get("FENIX_API_PASSWORD") or fenix.get("api_password") or fenix["admin"]["password"]
     client.login(email, password)
+
+    # 登录后获取组织 ID，设置 x-active-org-id header（PR 环境必须）
+    try:
+        orgs = client.list_organizations()
+        if orgs and len(orgs) > 0:
+            org_id = orgs[0].get("id")
+            if org_id:
+                client.client.headers["x-active-org-id"] = org_id
+    except Exception:
+        pass  # 如果获取失败，继续测试（某些环境可能不需要此 header）
+
     yield client
     client.close()
 
