@@ -12,13 +12,14 @@ from tests.api_clients.base_client import BaseClient
 class WebClient(BaseClient):
     """控制台内部接口客户端，通过登录获取 session cookie"""
 
-    def login(self, email: str, password: str) -> None:
+    def login(self, email: str, password: str) -> dict:
         """登录 better-auth，session cookie 自动保存在 httpx.Client 中"""
         resp = self.client.post("/api/auth/sign-in/email", json={
             "email": email,
             "password": password,
         })
         resp.raise_for_status()
+        return resp.json()
 
     def _unwrap(self, resp: dict) -> dict:
         """解包 {success, data} 响应，返回 data 部分"""
