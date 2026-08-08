@@ -1,7 +1,18 @@
 FROM oven/bun:latest
 WORKDIR /app
 
-# Entrypoint: 生成 tsconfig → 安装依赖 → 运行测试
+# 预装依赖缓存（由 jenkins-build-unit-runner 准备，或主 pipeline fallback 创建空缓存）
+RUN mkdir -p /app/cache/node_modules
+COPY cache/package.json /app/cache/package.json
+COPY cache/bun.lockb /app/cache/bun.lockb
+RUN cd /app/cache && \
+    if [ -s bun.lockb ]; then \
+      bun install --frozen-lockfile 2>&1 | tail -5; \
+    else \
+      bun install 2>&1 | tail -5; \
+    fi
+
+# Entrypoint
 COPY entrypoint-unit.sh /app/entrypoint-unit.sh
 RUN chmod +x /app/entrypoint-unit.sh
 
