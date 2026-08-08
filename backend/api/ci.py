@@ -303,6 +303,32 @@ async def regenerate_token(db: AsyncSession = Depends(get_async_session)):
     return ApiResponse(data={"token": config.auth_token})
 
 
+@router.post("/pipelines/{pipeline_id}/logs", response_model=ApiResponse)
+async def upload_pipeline_logs(
+    pipeline_id: int,
+    body: dict,
+    db: AsyncSession = Depends(get_async_session),
+    authorization: str = Header(default=""),
+):
+    """接收 Jenkins 上传的测试执行日志。body: {"logs": "日志内容"}"""
+    await _verify_token(authorization)
+
+    pipeline = await db.get(PRPipeline, pipeline_id)
+    if not pipeline:
+        return ApiResponse(success=False, error="Pipeline 不存在")
+
+    logs_content = body.get("logs", "")
+    if not logs_content:
+        return ApiResponse(success=False, error="日志内容为空")
+
+    log_dir = Path("run_logs")
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / f"pipeline_{pipeline_id}.log"
+    log_path.write_text(logs_content, encoding="utf-8")
+
+    return ApiResponse(data={"saved": True, "lines": logs_content.count("\n") + 1})
+
+
 @router.get("/pipelines/{pipeline_id}/logs")
 async def get_pipeline_logs(
     pipeline_id: int,
