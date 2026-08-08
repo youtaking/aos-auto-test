@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import type { Pipeline } from "../api/types";
-import { getRunResults, getRunLogs } from "../api/runs";
+import { getRunResults } from "../api/runs";
+import { getPipelineLogs } from "../api/pipelines";
 import { getPipelineUnitResults } from "../api/unitTests";
 import type { TestResult, UnitTestSummary } from "../api/types";
 import { X, ExternalLink } from "lucide-react";
@@ -26,8 +27,14 @@ export default function PipelineDetail({ pipeline, onClose }: Props) {
   useEffect(() => {
     if (pipeline.run_id) {
       getRunResults(pipeline.run_id).then(setResults).catch(console.error);
-      getRunLogs(pipeline.run_id).then(setLogs).catch(console.error);
     }
+    // 获取 Pipeline 日志（从 /api/pipelines/{id}/logs）
+    getPipelineLogs(pipeline.id)
+      .then((res) => {
+        const logs = res.logs || "";
+        setLogs(logs ? logs.split("\n") : []);
+      })
+      .catch(console.error);
     getPipelineUnitResults(pipeline.id).then(setUnitResults).catch(console.error);
   }, [pipeline.run_id, pipeline.id]);
 
@@ -80,7 +87,7 @@ export default function PipelineDetail({ pipeline, onClose }: Props) {
             {tab === "info" ? "基本信息"
               : tab === "unit" ? `单元测试${unitResults && unitResults.status !== "not_run" ? ` (${unitResults.total})` : ""}`
               : tab === "results" ? `集成测试 (${pipeline.test_total})`
-              : "实时日志"}
+              : "执行日志"}
           </button>
         ))}
       </div>
