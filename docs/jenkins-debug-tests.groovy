@@ -164,8 +164,11 @@ pipeline {
                         echo ">>> unit-runner:latest already exists, skipping build."
                     else
                         echo ">>> unit-runner:latest not found, building..."
+                        mkdir -p autotest/cache
+                        [ -f autotest/cache/package.json ] || echo '{"name":"empty","version":"0.0.0"}' > autotest/cache/package.json
+                        [ -f autotest/cache/bun.lockb ] || touch autotest/cache/bun.lockb
                         docker build -t unit-runner:latest -f autotest/Dockerfile.unit-runner autotest/
-                        echo "    unit-runner:latest built."
+                        echo "    unit-runner:latest built (no dep cache, runtime will install)."
                     fi
 
                     echo ""
@@ -271,7 +274,6 @@ services:
       POSTGRES_DB: rcs
     volumes:
       - ./pg-init:/docker-entrypoint-initdb.d
-      - ./seed-data.sql:/seed-data.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U rcs"]
       interval: 5s
@@ -387,17 +389,18 @@ INITEOF
                     if [ -f autotest/data.sql ]; then
                       cat > /tmp/filter_seed.py << 'PYEOF'
 import sys
+BS = chr(92)
 lines = open('autotest/data.sql', encoding='utf-8').readlines()
 out = []
 skip = False
 for line in lines:
     s = line.strip()
-    if s.startswith(r'\restrict') or s.startswith(r'\unrestrict'):
+    if s.startswith(BS + 'restrict') or s.startswith(BS + 'unrestrict'):
         continue
     if 'COPY drizzle.__drizzle_migrations' in line:
         skip = True
         continue
-    if skip and s == r'\.':
+    if skip and s == BS + '.':
         skip = False
         continue
     if skip:
@@ -435,8 +438,10 @@ PYEOF
 
                     echo ">>> Importing seed data..."
                     if grep -q '^[^-]' seed-data.sql 2>/dev/null; then
-                        docker-compose -p __PROJECT_NAME__ exec -T postgres \
-                          psql -U rcs -d rcs -v ON_ERROR_STOP=1 -f /seed-data.sql
+                        PG_CONTAINER=$(docker-compose -p __PROJECT_NAME__ ps -q postgres)
+                        docker cp seed-data.sql "$PG_CONTAINER":/tmp/seed-data.sql
+                        docker exec "$PG_CONTAINER" \
+                          psql -U rcs -d rcs -v ON_ERROR_STOP=1 -f /tmp/seed-data.sql
                         echo "    Seed data imported."
                     else
                         echo "    No seed data to import, skipping."
@@ -521,7 +526,11 @@ PYEOF
                     echo "Collect Results — START"
                     echo "============================================================"
                     echo ">>> Copying unit-junit.xml from volume..."
-                    cp __WORKSPACE__/autotest/unit_tests/results/unit-junit.xml unit-junit.xml 2>/dev/null || true
+                    cp autotest/unit_tests/results/unit-junit.xml unit-junit.xml 2>/dev/null || true
+                    if [ ! -f unit-junit.xml ]; then
+                        UNIT_CONTAINER=$(docker-compose -p __PROJECT_NAME__ ps -q unit-runner 2>/dev/null || true)
+                        [ -n "$UNIT_CONTAINER" ] && docker cp "$UNIT_CONTAINER":/app/tests/results/unit-junit.xml unit-junit.xml 2>/dev/null || true
+                    fi
 
                     if [ -f unit-junit.xml ]; then
                         echo ">>> Unit test summary:"
@@ -552,7 +561,11 @@ print(f'    Skipped: {skipped}')
 
                     echo ""
                     echo ">>> Copying report.json from volume..."
-                    cp __WORKSPACE__/autotest/tests/results/report.json report.json 2>/dev/null || true
+                    cp autotest/tests/results/report.json report.json 2>/dev/null || true
+                    if [ ! -f report.json ]; then
+                        TEST_CONTAINER=$(docker-compose -p __PROJECT_NAME__ ps -q test-runner 2>/dev/null || true)
+                        [ -n "$TEST_CONTAINER" ] && docker cp "$TEST_CONTAINER":/app/tests/results/report.json report.json 2>/dev/null || true
+                    fi
 
                     if [ -f report.json ]; then
                         echo ">>> API/UI Test summary:"

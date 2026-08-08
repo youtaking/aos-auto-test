@@ -80,6 +80,65 @@ pipeline {
             }
         }
 
+        stage('Clone FenixAgent') {
+            steps {
+                sh '''
+                    set +x
+                    echo ">>> Cloning FenixAgent (main) for dependency cache..."
+                    rm -rf /tmp/fenix-cache
+                    mkdir -p /tmp/fenix-cache
+
+                    download_repo() {
+                        local url="$1"
+                        local output="$2"
+                        local proxies="https://gh-proxy.com https://mirror.ghproxy.com https://ghfast.top https://ghproxy.net"
+                        for proxy in $proxies ""; do
+                            if [ -n "$proxy" ]; then
+                                full_url="${proxy}/${url}"
+                            else
+                                full_url="$url"
+                            fi
+                            echo "    Trying: ${full_url}"
+                            for i in 1 2 3; do
+                                if curl --fail -SL --connect-timeout 10 --max-time 300 \\
+                                  "${full_url}" -o "${output}" 2>/dev/null; then
+                                    if [ -s "${output}" ] && tar tzf "${output}" > /dev/null 2>&1; then
+                                        echo "    OK (proxy: ${proxy:-direct})"
+                                        return 0
+                                    fi
+                                fi
+                                echo "    Attempt $i failed, retrying..."
+                                sleep 3
+                            done
+                            echo "    Proxy ${proxy:-direct} failed, trying next..."
+                        done
+                        echo "    ERROR: All proxies failed!"
+                        return 1
+                    }
+
+                    download_repo \\
+                      "https://github.com/youtaking/FenixAgent/archive/refs/heads/main.tar.gz" \\
+                      /tmp/fenix.tar.gz
+                    tar xzf /tmp/fenix.tar.gz --strip-components=1 -C /tmp/fenix-cache
+                    rm -f /tmp/fenix.tar.gz
+
+                    # 拷贝 package.json 和 lockfile 到构建上下文的 cache/ 目录
+                    mkdir -p autotest/cache
+                    cp /tmp/fenix-cache/package.json autotest/cache/package.json
+                    if [ -f /tmp/fenix-cache/bun.lockb ]; then
+                        cp /tmp/fenix-cache/bun.lockb autotest/cache/bun.lockb
+                    elif [ -f /tmp/fenix-cache/bun.lock ]; then
+                        cp /tmp/fenix-cache/bun.lock autotest/cache/bun.lockb
+                    else
+                        echo "    WARNING: No bun lockfile found, creating empty placeholder"
+                        touch autotest/cache/bun.lockb
+                    fi
+                    rm -rf /tmp/fenix-cache
+                    echo "    FenixAgent deps cached: package.json + bun.lockb"
+                '''
+            }
+        }
+
         stage('Build Image') {
             steps {
                 sh '''
