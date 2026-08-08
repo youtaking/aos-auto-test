@@ -7,13 +7,19 @@ pipeline {
         string(name: 'PR_TITLE',     description: 'PR 标题',                            defaultValue: 'manual build')
         string(name: 'COMMIT_SHA',   description: 'Commit SHA',                        defaultValue: 'unknown')
         string(name: 'AUTHOR',       description: '作者',                               defaultValue: 'unknown')
-        string(name: 'TEST_REPO_BRANCH', description: 'aos-auto-test 分支',             defaultValue: 'feat/jenkins-pipeline')
+        string(name: 'APP_REPO',     description: '被测项目仓库地址（如 FenixAgent）',   defaultValue: 'https://github.com/youtaking/FenixAgent.git')
+        string(name: 'APP_BRANCH',   description: '被测项目分支',                       defaultValue: 'main')
+        string(name: 'TEST_REPO',    description: '测试代码仓库地址（如 aos-auto-test）', defaultValue: 'https://github.com/youtaking/aos-auto-test.git')
+        string(name: 'TEST_REPO_BRANCH', description: '测试代码分支',                    defaultValue: 'feat/jenkins-pipeline')
+        string(name: 'AUTOTEST_URL', description: 'AutoTest 后端地址（用于上传测试结果和日志）', defaultValue: 'http://100.105.181.173:8111')
+        string(name: 'HOST_IP', description: '宿主机 IP（RCS 服务对外地址，用于健康检查和 target_url）', defaultValue: '100.105.114.178')
     }
 
     environment {
-        AUTOTEST_URL = "http://100.105.181.173:8111"
-        APP_REPO     = "https://github.com/youtaking/FenixAgent.git"
-        TEST_REPO    = "https://github.com/youtaking/aos-auto-test.git"
+        AUTOTEST_URL = "${params.AUTOTEST_URL}"
+        HOST_IP      = "${params.HOST_IP}"
+        APP_REPO     = "${params.APP_REPO}"
+        TEST_REPO    = "${params.TEST_REPO}"
         PROJECT_NAME = "pr-env-${BUILD_NUMBER}"
 
         PORT_OFFSET = "${(BUILD_NUMBER.toInteger() % 10) * 3}"
@@ -117,26 +123,28 @@ pipeline {
                         return 1
                     }
 
-                    echo ">>> Downloading FenixAgent (__PR_BRANCH__)..."
+                    echo ">>> Downloading app (__APP_BRANCH__)..."
                     download_repo \\
-                      "https://github.com/youtaking/FenixAgent/archive/refs/heads/__PR_BRANCH__.tar.gz" \\
+                      "__APP_ARCHIVE_URL__" \\
                       /tmp/fenix.tar.gz
                     tar xzf /tmp/fenix.tar.gz --strip-components=1 -C app
                     rm -f /tmp/fenix.tar.gz
-                    echo "    FenixAgent: $(ls app/ | wc -l) files/dirs in app/"
+                    echo "    App: $(ls app/ | wc -l) files/dirs in app/"
 
-                    echo ">>> Downloading aos-auto-test (__TEST_REPO_BRANCH__)..."
+                    echo ">>> Downloading test code (__TEST_REPO_BRANCH__)..."
                     download_repo \\
-                      "https://github.com/youtaking/aos-auto-test/archive/refs/heads/__TEST_REPO_BRANCH__.tar.gz" \\
+                      "__TEST_ARCHIVE_URL__" \\
                       /tmp/autotest.tar.gz
                     tar xzf /tmp/autotest.tar.gz --strip-components=1 -C autotest
                     rm -f /tmp/autotest.tar.gz
-                    echo "    aos-auto-test: $(ls autotest/ | wc -l) files/dirs in autotest/"
+                    echo "    Test code: $(ls autotest/ | wc -l) files/dirs in autotest/"
 
                     echo ""
                     echo "<<< [1/7] Clone Repos — DONE"
-                '''.replace('__PR_BRANCH__', params.PR_BRANCH)
-                  .replace('__TEST_REPO_BRANCH__', params.TEST_REPO_BRANCH)
+                '''.replace('__APP_ARCHIVE_URL__', APP_REPO.replace('.git', '') + "/archive/refs/heads/${params.APP_BRANCH ?: 'main'}.tar.gz")
+                  .replace('__TEST_ARCHIVE_URL__', TEST_REPO.replace('.git', '') + "/archive/refs/heads/${params.TEST_REPO_BRANCH ?: 'feat/jenkins-pipeline'}.tar.gz")
+                  .replace('__APP_BRANCH__', params.APP_BRANCH ?: 'main')
+                  .replace('__TEST_REPO_BRANCH__', params.TEST_REPO_BRANCH ?: 'feat/jenkins-pipeline')
                   .replace('__PROJECT_NAME__', PROJECT_NAME)
                   .replace('__RCS_PORT__', RCS_PORT)
                   .replace('__PG_PORT__', PG_PORT)
@@ -469,9 +477,9 @@ PYEOF
                     docker-compose -p __PROJECT_NAME__ up -d litellm rcs
 
                     echo ">>> Waiting for RCS health check (max 10min)..."
-                    echo "    Health URL: http://100.105.114.178:__RCS_PORT__/health"
+                    echo "    Health URL: http://__HOST_IP__:__RCS_PORT__/health"
                     for i in $(seq 1 120); do
-                        if curl -sf http://100.105.114.178:__RCS_PORT__/health > /dev/null 2>&1; then
+                        if curl -sf http://__HOST_IP__:__RCS_PORT__/health > /dev/null 2>&1; then
                             echo "    RCS is healthy! (after ~$((i*5))s)"
                             echo ""
                             echo "<<< [5/7] Deploy — DONE"
@@ -487,6 +495,7 @@ PYEOF
                     docker-compose -p __PROJECT_NAME__ logs --tail=30 rcs 2>&1 || true
                     exit 1
                 '''.replace('__PROJECT_NAME__', PROJECT_NAME)
+                  .replace('__HOST_IP__', HOST_IP)
                   .replace('__RCS_PORT__', RCS_PORT)
             }
         }
@@ -518,7 +527,7 @@ PYEOF
                             "branch": "__PR_BRANCH__",
                             "repo_url": "__APP_REPO__",
                             "author": "__AUTHOR__",
-                            "target_url": "http://100.105.114.178:__RCS_PORT__",
+                            "target_url": "http://__HOST_IP__:__RCS_PORT__",
                             "docker_image": "__IMAGE_TAG__",
                             "build_info": {
                               "jenkins_url": "__BUILD_URL__",
@@ -563,6 +572,7 @@ PYEOF
                       .replace('__PR_BRANCH__', params.PR_BRANCH ?: 'main')
                       .replace('__APP_REPO__', APP_REPO)
                       .replace('__AUTHOR__', params.AUTHOR ?: 'unknown')
+                      .replace('__HOST_IP__', HOST_IP)
                       .replace('__RCS_PORT__', RCS_PORT)
                       .replace('__BUILD_URL__', env.BUILD_URL ?: '')
                       .replace('__BUILD_NUMBER__', BUILD_NUMBER)
@@ -623,67 +633,12 @@ except:
                     '''.replace('__AUTOTEST_URL__', AUTOTEST_URL)
                 }
 
-                // 2. 运行单元测试（失败不阻塞 pipeline）
+                // 2. 运行单元测试（失败不阻塞 pipeline，结果统一在 post { always } 上传）
                 sh '''
                     set +x
                     echo ">>> Starting unit-runner (bun:test)..."
                 '''
                 sh "docker-compose -p ${PROJECT_NAME} up unit-runner || true"
-
-                // 3. 收集并上传结果（带上 run_id 更新已有记录）
-                sh '''
-                    set +x
-                    echo ">>> Copying unit-junit.xml from volume..."
-                    cp autotest/unit_tests/results/unit-junit.xml unit-junit.xml 2>/dev/null || true
-                    if [ -f unit-junit.xml ]; then
-                        echo "    Found: $(wc -c < unit-junit.xml) bytes"
-                    else
-                        echo "    Not found at relative path, trying docker cp..."
-                        UNIT_CONTAINER=$(docker-compose -p __PROJECT_NAME__ ps -q unit-runner 2>/dev/null || true)
-                        if [ -n "$UNIT_CONTAINER" ]; then
-                            docker cp "$UNIT_CONTAINER":/app/tests/results/unit-junit.xml unit-junit.xml 2>/dev/null || true
-                        fi
-                    fi
-                '''.replace('__PROJECT_NAME__', PROJECT_NAME)
-
-                withCredentials([string(credentialsId: 'autotest-token', variable: 'TOKEN')]) {
-                    sh '''
-                    set +x
-                        UNIT_RUN_ID=$(cat .unit_run_id 2>/dev/null || echo "")
-                        PIPELINE_ID=$(cat .pipeline_id 2>/dev/null || echo "")
-
-                        if [ -f unit-junit.xml ] && [ -n "$PIPELINE_ID" ]; then
-                            echo ">>> Uploading unit test results..."
-                            python3 -c "
-import json, sys
-xml_content = open('unit-junit.xml', 'r', encoding='utf-8').read()
-run_id = '$UNIT_RUN_ID'.strip()
-payload = {'pipeline_id': int($PIPELINE_ID), 'junit_xml': xml_content}
-if run_id:
-    payload['run_id'] = int(run_id)
-open('unit-upload.json', 'w', encoding='utf-8').write(json.dumps(payload))
-"
-                            curl -s -X POST __AUTOTEST_URL__/api/unit-tests/results \\
-                              -H "Authorization: Bearer $TOKEN" \\
-                              -H "Content-Type: application/json" \\
-                              -d @unit-upload.json
-                            echo ""
-                            echo "    Unit test results uploaded."
-                        else
-                            UNIT_RUN_ID=$(cat .unit_run_id 2>/dev/null || echo "")
-                            if [ ! -f unit-junit.xml ] && [ -n "$UNIT_RUN_ID" ]; then
-                                echo "    WARNING: unit-junit.xml not found, marking unit run as error..."
-                                curl -s -X PUT __AUTOTEST_URL__/api/unit-tests/runs/\${UNIT_RUN_ID}/status \\
-                                  -H "Authorization: Bearer $TOKEN" \\
-                                  -H "Content-Type: application/json" \\
-                                  -d '{"status": "error"}'
-                                echo ""
-                            fi
-                            [ -z "$PIPELINE_ID" ] && echo "    WARNING: No pipeline ID, skipping unit upload."
-                        fi
-                        exit 0
-                    '''.replace('__AUTOTEST_URL__', AUTOTEST_URL)
-                }
 
                 sh '''
                     set +x
@@ -741,54 +696,28 @@ open('unit-upload.json', 'w', encoding='utf-8').write(json.dumps(payload))
                     echo "============================================================"
                     echo "Collect Results — START"
                     echo "============================================================"
-                    echo ">>> Copying report.json from volume..."
-                    cp autotest/tests/results/report.json report.json 2>/dev/null || true
-                    if [ -f report.json ]; then
-                        echo "    Found: $(wc -c < report.json) bytes"
-                    else
-                        echo "    Not found at relative path, trying docker cp..."
-                        TEST_CONTAINER=$(docker-compose -p __PROJECT_NAME__ ps -q test-runner 2>/dev/null || true)
-                        if [ -n "$TEST_CONTAINER" ]; then
-                            docker cp "$TEST_CONTAINER":/app/tests/results/report.json report.json 2>/dev/null || true
-                        fi
+                    echo ">>> Copying result files from containers..."
+
+                    # 复制单元测试结果
+                    cp autotest/unit_tests/results/unit-junit.xml unit-junit.xml 2>/dev/null || true
+                    if [ ! -f unit-junit.xml ]; then
+                        UNIT_CONTAINER=$(docker-compose -p __PROJECT_NAME__ ps -q unit-runner 2>/dev/null || true)
+                        [ -n "$UNIT_CONTAINER" ] && docker cp "$UNIT_CONTAINER":/app/tests/results/unit-junit.xml unit-junit.xml 2>/dev/null || true
                     fi
+                    [ -f unit-junit.xml ] && echo "    unit-junit.xml: $(wc -c < unit-junit.xml) bytes" || echo "    unit-junit.xml: not found"
+
+                    # 复制集成测试结果
+                    cp autotest/tests/results/report.json report.json 2>/dev/null || true
+                    if [ ! -f report.json ]; then
+                        TEST_CONTAINER=$(docker-compose -p __PROJECT_NAME__ ps -q test-runner 2>/dev/null || true)
+                        [ -n "$TEST_CONTAINER" ] && docker cp "$TEST_CONTAINER":/app/tests/results/report.json report.json 2>/dev/null || true
+                    fi
+                    [ -f report.json ] && echo "    report.json: $(wc -c < report.json) bytes" || echo "    report.json: not found"
+
+                    echo ""
+                    echo "<<< Collect Results (local) — DONE"
+                    echo ">>> Results will be uploaded in post { always } block."
                 '''.replace('__PROJECT_NAME__', PROJECT_NAME)
-
-                withCredentials([string(credentialsId: 'autotest-token', variable: 'TOKEN')]) {
-                    sh '''
-                    set +x
-                        PIPELINE_ID=""
-                        if [ -f pipeline.json ]; then
-                            PIPELINE_ID=$(python3 -c "
-import sys, json
-try:
-    data = json.load(sys.stdin)
-    print(data.get('data', {}).get('id', ''))
-except:
-    print('')
-" < pipeline.json)
-                        fi
-
-                        if [ -f report.json ] && [ -n "$PIPELINE_ID" ]; then
-                            echo ">>> Uploading API/UI results to AutoTest API (pipeline_id=$PIPELINE_ID)..."
-                            curl -s -X POST __AUTOTEST_URL__/api/pipelines/${PIPELINE_ID}/results \\
-                              -H "Authorization: Bearer $TOKEN" \\
-                              -H "Content-Type: application/json" \\
-                              -d @report.json
-                            echo ""
-                            echo "    API/UI Results uploaded."
-                        else
-                            [ ! -f report.json ] && echo "    WARNING: report.json not found."
-                            [ -z "$PIPELINE_ID" ] && echo "    WARNING: No valid pipeline ID, skipping result upload."
-                        fi
-                        echo ""
-                        echo ">>> Collecting RCS logs (for debugging 500 errors)..."
-                        docker-compose -p __PROJECT_NAME__ logs --tail=200 rcs 2>&1 | tail -200 || echo "    Could not collect RCS logs"
-                        echo ""
-                        echo "<<< Collect Results — DONE"
-                    '''.replace('__AUTOTEST_URL__', AUTOTEST_URL)
-                      .replace('__PROJECT_NAME__', PROJECT_NAME)
-                }
             }
         }
     }
@@ -857,8 +786,118 @@ except:
         always {
             echo ""
             echo "============================================================"
-            echo "Cleanup — START"
+            echo "Upload Results & Cleanup — START"
             echo "============================================================"
+
+            // 统一上传所有结果
+            withCredentials([string(credentialsId: 'autotest-token', variable: 'TOKEN')]) {
+                sh '''
+                    set +x
+                    PIPELINE_ID=""
+                    if [ -f pipeline.json ] && [ -s pipeline.json ]; then
+                        PIPELINE_ID=$(python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    print(data.get('data', {}).get('id', ''))
+except:
+    print('')
+" < pipeline.json)
+                    fi
+                    UNIT_RUN_ID=$(cat .unit_run_id 2>/dev/null || echo "")
+
+                    # ===== 1. 复制结果文件（确保最新） =====
+                    echo ">>> Copying result files from containers..."
+                    if [ ! -f unit-junit.xml ]; then
+                        cp autotest/unit_tests/results/unit-junit.xml unit-junit.xml 2>/dev/null || true
+                    fi
+                    if [ ! -f unit-junit.xml ]; then
+                        UNIT_CONTAINER=$(docker-compose -p __PROJECT_NAME__ ps -q unit-runner 2>/dev/null || true)
+                        [ -n "$UNIT_CONTAINER" ] && docker cp "$UNIT_CONTAINER":/app/tests/results/unit-junit.xml unit-junit.xml 2>/dev/null || true
+                    fi
+                    if [ ! -f report.json ]; then
+                        cp autotest/tests/results/report.json report.json 2>/dev/null || true
+                    fi
+                    if [ ! -f report.json ]; then
+                        TEST_CONTAINER=$(docker-compose -p __PROJECT_NAME__ ps -q test-runner 2>/dev/null || true)
+                        [ -n "$TEST_CONTAINER" ] && docker cp "$TEST_CONTAINER":/app/tests/results/report.json report.json 2>/dev/null || true
+                    fi
+
+                    # ===== 2. 上传单元测试结果 =====
+                    if [ -f unit-junit.xml ] && [ -n "$PIPELINE_ID" ]; then
+                        echo ">>> Uploading unit test results (pipeline_id=$PIPELINE_ID)..."
+                        python3 -c "
+import json, sys
+xml_content = open('unit-junit.xml', 'r', encoding='utf-8').read()
+run_id = '$UNIT_RUN_ID'.strip()
+payload = {'pipeline_id': int($PIPELINE_ID), 'junit_xml': xml_content}
+if run_id:
+    payload['run_id'] = int(run_id)
+open('unit-upload.json', 'w', encoding='utf-8').write(json.dumps(payload))
+"
+                        curl -s -X POST __AUTOTEST_URL__/api/unit-tests/results \\
+                          -H "Authorization: Bearer $TOKEN" \\
+                          -H "Content-Type: application/json" \\
+                          -d @unit-upload.json
+                        echo ""
+                        echo "    Unit test results uploaded."
+                    else
+                        [ ! -f unit-junit.xml ] && echo "    WARNING: unit-junit.xml not found."
+                        [ -z "$PIPELINE_ID" ] && echo "    WARNING: No pipeline ID."
+                    fi
+
+                    # ===== 3. 上传集成测试结果 =====
+                    if [ -f report.json ] && [ -n "$PIPELINE_ID" ]; then
+                        echo ">>> Uploading integration test results (pipeline_id=$PIPELINE_ID)..."
+                        curl -s -X POST __AUTOTEST_URL__/api/pipelines/${PIPELINE_ID}/results \\
+                          -H "Authorization: Bearer $TOKEN" \\
+                          -H "Content-Type: application/json" \\
+                          -d @report.json
+                        echo ""
+                        echo "    Integration test results uploaded."
+                    else
+                        [ ! -f report.json ] && echo "    WARNING: report.json not found."
+                        [ -z "$PIPELINE_ID" ] && echo "    WARNING: No pipeline ID."
+                    fi
+
+                    # ===== 4. 收集并上传日志 =====
+                    echo ">>> Collecting test logs..."
+                    UNIT_LOGS=$(docker-compose -p __PROJECT_NAME__ logs unit-runner 2>&1 || echo "unit-runner not found")
+                    TEST_LOGS=$(docker-compose -p __PROJECT_NAME__ logs test-runner 2>&1 || echo "test-runner not found")
+
+                    {
+                        echo "=========================================="
+                        echo "Unit Test Logs"
+                        echo "=========================================="
+                        echo "$UNIT_LOGS"
+                        echo ""
+                        echo "=========================================="
+                        echo "Integration Test Logs"
+                        echo "=========================================="
+                        echo "$TEST_LOGS"
+                    } > pipeline_logs.txt
+
+                    echo "    Log file size: $(wc -c < pipeline_logs.txt) bytes"
+
+                    if [ -n "$PIPELINE_ID" ] && [ -s pipeline_logs.txt ]; then
+                        echo ">>> Uploading logs to AutoTest (pipeline_id=$PIPELINE_ID)..."
+                        python3 -c "
+import json
+logs = open('pipeline_logs.txt', 'r', encoding='utf-8', errors='replace').read()
+payload = {'logs': logs}
+open('logs_upload.json', 'w', encoding='utf-8').write(json.dumps(payload))
+"
+                        curl -s -X POST __AUTOTEST_URL__/api/pipelines/${PIPELINE_ID}/logs \\
+                          -H "Authorization: Bearer $TOKEN" \\
+                          -H "Content-Type: application/json" \\
+                          -d @logs_upload.json
+                        echo ""
+                        echo "    Logs uploaded."
+                    fi
+                '''.replace('__PROJECT_NAME__', PROJECT_NAME)
+                  .replace('__AUTOTEST_URL__', AUTOTEST_URL)
+            }
+
             sh '''
                     set +x
                 echo ">>> Stopping and removing containers..."
@@ -867,7 +906,7 @@ except:
                 echo "    __IMAGE_TAG__"
                 echo "    __MIGRATE_IMAGE_TAG__"
                 echo ""
-                echo "<<< Cleanup — DONE"
+                echo "<<< Upload Results & Cleanup — DONE"
                 echo ""
                 echo "============================================================"
                 echo "Pipeline finished. Build #${BUILD_NUMBER}"

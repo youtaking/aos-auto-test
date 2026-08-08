@@ -8,7 +8,14 @@ interface PipelineListResult {
   page_size: number;
 }
 
+interface PipelineLogsResult {
+  logs: string;
+  pipeline_id: number;
+}
+
 export const listPipelines = (params?: { status?: string; page?: number; page_size?: number }) =>
   get<PipelineListResult>("/pipelines", params);
 
 export const getPipeline = (id: number) => get<Pipeline>(`/pipelines/${id}`);
+
+export const getPipelineLogs = (id: number) => get<PipelineLogsResult>(`/pipelines/${id}/logs`);
