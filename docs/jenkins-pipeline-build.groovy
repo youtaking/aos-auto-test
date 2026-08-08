@@ -518,7 +518,8 @@ PYEOF
                             "branch": "__PR_BRANCH__",
                             "repo_url": "__APP_REPO__",
                             "author": "__AUTHOR__",
-                            "target_url": "http://localhost:__RCS_PORT__",
+                            "target_url": "http://100.105.114.178:__RCS_PORT__",
+                            "docker_image": "__IMAGE_TAG__",
                             "build_info": {
                               "jenkins_url": "__BUILD_URL__",
                               "build_number": __BUILD_NUMBER__,

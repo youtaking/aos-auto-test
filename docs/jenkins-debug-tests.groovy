@@ -473,6 +473,71 @@ PYEOF
             }
         }
 
+        stage('Create Pipeline Record') {
+            steps {
+                sh '''
+                    set +x
+                    echo ""
+                    echo "============================================================"
+                    echo "Create Pipeline Record — START"
+                    echo "  AutoTest URL: __AUTOTEST_URL__"
+                    echo "============================================================"
+                '''.replace('__AUTOTEST_URL__', AUTOTEST_URL)
+
+                withCredentials([string(credentialsId: 'autotest-token', variable: 'TOKEN')]) {
+                    sh '''
+                    set +x
+                        echo ">>> Creating debug pipeline record..."
+                        RESP=$(curl -s -w "\\n%{http_code}" -X POST __AUTOTEST_URL__/api/pipelines \\
+                          -H "Authorization: Bearer $TOKEN" \\
+                          -H "Content-Type: application/json" \\
+                          -d '{
+                            "pr_id": 0,
+                            "pr_title": "Debug Run #__BUILD_NUMBER__",
+                            "commit_sha": "unknown",
+                            "branch": "__TEST_REPO_BRANCH__",
+                            "repo_url": "https://github.com/youtaking/aos-auto-test",
+                            "author": "debug",
+                            "target_url": "http://100.105.114.178:__RCS_PORT__",
+                            "docker_image": "__IMAGE_TAG__",
+                            "build_info": {
+                              "jenkins_url": "__BUILD_URL__",
+                              "build_number": __BUILD_NUMBER__,
+                              "docker_image": "__IMAGE_TAG__",
+                              "rcs_port": __RCS_PORT__,
+                              "pg_port": __PG_PORT__,
+                              "litellm_port": __LITE_PORT__
+                            }
+                          }')
+
+                        HTTP_CODE=$(echo "$RESP" | tail -1)
+                        BODY=$(echo "$RESP" | sed '$d')
+                        echo "$BODY" > pipeline.json
+
+                        echo ">>> API response (HTTP $HTTP_CODE):"
+                        echo "$BODY"
+
+                        if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "201" ]; then
+                            echo "    WARNING: Pipeline record creation failed, continuing without upload."
+                            echo "" > pipeline.json
+                        else
+                            PIPELINE_ID=$(python3 -c "import sys,json; print(json.load(sys.stdin).get('data',{}).get('id',''))" < pipeline.json)
+                            echo "    Pipeline ID: $PIPELINE_ID"
+                        fi
+                        echo ""
+                        echo "<<< Create Pipeline Record — DONE"
+                    '''.replace('__AUTOTEST_URL__', AUTOTEST_URL)
+                      .replace('__BUILD_NUMBER__', BUILD_NUMBER)
+                      .replace('__TEST_REPO_BRANCH__', params.TEST_REPO_BRANCH ?: 'feat/jenkins-pipeline')
+                      .replace('__RCS_PORT__', RCS_PORT)
+                      .replace('__BUILD_URL__', env.BUILD_URL ?: '')
+                      .replace('__IMAGE_TAG__', IMAGE_TAG)
+                      .replace('__PG_PORT__', PG_PORT)
+                      .replace('__LITE_PORT__', LITE_PORT)
+                }
+            }
+        }
+
         stage('Run Unit Tests') {
             steps {
                 sh '''
@@ -481,9 +546,97 @@ PYEOF
                     echo "============================================================"
                     echo "Run Unit Tests — START"
                     echo "============================================================"
+                '''
+
+                // 通知后端：单元测试开始
+                withCredentials([string(credentialsId: 'autotest-token', variable: 'TOKEN')]) {
+                    sh '''
+                    set +x
+                        PIPELINE_ID=""
+                        if [ -f pipeline.json ] && [ -s pipeline.json ]; then
+                            PIPELINE_ID=$(python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    print(data.get('data', {}).get('id', ''))
+except:
+    print('')
+" < pipeline.json)
+                        fi
+                        echo "$PIPELINE_ID" > .pipeline_id
+
+                        if [ -n "$PIPELINE_ID" ]; then
+                            echo ">>> Notifying backend: unit tests starting (pipeline_id=$PIPELINE_ID)..."
+                            START_RESP=$(curl -s -X POST __AUTOTEST_URL__/api/unit-tests/runs/start \\
+                              -H "Authorization: Bearer $TOKEN" \\
+                              -H "Content-Type: application/json" \\
+                              -d "{\\"pipeline_id\\": $PIPELINE_ID}")
+                            echo "$START_RESP"
+                            UNIT_RUN_ID=$(echo "$START_RESP" | python3 -c "
+import sys, json
+try:
+    print(json.load(sys.stdin).get('data', {}).get('run_id', ''))
+except:
+    print('')
+" 2>/dev/null)
+                            echo "    Unit run_id: $UNIT_RUN_ID"
+                            echo "$UNIT_RUN_ID" > .unit_run_id
+                        else
+                            echo "    WARNING: No pipeline ID, skipping start notification."
+                            echo "" > .unit_run_id
+                        fi
+                    '''.replace('__AUTOTEST_URL__', AUTOTEST_URL)
+                }
+
+                // 运行单元测试
+                sh '''
+                    set +x
                     echo ">>> Starting unit-runner (bun:test)..."
                 '''
                 sh "docker-compose -p ${PROJECT_NAME} up unit-runner || true"
+
+                // 收集并上传单元测试结果
+                sh '''
+                    set +x
+                    echo ">>> Copying unit-junit.xml..."
+                    cp autotest/unit_tests/results/unit-junit.xml unit-junit.xml 2>/dev/null || true
+                    if [ ! -f unit-junit.xml ]; then
+                        UNIT_CONTAINER=$(docker-compose -p __PROJECT_NAME__ ps -q unit-runner 2>/dev/null || true)
+                        [ -n "$UNIT_CONTAINER" ] && docker cp "$UNIT_CONTAINER":/app/tests/results/unit-junit.xml unit-junit.xml 2>/dev/null || true
+                    fi
+                '''.replace('__PROJECT_NAME__', PROJECT_NAME)
+
+                withCredentials([string(credentialsId: 'autotest-token', variable: 'TOKEN')]) {
+                    sh '''
+                    set +x
+                        UNIT_RUN_ID=$(cat .unit_run_id 2>/dev/null || echo "")
+                        PIPELINE_ID=$(cat .pipeline_id 2>/dev/null || echo "")
+
+                        if [ -f unit-junit.xml ] && [ -n "$PIPELINE_ID" ]; then
+                            echo ">>> Uploading unit test results..."
+                            python3 -c "
+import json, sys
+xml_content = open('unit-junit.xml', 'r', encoding='utf-8').read()
+run_id = '$UNIT_RUN_ID'.strip()
+payload = {'pipeline_id': int($PIPELINE_ID), 'junit_xml': xml_content}
+if run_id:
+    payload['run_id'] = int(run_id)
+open('unit-upload.json', 'w', encoding='utf-8').write(json.dumps(payload))
+"
+                            curl -s -X POST __AUTOTEST_URL__/api/unit-tests/results \\
+                              -H "Authorization: Bearer $TOKEN" \\
+                              -H "Content-Type: application/json" \\
+                              -d @unit-upload.json
+                            echo ""
+                            echo "    Unit test results uploaded."
+                        else
+                            [ -z "$PIPELINE_ID" ] && echo "    WARNING: No pipeline ID, skipping unit upload."
+                            [ ! -f unit-junit.xml ] && echo "    WARNING: unit-junit.xml not found."
+                        fi
+                        exit 0
+                    '''.replace('__AUTOTEST_URL__', AUTOTEST_URL)
+                }
+
                 sh '''
                     set +x
                     echo ""
@@ -505,8 +658,28 @@ PYEOF
                     echo "---"
                     docker run --rm -v __WORKSPACE__/autotest/tests:/app/tests alpine ls -la /app/tests/api_suites/ 2>&1 | head -20
                     echo "---"
-                    echo ">>> Starting test-runner (streaming logs)..."
                 '''.replace('__WORKSPACE__', env.WORKSPACE.replace('/var/jenkins_home', '/opt/1panel/apps/jenkins/jenkins/data'))
+
+                // 通知后端：集成测试开始
+                withCredentials([string(credentialsId: 'autotest-token', variable: 'TOKEN')]) {
+                    sh '''
+                    set +x
+                        PIPELINE_ID=$(cat .pipeline_id 2>/dev/null || echo "")
+                        if [ -n "$PIPELINE_ID" ]; then
+                            echo ">>> Notifying backend: integration tests starting (pipeline_id=$PIPELINE_ID)..."
+                            curl -s -X PUT __AUTOTEST_URL__/api/pipelines/${PIPELINE_ID}/status \\
+                              -H "Authorization: Bearer $TOKEN" \\
+                              -H "Content-Type: application/json" \\
+                              -d '{"status": "running"}'
+                            echo ""
+                        fi
+                    '''.replace('__AUTOTEST_URL__', AUTOTEST_URL)
+                }
+
+                sh '''
+                    set +x
+                    echo ">>> Starting test-runner (streaming logs)..."
+                '''
                 sh "docker-compose -p ${PROJECT_NAME} logs -f test-runner &"
                 sh "docker-compose -p ${PROJECT_NAME} up test-runner || true"
                 sh '''
@@ -586,17 +759,72 @@ except Exception as e:
                         echo "    WARNING: report.json not found."
                     fi
                     echo ""
-                    echo ">>> Collecting RCS logs (for debugging 500 errors)..."
+                    echo ">>> Collecting RCS logs..."
                     docker-compose -p __PROJECT_NAME__ logs --tail=200 rcs 2>&1 | tail -200 || echo "    Could not collect RCS logs"
                     echo ""
-                    echo "<<< Collect Results — DONE"
+                    echo "<<< Collect Results (local) — DONE"
                 '''.replace('__PROJECT_NAME__', PROJECT_NAME)
                   .replace('__WORKSPACE__', env.WORKSPACE.replace('/var/jenkins_home', '/opt/1panel/apps/jenkins/jenkins/data'))
+
+                // 上传集成测试结果到 AutoTest
+                withCredentials([string(credentialsId: 'autotest-token', variable: 'TOKEN')]) {
+                    sh '''
+                    set +x
+                        PIPELINE_ID=$(cat .pipeline_id 2>/dev/null || echo "")
+
+                        if [ -f report.json ] && [ -n "$PIPELINE_ID" ]; then
+                            echo ">>> Uploading integration test results to AutoTest API (pipeline_id=$PIPELINE_ID)..."
+                            curl -s -X POST __AUTOTEST_URL__/api/pipelines/${PIPELINE_ID}/results \\
+                              -H "Authorization: Bearer $TOKEN" \\
+                              -H "Content-Type: application/json" \\
+                              -d @report.json
+                            echo ""
+                            echo "    Integration test results uploaded."
+                        else
+                            [ ! -f report.json ] && echo "    WARNING: report.json not found, skipping upload."
+                            [ -z "$PIPELINE_ID" ] && echo "    WARNING: No pipeline ID, skipping result upload."
+                        fi
+                        echo ""
+                        echo "<<< Collect Results — DONE"
+                    '''.replace('__AUTOTEST_URL__', AUTOTEST_URL)
+                }
             }
         }
     }
 
     post {
+        success {
+            withCredentials([string(credentialsId: 'autotest-token', variable: 'TOKEN')]) {
+                sh '''
+                    set +x
+                    PIPELINE_ID=$(cat .pipeline_id 2>/dev/null || echo "")
+                    if [ -n "$PIPELINE_ID" ]; then
+                        echo ">>> Updating pipeline status to 'passed'..."
+                        curl -s -X PUT __AUTOTEST_URL__/api/pipelines/${PIPELINE_ID}/status \\
+                          -H "Authorization: Bearer $TOKEN" \\
+                          -H "Content-Type: application/json" \\
+                          -d '{"status": "passed"}'
+                        echo ""
+                    fi
+                '''.replace('__AUTOTEST_URL__', AUTOTEST_URL)
+            }
+        }
+        failure {
+            withCredentials([string(credentialsId: 'autotest-token', variable: 'TOKEN')]) {
+                sh '''
+                    set +x
+                    PIPELINE_ID=$(cat .pipeline_id 2>/dev/null || echo "")
+                    if [ -n "$PIPELINE_ID" ]; then
+                        echo ">>> Updating pipeline status to 'failed'..."
+                        curl -s -X PUT __AUTOTEST_URL__/api/pipelines/${PIPELINE_ID}/status \\
+                          -H "Authorization: Bearer $TOKEN" \\
+                          -H "Content-Type: application/json" \\
+                          -d '{"status": "failed"}'
+                        echo ""
+                    fi
+                '''.replace('__AUTOTEST_URL__', AUTOTEST_URL)
+            }
+        }
         always {
             echo ""
             echo "============================================================"
