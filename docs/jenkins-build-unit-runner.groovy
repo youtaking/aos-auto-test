@@ -128,13 +128,12 @@ pipeline {
                     if [ -f /tmp/fenix-cache/bun.lockb ]; then
                         cp /tmp/fenix-cache/bun.lockb autotest/cache/bun.lockb
                     elif [ -f /tmp/fenix-cache/bun.lock ]; then
-                        cp /tmp/fenix-cache/bun.lock autotest/cache/bun.lockb
+                        cp /tmp/fenix-cache/bun.lock autotest/cache/bun.lock
                     else
-                        echo "    WARNING: No bun lockfile found, creating empty placeholder"
-                        touch autotest/cache/bun.lockb
+                        echo "    WARNING: No bun lockfile found, creating empty package.json only"
                     fi
                     rm -rf /tmp/fenix-cache
-                    echo "    FenixAgent deps cached: package.json + bun.lockb"
+                    echo "    FenixAgent deps cached: package.json + lockfile"
                 '''
             }
         }

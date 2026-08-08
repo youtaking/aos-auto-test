@@ -34,16 +34,32 @@ echo ">>> Installing dependencies..."
 if [ -f "$FENIX_ROOT/package.json" ]; then
   cp "$FENIX_ROOT/package.json" /app/tests/package.json
 
-  # 检查 lockfile 是否与缓存一致
+  # 检查 lockfile 是否与缓存一致（支持 bun.lockb 和 bun.lock 两种格式）
   NEED_INSTALL=true
-  if [ -f "$FENIX_ROOT/bun.lockb" ] && [ -f "$CACHE_DIR/bun.lockb" ]; then
-    cp "$FENIX_ROOT/bun.lockb" /app/tests/bun.lockb
-    if cmp -s "$FENIX_ROOT/bun.lockb" "$CACHE_DIR/bun.lockb"; then
+
+  # 确定实际使用的锁文件名称
+  LOCK_NAME=""
+  if [ -f "$FENIX_ROOT/bun.lockb" ]; then
+    LOCK_NAME="bun.lockb"
+  elif [ -f "$FENIX_ROOT/bun.lock" ]; then
+    LOCK_NAME="bun.lock"
+  fi
+
+  CACHE_LOCK_NAME=""
+  if [ -f "$CACHE_DIR/bun.lockb" ]; then
+    CACHE_LOCK_NAME="bun.lockb"
+  elif [ -f "$CACHE_DIR/bun.lock" ]; then
+    CACHE_LOCK_NAME="bun.lock"
+  fi
+
+  if [ -n "$LOCK_NAME" ] && [ -n "$CACHE_LOCK_NAME" ]; then
+    cp "$FENIX_ROOT/$LOCK_NAME" "/app/tests/$LOCK_NAME"
+    if cmp -s "$FENIX_ROOT/$LOCK_NAME" "$CACHE_DIR/$CACHE_LOCK_NAME"; then
       echo "    Lockfile unchanged, using cached node_modules..."
       cp -r "$CACHE_DIR/node_modules" /app/tests/node_modules
       NEED_INSTALL=false
     fi
-  elif [ ! -f "$FENIX_ROOT/bun.lockb" ] && [ -d "$CACHE_DIR/node_modules" ]; then
+  elif [ -z "$LOCK_NAME" ] && [ -d "$CACHE_DIR/node_modules" ] && [ "$(ls -A $CACHE_DIR/node_modules 2>/dev/null)" ]; then
     echo "    No lockfile, using cached node_modules..."
     cp -r "$CACHE_DIR/node_modules" /app/tests/node_modules
     NEED_INSTALL=false
@@ -55,7 +71,12 @@ if [ -f "$FENIX_ROOT/package.json" ]; then
     # 更新缓存（供下次使用）
     rm -rf "$CACHE_DIR/node_modules"
     cp -r /app/tests/node_modules "$CACHE_DIR/node_modules"
-    [ -f /app/tests/bun.lockb ] && cp /app/tests/bun.lockb "$CACHE_DIR/bun.lockb"
+    # 保存实际生成的锁文件
+    if [ -f /app/tests/bun.lockb ]; then
+      cp /app/tests/bun.lockb "$CACHE_DIR/bun.lockb"
+    elif [ -f /app/tests/bun.lock ]; then
+      cp /app/tests/bun.lock "$CACHE_DIR/bun.lock"
+    fi
     echo "    Dependencies installed and cache updated."
   else
     echo "    Dependencies ready (from cache)."
