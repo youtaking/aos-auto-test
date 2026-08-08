@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from backend.db.config import get_async_session, async_session
-from backend.db.models import PRPipeline, CIConfig, TestRun, TestCollection, TestCase
+from backend.db.models import PRPipeline, CIConfig, TestRun, TestResult, TestCollection, TestCase
 from backend.schemas.ci import (
     CreatePipelineRequest, UpdatePipelineStatusRequest,
     PipelineResponse, CIConfigResponse, CIConfigUpdate,
@@ -167,6 +167,42 @@ async def submit_results(
         run.status = "passed" if failed == 0 else "failed"
         run.finished_at = datetime.utcnow()
         pipeline.run_id = run.id
+
+        # 创建 TestResult 记录（逐条测试结果）
+        tests = report.get("tests", [])
+        if tests:
+            # 删除旧的 TestResult（如果是重新上传）
+            existing = await db.execute(
+                select(TestResult).where(TestResult.run_id == run.id)
+            )
+            for old in existing.scalars().all():
+                await db.delete(old)
+
+            for t in tests:
+                nodeid = t.get("nodeid", "")
+                outcome = t.get("outcome", "unknown")
+                dur = t.get("duration", 0)
+
+                # 解析 nodeid: "tests/api_suites/test_agent_api.py::TestClass::test_name"
+                parts = nodeid.split("::")
+                case_name = parts[-1] if parts else nodeid
+                suite_name = parts[0] if parts else ""
+
+                # 错误信息在 call.longrepr
+                error_msg = None
+                call_info = t.get("call", {})
+                if call_info and call_info.get("longrepr"):
+                    error_msg = str(call_info["longrepr"])[:5000]
+
+                result = TestResult(
+                    run_id=run.id,
+                    case_name=case_name,
+                    suite_name=suite_name,
+                    status="passed" if outcome == "passed" else "failed" if outcome == "failed" else "skipped",
+                    duration_ms=int(dur * 1000),
+                    error_message=error_msg,
+                )
+                db.add(result)
 
     await db.commit()
     await db.refresh(pipeline)

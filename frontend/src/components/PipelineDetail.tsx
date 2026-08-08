@@ -114,7 +114,19 @@ export default function PipelineDetail({ pipeline, onClose }: Props) {
               </div>
             )}
             <div><span className="text-gray-500">镜像:</span> <code className="text-xs">{pipeline.docker_image}</code></div>
-            <div><span className="text-gray-500">测试:</span> {pipeline.test_passed}✅ {pipeline.test_failed}❌ {pipeline.test_skipped}⏭️ ({passRate}%)</div>
+            {(() => {
+              const uP = unitResults?.passed ?? 0, uF = unitResults?.failed ?? 0, uS = unitResults?.skipped ?? 0;
+              const iP = pipeline.test_passed, iF = pipeline.test_failed, iS = pipeline.test_skipped;
+              const total = uP + uF + uS + iP + iF + iS;
+              const rate = total > 0 ? (((uP + iP) / total) * 100).toFixed(1) : "-";
+              return (
+                <div className="space-y-1">
+                  <div><span className="text-gray-500">测试总计:</span> {uP + iP}✅ {uF + iF}❌ {uS + iS}⏭️ ({rate}%)</div>
+                  <div className="pl-2 text-xs text-gray-400">单元: {uP}✅ {uF}❌ {uS}⏭️</div>
+                  <div className="pl-2 text-xs text-gray-400">集成: {iP}✅ {iF}❌ {iS}⏭️</div>
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}
