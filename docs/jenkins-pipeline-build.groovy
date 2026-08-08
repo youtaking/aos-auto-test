@@ -402,25 +402,27 @@ INITEOF
                     echo ">>> Preparing seed data..."
                     rm -rf seed-data.sql
                     if [ -f autotest/data.sql ]; then
-                      python3 -c "
+                      cat > /tmp/filter_seed.py << 'PYEOF'
+import sys
 lines = open('autotest/data.sql', encoding='utf-8').readlines()
 out = []
 skip = False
 for line in lines:
     s = line.strip()
-    if s.startswith('\\\\\\\\restrict') or s.startswith('\\\\\\\\unrestrict'):
+    if s.startswith(r'\restrict') or s.startswith(r'\unrestrict'):
         continue
     if 'COPY drizzle.__drizzle_migrations' in line:
         skip = True
         continue
-    if skip and s == '\\\\\\\\.':
+    if skip and s == r'\.':
         skip = False
         continue
     if skip:
         continue
     out.append(line)
 open('seed-data.sql', 'w', encoding='utf-8').writelines(out)
-"
+PYEOF
+                      python3 /tmp/filter_seed.py
                       echo "    seed-data.sql ready ($(wc -l < seed-data.sql) lines)."
                     else
                       echo "    WARNING: autotest/data.sql not found, creating empty seed."
