@@ -18,6 +18,7 @@ export default function RunDetail() {
   const [results, setResults] = useState<TestResult[]>([]);
   const [logs, setLogs] = useState<string[]>([]);
   const [showLogs, setShowLogs] = useState(false);
+  const [unitResults, setUnitResults] = useState<{ total: number; passed: number; failed: number; skipped: number; duration_ms: number; status: string; results: { id: number; name: string; classname: string; status: string; duration_ms: number; failure_message: string | null }[] } | null>(null);
   const logsLoadedRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -82,6 +83,15 @@ export default function RunDetail() {
         setRun(r);
         if (r.status !== "pending" && r.status !== "running") {
           if (timerRef.current) clearInterval(timerRef.current);
+        }
+        // 获取单元测试结果
+        if (r.pipeline_id) {
+          window.fetch(`/api/pipelines/${r.pipeline_id}/unit-results`)
+            .then((res) => res.json())
+            .then((resp) => {
+              if (resp.success) setUnitResults(resp.data);
+            })
+            .catch(console.error);
         }
       }).catch(console.error);
       getRunResults(runId).then(setResults).catch(console.error);
@@ -228,8 +238,57 @@ export default function RunDetail() {
         </div>
       )}
 
-      {/* 结果表格 */}
+      {/* 单元测试结果 */}
+      {unitResults && unitResults.status !== "not_run" && unitResults.results.length > 0 && (
+        <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+          <div className="px-4 py-3 bg-blue-50 border-b flex items-center justify-between">
+            <h2 className="text-sm font-medium text-blue-700">
+              单元测试 ({unitResults.total})
+            </h2>
+            <span className="text-xs text-gray-500">
+              {unitResults.passed}✅ {unitResults.failed}❌ {unitResults.skipped}⏭️ · {unitResults.duration_ms}ms
+            </span>
+          </div>
+          <table className="w-full">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">状态</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Describe</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">用例</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">耗时</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">错误</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {unitResults.results.map((r) => (
+                <tr key={r.id} className="hover:bg-gray-50">
+                  <td className="px-4 py-2">{statusIcon[r.status] ?? "❓"}</td>
+                  <td className="px-4 py-2 text-xs text-gray-500">{r.classname}</td>
+                  <td className="px-4 py-2 text-sm font-mono">{r.name}</td>
+                  <td className="px-4 py-2 text-sm">{r.duration_ms}ms</td>
+                  <td className="px-4 py-2 text-sm">
+                    {r.failure_message ? (
+                      <div className="max-w-sm max-h-24 overflow-y-auto bg-red-50 rounded p-2 text-red-600 text-xs font-mono whitespace-pre-wrap break-all">
+                        {r.failure_message}
+                      </div>
+                    ) : (
+                      <span className="text-gray-400">-</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* 集成测试结果 */}
       <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+        <div className="px-4 py-3 bg-green-50 border-b">
+          <h2 className="text-sm font-medium text-green-700">
+            集成测试 ({results.length})
+          </h2>
+        </div>
         <table className="w-full">
           <thead className="bg-gray-50">
             <tr>

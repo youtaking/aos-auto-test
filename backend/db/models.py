@@ -1,11 +1,16 @@
 # backend/db/models.py
 """数据库 ORM 模型"""
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from sqlalchemy import (
     Column, Integer, String, Text, DateTime, ForeignKey, Index, JSON
 )
 from sqlalchemy.orm import relationship
 from backend.db.base import Base
+
+# 北京时间 UTC+8
+_CST = timezone(timedelta(hours=8))
+def _now():
+    return datetime.now(_CST).replace(tzinfo=None)
 
 
 class Project(Base):
@@ -16,8 +21,8 @@ class Project(Base):
     url = Column(String(500), nullable=False)
     description = Column(Text, default="")
     is_active = Column(Integer, default=0)  # 1=激活, 0=未激活
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_now)
+    updated_at = Column(DateTime, default=_now, onupdate=_now)
 
     suites = relationship("TestSuite", back_populates="project", cascade="all, delete-orphan")
     runs = relationship("TestRun", back_populates="project", cascade="all, delete-orphan")
@@ -35,8 +40,8 @@ class AuthConfig(Base):
     api_test_password = Column(String(200), default="")
     open_api_key = Column(String(500), default="")
     is_active = Column(Integer, default=0)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_now)
+    updated_at = Column(DateTime, default=_now, onupdate=_now)
 
 
 class LLMConfig(Base):
@@ -50,8 +55,8 @@ class LLMConfig(Base):
     api_key = Column(String(500), nullable=False)
     model = Column(String(200), nullable=False)
     is_active = Column(Integer, default=0)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_now)
+    updated_at = Column(DateTime, default=_now, onupdate=_now)
 
 
 class ZentaoConfig(Base):
@@ -65,8 +70,8 @@ class ZentaoConfig(Base):
     password = Column(String(200), default="")       # 禅道登录密码
     product_id = Column(Integer, default=1)          # 禅道产品 ID
     is_active = Column(Integer, default=0)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_now)
+    updated_at = Column(DateTime, default=_now, onupdate=_now)
 
 
 class TestSuite(Base):
@@ -78,7 +83,7 @@ class TestSuite(Base):
     description = Column(Text, default="")
     tags = Column(String(500), default="")
     test_type = Column(String(20), default="ui")  # "ui" 或 "api"
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_now)
 
     project = relationship("Project", back_populates="suites")
     cases = relationship("TestCase", back_populates="suite", cascade="all, delete-orphan")
@@ -99,8 +104,8 @@ class TestCase(Base):
     tags = Column(String(500), default="")
     priority = Column(String(10), default="P1")
     timeout = Column(Integer, default=60)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_now)
+    updated_at = Column(DateTime, default=_now, onupdate=_now)
 
     suite = relationship("TestSuite", back_populates="cases")
     results = relationship("TestResult", back_populates="case", cascade="all, delete-orphan")
@@ -131,7 +136,7 @@ class TestRun(Base):
     duration_ms = Column(Integer, default=0)
     started_at = Column(DateTime, nullable=True)
     finished_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_now)
 
     project = relationship("Project", back_populates="runs")
     results = relationship("TestResult", back_populates="run", cascade="all, delete-orphan")
@@ -186,8 +191,8 @@ class EnvironmentSlot(Base):
     ssh_key_path = Column(String(500), default="")
     ssh_password = Column(String(200), default="")
     work_dir = Column(String(500), default="/tmp/pr-environments")
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_now)
+    updated_at = Column(DateTime, default=_now, onupdate=_now)
 
     pipelines = relationship("PRPipeline", back_populates="slot")
 
@@ -216,8 +221,8 @@ class PRPipeline(Base):
     target_url = Column(String(500), default="")       # Jenkins 部署后的 PR 环境地址
     build_info = Column(JSON, nullable=True)            # Jenkins 构建信息（job URL、镜像 tag 等）
     test_report = Column(JSON, nullable=True)           # test-runner 提交的完整 pytest JSON 报告
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_now)
+    updated_at = Column(DateTime, default=_now, onupdate=_now)
 
     slot = relationship("EnvironmentSlot", back_populates="pipelines")
     run = relationship("TestRun", foreign_keys=[run_id])
@@ -237,8 +242,8 @@ class TestCollection(Base):
     name = Column(String(200), nullable=False)
     description = Column(Text, default="")
     case_ids = Column(JSON, default=list)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_now)
+    updated_at = Column(DateTime, default=_now, onupdate=_now)
 
     project = relationship("Project", backref="collections")
 
@@ -259,8 +264,8 @@ class CIConfig(Base):
     run_e2e_p0 = Column(Integer, default=1)
     run_e2e_all = Column(Integer, default=0)
     collection_ids = Column(JSON, nullable=True)  # 选中的用例集 ID 数组
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_now)
+    updated_at = Column(DateTime, default=_now, onupdate=_now)
 
 
 class UnitTestCase(Base):
@@ -272,7 +277,7 @@ class UnitTestCase(Base):
     describe_block = Column(String(200), default="")       # describe 名称
     test_name = Column(String(300), nullable=False)         # test/it 名称
     full_name = Column(String(500), nullable=False, unique=True)  # describe > test 完整名
-    discovered_at = Column(DateTime, default=datetime.utcnow)
+    discovered_at = Column(DateTime, default=_now)
 
     results = relationship("UnitTestResult", back_populates="case", cascade="all, delete-orphan")
 
@@ -294,7 +299,7 @@ class UnitTestRun(Base):
     status = Column(String(20), default="completed")  # running / completed / failed
     trigger_type = Column(String(20), default="manual")  # manual / pipeline
     pipeline_id = Column(Integer, ForeignKey("pr_pipelines.id"), nullable=True)
-    started_at = Column(DateTime, default=datetime.utcnow)
+    started_at = Column(DateTime, default=_now)
 
     results = relationship("UnitTestResult", back_populates="run", cascade="all, delete-orphan")
 
@@ -312,7 +317,7 @@ class UnitTestResult(Base):
     status = Column(String(20), nullable=False)  # passed / failed / skipped / error
     duration_ms = Column(Integer, default=0)
     failure_message = Column(Text, nullable=True)
-    ran_at = Column(DateTime, default=datetime.utcnow)
+    ran_at = Column(DateTime, default=_now)
 
     case = relationship("UnitTestCase", back_populates="results")
     run = relationship("UnitTestRun", back_populates="results")
@@ -332,6 +337,6 @@ class Setting(Base):
     key = Column(String(200), nullable=False, unique=True, index=True)
     value = Column(Text, default="")
     description = Column(String(500), default="")
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, default=_now, onupdate=_now)
 
 
