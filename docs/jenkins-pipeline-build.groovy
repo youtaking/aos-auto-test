@@ -408,12 +408,12 @@ out = []
 skip = False
 for line in lines:
     s = line.strip()
-    if s.startswith('\\\\restrict') or s.startswith('\\\\unrestrict'):
+    if s.startswith('\\\\\\\\restrict') or s.startswith('\\\\\\\\unrestrict'):
         continue
     if 'COPY drizzle.__drizzle_migrations' in line:
         skip = True
         continue
-    if skip and s == '\\\\.':
+    if skip and s == '\\\\\\\\.':
         skip = False
         continue
     if skip:
