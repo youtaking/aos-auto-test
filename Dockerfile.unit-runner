@@ -2,15 +2,18 @@ FROM oven/bun:latest
 WORKDIR /app
 
 # 预装依赖缓存（由 jenkins-build-unit-runner 准备，或主 pipeline fallback 创建空缓存）
+# 支持 bun.lockb（二进制）和 bun.lock（文本）两种锁文件格式
 RUN mkdir -p /app/cache/node_modules
 COPY cache/package.json /app/cache/package.json
-COPY cache/bun.lockb /app/cache/bun.lockb
+COPY cache/bun.lock* /app/cache/
 RUN cd /app/cache && \
     if [ -s bun.lockb ]; then \
-      bun install --frozen-lockfile 2>&1 | tail -5; \
+      bun install --frozen-lockfile 2>&1 || bun install 2>&1; \
+    elif [ -s bun.lock ]; then \
+      bun install --frozen-lockfile 2>&1 || bun install 2>&1; \
     else \
-      bun install 2>&1 | tail -5; \
-    fi
+      bun install 2>&1; \
+    fi | tail -5
 
 # Entrypoint
 COPY entrypoint-unit.sh /app/entrypoint-unit.sh

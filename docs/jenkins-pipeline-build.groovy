@@ -781,8 +781,12 @@ except:
                             [ -z "$PIPELINE_ID" ] && echo "    WARNING: No valid pipeline ID, skipping result upload."
                         fi
                         echo ""
+                        echo ">>> Collecting RCS logs (for debugging 500 errors)..."
+                        docker-compose -p __PROJECT_NAME__ logs --tail=200 rcs 2>&1 | tail -200 || echo "    Could not collect RCS logs"
+                        echo ""
                         echo "<<< Collect Results — DONE"
                     '''.replace('__AUTOTEST_URL__', AUTOTEST_URL)
+                      .replace('__PROJECT_NAME__', PROJECT_NAME)
                 }
             }
         }

@@ -586,6 +586,9 @@ except Exception as e:
                         echo "    WARNING: report.json not found."
                     fi
                     echo ""
+                    echo ">>> Collecting RCS logs (for debugging 500 errors)..."
+                    docker-compose -p __PROJECT_NAME__ logs --tail=200 rcs 2>&1 | tail -200 || echo "    Could not collect RCS logs"
+                    echo ""
                     echo "<<< Collect Results — DONE"
                 '''.replace('__PROJECT_NAME__', PROJECT_NAME)
                   .replace('__WORKSPACE__', env.WORKSPACE.replace('/var/jenkins_home', '/opt/1panel/apps/jenkins/jenkins/data'))
