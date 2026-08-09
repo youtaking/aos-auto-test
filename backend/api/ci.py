@@ -85,6 +85,7 @@ async def create_pipeline(
         author=body.author,
         status="building",
         target_url=body.target_url,
+        docker_image=body.docker_image,
         build_info=body.build_info.model_dump() if body.build_info else None,
     )
     db.add(pipeline)
