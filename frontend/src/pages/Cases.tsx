@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { listProjects, listSuites, discoverCases } from "../api/projects";
 import { get } from "../api/client";
 import { triggerRun } from "../api/runs";
-import { getCollection, updateCollection, listCollections } from "../api/collections";
+import { getCollection, updateCollection, listCollections, createCollection } from "../api/collections";
 import { ChevronDown, RefreshCw, FolderOpen } from "lucide-react";
 import CollectionManager from "../components/CollectionManager";
 import type { TestSuite, TestCase, Collection } from "../api/types";
@@ -22,6 +22,9 @@ export default function Cases() {
   const [showCollectionPicker, setShowCollectionPicker] = useState(false);
   const [projectId, setProjectId] = useState<number | null>(null);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [priorityFilters, setPriorityFilters] = useState<Record<string, string>>({});
+  const [quickColName, setQuickColName] = useState("");
+  const [savingCol, setSavingCol] = useState(false);
 
   const loadCases = () => {
     listProjects().then((projs) => {
@@ -82,10 +85,19 @@ export default function Cases() {
     });
   };
 
-  const toggleAll = () => {
-    const allIds = cases.map((c) => c.id);
-    const allSelected = allIds.every((id) => selectedIds.has(id));
-    setSelectedIds(allSelected ? new Set() : new Set(allIds));
+  const toggleAll = (filteredCases?: TestCase[]) => {
+    const targetCases = filteredCases ?? cases;
+    const allIds = targetCases.map((c) => c.id);
+    const allSelected = allIds.length > 0 && allIds.every((id) => selectedIds.has(id));
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allSelected) {
+        allIds.forEach((id) => next.delete(id));
+      } else {
+        allIds.forEach((id) => next.add(id));
+      }
+      return next;
+    });
   };
 
   const handleRunSelected = async () => {
@@ -119,6 +131,21 @@ export default function Cases() {
     await updateCollection(collectionId, { case_ids: merged });
   };
 
+  const handleQuickCreateCollection = async () => {
+    if (!quickColName.trim() || selectedIds.size === 0 || savingCol) return;
+    setSavingCol(true);
+    try {
+      await createCollection({ name: quickColName.trim(), description: "", case_ids: Array.from(selectedIds) });
+      setQuickColName("");
+      const updated = await listCollections();
+      setCollections(updated);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSavingCol(false);
+    }
+  };
+
   const toggleCollapse = (key: string) => {
     setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
   };
@@ -132,7 +159,11 @@ export default function Cases() {
   const apiCases = cases.filter((c) => apiSuites.some((s) => s.id === c.suite_id));
 
   const renderSuiteSection = (sectionKey: string, title: string, sectionSuites: TestSuite[], sectionCases: TestCase[], accent: string) => {
-    const sectionSelected = sectionCases.filter((c) => selectedIds.has(c.id)).length;
+    const pFilter = priorityFilters[sectionKey] || "all";
+    const filteredCases = pFilter === "all"
+      ? sectionCases
+      : sectionCases.filter((c) => c.priority === pFilter);
+    const sectionSelected = filteredCases.filter((c) => selectedIds.has(c.id)).length;
     const sectionCollapsed = !!collapsed[sectionKey];
 
     return (
@@ -146,9 +177,32 @@ export default function Cases() {
           <div className={`w-1 h-5 rounded ${accent}`} />
           <h2 className="text-lg font-semibold">{title}</h2>
           <span className="text-sm text-gray-400">
-            {sectionSuites.length} 套件 / {sectionCases.length} 用例
+            {sectionSuites.length} 套件 / {filteredCases.length} 用例
+            {pFilter !== "all" && <span className="text-gray-300"> (共 {sectionCases.length})</span>}
             {sectionSelected > 0 && <span className="text-blue-600 ml-2">已选 {sectionSelected}</span>}
           </span>
+          <select
+            value={pFilter}
+            onChange={(e) => {
+              e.stopPropagation();
+              setPriorityFilters((prev) => ({ ...prev, [sectionKey]: e.target.value }));
+            }}
+            onClick={(e) => e.stopPropagation()}
+            className="ml-auto text-sm border rounded px-2 py-0.5 text-gray-600 cursor-pointer"
+          >
+            <option value="all">全部优先级</option>
+            <option value="P0">P0</option>
+            <option value="P1">P1</option>
+            <option value="P2">P2</option>
+          </select>
+          {filteredCases.length > 0 && (
+            <button
+              onClick={(e) => { e.stopPropagation(); toggleAll(filteredCases); }}
+              className="text-sm text-blue-600 hover:text-blue-800 px-2"
+            >
+              {filteredCases.every((c) => selectedIds.has(c.id)) ? "取消全选" : "全选可见"}
+            </button>
+          )}
         </div>
 
         {/* 套件列表 */}
@@ -156,7 +210,11 @@ export default function Cases() {
           <div className="space-y-2 pl-1">
             {sectionSuites.map((suite) => {
               const suiteKey = `suite-${suite.id}`;
-              const suiteCases = cases.filter((c) => c.suite_id === suite.id);
+              const allSuiteCases = cases.filter((c) => c.suite_id === suite.id);
+              const suiteCases = pFilter === "all"
+                ? allSuiteCases
+                : allSuiteCases.filter((c) => c.priority === pFilter);
+              if (pFilter !== "all" && suiteCases.length === 0) return null;
               const suiteSelectedCount = suiteCases.filter((c) => selectedIds.has(c.id)).length;
               const allSuiteSelected = suiteCases.length > 0 && suiteSelectedCount === suiteCases.length;
               const suiteCollapsed = !!collapsed[suiteKey];
@@ -301,9 +359,9 @@ export default function Cases() {
 
       {/* 浮动操作栏 */}
           {selectedCount > 0 && (
-            <div className="sticky top-0 z-10 bg-white rounded-xl shadow-md border border-blue-200 p-3 flex items-center justify-between">
+            <div className="sticky top-0 z-10 bg-white rounded-xl shadow-md border border-blue-200 p-3 flex items-center justify-between flex-wrap gap-2">
               <div className="flex items-center gap-3">
-                <button onClick={toggleAll} className="text-sm text-blue-600 hover:text-blue-800">
+                <button onClick={() => toggleAll()} className="text-sm text-blue-600 hover:text-blue-800">
                   {selectedCount === cases.length ? "取消全选" : "全选"}
                 </button>
                 <span className="text-sm text-gray-600">
@@ -311,6 +369,22 @@ export default function Cases() {
                 </span>
               </div>
               <div className="flex items-center gap-3">
+                <div className="flex items-center gap-1.5">
+                  <input
+                    value={quickColName}
+                    onChange={(e) => setQuickColName(e.target.value)}
+                    placeholder="测试集名称"
+                    className="px-2 py-1.5 border rounded text-sm w-28"
+                    onKeyDown={(e) => { if (e.key === "Enter") handleQuickCreateCollection(); }}
+                  />
+                  <button
+                    onClick={handleQuickCreateCollection}
+                    disabled={!quickColName.trim() || savingCol}
+                    className="px-3 py-1.5 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 disabled:bg-gray-300"
+                  >
+                    {savingCol ? "保存中..." : "存为测试集"}
+                  </button>
+                </div>
                 <button
                   onClick={handleRunSelected}
                   disabled={running}

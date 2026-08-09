@@ -46,7 +46,7 @@ async def _resolve_collection_case_ids(db, collection_ids: list[int]) -> list[in
     valid = await db.execute(
         select(TestCase).where(TestCase.id.in_(list(all_case_ids)))
     )
-    return [r[0] for r in valid.all()]
+    return [r[0].id for r in valid.all()]
 
 
 def _parse_pytest_line(line: str) -> dict | None:
@@ -285,6 +285,7 @@ async def _execute_tests(
 async def list_runs(
     project_id: int | None = None,
     status: str | None = None,
+    trigger_type: str | None = None,
     page: int = 1,
     page_size: int = 20,
     db: AsyncSession = Depends(get_async_session),
@@ -295,6 +296,8 @@ async def list_runs(
         query = query.where(TestRun.project_id == project_id)
     if status:
         query = query.where(TestRun.status == status)
+    if trigger_type:
+        query = query.where(TestRun.trigger_type == trigger_type)
     query = query.offset((page - 1) * page_size).limit(page_size)
 
     result = await db.execute(query)
