@@ -26,6 +26,8 @@ class RunResponse(BaseModel):
     skipped: int
     duration_ms: int
     pipeline_id: Optional[int] = None
+    pr_id: Optional[int] = None
+    collection_ids: Optional[List[int]] = None
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
     created_at: datetime
