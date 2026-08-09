@@ -18,6 +18,8 @@ export default function RunDetail() {
   const [results, setResults] = useState<TestResult[]>([]);
   const [logs, setLogs] = useState<string[]>([]);
   const [showLogs, setShowLogs] = useState(false);
+  const [showUnit, setShowUnit] = useState(true);
+  const [showIntegration, setShowIntegration] = useState(true);
   const [unitResults, setUnitResults] = useState<{ total: number; passed: number; failed: number; skipped: number; duration_ms: number; status: string; results: { id: number; name: string; classname: string; status: string; duration_ms: number; failure_message: string | null }[] } | null>(null);
   const logsLoadedRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -239,16 +241,21 @@ export default function RunDetail() {
       )}
 
       {/* 单元测试结果 */}
-      {unitResults && unitResults.status !== "not_run" && unitResults.results.length > 0 && (
+      {unitResults && unitResults.status !== "not_run" && unitResults.total > 0 && (
         <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-          <div className="px-4 py-3 bg-blue-50 border-b flex items-center justify-between">
-            <h2 className="text-sm font-medium text-blue-700">
+          <div
+            className="px-4 py-3 bg-blue-50 border-b flex items-center justify-between cursor-pointer select-none hover:bg-blue-100 transition-colors"
+            onClick={() => setShowUnit(!showUnit)}
+          >
+            <h2 className="text-sm font-medium text-blue-700 flex items-center gap-2">
+              <span className="text-xs text-gray-400">{showUnit ? "▼" : "▶"}</span>
               单元测试 ({unitResults.total})
             </h2>
             <span className="text-xs text-gray-500">
               {unitResults.passed}✅ {unitResults.failed}❌ {unitResults.skipped}⏭️ · {unitResults.duration_ms}ms
             </span>
           </div>
+          {showUnit && unitResults.results.length > 0 && (
           <table className="w-full">
             <thead className="bg-gray-50">
               <tr>
@@ -279,16 +286,27 @@ export default function RunDetail() {
               ))}
             </tbody>
           </table>
+          )}
+          {showUnit && unitResults.results.length === 0 && (
+            <div className="px-4 py-6 text-center text-sm text-gray-400">
+              测试已运行 ({unitResults.total} 条)，但逐条结果未存储。下次 Pipeline 运行后将自动修复。
+            </div>
+          )}
         </div>
       )}
 
       {/* 集成测试结果 */}
       <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-        <div className="px-4 py-3 bg-green-50 border-b">
-          <h2 className="text-sm font-medium text-green-700">
+        <div
+          className="px-4 py-3 bg-green-50 border-b cursor-pointer select-none hover:bg-green-100 transition-colors"
+          onClick={() => setShowIntegration(!showIntegration)}
+        >
+          <h2 className="text-sm font-medium text-green-700 flex items-center gap-2">
+            <span className="text-xs text-gray-400">{showIntegration ? "▼" : "▶"}</span>
             集成测试 ({results.length})
           </h2>
         </div>
+        {showIntegration && (
         <table className="w-full">
           <thead className="bg-gray-50">
             <tr>
@@ -319,6 +337,7 @@ export default function RunDetail() {
             ))}
           </tbody>
         </table>
+        )}
       </div>
 
     </div>

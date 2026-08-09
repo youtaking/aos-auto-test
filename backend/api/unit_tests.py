@@ -1,6 +1,7 @@
 # backend/api/unit_tests.py
 """单元测试管理 API"""
 import asyncio
+import logging
 import re
 import shutil
 import subprocess
@@ -8,6 +9,8 @@ import tempfile
 import os
 import xml.etree.ElementTree as ET
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -138,7 +141,7 @@ async def list_unit_tests(db: AsyncSession = Depends(get_async_session)):
 
 @router.post("/unit-tests/discover", response_model=ApiResponse)
 async def discover_tests(db: AsyncSession = Depends(get_async_session)):
-    """扫描 unit_tests/ 目录，解析并同步用例到 DB"""
+    """扫描 unit_tests/ 目录，解析并同步用例到 DB（保留测试结果）"""
     if not UNIT_TESTS_DIR.exists():
         return ApiResponse(success=False, error=f"目录不存在: {UNIT_TESTS_DIR}")
 
@@ -152,20 +155,62 @@ async def discover_tests(db: AsyncSession = Depends(get_async_session)):
             seen.add(c["full_name"])
             unique_discovered.append(c)
 
-    # 先提交 DELETE（results → cases 顺序，避免外键冲突），释放唯一约束
-    await db.execute(delete(UnitTestResult))
-    await db.execute(delete(UnitTestCase))
-    await db.commit()
-
-    # 在新事务中插入
-    for case_data in unique_discovered:
-        db.add(UnitTestCase(**case_data))
-    await db.commit()
+    new_count, updated_count, removed_count = await _sync_unit_test_cases(db, unique_discovered)
 
     return ApiResponse(data={
         "discovered": len(unique_discovered),
-        "directory": str(UNIT_TESTS_DIR),
+        "new": new_count,
+        "updated": updated_count,
+        "removed": removed_count,
     })
+
+
+async def _sync_unit_test_cases(db: AsyncSession, discovered: list[dict]) -> tuple[int, int, int]:
+    """同步单元测试用例：merge 策略，不删除测试结果。
+    返回 (new_count, updated_count, removed_count)
+    """
+    from sqlalchemy import update
+
+    # 获取现有用例
+    result = await db.execute(select(UnitTestCase))
+    existing = {c.full_name: c for c in result.scalars().all()}
+
+    discovered_names = set()
+    new_count = 0
+    updated_count = 0
+
+    for case_data in discovered:
+        fn = case_data["full_name"]
+        discovered_names.add(fn)
+
+        if fn in existing:
+            # 更新已有用例
+            c = existing[fn]
+            c.file_path = case_data["file_path"]
+            c.describe_block = case_data.get("describe_block", "")
+            c.test_name = case_data["test_name"]
+            updated_count += 1
+        else:
+            # 新增用例
+            db.add(UnitTestCase(**case_data))
+            new_count += 1
+
+    # 处理被删除的用例：将关联的 results.test_case_id 置 NULL，然后删除用例
+    removed_names = set(existing.keys()) - discovered_names
+    removed_count = 0
+    for fn in removed_names:
+        c = existing[fn]
+        # 将关联结果的 test_case_id 置 NULL
+        await db.execute(
+            update(UnitTestResult)
+            .where(UnitTestResult.test_case_id == c.id)
+            .values(test_case_id=None)
+        )
+        await db.delete(c)
+        removed_count += 1
+
+    await db.commit()
+    return new_count, updated_count, removed_count
 
 
 @router.post("/unit-tests/runs/start", response_model=ApiResponse)
@@ -221,8 +266,12 @@ async def submit_unit_results(
     junit_xml = body.get("junit_xml")
     existing_run_id = body.get("run_id")  # 可选：更新已有的 running 记录
 
+    logger.info(f"[unit-results] pipeline_id={pipeline_id}, run_id={existing_run_id}, "
+                f"has_junit_xml={bool(junit_xml)}, has_results={bool(body.get('results'))}")
+
     results_data = []
     if junit_xml:
+        logger.info(f"[unit-results] junit_xml length: {len(junit_xml)} chars")
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".xml", delete=False, encoding="utf-8"
         ) as f:
@@ -232,11 +281,14 @@ async def submit_unit_results(
             results_data = parse_junit_xml(Path(tmp_path))
         finally:
             os.unlink(tmp_path)
+        logger.info(f"[unit-results] parsed {len(results_data)} test cases from XML")
     elif body.get("results"):
         # 直接传入结构化结果列表（调试 / 非 Jenkins 场景）
         results_data = body["results"]
+        logger.info(f"[unit-results] received {len(results_data)} results directly")
 
     if not results_data:
+        logger.warning(f"[unit-results] no results data, returning saved=0")
         return ApiResponse(data={"saved": 0})
 
     # 统计
@@ -271,6 +323,13 @@ async def submit_unit_results(
         db.add(unit_run)
     await db.flush()
 
+    # 删除旧的 UnitTestResult（如果是重新上传）
+    del_result = await db.execute(
+        delete(UnitTestResult).where(UnitTestResult.run_id == unit_run.id)
+    )
+    if del_result.rowcount:
+        logger.info(f"[unit-results] deleted {del_result.rowcount} old results for run_id={unit_run.id}")
+
     saved = 0
     for r in results_data:
         # 尝试匹配已有用例
@@ -292,6 +351,7 @@ async def submit_unit_results(
         saved += 1
 
     await db.commit()
+    logger.info(f"[unit-results] saved {saved} results for run_id={unit_run.id}, pipeline_id={pipeline_id}")
     return ApiResponse(data={"saved": saved, "run_id": unit_run.id})
 
 
