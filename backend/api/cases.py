@@ -89,11 +89,27 @@ async def sync_test_cases(
             select(TestCase).where(TestCase.suite_id == suite.id)
         )
         db_cases = {c.function_name: c for c in db_result.scalars().all()}
+        # 短名索引（不含类前缀），用于处理 ClassName::test_xxx 的迁移
+        db_cases_short: dict[str, TestCase] = {}
+        for fn, c in db_cases.items():
+            short = fn.split("::")[-1] if "::" in fn else fn
+            db_cases_short[short] = c
+
+        updated_funcs: set[str] = set()  # 被更新（而非新增）的函数名
 
         # 新增：文件系统有但 DB 没有
         for item in items:
             fn = item["function_name"]
             if fn not in db_cases:
+                # 尝试通过短名匹配（处理类前缀变更）
+                short = fn.split("::")[-1] if "::" in fn else fn
+                old_case = db_cases_short.get(short)
+                if old_case and old_case.function_name != fn:
+                    # 旧名 -> 新名（加了类前缀），更新而非删除+创建
+                    old_case.function_name = fn
+                    old_case.file_path = item["file_path"]
+                    updated_funcs.add(old_case.function_name)
+                    continue
                 priority = _infer_priority(fn)
                 db.add(TestCase(
                     suite_id=suite.id,
@@ -106,8 +122,8 @@ async def sync_test_cases(
                 ))
                 new_cases += 1
 
-        # 清理：DB 有但文件系统没有（保留历史测试结果，case_id 置 NULL）
-        stale_funcs = [fn for fn in db_cases if fn not in fs_funcs]
+        # 清理：DB 有但文件系统没有（排除刚被更新的）
+        stale_funcs = [fn for fn in db_cases if fn not in fs_funcs and fn not in updated_funcs]
         if stale_funcs:
             stale_ids = [db_cases[fn].id for fn in stale_funcs]
             await db.execute(
