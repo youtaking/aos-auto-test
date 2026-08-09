@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, Link } from "react-router-dom";
 import { getRun, getRunResults, getRunLogs, cancelRun } from "../api/runs";
 import type { TestRun, TestResult } from "../api/types";
 
@@ -182,7 +182,36 @@ export default function RunDetail() {
           )}
         </div>
       </div>
-      <div className="grid grid-cols-5 gap-4">
+
+      {/* 来源信息 */}
+      <div className="bg-white rounded-xl shadow-sm p-4 flex items-center gap-4 text-sm">
+        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+          run.trigger_type === "ci" ? "bg-purple-100 text-purple-700" : "bg-blue-100 text-blue-700"
+        }`}>
+          {run.trigger_type === "ci" ? "Pipeline" : "手动触发"}
+        </span>
+        {run.trigger_type === "ci" ? (
+          <>
+            {run.pipeline_id && (
+              <Link to="/ci" className="text-blue-600 hover:underline">Pipeline #{run.pipeline_id}</Link>
+            )}
+            {run.git_branch && (
+              <span className="text-gray-500">分支: <code className="text-xs bg-gray-100 px-1 rounded">{run.git_branch}</code></span>
+            )}
+            {run.git_commit && (
+              <span className="text-gray-500">Commit: <code className="text-xs bg-gray-100 px-1 rounded">{run.git_commit.slice(0, 8)}</code></span>
+            )}
+          </>
+        ) : (
+          <>
+            <span className="text-gray-500">{run.trigger_user || "用户"}</span>
+            {run.collection_ids && run.collection_ids.length > 0 && (
+              <span className="text-gray-500">使用 {run.collection_ids.length} 个用例集</span>
+            )}
+          </>
+        )}
+        <span className="text-gray-400 ml-auto">{new Date(run.created_at).toLocaleString()}</span>
+      </div>
         {(() => {
           const uT = unitResults?.total ?? 0, uP = unitResults?.passed ?? 0,
                 uF = unitResults?.failed ?? 0, uS = unitResults?.skipped ?? 0,

@@ -873,7 +873,7 @@ logs = open('pipeline_logs.txt', 'r', encoding='utf-8', errors='replace').read()
 payload = {'logs': logs}
 open('logs_upload.json', 'w', encoding='utf-8').write(json.dumps(payload))
 "
-                        curl -s -X POST __AUTOTEST_URL__/api/pipelines/${PIPELINE_ID}/logs \\
+                        curl -s -X POST __AUTOTEST_URL__/api/pipelines/${PIPELINE_ID}/upload-logs \\
                           -H "Authorization: Bearer $TOKEN" \\
                           -H "Content-Type: application/json" \\
                           -d @logs_upload.json

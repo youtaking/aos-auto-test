@@ -303,7 +303,7 @@ async def regenerate_token(db: AsyncSession = Depends(get_async_session)):
     return ApiResponse(data={"token": config.auth_token})
 
 
-@router.post("/pipelines/{pipeline_id}/logs", response_model=ApiResponse)
+@router.post("/pipelines/{pipeline_id}/upload-logs", response_model=ApiResponse)
 async def upload_pipeline_logs(
     pipeline_id: int,
     body: dict,

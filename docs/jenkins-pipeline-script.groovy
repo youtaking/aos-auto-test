@@ -145,6 +145,7 @@ pipeline {
                   .replace('__TEST_ARCHIVE_URL__', TEST_REPO.replace('.git', '') + "/archive/refs/heads/${params.TEST_REPO_BRANCH ?: 'feat/jenkins-pipeline'}.tar.gz")
                   .replace('__APP_BRANCH__', params.APP_BRANCH ?: 'main')
                   .replace('__TEST_REPO_BRANCH__', params.TEST_REPO_BRANCH ?: 'feat/jenkins-pipeline')
+                  .replace('__PR_BRANCH__', params.PR_BRANCH ?: 'main')
                   .replace('__PROJECT_NAME__', PROJECT_NAME)
                   .replace('__RCS_PORT__', RCS_PORT)
                   .replace('__PG_PORT__', PG_PORT)
@@ -895,7 +896,7 @@ logs = open('pipeline_logs.txt', 'r', encoding='utf-8', errors='replace').read()
 payload = {'logs': logs}
 open('logs_upload.json', 'w', encoding='utf-8').write(json.dumps(payload))
 "
-                        curl -s -X POST __AUTOTEST_URL__/api/pipelines/${PIPELINE_ID}/logs \\
+                        curl -s -X POST __AUTOTEST_URL__/api/pipelines/${PIPELINE_ID}/upload-logs \\
                           -H "Authorization: Bearer $TOKEN" \\
                           -H "Content-Type: application/json" \\
                           -d @logs_upload.json
