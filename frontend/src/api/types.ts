@@ -62,6 +62,7 @@ export interface TestRun {
   skipped: number;
   duration_ms: number;
   pipeline_id: number | null;
+  pr_id: number | null;
   started_at: string | null;
   finished_at: string | null;
   created_at: string;
