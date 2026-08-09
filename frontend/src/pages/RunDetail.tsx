@@ -183,18 +183,28 @@ export default function RunDetail() {
         </div>
       </div>
       <div className="grid grid-cols-5 gap-4">
-        {[
-          { label: "总计", value: run.total, color: "" },
-          { label: "通过", value: run.passed, color: "text-green-600" },
-          { label: "失败", value: run.failed, color: "text-red-600" },
-          { label: "跳过", value: run.skipped, color: "text-gray-500" },
-          { label: "耗时", value: `${(run.duration_ms / 1000).toFixed(1)}s`, color: "" },
-        ].map((item) => (
-          <div key={item.label} className="bg-white rounded-xl p-4 shadow-sm text-center">
-            <div className="text-sm text-gray-500">{item.label}</div>
-            <div className={`text-xl font-bold ${item.color}`}>{item.value}</div>
-          </div>
-        ))}
+        {(() => {
+          const uT = unitResults?.total ?? 0, uP = unitResults?.passed ?? 0,
+                uF = unitResults?.failed ?? 0, uS = unitResults?.skipped ?? 0,
+                uD = unitResults?.duration_ms ?? 0;
+          const total = run.total + uT;
+          const passed = run.passed + uP;
+          const failed = run.failed + uF;
+          const skipped = run.skipped + uS;
+          const duration = Math.max(run.duration_ms, uD);
+          return [
+            { label: "总计", value: total, color: "" },
+            { label: "通过", value: passed, color: "text-green-600" },
+            { label: "失败", value: failed, color: "text-red-600" },
+            { label: "跳过", value: skipped, color: "text-gray-500" },
+            { label: "耗时", value: `${(duration / 1000).toFixed(1)}s`, color: "" },
+          ].map((item) => (
+            <div key={item.label} className="bg-white rounded-xl p-4 shadow-sm text-center">
+              <div className="text-sm text-gray-500">{item.label}</div>
+              <div className={`text-xl font-bold ${item.color}`}>{item.value}</div>
+            </div>
+          ));
+        })()}
       </div>
 
       {/* 实时日志面板 */}
