@@ -134,12 +134,12 @@ async def submit_results(
     # 保存原始报告
     pipeline.test_report = report
 
-    # 解析摘要
+    # 解析摘要（兼容 pytest-json-report 和 pytest-json 两种格式）
     summary = report.get("summary", {})
-    total = summary.get("num_tests", 0)
-    passed = summary.get("num_passed", 0)
-    failed = summary.get("num_failed", 0)
-    skipped = summary.get("num_skipped", 0)
+    total = summary.get("total", summary.get("num_tests", 0))
+    passed = summary.get("passed", summary.get("num_passed", 0))
+    failed = summary.get("failed", summary.get("num_failed", 0))
+    skipped = summary.get("skipped", summary.get("num_skipped", 0))
     duration = report.get("duration", 0)
 
     # 创建或更新 TestRun

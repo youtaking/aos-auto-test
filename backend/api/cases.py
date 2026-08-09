@@ -4,7 +4,7 @@ from collections import defaultdict
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, delete
+from sqlalchemy import select, func, delete, update
 from backend.db.config import get_async_session
 from backend.db.models import TestCase, TestResult, TestSuite, Project
 from backend.schemas.case import CaseResponse, CaseCreate
@@ -106,12 +106,14 @@ async def sync_test_cases(
                 ))
                 new_cases += 1
 
-        # 清理：DB 有但文件系统没有
+        # 清理：DB 有但文件系统没有（保留历史测试结果，case_id 置 NULL）
         stale_funcs = [fn for fn in db_cases if fn not in fs_funcs]
         if stale_funcs:
             stale_ids = [db_cases[fn].id for fn in stale_funcs]
             await db.execute(
-                delete(TestResult).where(TestResult.case_id.in_(stale_ids))
+                update(TestResult)
+                .where(TestResult.case_id.in_(stale_ids))
+                .values(case_id=None)
             )
             await db.execute(
                 delete(TestCase).where(TestCase.id.in_(stale_ids))
