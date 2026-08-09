@@ -647,15 +647,6 @@ except:
                 '''
             }
         }
-                }
-
-                sh '''
-                    set +x
-                    echo ""
-                    echo "<<< Run Unit Tests — DONE"
-                '''
-            }
-        }
 
         stage('Run Tests') {
             steps {
