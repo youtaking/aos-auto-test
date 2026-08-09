@@ -159,6 +159,7 @@ export default function PipelineDetail({ pipeline, onClose }: Props) {
                 <span>{unitResults.passed}✅ {unitResults.failed}❌ {unitResults.skipped}⏭️</span>
                 <span className="text-gray-400">{unitResults.duration_ms}ms</span>
               </div>
+              {unitResults.results.length > 0 ? (
               <div className="max-h-96 overflow-y-auto">
                 <table className="w-full text-sm">
                   <thead>
@@ -188,6 +189,11 @@ export default function PipelineDetail({ pipeline, onClose }: Props) {
                   </tbody>
                 </table>
               </div>
+              ) : (
+                <div className="text-center py-6 text-sm text-gray-400">
+                  测试已完成 ({unitResults.total} 条)，但逐条结果未存储。下次 Pipeline 运行后将自动保存。
+                </div>
+              )}
             </>
           )}
         </div>
