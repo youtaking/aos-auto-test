@@ -7,6 +7,17 @@ export const getRun = (id: number) => get<TestRun>(`/runs/${id}`);
 export const getRunResults = (runId: number) => get<TestResult[]>(`/runs/${runId}/results`);
 export const getRunLogs = (runId: number) => get<string[]>(`/runs/${runId}/logs`);
 export const cancelRun = (id: number) => post<{ cancelled: boolean; killed_process: boolean }>(`/runs/${id}/cancel`);
+
+export interface SingleTestResult {
+  status: string;
+  duration_ms: number;
+  error_message: string | null;
+  output: string;
+}
+
+export const runSingleTest = (caseId: number, headed = true) =>
+  post<SingleTestResult>(`/tests/run-single?case_id=${caseId}&headed=${headed}`);
+
 export const getRunMdReport = (runId: number) =>
   fetch(`/api/runs/${runId}/md-report`).then((r) => {
     if (!r.ok) throw new Error(`HTTP ${r.status}`);

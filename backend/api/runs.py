@@ -11,10 +11,11 @@ from datetime import datetime
 from pathlib import Path
 from fastapi import APIRouter, Depends, BackgroundTasks
 from fastapi.responses import FileResponse, RedirectResponse, PlainTextResponse
+import yaml
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from backend.db.config import get_async_session, async_session
-from backend.db.models import TestRun, TestResult, TestCase, Project, AuthConfig, TestCollection
+from backend.db.models import TestRun, TestResult, TestCase, TestSuite, Project, AuthConfig, TestCollection
 from backend.schemas.run import RunResponse, RunReport, ResultResponse
 from backend.schemas.common import ApiResponse
 from backend import ws as ws_module
@@ -713,3 +714,143 @@ async def generate_md_report(run_id: int, db: AsyncSession = Depends(get_async_s
     lines.append(f"*报告生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*")
 
     return PlainTextResponse(content="\n".join(lines), media_type="text/markdown; charset=utf-8")
+
+
+def _load_api_key() -> str:
+    """从 env 或 test_data.yaml 读取 API key"""
+    key = os.environ.get("FENIX_API_KEY", "")
+    if key:
+        return key
+    try:
+        with open("tests/fixtures/test_data.yaml", "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+        return data.get("fenixagent", {}).get("api_key", "")
+    except Exception:
+        return ""
+
+
+@router.post("/tests/run-single", response_model=ApiResponse)
+async def run_single_test(
+    case_id: int,
+    headed: bool = True,
+    db: AsyncSession = Depends(get_async_session),
+):
+    """
+    轻量级单用例执行：直接运行一条测试，返回结果，不产生运行记录。
+    用于在运行记录页面快速验证/调试单条失败用例。
+    """
+    # 1. 查找用例及其套件
+    case = await db.get(TestCase, case_id)
+    if not case:
+        return ApiResponse(success=False, error="用例不存在")
+
+    suite = await db.get(TestSuite, case.suite_id)
+    if not suite:
+        return ApiResponse(success=False, error="套件不存在")
+
+    is_api = suite.test_type == "api"
+
+    # 2. 获取活跃项目的 base URL
+    proj_query = await db.execute(
+        select(Project).where(Project.is_active == 1)
+    )
+    project = proj_query.scalars().first()
+    if not project:
+        return ApiResponse(success=False, error="没有活跃项目")
+
+    base_url = project.url
+
+    # 3. 构建 pytest 命令
+    nodeid = f"{case.file_path}::{case.function_name}"
+    report_path = f"single_test_report_{case_id}.json"
+    cmd = [
+        sys.executable, "-m", "pytest", nodeid,
+        "-v", "--tb=long",
+        f"--base-url={base_url}",
+        "--json-report", f"--json-report-file={report_path}",
+        "-p", "no:cacheprovider",
+        "--no-header",
+    ]
+
+    env = {
+        **os.environ,
+        "PYTHONUNBUFFERED": "1",
+    }
+    if is_api:
+        env["FENIX_API_KEY"] = _load_api_key()
+    else:
+        env["HEADLESS"] = "false" if headed else "true"
+        env["FENIX_URL"] = base_url
+
+    # 4. 执行 pytest（同步等待，单条用例不需要后台任务）
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            env=env,
+            cwd=os.getcwd(),
+        )
+
+        def _wait():
+            stdout_data = proc.stdout.read() if proc.stdout else b""
+            proc.wait()
+            return stdout_data
+
+        raw_output = await asyncio.wait_for(
+            asyncio.to_thread(_wait), timeout=120
+        )
+        stdout = raw_output.decode("utf-8", errors="replace")
+
+        # 5. 从 JSON 报告解析详细结果
+        status = "passed" if proc.returncode == 0 else "failed"
+        duration_ms = 0
+        error_message = None
+
+        rf = Path(report_path)
+        if rf.exists():
+            try:
+                with open(rf, "r", encoding="utf-8") as f:
+                    report = json.load(f)
+                tests = report.get("tests", [])
+                if tests:
+                    test = tests[0]
+                    call_info = test.get("call", {})
+                    duration_ms = int(call_info.get("duration", 0) * 1000)
+                    outcome = call_info.get("outcome", "")
+                    if outcome:
+                        status = outcome
+                    longrepr = call_info.get("longrepr", "")
+                    if longrepr:
+                        error_message = str(longrepr)[:1000]
+            except Exception:
+                pass
+            finally:
+                rf.unlink(missing_ok=True)
+
+        # 如果 JSON 报告没有解析到错误信息，从 stdout 提取
+        if not error_message and status != "passed":
+            # 提取 pytest 输出中的失败信息
+            fail_lines = []
+            for line in stdout.split("\n"):
+                if "FAILED" in line or "AssertionError" in line or "Error" in line:
+                    fail_lines.append(line.strip())
+            if fail_lines:
+                error_message = "\n".join(fail_lines[:5])[:500]
+
+        return ApiResponse(data={
+            "status": status,
+            "duration_ms": duration_ms,
+            "error_message": error_message,
+            "output": stdout[-2000:],  # 返回最后 2000 字符供调试
+        })
+
+    except asyncio.TimeoutError:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+        return ApiResponse(success=False, error="执行超时（120秒）")
+    except Exception as e:
+        print(f"[run-single] Error: {type(e).__name__}: {e}", flush=True)
+        return ApiResponse(success=False, error=f"执行失败: {type(e).__name__}: {e}")
