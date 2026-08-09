@@ -24,6 +24,7 @@ class CreatePipelineRequest(BaseModel):
     repo_url: str = ""
     author: str = ""
     target_url: str = ""
+    docker_image: str = ""
     build_info: Optional[BuildInfo] = None
 
 
