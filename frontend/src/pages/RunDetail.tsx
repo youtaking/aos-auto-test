@@ -212,6 +212,7 @@ export default function RunDetail() {
         )}
         <span className="text-gray-400 ml-auto">{new Date(run.created_at).toLocaleString()}</span>
       </div>
+      <div className="grid grid-cols-5 gap-4">
         {(() => {
           const uT = unitResults?.total ?? 0, uP = unitResults?.passed ?? 0,
                 uF = unitResults?.failed ?? 0, uS = unitResults?.skipped ?? 0,
