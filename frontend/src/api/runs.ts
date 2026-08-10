@@ -15,8 +15,12 @@ export interface SingleTestResult {
   output: string;
 }
 
-export const runSingleTest = (caseId: number, headed = true) =>
-  post<SingleTestResult>(`/tests/run-single?case_id=${caseId}&headed=${headed}`);
+export const runSingleTest = (caseId?: number, caseName?: string, headed = true) => {
+  const params = new URLSearchParams({ headed: String(headed) });
+  if (caseId) params.set("case_id", String(caseId));
+  if (caseName) params.set("case_name", caseName);
+  return post<SingleTestResult>(`/tests/run-single?${params}`);
+};
 
 export const getRunMdReport = (runId: number) =>
   fetch(`/api/runs/${runId}/md-report`).then((r) => {
