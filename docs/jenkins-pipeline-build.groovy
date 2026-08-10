@@ -353,6 +353,7 @@ services:
     volumes:
       - __WORKSPACE__/autotest/tests:/app/tests
       - __WORKSPACE__/autotest/conftest.py:/app/conftest.py
+      - __WORKSPACE__/autotest/pytest.ini:/app/pytest.ini
     environment:
       FENIX_URL: http://rcs:3001
       FENIX_API_BASE_URL: http://rcs:3001

@@ -1,16 +1,18 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { listCollections, createCollection, deleteCollection, updateCollection, getCollection } from "../api/collections";
-import type { Collection } from "../api/types";
+import type { Collection, TestCase, TestSuite } from "../api/types";
 import type { CollectionCaseInfo } from "../api/collections";
 import { X, Plus, Trash2, Edit2, FolderOpen } from "lucide-react";
 
 interface Props {
   selectedCaseIds: number[];
+  allCases: TestCase[];
+  suites: TestSuite[];
   onAddSelectedToCollection: (collectionId: number, caseIds: number[]) => void;
   onClose: () => void;
 }
 
-export default function CollectionManager({ selectedCaseIds, onAddSelectedToCollection, onClose }: Props) {
+export default function CollectionManager({ selectedCaseIds, allCases, suites, onAddSelectedToCollection, onClose }: Props) {
   const [collections, setCollections] = useState<Collection[]>([]);
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState("");
@@ -20,6 +22,8 @@ export default function CollectionManager({ selectedCaseIds, onAddSelectedToColl
   const [expandedCases, setExpandedCases] = useState<CollectionCaseInfo[]>([]);
   const [loadingCases, setLoadingCases] = useState(false);
   const [editName, setEditName] = useState("");
+  const [showAddPicker, setShowAddPicker] = useState(false);
+  const [addPickerChecked, setAddPickerChecked] = useState<Set<number>>(new Set());
 
   const load = () => {
     listCollections().then(setCollections).catch(console.error);
@@ -64,6 +68,46 @@ export default function CollectionManager({ selectedCaseIds, onAddSelectedToColl
     await updateCollection(id, { name: editName.trim() });
     setEditing(null);
     load();
+  };
+
+  const handleRemoveCase = async (collectionId: number, caseId: number) => {
+    const col = collections.find(c => c.id === collectionId);
+    if (!col) return;
+    const newIds = col.case_ids.filter(id => id !== caseId);
+    await updateCollection(collectionId, { case_ids: newIds });
+    setExpandedCases(prev => prev.filter(c => c.id !== caseId));
+    load();
+  };
+
+  const availableCases = useMemo(() => {
+    if (expanded === null) return [];
+    const col = collections.find(c => c.id === expanded);
+    const existingIds = new Set(col?.case_ids ?? []);
+    return allCases.filter(c => !existingIds.has(c.id));
+  }, [allCases, collections, expanded]);
+
+  const suiteMap = useMemo(() => Object.fromEntries(suites.map(s => [s.id, s])), [suites]);
+
+  const handleConfirmAdd = async () => {
+    if (expanded === null || addPickerChecked.size === 0) return;
+    const col = collections.find(c => c.id === expanded);
+    if (!col) return;
+    const merged = [...new Set([...col.case_ids, ...addPickerChecked])];
+    await updateCollection(expanded, { case_ids: merged });
+    setShowAddPicker(false);
+    setAddPickerChecked(new Set());
+    // 刷新展开的用例列表
+    const data = await getCollection(expanded);
+    setExpandedCases(data.cases);
+    load();
+  };
+
+  const toggleAddCheck = (id: number) => {
+    setAddPickerChecked(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
   };
 
   return (
@@ -152,26 +196,90 @@ export default function CollectionManager({ selectedCaseIds, onAddSelectedToColl
               <div className="border-t bg-gray-50 p-2 max-h-[60vh] overflow-y-auto">
                 {loadingCases ? (
                   <div className="text-center text-xs text-gray-400 py-3">加载中...</div>
-                ) : expandedCases.length === 0 ? (
-                  <div className="text-center text-xs text-gray-400 py-3">无用例（部分用例可能已被删除）</div>
                 ) : (
-                  <div className="space-y-1">
-                    {expandedCases.map(tc => (
-                      <div key={tc.id} className="flex items-start gap-2 px-2 py-1.5 bg-white rounded text-sm">
-                        <span className={`font-mono px-1 py-0.5 rounded text-xs ${
-                          tc.priority === "P0" ? "bg-red-100 text-red-700" : "bg-yellow-100 text-yellow-700"
-                        }`}>{tc.priority}</span>
-                        <span className="flex-1">{tc.name}</span>
-                        <span className="text-gray-400 text-xs">{tc.function_name}</span>
+                  <>
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-xs text-gray-500">{expandedCases.length} 个用例</span>
+                      <button
+                        onClick={() => { setShowAddPicker(true); setAddPickerChecked(new Set()); }}
+                        className="text-xs text-blue-600 hover:underline flex items-center gap-0.5"
+                      >
+                        <Plus className="w-3 h-3" /> 添加用例
+                      </button>
+                    </div>
+                    {expandedCases.length === 0 ? (
+                      <div className="text-center text-xs text-gray-400 py-3">无用例（部分用例可能已被删除）</div>
+                    ) : (
+                      <div className="space-y-1">
+                        {expandedCases.map(tc => (
+                          <div key={tc.id} className="flex items-start gap-2 px-2 py-1.5 bg-white rounded text-sm group">
+                            <span className={`font-mono px-1 py-0.5 rounded text-xs ${
+                              tc.priority === "P0" ? "bg-red-100 text-red-700" : "bg-yellow-100 text-yellow-700"
+                            }`}>{tc.priority}</span>
+                            <span className="flex-1">{tc.name}</span>
+                            <span className="text-gray-400 text-xs">{tc.function_name}</span>
+                            <button
+                              onClick={() => handleRemoveCase(c.id, tc.id)}
+                              className="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-red-50 rounded text-red-400 hover:text-red-600 transition-opacity"
+                              title="从集合中移除"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
+                    )}
+                  </>
                 )}
               </div>
             )}
           </div>
         ))}
       </div>
+      {/* 添加用例弹窗 */}
+      {showAddPicker && expanded !== null && (
+        <div className="fixed inset-0 bg-black/30 z-[60] flex items-center justify-center">
+          <div className="bg-white rounded-xl shadow-xl w-[520px] max-h-[70vh] flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b">
+              <h3 className="font-semibold text-sm">添加用例到集合</h3>
+              <button onClick={() => setShowAddPicker(false)} className="p-1 hover:bg-gray-100 rounded">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-3">
+              {availableCases.length === 0 ? (
+                <div className="text-center text-gray-400 text-sm py-8">所有用例已在集合中</div>
+              ) : (
+                <div className="space-y-1">
+                  {availableCases.map(tc => (
+                    <label key={tc.id}
+                      className={`flex items-start gap-2 px-2 py-1.5 rounded cursor-pointer text-sm hover:bg-blue-50 ${addPickerChecked.has(tc.id) ? "bg-blue-50" : ""}`}>
+                      <input type="checkbox" checked={addPickerChecked.has(tc.id)}
+                        onChange={() => toggleAddCheck(tc.id)} className="mt-0.5" />
+                      <span className={`font-mono px-1 py-0.5 rounded text-xs ${
+                        tc.priority === "P0" ? "bg-red-100 text-red-700" : "bg-yellow-100 text-yellow-700"
+                      }`}>{tc.priority}</span>
+                      <span className="flex-1">{tc.name}</span>
+                      <span className="text-xs text-gray-400">{suiteMap[tc.suite_id]?.name ?? ""}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="flex items-center justify-between p-3 border-t">
+              <span className="text-xs text-gray-500">已选 {addPickerChecked.size} 个</span>
+              <div className="flex gap-2">
+                <button onClick={() => setShowAddPicker(false)}
+                  className="px-3 py-1 border rounded text-sm">取消</button>
+                <button onClick={handleConfirmAdd} disabled={addPickerChecked.size === 0}
+                  className="px-3 py-1 bg-blue-600 text-white rounded text-sm disabled:opacity-40">
+                  添加
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
