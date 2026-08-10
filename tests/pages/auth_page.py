@@ -172,9 +172,8 @@ class AuthPage:
 
     def click_user_button(self):
         btn = self.page.locator("button.agent-sidebar-user-button")
-        if btn.count() > 0:
-            btn.first.click()
-            self.page.wait_for_timeout(1000)
+        btn.first.click(timeout=8000)   # Playwright 自动等待元素可见
+        self.page.wait_for_timeout(1000)
 
     def get_user_name(self) -> str:
         btn = self.page.locator("button.agent-sidebar-user-button")
@@ -187,9 +186,12 @@ class AuthPage:
 
     def click_menu_item(self, text: str, fallback: str = ""):
         item = self.page.get_by_role("menuitem", name=text)
-        if item.count() == 0 and fallback:
-            item = self.page.get_by_role("menuitem", name=fallback)
-        item.first.click()
+        try:
+            item.first.click(timeout=5000)
+        except Exception:
+            if fallback:
+                item = self.page.get_by_role("menuitem", name=fallback)
+                item.first.click(timeout=5000)
         self.page.wait_for_timeout(1500)
 
     def click_logout(self):
