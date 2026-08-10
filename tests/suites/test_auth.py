@@ -3,6 +3,7 @@
 覆盖 Excel 1-认证登录 sheet 全部 14 条用例
 """
 import os
+import re
 import uuid
 import pytest
 import allure
@@ -469,7 +470,13 @@ def test_auth_014_change_password_ui(logged_in_page, base_url):
 def test_auth_015_change_password_validation(logged_in_page, base_url):
     """✅ 人工评审通过 | TC-AUTH-015: 密码修改校验 — 验证前端校验逻辑"""
     logged_in_page.goto(f"{base_url}/ctrl/agent/home")
-    logged_in_page.wait_for_timeout(800)
+    # 元素级等待，替代固定 timeout（CI Docker 渲染慢）
+    try:
+        logged_in_page.locator("button.agent-sidebar-user-button").first.wait_for(
+            state="visible", timeout=8000
+        )
+    except Exception:
+        logged_in_page.wait_for_timeout(1000)
 
     auth = AuthPage(logged_in_page, base_url)
     auth.click_change_password()
@@ -523,7 +530,13 @@ def test_auth_015_change_password_validation(logged_in_page, base_url):
 def test_auth_015b_change_password_required_fields(logged_in_page, base_url):
     """✅ 人工评审通过 | TC-AUTH-015b: 修改密码弹窗三个输入框均为必填项（逐个留空验证）"""
     logged_in_page.goto(f"{base_url}/ctrl/agent/home")
-    logged_in_page.wait_for_timeout(800)
+    # 元素级等待，替代固定 timeout（CI Docker 渲染慢）
+    try:
+        logged_in_page.locator("button.agent-sidebar-user-button").first.wait_for(
+            state="visible", timeout=8000
+        )
+    except Exception:
+        logged_in_page.wait_for_timeout(1000)
 
     auth = AuthPage(logged_in_page, base_url)
     field_names = ["当前密码", "新密码", "确认新密码"]
@@ -574,7 +587,13 @@ def test_auth_016_default_account_resources(logged_in_page, base_url):
     """✅ 人工评审通过 | TC-AUTH-016: 默认系统账号和公开资源"""
     # 确保已登录
     logged_in_page.goto(f"{base_url}/ctrl/agent/home")
-    logged_in_page.wait_for_timeout(800)
+    # 元素级等待，替代固定 timeout（CI Docker 渲染慢）
+    try:
+        logged_in_page.locator("button.agent-sidebar-user-button").first.wait_for(
+            state="visible", timeout=8000
+        )
+    except Exception:
+        logged_in_page.wait_for_timeout(1000)
 
     auth = AuthPage(logged_in_page, base_url)
 
@@ -585,10 +604,20 @@ def test_auth_016_default_account_resources(logged_in_page, base_url):
     sidebar_text = auth.get_sidebar_text()
     assert len(sidebar_text) > 0, "侧边栏应有内容"
 
-    # 3. 有预置的智能体（公开资源）
-    has_agents = "ORG_001" in sidebar_text or "智能体" in sidebar_text
-    assert has_agents, "侧边栏应有预置智能体"
+    # 3. 有预置的智能体（公开资源）— 中英文兼容
+    sidebar_lower = sidebar_text.lower()
+    has_agents = (
+        "ORG_001" in sidebar_text
+        or "智能体" in sidebar_text
+        or "agent" in sidebar_lower
+    )
+    assert has_agents, f"侧边栏应有预置智能体，实际内容: {sidebar_text[:300]}"
 
-    # 4. 有配置入口（模型库、技能库等公开资源）
-    has_config = "模型库" in sidebar_text or "技能库" in sidebar_text
-    assert has_config, "侧边栏应有配置入口（模型库/技能库）"
+    # 4. 有配置入口（模型库、技能库等公开资源）— 中英文兼容
+    has_config = (
+        "模型" in sidebar_text
+        or "技能" in sidebar_text
+        or re.search(r"model", sidebar_lower)
+        or re.search(r"skill", sidebar_lower)
+    )
+    assert has_config, f"侧边栏应有配置入口（模型库/技能库），实际内容: {sidebar_text[:300]}"
