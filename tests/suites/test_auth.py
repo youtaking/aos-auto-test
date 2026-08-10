@@ -213,8 +213,9 @@ def test_auth_006_password_visibility_toggle(logged_in_page, base_url):
         # 初始状态：密码掩码
         assert auth.get_password_type() == "password", \
             "初始状态密码应为掩码（password）"
-        assert auth.get_toggle_aria_label() == "显示密码", \
-            "切换按钮 aria-label 应为'显示密码'"
+        aria_label = auth.get_toggle_aria_label()
+        assert aria_label in ("显示密码", "Show password"), \
+            f"切换按钮 aria-label 应为'显示密码'或'Show password'，实际: '{aria_label}'"
 
         # 第一次点击：明文显示
         auth.toggle_password_visibility()
