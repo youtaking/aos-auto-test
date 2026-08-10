@@ -57,13 +57,35 @@ class BaseClient:
         self.client.close()
 
     def _request_with_retry(self, method: str, path: str, **kwargs) -> httpx.Response:
-        """带重试的请求：遇到 500/502/503 自动重试最多 2 次"""
+        """带重试的请求：
+        - 500/502/503: 自动重试最多 2 次（1s, 2s）
+        - 429 Too Many Requests: 自动重试最多 3 次，按 Retry-After 或指数退避
+        """
         max_retries = 2
+        max_429_retries = 3
+        count_429 = 0
+
         for attempt in range(max_retries + 1):
             resp = getattr(self.client, method)(path, **kwargs)
+
+            # 429 单独处理：指数退避重试
+            if resp.status_code == 429 and count_429 < max_429_retries:
+                count_429 += 1
+                retry_after = resp.headers.get("Retry-After")
+                if retry_after:
+                    try:
+                        wait = float(retry_after)
+                    except ValueError:
+                        wait = 2 ** count_429  # 2s, 4s, 8s
+                else:
+                    wait = 2 ** count_429  # 2s, 4s, 8s
+                time.sleep(wait)
+                continue
+
             if resp.status_code < 500 or attempt == max_retries:
                 break
             time.sleep(1 * (attempt + 1))  # 递增延迟：1s, 2s
+
         self._attach_allure(method, path, kwargs, resp)
         return resp
 
