@@ -203,7 +203,9 @@ class AuthPage:
 
     def click_logout(self):
         self.click_user_button()
-        self.click_menu_item("退出登录", "Logout")
+        self.page.wait_for_timeout(500)
+        # 直接按文本找，不依赖 role
+        self.page.get_by_text("退出登录", exact=True).click(timeout=5000)
         self.page.wait_for_timeout(1000)
 
     def click_change_password(self):
