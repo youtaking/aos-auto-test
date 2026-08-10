@@ -8,6 +8,7 @@ pipeline {
         string(name: 'AUTOTEST_URL',     defaultValue: 'http://100.105.181.173:8111',        description: 'AutoTest 后端地址')
         string(name: 'TEST_REPO',        defaultValue: 'https://github.com/youtaking/aos-auto-test.git', description: '测试代码仓库')
         string(name: 'TEST_REPO_BRANCH', defaultValue: 'feat/jenkins-pipeline',               description: '测试代码分支')
+        booleanParam(name: 'FORCE_RESET', defaultValue: false,                                description: '强制触发测试（清除上次 commitId 记录）')
     }
 
     environment {
@@ -106,6 +107,12 @@ pipeline {
                         exit 0
                     fi
 
+                    # FORCE_RESET: 清除上次记录，强制认为有变化
+                    if [ "__FORCE_RESET__" = "true" ]; then
+                        rm -f .last_commit_id
+                        echo ">>> FORCE_RESET: cleared last commit record"
+                    fi
+
                     LAST_COMMIT=$(cat .last_commit_id 2>/dev/null || echo "")
 
                     if [ "$CURRENT_COMMIT" = "$LAST_COMMIT" ]; then
@@ -124,6 +131,7 @@ pipeline {
                     echo "$HEALTH_RESP" > .health_resp
                     echo "CHANGED" > .poll_result
                 '''.replace('__HEALTH_URL__', params.HEALTH_URL)
+                  .replace('__FORCE_RESET__', params.FORCE_RESET ? 'true' : 'false')
             }
         }
 
