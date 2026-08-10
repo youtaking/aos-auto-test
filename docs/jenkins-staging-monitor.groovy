@@ -42,6 +42,7 @@ pipeline {
                                 else
                                     full_url="$url"
                                 fi
+                                echo "    Trying: ${full_url}"
                                 for i in 1 2 3; do
                                     if curl --fail -SL --connect-timeout 10 --max-time 300 "${full_url}" -o "${output}" 2>/dev/null; then
                                         if [ -s "${output}" ] && tar tzf "${output}" > /dev/null 2>&1; then
@@ -49,13 +50,16 @@ pipeline {
                                             return 0
                                         fi
                                     fi
-                                    sleep 2
+                                    echo "    Attempt $i failed, retrying..."
+                                    sleep 3
                                 done
+                                echo "    Proxy ${proxy:-direct} failed, trying next..."
                             done
+                            echo "    ERROR: All proxies failed!"
                             return 1
                         }
 
-                        ARCHIVE_URL="__TEST_REPO__/.git/archive/refs/heads/__TEST_BRANCH__.tar.gz"
+                        ARCHIVE_URL="__TEST_REPO__/archive/refs/heads/__TEST_BRANCH__.tar.gz"
                         download_repo "${ARCHIVE_URL}" /tmp/autotest.tar.gz || true
                         if [ -f /tmp/autotest.tar.gz ] && [ -s /tmp/autotest.tar.gz ]; then
                             tar xzf /tmp/autotest.tar.gz --strip-components=1 -C /tmp/staging-autotest
@@ -137,7 +141,7 @@ pipeline {
                     rm -rf autotest
                     mkdir -p autotest
 
-                    ARCHIVE_URL="__TEST_REPO__/.git/archive/refs/heads/__TEST_BRANCH__.tar.gz"
+                    ARCHIVE_URL="__TEST_REPO__/archive/refs/heads/__TEST_BRANCH__.tar.gz"
                     echo ">>> Downloading: ${ARCHIVE_URL}"
 
                     download_repo() {
@@ -150,6 +154,7 @@ pipeline {
                             else
                                 full_url="$url"
                             fi
+                            echo "    Trying: ${full_url}"
                             for i in 1 2 3; do
                                 if curl --fail -SL --connect-timeout 10 --max-time 300 "${full_url}" -o "${output}" 2>/dev/null; then
                                     if [ -s "${output}" ] && tar tzf "${output}" > /dev/null 2>&1; then
@@ -157,9 +162,12 @@ pipeline {
                                         return 0
                                     fi
                                 fi
+                                echo "    Attempt $i failed, retrying..."
                                 sleep 2
                             done
+                            echo "    Proxy ${proxy:-direct} failed, trying next..."
                         done
+                        echo "    ERROR: All proxies failed!"
                         return 1
                     }
 
