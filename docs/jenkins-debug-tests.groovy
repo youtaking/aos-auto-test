@@ -360,6 +360,7 @@ services:
   .replace('__IMAGE_TAG__', IMAGE_TAG)
   .replace('__MIGRATE_IMAGE_TAG__', MIGRATE_IMAGE_TAG)
   .replace('__RCS_PORT__', RCS_PORT)
+  .replace('__HOST_IP__', HOST_IP)
   .replace('__WORKSPACE__', env.WORKSPACE.replace('/var/jenkins_home', '/opt/1panel/apps/jenkins/jenkins/data'))
   .replace('__TEST_TARGETS__', readFile('test_targets.txt').trim())
 
