@@ -14,6 +14,13 @@ class TasksPage:
     def goto(self):
         self.page.goto(self.url)
         self.page.wait_for_load_state("networkidle")
+        # 等待工作台 Tab 渲染完成（而非仅等 networkidle）
+        try:
+            self.page.locator("div.agent-panel-content button").filter(
+                has_text="定时任务"
+            ).first.wait_for(state="visible", timeout=5000)
+        except Exception:
+            pass
 
     def is_loaded(self) -> bool:
         """页面加载完成：URL 正确 + 面板内容可见"""
