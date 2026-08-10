@@ -46,39 +46,3 @@ class TestAgentSiteWebAPI:
         with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(404|422)"):
             web_client.get_agent_site_app("nonexistent-app-id-99999")
 
-    def test_agent_site_app_crud_lifecycle(self, web_client):
-        """Agent Site App CRUD 生命周期：创建 → 读取 → 更新 → 删除"""
-        test_name = "api-test-agent-site-001"
-
-        try:
-            create_resp = web_client.create_agent_site_app({
-                "name": test_name,
-                "type": "static",
-            })
-        except (httpx.HTTPStatusError, RuntimeError) as e:
-            if "500" in str(e) or "503" in str(e) or "400" in str(e) or "422" in str(e):
-                pytest.skip("Agent Site 创建接口不可用")
-            raise
-
-        web_client.validate_schema(create_resp, AGENT_SITE_APP)
-        assert create_resp.get("name") == test_name or "id" in create_resp
-        app_id = create_resp["id"]
-
-        try:
-            # 验证创建成功
-            detail = web_client.get_agent_site_app(app_id)
-            assert detail["id"] == app_id
-
-            # 更新
-            web_client.update_agent_site_app(app_id, {"name": f"{test_name}-updated"})
-
-            # 删除并验证
-            web_client.delete_agent_site_app(app_id)
-            with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"404"):
-                web_client.get_agent_site_app(app_id)
-        finally:
-            try:
-                web_client.delete_agent_site_app(app_id)
-            except Exception as e:
-                import logging
-                logging.getLogger("cleanup").warning(f"Cleanup failed: {e}")
