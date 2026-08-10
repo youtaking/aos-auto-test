@@ -407,6 +407,8 @@ export default function Cases() {
       {showCollections && (
         <CollectionManager
           selectedCaseIds={Array.from(selectedIds)}
+          allCases={cases}
+          suites={suites}
           onAddSelectedToCollection={handleAddSelectedToCollection}
           onClose={() => setShowCollections(false)}
         />
