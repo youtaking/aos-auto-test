@@ -5,7 +5,7 @@ pipeline {
         string(name: 'IMAGE_BUILD_NUMBER', description: 'Use images from which build number?', defaultValue: '')
         string(name: 'TEST_TARGETS', description: 'Custom test paths (leave empty to auto-resolve)', defaultValue: '')
         string(name: 'TEST_REPO_BRANCH', description: '测试代码分支',                    defaultValue: 'feat/jenkins-pipeline')
-        string(name: 'APP_REPO',     description: '被测项目仓库地址（单元测试需要源码）', defaultValue: 'https://github.com/youtaking/FenixAgent.git')
+        string(name: 'APP_REPO',     description: '被测项目仓库地址（单元测试需要源码）', defaultValue: 'https://github.com/HuangPuStar/FenixAgent.git')
         string(name: 'APP_BRANCH',   description: '被测项目分支',                       defaultValue: 'main')
         string(name: 'TEST_REPO',    description: '测试代码仓库地址',                   defaultValue: 'https://github.com/youtaking/aos-auto-test.git')
         string(name: 'AUTOTEST_URL', description: 'AutoTest 后端地址（用于上传测试结果和日志）', defaultValue: 'http://100.105.181.173:8111')
