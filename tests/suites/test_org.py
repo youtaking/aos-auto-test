@@ -218,7 +218,7 @@ def test_org_005_cross_org_access(logged_in_page, base_url):
 
     # 无认证请求应被拒绝
     browser = logged_in_page.context.browser
-    no_auth_ctx = browser.new_context()
+    no_auth_ctx = browser.new_context(locale="zh-CN")
     no_auth_page = no_auth_ctx.new_page()
     try:
         r2 = no_auth_page.request.get(f"{base_url}/web/organizations")

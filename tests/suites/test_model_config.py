@@ -1226,7 +1226,7 @@ def test_model_018_openapi_auth_check(logged_in_page, base_url, request):
 
     # 创建无认证的 context
     browser = logged_in_page.context.browser
-    no_auth_ctx = browser.new_context()
+    no_auth_ctx = browser.new_context(locale="zh-CN")
     no_auth_page = no_auth_ctx.new_page()
 
     try:
