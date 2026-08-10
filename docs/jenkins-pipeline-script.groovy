@@ -7,7 +7,7 @@ pipeline {
         string(name: 'PR_TITLE',     description: 'PR 标题',                            defaultValue: 'manual build')
         string(name: 'COMMIT_SHA',   description: 'Commit SHA',                        defaultValue: 'unknown')
         string(name: 'AUTHOR',       description: '作者',                               defaultValue: 'unknown')
-        string(name: 'APP_REPO',     description: '被测项目仓库地址（如 FenixAgent）',   defaultValue: 'https://github.com/youtaking/FenixAgent.git')
+        string(name: 'APP_REPO',     description: '被测项目仓库地址（如 FenixAgent）',   defaultValue: 'https://github.com/HuangPuStar/FenixAgent.git')
         string(name: 'APP_BRANCH',   description: '被测项目分支',                       defaultValue: 'main')
         string(name: 'TEST_REPO',    description: '测试代码仓库地址（如 aos-auto-test）', defaultValue: 'https://github.com/youtaking/aos-auto-test.git')
         string(name: 'TEST_REPO_BRANCH', description: '测试代码分支',                    defaultValue: 'feat/jenkins-pipeline')
