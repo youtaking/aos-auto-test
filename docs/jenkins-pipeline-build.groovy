@@ -338,6 +338,7 @@ services:
       RCS_API_KEYS: sk-rcs-dev-key
       RCS_SECRET_LITELLM_ADMIN_KEY: sk-litellm-admin-dev-key
       BETTER_AUTH_URL: http://localhost:3001
+      NODE_ENV: test
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
       interval: 10s

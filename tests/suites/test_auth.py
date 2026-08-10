@@ -3,6 +3,7 @@
 覆盖 Excel 1-认证登录 sheet 全部 14 条用例
 """
 import os
+import re
 import uuid
 import pytest
 import allure
@@ -213,8 +214,9 @@ def test_auth_006_password_visibility_toggle(logged_in_page, base_url):
         # 初始状态：密码掩码
         assert auth.get_password_type() == "password", \
             "初始状态密码应为掩码（password）"
-        assert auth.get_toggle_aria_label() == "显示密码", \
-            "切换按钮 aria-label 应为'显示密码'"
+        aria_label = auth.get_toggle_aria_label()
+        assert aria_label in ("显示密码", "Show password"), \
+            f"切换按钮 aria-label 应为'显示密码'或'Show password'，实际: '{aria_label}'"
 
         # 第一次点击：明文显示
         auth.toggle_password_visibility()
@@ -338,11 +340,16 @@ def test_auth_009_unauthenticated_redirect(logged_in_page, base_url):
     try:
         # 直接访问受保护页面
         page.goto(f"{base_url}/ctrl/agent/chat")
-        page.wait_for_timeout(800)
+
+        # 等待重定向到登录页（客户端 JS 重定向，需要等 URL 变化）
+        try:
+            page.wait_for_url("**/ctrl/login**", timeout=8000)
+        except Exception:
+            pass
 
         # 1. 自动重定向到登录页
         assert "/ctrl/login" in page.url, \
-            "未登录访问受保护页面应重定向到登录页"
+            f"未登录访问受保护页面应重定向到登录页，实际 URL: {page.url}"
 
         # 2. 不显示受保护内容
         body = page.locator("body").inner_text()
@@ -400,11 +407,16 @@ def test_auth_012_logout_clears_auth(logged_in_page, base_url):
 
         # 点击退出
         auth.click_logout()
-        page.wait_for_timeout(800)
+
+        # 等待跳转到登录页（客户端 JS 重定向）
+        try:
+            page.wait_for_url("**/ctrl/login**", timeout=8000)
+        except Exception:
+            pass
 
         # 1. 跳转到登录页
         assert "/ctrl/login" in page.url, \
-            "退出后应跳转到登录页"
+            f"退出后应跳转到登录页，实际 URL: {page.url}"
 
         # 2. session cookie 被清除
         assert not auth.has_session_cookie(), \
@@ -439,7 +451,8 @@ def test_auth_014_change_password_ui(logged_in_page, base_url):
 
     # 2. 弹窗标题
     title = auth.get_dialog_title()
-    assert "密码" in title, f"弹窗标题应包含'密码': {title}"
+    assert "密码" in title or "password" in title.lower(), \
+        f"弹窗标题应包含'密码'或'password': {title}"
 
     # 3. 三个密码输入框
     pw_inputs = auth.get_password_inputs()
@@ -457,7 +470,13 @@ def test_auth_014_change_password_ui(logged_in_page, base_url):
 def test_auth_015_change_password_validation(logged_in_page, base_url):
     """✅ 人工评审通过 | TC-AUTH-015: 密码修改校验 — 验证前端校验逻辑"""
     logged_in_page.goto(f"{base_url}/ctrl/agent/home")
-    logged_in_page.wait_for_timeout(800)
+    # 元素级等待，替代固定 timeout（CI Docker 渲染慢）
+    try:
+        logged_in_page.locator("button.agent-sidebar-user-button").first.wait_for(
+            state="visible", timeout=8000
+        )
+    except Exception:
+        logged_in_page.wait_for_timeout(1000)
 
     auth = AuthPage(logged_in_page, base_url)
     auth.click_change_password()
@@ -467,13 +486,23 @@ def test_auth_015_change_password_validation(logged_in_page, base_url):
     dialog_text = auth.get_dialog_text()
 
     # 1. 弹窗包含密码字段标签
-    has_labels = "当前密码" in dialog_text or "新密码" in dialog_text or \
-        "确认" in dialog_text
-    assert has_labels, "弹窗应包含密码字段标签"
+    has_labels = any(kw in dialog_text for kw in [
+        "当前密码", "新密码", "确认",
+        "Current password", "New password", "Confirm",
+    ])
+    assert has_labels, f"弹窗应包含密码字段标签，实际内容: {dialog_text[:200]}"
 
     # 2. 不填写直接提交，检查校验
     submit_btn = logged_in_page.locator("[role=dialog]").get_by_role(
         "button", name="修改密码"
+    ).or_(
+        logged_in_page.locator("[role=dialog]").get_by_role(
+            "button", name="Change password"
+        ).or_(
+            logged_in_page.locator("[role=dialog]").get_by_role(
+                "button", name="Update password"
+            )
+        )
     )
     if submit_btn.count() > 0:
         is_disabled = submit_btn.first.is_disabled()
@@ -501,7 +530,13 @@ def test_auth_015_change_password_validation(logged_in_page, base_url):
 def test_auth_015b_change_password_required_fields(logged_in_page, base_url):
     """✅ 人工评审通过 | TC-AUTH-015b: 修改密码弹窗三个输入框均为必填项（逐个留空验证）"""
     logged_in_page.goto(f"{base_url}/ctrl/agent/home")
-    logged_in_page.wait_for_timeout(800)
+    # 元素级等待，替代固定 timeout（CI Docker 渲染慢）
+    try:
+        logged_in_page.locator("button.agent-sidebar-user-button").first.wait_for(
+            state="visible", timeout=8000
+        )
+    except Exception:
+        logged_in_page.wait_for_timeout(1000)
 
     auth = AuthPage(logged_in_page, base_url)
     field_names = ["当前密码", "新密码", "确认新密码"]
@@ -521,7 +556,11 @@ def test_auth_015b_change_password_required_fields(logged_in_page, base_url):
 
         # 尝试提交
         dialog = logged_in_page.locator("[role=dialog]")
-        submit_btn = dialog.get_by_role("button", name="修改密码")
+        submit_btn = dialog.get_by_role("button", name="修改密码").or_(
+            dialog.get_by_role("button", name="Change password").or_(
+                dialog.get_by_role("button", name="Update password")
+            )
+        )
         if submit_btn.count() > 0 and not submit_btn.first.is_disabled():
             submit_btn.first.click()
             logged_in_page.wait_for_timeout(800)
@@ -548,7 +587,13 @@ def test_auth_016_default_account_resources(logged_in_page, base_url):
     """✅ 人工评审通过 | TC-AUTH-016: 默认系统账号和公开资源"""
     # 确保已登录
     logged_in_page.goto(f"{base_url}/ctrl/agent/home")
-    logged_in_page.wait_for_timeout(800)
+    # 元素级等待，替代固定 timeout（CI Docker 渲染慢）
+    try:
+        logged_in_page.locator("button.agent-sidebar-user-button").first.wait_for(
+            state="visible", timeout=8000
+        )
+    except Exception:
+        logged_in_page.wait_for_timeout(1000)
 
     auth = AuthPage(logged_in_page, base_url)
 
@@ -559,10 +604,20 @@ def test_auth_016_default_account_resources(logged_in_page, base_url):
     sidebar_text = auth.get_sidebar_text()
     assert len(sidebar_text) > 0, "侧边栏应有内容"
 
-    # 3. 有预置的智能体（公开资源）
-    has_agents = "ORG_001" in sidebar_text or "智能体" in sidebar_text
-    assert has_agents, "侧边栏应有预置智能体"
+    # 3. 有预置的智能体（公开资源）— 中英文兼容
+    sidebar_lower = sidebar_text.lower()
+    has_agents = (
+        "ORG_001" in sidebar_text
+        or "智能体" in sidebar_text
+        or "agent" in sidebar_lower
+    )
+    assert has_agents, f"侧边栏应有预置智能体，实际内容: {sidebar_text[:300]}"
 
-    # 4. 有配置入口（模型库、技能库等公开资源）
-    has_config = "模型库" in sidebar_text or "技能库" in sidebar_text
-    assert has_config, "侧边栏应有配置入口（模型库/技能库）"
+    # 4. 有配置入口（模型库、技能库等公开资源）— 中英文兼容
+    has_config = (
+        "模型" in sidebar_text
+        or "技能" in sidebar_text
+        or re.search(r"model", sidebar_lower)
+        or re.search(r"skill", sidebar_lower)
+    )
+    assert has_config, f"侧边栏应有配置入口（模型库/技能库），实际内容: {sidebar_text[:300]}"

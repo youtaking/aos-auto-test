@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
-import { getRun, getRunResults, getRunLogs, cancelRun } from "../api/runs";
+import { getRun, getRunResults, getRunLogs, cancelRun, runSingleTest } from "../api/runs";
+import type { SingleTestResult } from "../api/runs";
 import type { TestRun, TestResult } from "../api/types";
 
 const statusIcon: Record<string, string> = {
@@ -21,6 +22,8 @@ export default function RunDetail() {
   const [showUnit, setShowUnit] = useState(true);
   const [showIntegration, setShowIntegration] = useState(true);
   const [unitResults, setUnitResults] = useState<{ total: number; passed: number; failed: number; skipped: number; duration_ms: number; status: string; results: { id: number; name: string; classname: string; status: string; duration_ms: number; failure_message: string | null }[] } | null>(null);
+  const [rerunningCaseId, setRerunningCaseId] = useState<number | null>(null);
+  const [singleResult, setSingleResult] = useState<{ caseName: string; result: SingleTestResult } | null>(null);
   const logsLoadedRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -72,6 +75,21 @@ export default function RunDetail() {
       getRun(Number(id)).then(setRun).catch(console.error);
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  const handleRerunCase = async (result: TestResult) => {
+    if (!run || rerunningCaseId) return;
+    if (!result.case_id && !result.case_name) return;
+    setRerunningCaseId(result.case_id ?? -1);
+    try {
+      const res = await runSingleTest(result.case_id ?? undefined, result.case_name || undefined, true);
+      setSingleResult({ caseName: result.case_name, result: res });
+    } catch (e) {
+      console.error(e);
+      alert("执行失败，请检查后端日志");
+    } finally {
+      setRerunningCaseId(null);
     }
   };
 
@@ -355,6 +373,7 @@ export default function RunDetail() {
               <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">套件</th>
               <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">耗时</th>
               <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">错误</th>
+              <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">操作</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -373,12 +392,78 @@ export default function RunDetail() {
                     <span className="text-gray-400">-</span>
                   )}
                 </td>
+                <td className="px-4 py-3 text-sm">
+                  <button
+                    onClick={() => handleRerunCase(r)}
+                    disabled={rerunningCaseId !== null}
+                    className={`px-2 py-1 rounded text-xs transition-colors ${
+                      rerunningCaseId === (r.case_id ?? -1)
+                        ? "bg-blue-100 text-blue-400 cursor-wait"
+                        : "bg-blue-50 text-blue-600 hover:bg-blue-100"
+                    }`}
+                  >
+                    {rerunningCaseId === (r.case_id ?? -1) ? "执行中..." : "运行"}
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
         )}
       </div>
+
+      {/* 单条用例运行结果弹窗 */}
+      {singleResult && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setSingleResult(null)}>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col m-4" onClick={(e) => e.stopPropagation()}>
+            {/* 头部 */}
+            <div className="px-5 py-3 border-b flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <span className={`text-lg ${singleResult.result.status === "passed" ? "text-green-600" : "text-red-600"}`}>
+                  {singleResult.result.status === "passed" ? "✅" : "❌"}
+                </span>
+                <div>
+                  <div className="text-sm font-medium text-gray-800">{singleResult.caseName}</div>
+                  <div className="text-xs text-gray-500">
+                    {singleResult.result.status === "passed" ? "通过" : "失败"} · {singleResult.result.duration_ms}ms
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => setSingleResult(null)}
+                className="text-gray-400 hover:text-gray-600 text-xl px-2"
+              >
+                ×
+              </button>
+            </div>
+            {/* 错误信息 */}
+            {singleResult.result.error_message && (
+              <div className="px-5 py-3 bg-red-50 border-b">
+                <div className="text-xs font-medium text-red-700 mb-1">错误信息</div>
+                <pre className="text-xs text-red-600 whitespace-pre-wrap break-all font-mono max-h-32 overflow-y-auto">
+                  {singleResult.result.error_message}
+                </pre>
+              </div>
+            )}
+            {/* pytest 日志输出 */}
+            <div className="flex-1 overflow-y-auto p-4">
+              <div className="text-xs font-medium text-gray-500 mb-2">pytest 输出</div>
+              <pre className="text-xs font-mono text-gray-700 whitespace-pre-wrap break-all bg-gray-50 rounded p-3 leading-relaxed">
+                {singleResult.result.output || "（无输出）"}
+              </pre>
+            </div>
+            {/* 底部 */}
+            <div className="px-5 py-3 border-t flex justify-end">
+              <button
+                onClick={() => setSingleResult(null)}
+                className="px-4 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm transition-colors"
+              >
+                关闭
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );
