@@ -65,7 +65,13 @@ class ChatPage:
             card.first.scroll_into_view_if_needed()
             self.page.wait_for_timeout(300)
             card.first.click()
-            self.page.wait_for_timeout(1000)
+            # 等待聊天输入框出现（而非固定等待）
+            try:
+                self.page.locator("textarea").first.wait_for(
+                    state="visible", timeout=5000
+                )
+            except Exception:
+                self.page.wait_for_timeout(2000)
 
     def send_message(self, text: str):
         """发送消息"""
@@ -116,17 +122,26 @@ class ChatPage:
             # 打开会话列表弹窗
             self.open_session_dialog()
 
-    def open_session_dialog(self):
-        """点击会话头部打开会话列表对话框"""
+    def open_session_dialog(self) -> bool:
+        """点击会话头部打开会话列表对话框，返回是否成功打开"""
         trigger = self.page.locator(".chat-header-card button[data-slot='popover-trigger']")
         if trigger.count() > 0:
             trigger.first.click()
-            self.page.wait_for_timeout(1500)
         else:
             header = self.page.locator(".chat-header-card")
             if header.count() > 0:
                 header.first.click()
-                self.page.wait_for_timeout(1500)
+            else:
+                return False
+        # 等待弹窗出现（而非固定等待）
+        try:
+            self.page.locator("[role='dialog']").first.wait_for(
+                state="visible", timeout=5000
+            )
+            return True
+        except Exception:
+            self.page.wait_for_timeout(1000)
+            return self.page.locator("[role='dialog']").count() > 0
 
     def is_session_dialog_open(self) -> bool:
         return self.page.locator("[role='dialog']").count() > 0

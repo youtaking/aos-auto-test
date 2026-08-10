@@ -100,16 +100,23 @@ def test_sessions_page_loads(logged_in_page, base_url):
     chat.goto_home()
     agent_name = "my-auto-test"
     chat.click_sidebar_agent(agent_name)
-    # 点击 agent 后 URL 不变（聊天界面内嵌在首页），验证聊天元素出现
+    # 点击 agent 后验证聊天元素出现（click_sidebar_agent 已等待 textarea）
     has_textarea = logged_in_page.locator("textarea").count() > 0
     assert has_textarea, \
         f"点击 agent '{agent_name}' 后未出现聊天输入框（URL: {logged_in_page.url}）"
 
-    # 打开会话列表弹窗
-    chat.open_session_dialog()
+    # 打开会话列表弹窗（等待弹窗出现，最长 5s）
+    dialog_open = chat.open_session_dialog()
 
-    # 验证弹窗打开或页面有会话信息
-    dialog_open = chat.is_session_dialog_open()
+    # 如果弹窗没打开，再等一轮看页面是否有会话信息
+    if not dialog_open:
+        try:
+            logged_in_page.locator("div.agent-panel-content").first.wait_for(
+                state="visible", timeout=3000
+            )
+        except Exception:
+            pass
+
     body_text = logged_in_page.locator("div.agent-panel-content").inner_text() \
         if logged_in_page.locator("div.agent-panel-content").count() > 0 else ""
 
@@ -120,6 +127,7 @@ def test_sessions_page_loads(logged_in_page, base_url):
     allure.attach(
         f"对话页面 URL: {logged_in_page.url}\n"
         f"会话弹窗打开: {dialog_open}\n"
+        f"页面内容片段: {body_text[:200]}\n"
         f"页面含会话关键词: {has_session_info}",
         name="会话列表验证",
         attachment_type=allure.attachment_type.TEXT,
