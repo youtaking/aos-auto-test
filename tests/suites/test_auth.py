@@ -16,8 +16,8 @@ def _new_context(browser):
     """根据 HEADLESS 环境变量创建 context，有头模式最大化"""
     is_headless = os.environ.get("HEADLESS", "true").lower() == "true"
     if is_headless:
-        return browser.new_context(viewport={"width": 1920, "height": 1080})
-    return browser.new_context(no_viewport=True)
+        return browser.new_context(viewport={"width": 1920, "height": 1080}, locale="zh-CN")
+    return browser.new_context(no_viewport=True, locale="zh-CN")
 
 
 # ==================== 测试 ====================

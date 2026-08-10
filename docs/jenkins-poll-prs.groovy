@@ -14,6 +14,7 @@
 //        REPO_URL        String  默认 https://github.com/youtaking/FenixAgent
 //        TARGET_JOB      String  默认 PR-Pipeline-build
 //        GITHUB_TOKEN    String  默认空（可选，提高 rate limit）
+//        FORCE_RESET     String  默认 false（设为 true 清除状态，以全新首次运行状态触发所有 PR）
 //   3. Build Triggers: H/2 * * * *  （每 2 分钟）
 //   4. Build Steps → Execute system Groovy script → 粘贴本脚本
 // ============================================================
@@ -39,6 +40,7 @@ MONITOR_BRANCH = getParam("MONITOR_BRANCH", "main")
 REPO_URL       = getParam("REPO_URL",       "https://github.com/youtaking/FenixAgent")
 TARGET_JOB     = getParam("TARGET_JOB",     "PR-Pipeline-build")
 GITHUB_TOKEN   = getParam("GITHUB_TOKEN",   "")
+FORCE_RESET    = getParam("FORCE_RESET",    "false") == "true"
 
 // 从 URL 解析 owner 和 name
 // 支持: https://github.com/owner/repo  和  https://github.com/owner/repo.git
@@ -243,11 +245,21 @@ if (MONITOR_TYPE == "branch") {
     println "Branch: ${MONITOR_BRANCH}"
 }
 println "Target: ${TARGET_JOB}"
+if (FORCE_RESET) {
+    println "Reset:  YES (state will be cleared)"
+}
 println "=" * 60
 
 // 1. 读取上次状态
 def state = [:]
 def stateFile = new File(STATE_FILE)
+
+// FORCE_RESET: 清除状态文件，以全新首次运行状态触发所有 PR/分支
+if (FORCE_RESET && stateFile.exists()) {
+    stateFile.delete()
+    println ">>> FORCE_RESET: state file deleted, treating as first run"
+}
+
 if (stateFile.exists()) {
     state = new JsonSlurper().parseText(stateFile.text)
     println "State loaded: ${state.size()} entries"

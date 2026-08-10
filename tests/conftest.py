@@ -63,7 +63,7 @@ def browser_instance():
 def context(browser_instance):
     """整个测试会话共享一个浏览器上下文（cookie/session 持久化）"""
     is_headless = os.environ.get("HEADLESS", "true").lower() == "true"
-    ctx_kwargs = {"ignore_https_errors": True}
+    ctx_kwargs = {"ignore_https_errors": True, "locale": "zh-CN"}
     if not is_headless:
         ctx_kwargs["no_viewport"] = True  # 有头模式下配合 --start-maximized 使用实际窗口大小
     else:

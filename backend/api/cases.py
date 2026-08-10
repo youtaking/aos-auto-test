@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, delete, update
 from backend.db.config import get_async_session
-from backend.db.models import TestCase, TestResult, TestSuite, Project
+from backend.db.models import TestCase, TestResult, TestSuite, TestCollection, Project
 from backend.schemas.case import CaseResponse, CaseCreate
 from backend.schemas.common import ApiResponse
 
@@ -136,12 +136,42 @@ async def sync_test_cases(
             )
             removed_cases += len(stale_funcs)
 
+    # 3b. 清理 DB 中存在但文件系统上已完全没有的套件（整个文件被删除）
+    fs_suite_keys = set(grouped.keys())
+    all_db_suites = await db.execute(
+        select(TestSuite).where(
+            TestSuite.project_id == project.id,
+            TestSuite.test_type == test_type,
+        )
+    )
+    for suite in all_db_suites.scalars().all():
+        if suite.tags not in fs_suite_keys:
+            # 该套件对应的测试文件已不存在，删除所有用例
+            db_result = await db.execute(
+                select(TestCase).where(TestCase.suite_id == suite.id)
+            )
+            stale_cases = db_result.scalars().all()
+            if stale_cases:
+                stale_ids = [c.id for c in stale_cases]
+                await db.execute(
+                    update(TestResult)
+                    .where(TestResult.case_id.in_(stale_ids))
+                    .values(case_id=None)
+                )
+                await db.execute(
+                    delete(TestCase).where(TestCase.id.in_(stale_ids))
+                )
+                removed_cases += len(stale_cases)
+
     await db.flush()
 
     # 4. 删除空套件
     removed_suites = 0
     project_suites = await db.execute(
-        select(TestSuite).where(TestSuite.project_id == project.id)
+        select(TestSuite).where(
+            TestSuite.project_id == project.id,
+            TestSuite.test_type == test_type,
+        )
     )
     for suite in project_suites.scalars().all():
         cnt = await db.execute(
@@ -150,6 +180,26 @@ async def sync_test_cases(
         if cnt.scalar() == 0:
             await db.delete(suite)
             removed_suites += 1
+
+    # 5. 清理测试集中已删除用例的引用
+    await db.flush()
+    valid_ids_result = await db.execute(
+        select(TestCase.id).where(
+            TestCase.suite_id.in_(
+                select(TestSuite.id).where(TestSuite.project_id == project.id)
+            )
+        )
+    )
+    valid_ids = {row[0] for row in valid_ids_result.fetchall()}
+
+    collections_result = await db.execute(
+        select(TestCollection).where(TestCollection.project_id == project.id)
+    )
+    for coll in collections_result.scalars().all():
+        old_ids = coll.case_ids or []
+        new_ids = [cid for cid in old_ids if cid in valid_ids]
+        if len(new_ids) != len(old_ids):
+            coll.case_ids = new_ids
 
     await db.commit()
 

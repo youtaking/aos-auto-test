@@ -992,7 +992,7 @@ def test_mcp_api_auth(logged_in_page, base_url, browser_instance):
         f"已认证请求返回非 200: {list_resps[0]['status']}"
 
     # 2. 未认证：新建无 cookie 的 context，请求同一 API 应返回 401/403
-    unauth_ctx = browser_instance.new_context()
+    unauth_ctx = browser_instance.new_context(locale="zh-CN")
     unauth_page = unauth_ctx.new_page()
     unauth_responses = []
 
