@@ -2,8 +2,8 @@ pipeline {
     agent any
 
     parameters {
-        string(name: 'HEALTH_URL',       defaultValue: 'http://100.105.9.16:38879/health',   description: '健康检查完整 URL')
-        string(name: 'TARGET_URL',       defaultValue: 'http://100.105.9.16:38879',          description: '测试目标地址')
+        string(name: 'HEALTH_URL',       defaultValue: 'http://192.168.122.18:38879/health',   description: '健康检查完整 URL')
+        string(name: 'TARGET_URL',       defaultValue: 'http://192.168.122.18:38879',          description: '测试目标地址')
         string(name: 'POLL_INTERVAL',    defaultValue: '30',                                  description: '轮询间隔（分钟）')
         string(name: 'AUTOTEST_URL',     defaultValue: 'http://100.105.181.173:8111',        description: 'AutoTest 后端地址')
         string(name: 'TEST_REPO',        defaultValue: 'https://github.com/youtaking/aos-auto-test.git', description: '测试代码仓库')
