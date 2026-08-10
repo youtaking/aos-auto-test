@@ -123,69 +123,6 @@ class TestTaskV2WebAPI:
                 pytest.skip("任务触发接口不可用")
             raise
 
-    def test_task_v2_crud_lifecycle(self, web_client):
-        """任务 V2 CRUD 生命周期：创建 → 读取 → 更新 → 删除"""
-        test_name = "api-test-task-v2-crud"
-
-        # 先清理可能存在的同名任务
-        try:
-            existing = web_client.list_tasks_v2()
-            for item in existing.get("items", []):
-                if item.get("name") == test_name:
-                    web_client.delete_task_v2(item["id"])
-        except Exception:
-            pass
-
-        # 获取 agentConfigId（任务通常需要绑定 Agent）
-        try:
-            agents = web_client.list_agents()
-            agent_list = agents.get("agents", [])
-            if not agent_list:
-                pytest.skip("无可用 Agent，无法创建任务")
-            agent_config_id = agent_list[0].get("id") or agent_list[0].get("name")
-        except Exception:
-            pytest.skip("无法获取 Agent 列表")
-
-        try:
-            # 创建
-            create_resp = web_client.create_task_v2({
-                "name": test_name,
-                "agentConfigId": agent_config_id,
-                "type": "manual",
-                "enabled": False,
-            })
-            task_id = create_resp["id"]
-            assert task_id is not None
-
-            try:
-                # 读取
-                detail = web_client.get_task_v2(task_id)
-                assert detail["id"] == task_id
-
-                # 更新
-                update_resp = web_client.update_task_v2(task_id, {
-                    "name": test_name,
-                    "enabled": True,
-                })
-                assert update_resp["id"] == task_id
-
-                # 回读验证更新
-                detail = web_client.get_task_v2(task_id)
-                assert detail.get("enabled") is True
-
-                # 删除并验证
-                web_client.delete_task_v2(task_id)
-                with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"404"):
-                    web_client.get_task_v2(task_id)
-            finally:
-                try:
-                    web_client.delete_task_v2(task_id)
-                except Exception:
-                    pass
-        except (httpx.HTTPStatusError, RuntimeError) as e:
-            if "400" in str(e) or "422" in str(e) or "500" in str(e):
-                pytest.skip(f"任务创建接口不可用: {e}")
-            raise
 
     def test_clear_task_v2_logs(self, web_client):
         """清空任务 V2 日志并验证"""

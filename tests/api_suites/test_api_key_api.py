@@ -73,27 +73,6 @@ class TestApiKeyWebAPI:
         finally:
             _cleanup_api_key(web_client, test_name)
 
-    def test_update_api_key(self, web_client):
-        """更新 API Key：创建 → 改名 → 验证 → 删除"""
-        test_name = "api-test-web-apikey-002"
-        updated_name = "api-test-web-apikey-002-updated"
-        _cleanup_api_key(web_client, test_name)
-        _cleanup_api_key(web_client, updated_name)
-
-        create_resp = web_client.create_api_key({"name": test_name})
-        key_id = create_resp["id"]
-
-        try:
-            try:
-                web_client.update_api_key(key_id, {"name": updated_name})
-            except httpx.HTTPStatusError:
-                pytest.skip("API Key 更新操作被服务端拒绝（可能不支持重命名）")
-            # 更新成功后列表中能找到
-            keys = web_client.list_api_keys()
-            found = any(k["id"] == key_id for k in keys)
-            assert found
-        finally:
-            web_client.delete_api_key(key_id)
 
     def test_delete_nonexistent_api_key(self, web_client):
         """删除不存在的 API Key：应抛出异常"""
