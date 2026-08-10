@@ -18,6 +18,13 @@ class OrgPage:
         """通过侧边栏导航到组织管理页面"""
         self.page.goto(self.url)
         self.page.wait_for_load_state("networkidle")
+        # 等待组织按钮列表渲染完成
+        try:
+            self.page.locator("div.agent-panel-body button").first.wait_for(
+                state="visible", timeout=5000
+            )
+        except Exception:
+            pass
 
     def goto_via_sidebar(self):
         """通过侧边栏按钮导航"""
