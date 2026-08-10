@@ -10,6 +10,7 @@ pipeline {
         string(name: 'TEST_REPO',    description: '测试代码仓库地址',                   defaultValue: 'https://github.com/youtaking/aos-auto-test.git')
         string(name: 'AUTOTEST_URL', description: 'AutoTest 后端地址（用于上传测试结果和日志）', defaultValue: 'http://100.105.181.173:8111')
         string(name: 'HOST_IP', description: '宿主机 IP（RCS 服务对外地址，用于健康检查和 target_url）', defaultValue: '100.105.114.178')
+        booleanParam(name: 'KEEP_CONTAINERS', description: '保留容器不销毁（用于手动调试）', defaultValue: false)
     }
 
     environment {
@@ -891,8 +892,15 @@ open('logs_upload.json', 'w', encoding='utf-8').write(json.dumps(payload))
 
             sh '''
                 set +x
-                echo ">>> Stopping and removing containers..."
-                docker-compose -p __PROJECT_NAME__ down -v || true
+                if [ "__KEEP__" = "true" ]; then
+                    echo ">>> KEEP_CONTAINERS=true, 跳过容器销毁"
+                    echo "    容器可通过 docker-compose -p __PROJECT_NAME__ ps 查看"
+                    echo "    手动清理: docker-compose -p __PROJECT_NAME__ down -v"
+                    echo "    RCS 访问: http://__HOST_IP__:__RCS_PORT__"
+                else
+                    echo ">>> Stopping and removing containers..."
+                    docker-compose -p __PROJECT_NAME__ down -v || true
+                fi
                 echo ">>> Images NOT deleted (kept for reuse)."
                 echo ""
                 echo "<<< Upload Results & Cleanup — DONE"
@@ -902,6 +910,9 @@ open('logs_upload.json', 'w', encoding='utf-8').write(json.dumps(payload))
                 echo "============================================================"
             '''.replace('__PROJECT_NAME__', PROJECT_NAME)
               .replace('__BUILD_NUMBER__', BUILD_NUMBER)
+              .replace('__KEEP__', "${params.KEEP_CONTAINERS}")
+              .replace('__HOST_IP__', HOST_IP)
+              .replace('__RCS_PORT__', RCS_PORT)
         }
     }
 }
