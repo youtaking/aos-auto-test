@@ -188,10 +188,17 @@ class AuthPage:
         item = self.page.get_by_role("menuitem", name=text)
         try:
             item.first.click(timeout=5000)
-        except Exception:
+        except Exception as e:
             if fallback:
                 item = self.page.get_by_role("menuitem", name=fallback)
-                item.first.click(timeout=5000)
+                try:
+                    item.first.click(timeout=5000)
+                except Exception:
+                    raise RuntimeError(
+                        f"菜单项 '{text}' 和 fallback '{fallback}' 均未找到或点击失败"
+                    ) from e
+            else:
+                raise RuntimeError(f"菜单项 '{text}' 未找到或点击失败") from e
         self.page.wait_for_timeout(1500)
 
     def click_logout(self):
