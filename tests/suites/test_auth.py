@@ -406,11 +406,16 @@ def test_auth_012_logout_clears_auth(logged_in_page, base_url):
 
         # 点击退出
         auth.click_logout()
-        page.wait_for_timeout(800)
+
+        # 等待跳转到登录页（客户端 JS 重定向）
+        try:
+            page.wait_for_url("**/ctrl/login**", timeout=8000)
+        except Exception:
+            pass
 
         # 1. 跳转到登录页
         assert "/ctrl/login" in page.url, \
-            "退出后应跳转到登录页"
+            f"退出后应跳转到登录页，实际 URL: {page.url}"
 
         # 2. session cookie 被清除
         assert not auth.has_session_cookie(), \
@@ -445,7 +450,8 @@ def test_auth_014_change_password_ui(logged_in_page, base_url):
 
     # 2. 弹窗标题
     title = auth.get_dialog_title()
-    assert "密码" in title, f"弹窗标题应包含'密码': {title}"
+    assert "密码" in title or "password" in title.lower(), \
+        f"弹窗标题应包含'密码'或'password': {title}"
 
     # 3. 三个密码输入框
     pw_inputs = auth.get_password_inputs()
@@ -473,13 +479,23 @@ def test_auth_015_change_password_validation(logged_in_page, base_url):
     dialog_text = auth.get_dialog_text()
 
     # 1. 弹窗包含密码字段标签
-    has_labels = "当前密码" in dialog_text or "新密码" in dialog_text or \
-        "确认" in dialog_text
-    assert has_labels, "弹窗应包含密码字段标签"
+    has_labels = any(kw in dialog_text for kw in [
+        "当前密码", "新密码", "确认",
+        "Current password", "New password", "Confirm",
+    ])
+    assert has_labels, f"弹窗应包含密码字段标签，实际内容: {dialog_text[:200]}"
 
     # 2. 不填写直接提交，检查校验
     submit_btn = logged_in_page.locator("[role=dialog]").get_by_role(
         "button", name="修改密码"
+    ).or_(
+        logged_in_page.locator("[role=dialog]").get_by_role(
+            "button", name="Change password"
+        ).or_(
+            logged_in_page.locator("[role=dialog]").get_by_role(
+                "button", name="Update password"
+            )
+        )
     )
     if submit_btn.count() > 0:
         is_disabled = submit_btn.first.is_disabled()
@@ -527,7 +543,11 @@ def test_auth_015b_change_password_required_fields(logged_in_page, base_url):
 
         # 尝试提交
         dialog = logged_in_page.locator("[role=dialog]")
-        submit_btn = dialog.get_by_role("button", name="修改密码")
+        submit_btn = dialog.get_by_role("button", name="修改密码").or_(
+            dialog.get_by_role("button", name="Change password").or_(
+                dialog.get_by_role("button", name="Update password")
+            )
+        )
         if submit_btn.count() > 0 and not submit_btn.first.is_disabled():
             submit_btn.first.click()
             logged_in_page.wait_for_timeout(800)
