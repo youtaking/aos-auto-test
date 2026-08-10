@@ -339,11 +339,16 @@ def test_auth_009_unauthenticated_redirect(logged_in_page, base_url):
     try:
         # 直接访问受保护页面
         page.goto(f"{base_url}/ctrl/agent/chat")
-        page.wait_for_timeout(800)
+
+        # 等待重定向到登录页（客户端 JS 重定向，需要等 URL 变化）
+        try:
+            page.wait_for_url("**/ctrl/login**", timeout=8000)
+        except Exception:
+            pass
 
         # 1. 自动重定向到登录页
         assert "/ctrl/login" in page.url, \
-            "未登录访问受保护页面应重定向到登录页"
+            f"未登录访问受保护页面应重定向到登录页，实际 URL: {page.url}"
 
         # 2. 不显示受保护内容
         body = page.locator("body").inner_text()
