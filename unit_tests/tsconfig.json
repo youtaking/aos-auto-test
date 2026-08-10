@@ -7,7 +7,9 @@
     "types": ["bun"],
     "strict": true,
     "paths": {
-      "@fenix/*": ["../fenix-source/*"]
+      "@fenix/sandbox-provider": ["../fenix-source/packages/sandbox-provider/src"],
+      "@fenix/sandbox-provider/*": ["../fenix-source/packages/sandbox-provider/src/*"],
+      "@fenix/*": ["../fenix-source/src/*"]
     }
   },
   "include": ["**/*.ts"]
