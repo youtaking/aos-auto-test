@@ -80,13 +80,10 @@ export default function RunDetail() {
 
   const handleRerunCase = async (result: TestResult) => {
     if (!run || rerunningCaseId) return;
-    if (!result.case_id) {
-      alert("该用例没有关联的用例 ID，无法重新执行");
-      return;
-    }
-    setRerunningCaseId(result.case_id);
+    if (!result.case_id && !result.case_name) return;
+    setRerunningCaseId(result.case_id ?? -1);
     try {
-      const res = await runSingleTest(result.case_id, true);
+      const res = await runSingleTest(result.case_id ?? undefined, result.case_name || undefined, true);
       setSingleResult({ caseName: result.case_name, result: res });
     } catch (e) {
       console.error(e);
@@ -396,21 +393,17 @@ export default function RunDetail() {
                   )}
                 </td>
                 <td className="px-4 py-3 text-sm">
-                  {r.case_id ? (
-                    <button
-                      onClick={() => handleRerunCase(r)}
-                      disabled={rerunningCaseId !== null}
-                      className={`px-2 py-1 rounded text-xs transition-colors ${
-                        rerunningCaseId === r.case_id
-                          ? "bg-blue-100 text-blue-400 cursor-wait"
-                          : "bg-blue-50 text-blue-600 hover:bg-blue-100"
-                      }`}
-                    >
-                      {rerunningCaseId === r.case_id ? "执行中..." : "运行"}
-                    </button>
-                  ) : (
-                    <span className="text-gray-300 text-xs">-</span>
-                  )}
+                  <button
+                    onClick={() => handleRerunCase(r)}
+                    disabled={rerunningCaseId !== null}
+                    className={`px-2 py-1 rounded text-xs transition-colors ${
+                      rerunningCaseId === (r.case_id ?? -1)
+                        ? "bg-blue-100 text-blue-400 cursor-wait"
+                        : "bg-blue-50 text-blue-600 hover:bg-blue-100"
+                    }`}
+                  >
+                    {rerunningCaseId === (r.case_id ?? -1) ? "执行中..." : "运行"}
+                  </button>
                 </td>
               </tr>
             ))}

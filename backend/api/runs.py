@@ -731,18 +731,27 @@ def _load_api_key() -> str:
 
 @router.post("/tests/run-single", response_model=ApiResponse)
 async def run_single_test(
-    case_id: int,
+    case_id: int | None = None,
+    case_name: str | None = None,
     headed: bool = True,
     db: AsyncSession = Depends(get_async_session),
 ):
     """
     轻量级单用例执行：直接运行一条测试，返回结果，不产生运行记录。
     用于在运行记录页面快速验证/调试单条失败用例。
+    支持 case_id 或 case_name（function_name）查找。
     """
     # 1. 查找用例及其套件
-    case = await db.get(TestCase, case_id)
+    case = None
+    if case_id:
+        case = await db.get(TestCase, case_id)
+    if not case and case_name:
+        query = await db.execute(
+            select(TestCase).where(TestCase.function_name == case_name)
+        )
+        case = query.scalars().first()
     if not case:
-        return ApiResponse(success=False, error="用例不存在")
+        return ApiResponse(success=False, error=f"用例不存在 (case_id={case_id}, case_name={case_name})")
 
     suite = await db.get(TestSuite, case.suite_id)
     if not suite:
