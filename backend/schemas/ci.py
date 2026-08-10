@@ -17,7 +17,7 @@ class BuildInfo(BaseModel):
 
 class CreatePipelineRequest(BaseModel):
     """Jenkins 创建 Pipeline 记录"""
-    pr_id: int
+    pr_id: Optional[int] = None  # staging 无 PR
     pr_title: str = ""
     commit_sha: str
     branch: str = ""
@@ -37,7 +37,7 @@ class UpdatePipelineStatusRequest(BaseModel):
 class PipelineResponse(BaseModel):
     """Pipeline 响应"""
     id: int
-    pr_id: int
+    pr_id: Optional[int] = None  # staging 无 PR
     pr_title: str
     commit_sha: str
     branch: str
@@ -70,6 +70,7 @@ class CIConfigResponse(BaseModel):
     run_e2e_p0: int
     run_e2e_all: int
     collection_ids: Optional[List[int]] = None
+    staging_collection_ids: Optional[List[int]] = None  # Staging 测试集 ID 数组
     created_at: datetime
     updated_at: datetime
 
@@ -85,3 +86,4 @@ class CIConfigUpdate(BaseModel):
     run_e2e_p0: Optional[int] = None
     run_e2e_all: Optional[int] = None
     collection_ids: Optional[List[int]] = None
+    staging_collection_ids: Optional[List[int]] = None  # Staging 测试集 ID 数组

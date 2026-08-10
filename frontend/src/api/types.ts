@@ -127,7 +127,7 @@ export interface ZentaoConfig {
 
 export interface Pipeline {
   id: number;
-  pr_id: number;
+  pr_id: number | null;  // staging 时为 null
   pr_title: string;
   commit_sha: string;
   branch: string;
@@ -157,6 +157,7 @@ export interface CIConfig {
   run_e2e_p0: number;
   run_e2e_all: number;
   collection_ids: number[] | null;
+  staging_collection_ids: number[] | null;  // Staging 测试集 ID 数组
   created_at: string;
   updated_at: string;
 }
