@@ -185,18 +185,21 @@ class AuthPage:
     def has_menu_item(self, text: str) -> bool:
         return self.page.get_by_role("menuitem", name=text).count() > 0
 
-    def click_menu_item(self, text: str):
-        self.page.get_by_role("menuitem", name=text).first.click()
+    def click_menu_item(self, text: str, fallback: str = ""):
+        item = self.page.get_by_role("menuitem", name=text)
+        if item.count() == 0 and fallback:
+            item = self.page.get_by_role("menuitem", name=fallback)
+        item.first.click()
         self.page.wait_for_timeout(1500)
 
     def click_logout(self):
         self.click_user_button()
-        self.click_menu_item("退出登录")
+        self.click_menu_item("退出登录", "Logout")
         self.page.wait_for_timeout(1000)
 
     def click_change_password(self):
         self.click_user_button()
-        self.click_menu_item("修改密码")
+        self.click_menu_item("修改密码", "Change password")
         self.page.wait_for_timeout(1500)
 
     # ==================== 密码修改弹窗 ====================
