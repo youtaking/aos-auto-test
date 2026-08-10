@@ -326,7 +326,7 @@ services:
       RCS_PORT: 3001
       RCS_API_KEYS: sk-rcs-dev-key
       RCS_SECRET_LITELLM_ADMIN_KEY: sk-litellm-admin-dev-key
-      BETTER_AUTH_URL: http://localhost:3001
+      BETTER_AUTH_URL: http://__HOST_IP__:__RCS_PORT__
       NODE_ENV: test
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
