@@ -14,11 +14,13 @@ export default function CIConfigModal({ onClose }: Props) {
   const [saving, setSaving] = useState(false);
   const [collections, setCollections] = useState<Collection[]>([]);
   const [selectedCollectionIds, setSelectedCollectionIds] = useState<number[]>([]);
+  const [stagingCollectionIds, setStagingCollectionIds] = useState<number[]>([]);
 
   const load = () => {
     getCIConfig().then((c) => {
       setConfig(c);
       if (c.collection_ids) setSelectedCollectionIds(c.collection_ids);
+      if (c.staging_collection_ids) setStagingCollectionIds(c.staging_collection_ids);
     }).catch(console.error);
     listCollections().then(setCollections).catch(console.error);
   };
@@ -32,6 +34,7 @@ export default function CIConfigModal({ onClose }: Props) {
         timeout_minutes: config.timeout_minutes,
         max_queue_size: config.max_queue_size,
         collection_ids: selectedCollectionIds.length > 0 ? selectedCollectionIds : null,
+        staging_collection_ids: stagingCollectionIds.length > 0 ? stagingCollectionIds : null,
       });
       onClose();
     } catch (e) {
@@ -126,6 +129,28 @@ export default function CIConfigModal({ onClose }: Props) {
                       onChange={e => {
                         if (e.target.checked) setSelectedCollectionIds(prev => [...prev, c.id]);
                         else setSelectedCollectionIds(prev => prev.filter(id => id !== c.id));
+                      }} />
+                    {c.name} <span className="text-gray-400">({c.case_ids.length} 用例)</span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">Staging 测试集</label>
+            <p className="text-xs text-gray-400 mb-1">Staging 环境自动回归时执行的用例集</p>
+            {collections.length === 0 ? (
+              <p className="text-xs text-gray-400">暂无用例集，请先在用例管理页创建</p>
+            ) : (
+              <div className="space-y-1 max-h-32 overflow-y-auto border rounded p-2">
+                {collections.map(c => (
+                  <label key={c.id} className="flex items-center gap-2 text-sm">
+                    <input type="checkbox"
+                      checked={stagingCollectionIds.includes(c.id)}
+                      onChange={e => {
+                        if (e.target.checked) setStagingCollectionIds(prev => [...prev, c.id]);
+                        else setStagingCollectionIds(prev => prev.filter(id => id !== c.id));
                       }} />
                     {c.name} <span className="text-gray-400">({c.case_ids.length} 用例)</span>
                   </label>

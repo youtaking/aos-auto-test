@@ -285,7 +285,7 @@ async def update_ci_config(
     config = await _get_ci_config(db)
     for field in ["timeout_minutes", "max_queue_size", "auth_token",
                    "run_api_tests", "run_e2e_p0", "run_e2e_all",
-                   "collection_ids"]:
+                   "collection_ids", "staging_collection_ids"]:
         value = getattr(body, field, None)
         if value is not None:
             setattr(config, field, value)
@@ -389,6 +389,38 @@ async def resolve_tests(db: AsyncSession = Depends(get_async_session)):
     # 查询用例集，合并所有 case_ids
     result = await db.execute(
         select(TestCollection).where(TestCollection.id.in_(config.collection_ids))
+    )
+    collections = result.scalars().all()
+
+    all_case_ids: set[int] = set()
+    for c in collections:
+        if c.case_ids:
+            all_case_ids.update(c.case_ids)
+
+    if not all_case_ids:
+        return ApiResponse(data={"node_ids": []})
+
+    # 查询 TestCase，生成 pytest node IDs
+    cases_result = await db.execute(
+        select(TestCase).where(TestCase.id.in_(list(all_case_ids)))
+    )
+    cases = cases_result.scalars().all()
+
+    node_ids = [f"{c.file_path}::{c.function_name}" for c in cases]
+    return ApiResponse(data={"node_ids": node_ids})
+
+
+@router.get("/ci/staging-resolve-tests", response_model=ApiResponse)
+async def staging_resolve_tests(db: AsyncSession = Depends(get_async_session)):
+    """根据 CI 配置的 Staging 用例集，解析出 pytest node ID 列表"""
+    config = await _get_ci_config(db)
+
+    if not config.staging_collection_ids:
+        return ApiResponse(data={"node_ids": []})
+
+    # 查询用例集，合并所有 case_ids
+    result = await db.execute(
+        select(TestCollection).where(TestCollection.id.in_(config.staging_collection_ids))
     )
     collections = result.scalars().all()
 

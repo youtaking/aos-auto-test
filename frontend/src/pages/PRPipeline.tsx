@@ -25,6 +25,12 @@ const statusFilters = [
   { key: "destroyed", label: "已销毁" },
 ];
 
+const typeFilters = [
+  { key: "", label: "全部类型" },
+  { key: "pr", label: "PR" },
+  { key: "staging", label: "Staging" },
+];
+
 export default function PRPipeline() {
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [selected, setSelected] = useState<Pipeline | null>(null);
@@ -33,6 +39,7 @@ export default function PRPipeline() {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [statusFilter, setStatusFilter] = useState("");
+  const [typeFilter, setTypeFilter] = useState("");
   const wsRef = useRef<WebSocket | null>(null);
 
   const load = async (p?: number, sf?: string) => {
@@ -119,8 +126,8 @@ export default function PRPipeline() {
         />
       )}
 
-      {/* 状态筛选 */}
-      <div className="flex items-center gap-1">
+      {/* 状态筛选 + 类型筛选 */}
+      <div className="flex items-center gap-1 flex-wrap">
         {statusFilters.map((f) => (
           <button
             key={f.key}
@@ -134,24 +141,44 @@ export default function PRPipeline() {
             {f.label}
           </button>
         ))}
+        <div className="flex items-center gap-1 ml-4 pl-4 border-l">
+          {typeFilters.map((f) => (
+            <button
+              key={f.key}
+              onClick={() => setTypeFilter(f.key)}
+              className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                typeFilter === f.key
+                  ? "bg-purple-600 text-white"
+                  : "text-gray-600 hover:bg-gray-100"
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
         <span className="ml-auto text-sm text-gray-400">共 {total} 条</span>
       </div>
 
       {/* Pipeline 列表 */}
-      <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="bg-gray-50 border-b text-left">
-              <th className="px-4 py-3">PR</th>
-              <th className="px-4 py-3">Commit</th>
-              <th className="px-4 py-3">分支</th>
-              <th className="px-4 py-3">状态</th>
-              <th className="px-4 py-3">测试</th>
-              <th className="px-4 py-3">耗时</th>
-            </tr>
-          </thead>
-          <tbody>
-            {pipelines.map((p) => (
+      {(() => {
+        const filteredPipelines = typeFilter
+          ? pipelines.filter(p => typeFilter === "staging" ? p.branch === "staging" : p.branch !== "staging")
+          : pipelines;
+        return (
+        <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-gray-50 border-b text-left">
+                <th className="px-4 py-3">PR</th>
+                <th className="px-4 py-3">Commit</th>
+                <th className="px-4 py-3">分支</th>
+                <th className="px-4 py-3">状态</th>
+                <th className="px-4 py-3">测试</th>
+                <th className="px-4 py-3">耗时</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredPipelines.map((p) => (
               <tr
                 key={p.id}
                 onClick={() => setSelected(selected?.id === p.id ? null : p)}
@@ -160,13 +187,28 @@ export default function PRPipeline() {
                 }`}
               >
                 <td className="px-4 py-3">
-                  <div className="font-medium">#{p.pr_id}</div>
-                  <div className="text-xs text-gray-500 truncate max-w-[200px]">{p.pr_title}</div>
+                  {p.branch === "staging" ? (
+                    <div>
+                      <div className="font-medium text-purple-600">Staging</div>
+                      <div className="text-xs text-gray-500 truncate max-w-[200px]">{p.pr_title}</div>
+                    </div>
+                  ) : (
+                    <div>
+                      <div className="font-medium">#{p.pr_id}</div>
+                      <div className="text-xs text-gray-500 truncate max-w-[200px]">{p.pr_title}</div>
+                    </div>
+                  )}
                 </td>
                 <td className="px-4 py-3">
                   <code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded">{p.commit_sha.slice(0, 8)}</code>
                 </td>
-                <td className="px-4 py-3 text-gray-600">{p.branch}</td>
+                <td className="px-4 py-3">
+                  <span className={`text-xs px-1.5 py-0.5 rounded ${
+                    p.branch === "staging" ? "bg-purple-100 text-purple-700" : "text-gray-600"
+                  }`}>
+                    {p.branch}
+                  </span>
+                </td>
                 <td className="px-4 py-3">
                   <span className="inline-flex items-center gap-1">
                     {statusIcons[p.status]} {statusLabels[p.status]}
@@ -182,7 +224,7 @@ export default function PRPipeline() {
                 <td className="px-4 py-3 text-gray-500">{calcDuration(p)}</td>
               </tr>
             ))}
-            {pipelines.length === 0 && (
+            {filteredPipelines.length === 0 && (
               <tr>
                 <td colSpan={6} className="px-4 py-8 text-center text-gray-400">
                   暂无 Pipeline 记录
@@ -192,6 +234,8 @@ export default function PRPipeline() {
           </tbody>
         </table>
       </div>
+        );
+      })()}
 
       {/* 分页 */}
       {totalPages > 1 && (

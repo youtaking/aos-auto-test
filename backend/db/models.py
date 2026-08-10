@@ -202,7 +202,7 @@ class PRPipeline(Base):
     __tablename__ = "pr_pipelines"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    pr_id = Column(Integer, nullable=False)
+    pr_id = Column(Integer, nullable=True)
     pr_title = Column(String(500), default="")
     commit_sha = Column(String(40), nullable=False)
     branch = Column(String(200), default="")
@@ -264,6 +264,7 @@ class CIConfig(Base):
     run_e2e_p0 = Column(Integer, default=1)
     run_e2e_all = Column(Integer, default=0)
     collection_ids = Column(JSON, nullable=True)  # 选中的用例集 ID 数组
+    staging_collection_ids = Column(JSON, nullable=True)  # Staging 测试集 ID 数组
     created_at = Column(DateTime, default=_now)
     updated_at = Column(DateTime, default=_now, onupdate=_now)
 
