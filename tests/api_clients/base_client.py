@@ -38,9 +38,9 @@ class BaseClient:
         resp = self._request_with_retry("put", path, params=params, json=json)
         return self._parse_response(resp)
 
-    def delete(self, path: str, params: dict | None = None) -> dict:
+    def delete(self, path: str, params: dict | None = None, json: dict | None = None) -> dict:
         """发送 DELETE 请求"""
-        resp = self._request_with_retry("delete", path, params=params)
+        resp = self._request_with_retry("delete", path, params=params, json=json)
         return self._parse_response(resp)
 
     def patch(self, path: str, params: dict | None = None, json: dict | None = None) -> dict:
@@ -60,7 +60,11 @@ class BaseClient:
         """带重试的请求：遇到 500/502/503 自动重试最多 2 次"""
         max_retries = 2
         for attempt in range(max_retries + 1):
-            resp = getattr(self.client, method)(path, **kwargs)
+            # httpx 的 delete 方法不支持 json 参数，统一走 request
+            if method == "delete" and "json" in kwargs:
+                resp = self.client.request(method.upper(), path, **kwargs)
+            else:
+                resp = getattr(self.client, method)(path, **kwargs)
             if resp.status_code < 500 or attempt == max_retries:
                 break
             time.sleep(1 * (attempt + 1))  # 递增延迟：1s, 2s
@@ -110,4 +114,8 @@ class BaseClient:
     def _parse_response(self, resp: httpx.Response) -> dict:
         """统一解析响应：检查状态码 + 解析 JSON"""
         resp.raise_for_status()
-        return resp.json()
+        try:
+            return resp.json()
+        except (ValueError, Exception):
+            # 非 JSON 响应（如 SSE 流、纯文本）返回空 dict
+            return {}
