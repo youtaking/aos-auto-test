@@ -57,9 +57,9 @@ def discover_unit_tests(base_dir: Path) -> list[dict]:
                 describe_stack.append(name)
                 describe_depths.append(brace_depth)
 
-            if test_match and describe_stack:
+            if test_match:
                 test_name = test_match.group(1)
-                describe_name = describe_stack[-1]
+                describe_name = describe_stack[-1] if describe_stack else "(root)"
                 cases.append({
                     "file_path": relative_path,
                     "describe_block": describe_name,
@@ -432,16 +432,38 @@ async def run_unit_tests(
         if not cases:
             return ApiResponse(success=False, error="未找到匹配的测试用例")
 
-        # 按文件分组，用 -t 过滤测试名
-        files = set()
-        patterns = []
-        for c in cases:
-            files.add(c.file_path)
-            # bun -t 匹配 describe + test 的完整名
-            patterns.append(re.escape(f"{c.describe_block} {c.test_name}"))
+        # 查询每个文件的测试总数，判断是否全选
+        from sqlalchemy import func
+        file_counts_result = await db.execute(
+            select(UnitTestCase.file_path, func.count(UnitTestCase.id))
+            .group_by(UnitTestCase.file_path)
+        )
+        total_by_file = dict(file_counts_result.all())
 
-        bun_args.extend(list(files))
-        bun_args.extend(["-t", "|".join(patterns)])
+        # 按文件分组选中的测试
+        selected_by_file: dict[str, list] = {}
+        for c in cases:
+            selected_by_file.setdefault(c.file_path, []).append(c)
+
+        # 只需运行选中文件；仅对部分选择的文件加 -t 过滤
+        files = list(selected_by_file.keys())
+        patterns = []
+        all_selected = True
+        for fp, file_cases in selected_by_file.items():
+            if len(file_cases) < total_by_file.get(fp, 0):
+                all_selected = False
+                for c in file_cases:
+                    if c.describe_block and c.describe_block != "(root)":
+                        patterns.append(re.escape(f"{c.describe_block} {c.test_name}"))
+                    else:
+                        patterns.append(re.escape(c.test_name))
+
+        bun_args.extend(files)
+        if not all_selected and patterns:
+            pattern_str = "|".join(patterns)
+            # Windows 命令行长度限制 ~8000 字符，超长则放弃 -t 运行全部
+            if len(pattern_str) < 6000:
+                bun_args.extend(["-t", pattern_str])
 
     results_dir = UNIT_TESTS_DIR / "results"
     results_dir.mkdir(exist_ok=True)
@@ -512,8 +534,8 @@ async def run_unit_tests(
             return ApiResponse(success=False, error=f"JUnit XML 解析失败: {e}")
     else:
         # bun test 可能没有生成 junit（比如 bun 不存在但命令没报错）
-        stderr_text = stderr.decode("utf-8", errors="replace") if stderr else ""
-        stdout_text = stdout.decode("utf-8", errors="replace") if stdout else ""
+        stderr_text = stderr.decode("gbk", errors="replace") if stderr else ""
+        stdout_text = stdout.decode("gbk", errors="replace") if stdout else ""
         return ApiResponse(
             success=False,
             error=f"未生成测试报告。\nstdout: {stdout_text[:500]}\nstderr: {stderr_text[:500]}",
