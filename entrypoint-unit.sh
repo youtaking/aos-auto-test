@@ -22,12 +22,22 @@ cat > /app/tests/tsconfig.json << TSEOF
     "types": ["bun"],
     "strict": true,
     "paths": {
+      "@fenix/sandbox-provider": ["${FENIX_ROOT}/packages/sandbox-provider/src"],
+      "@fenix/sandbox-provider/*": ["${FENIX_ROOT}/packages/sandbox-provider/src/*"],
       "@fenix/*": ["${FENIX_SRC}/*"]
     }
   },
   "include": ["**/*.ts"]
 }
 TSEOF
+
+# 1b. 生成 bunfig.toml（preload setup-globals + setup-mocks，确保 mock.module() 生效）
+echo ">>> Generating bunfig.toml..."
+cat > /app/tests/bunfig.toml << BFEOF
+[test]
+root = "."
+preload = ["${FENIX_SRC}/test-utils/setup-globals.ts", "${FENIX_SRC}/test-utils/setup-mocks.ts"]
+BFEOF
 
 # 2. 安装依赖（优先使用预装缓存）
 echo ">>> Installing dependencies..."
