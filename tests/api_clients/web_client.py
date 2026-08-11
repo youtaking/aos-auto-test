@@ -881,3 +881,218 @@ class WebClient(BaseClient):
         """
         resp = self.patch(f"/web/knowledgeBases/{kb_id}/resources/{resource_id}/enabled", json={"enabled": enabled})
         return self._unwrap(resp)
+
+    # ── Files 模块（/web/environments/:id/user/*） ──
+
+    def list_user_files(self, env_id: str, path: str = "") -> dict:
+        """列出用户目录
+        GET /web/environments/:id/user?path=xxx → {success, data: {entries: [...]}}
+        """
+        resp = self.get(f"/web/environments/{env_id}/user", params={"path": path})
+        return self._unwrap(resp)
+
+    def read_user_file(self, env_id: str, file_path: str) -> dict:
+        """读取用户文件内容（文本）
+        GET /web/environments/:id/user/* → {success, data: {name, path, content, size, encoding}}
+        """
+        resp = self.get(f"/web/environments/{env_id}/user/{file_path}")
+        return self._unwrap(resp)
+
+    def write_user_file(self, env_id: str, file_path: str, content: str) -> dict:
+        """写入用户文件
+        PUT /web/environments/:id/user/* body: {content} → {success, data: {name, path, size}}
+        """
+        resp = self.put(f"/web/environments/{env_id}/user/{file_path}", json={"content": content})
+        return self._unwrap(resp)
+
+    def delete_user_file(self, env_id: str, file_path: str) -> dict:
+        """删除用户文件或目录
+        DELETE /web/environments/:id/user/* → {success, data: null}
+        """
+        resp = self.delete(f"/web/environments/{env_id}/user/{file_path}")
+        return self._unwrap(resp)
+
+    # ── FS 模块（/web/environments/:id/fs/*） ──
+
+    def get_fs_tree(self, env_id: str) -> dict:
+        """获取 workspace 文件树
+        GET /web/environments/:id/fs/tree → {success, data: {paths, mtimes, errors}}
+        """
+        resp = self.get(f"/web/environments/{env_id}/fs/tree")
+        return self._unwrap(resp)
+
+    def list_fs_dir(self, env_id: str, path: str = ".") -> dict:
+        """列出 workspace 目录
+        GET /web/environments/:id/fs?path=xxx → {success, data: {entries: [...]}}
+        """
+        resp = self.get(f"/web/environments/{env_id}/fs", params={"path": path})
+        return self._unwrap(resp)
+
+    def read_fs_file(self, env_id: str, file_path: str) -> dict:
+        """读取 workspace 文件内容
+        GET /web/environments/:id/fs/* → {success, data: {name, path, content, size, encoding}}
+        """
+        resp = self.get(f"/web/environments/{env_id}/fs/{file_path}")
+        return self._unwrap(resp)
+
+    def write_fs_file(self, env_id: str, file_path: str, content: str) -> dict:
+        """写入 workspace 文件
+        PUT /web/environments/:id/fs/* body: {content} → {success, data: {name, path, size}}
+        """
+        resp = self.put(f"/web/environments/{env_id}/fs/{file_path}", json={"content": content})
+        return self._unwrap(resp)
+
+    def delete_fs_file(self, env_id: str, file_path: str) -> dict:
+        """删除 workspace 文件或目录
+        DELETE /web/environments/:id/fs/* → {success, data: {ok: true}}
+        """
+        resp = self.delete(f"/web/environments/{env_id}/fs/{file_path}")
+        return self._unwrap(resp)
+
+    def fs_mkdir(self, env_id: str, path: str) -> dict:
+        """创建 workspace 目录
+        POST /web/environments/:id/fs/mkdir body: {path} → {success, data: {path}}
+        """
+        resp = self.post(f"/web/environments/{env_id}/fs/mkdir", json={"path": path})
+        return self._unwrap(resp)
+
+    def fs_rename(self, env_id: str, old_path: str, new_path: str) -> dict:
+        """重命名 workspace 文件/目录
+        POST /web/environments/:id/fs/rename body: {oldPath, newPath} → {success, data: {oldPath, newPath}}
+        """
+        resp = self.post(f"/web/environments/{env_id}/fs/rename", json={"oldPath": old_path, "newPath": new_path})
+        return self._unwrap(resp)
+
+    def fs_batch_delete(self, env_id: str, paths: list) -> dict:
+        """批量删除 workspace 文件/目录
+        DELETE /web/environments/:id/fs/batch body: {paths} → {success, data: {deleted, failed}}
+        """
+        resp = self.delete(f"/web/environments/{env_id}/fs/batch", json={"paths": paths})
+        return self._unwrap(resp)
+
+    # ── User-File 模块（/web/environments/:id/user-file/*） ──
+
+    def get_user_file_tree(self, env_id: str) -> dict:
+        """获取 user 文件树
+        GET /web/environments/:id/user-file/tree → {success, data: {paths, mtimes, errors}}
+        """
+        resp = self.get(f"/web/environments/{env_id}/user-file/tree")
+        return self._unwrap(resp)
+
+    def user_file_mkdir(self, env_id: str, path: str) -> dict:
+        """在 user 目录下创建目录
+        POST /web/environments/:id/user-file/mkdir body: {path} → {success, data: {path}}
+        """
+        resp = self.post(f"/web/environments/{env_id}/user-file/mkdir", json={"path": path})
+        return self._unwrap(resp)
+
+    def user_file_rename(self, env_id: str, old_path: str, new_path: str) -> dict:
+        """重命名 user 文件/目录
+        POST /web/environments/:id/user-file/rename body: {oldPath, newPath} → {success, data: {oldPath, newPath}}
+        """
+        resp = self.post(f"/web/environments/{env_id}/user-file/rename", json={"oldPath": old_path, "newPath": new_path})
+        return self._unwrap(resp)
+
+    def user_file_batch_delete(self, env_id: str, paths: list) -> dict:
+        """批量删除 user 文件/目录
+        DELETE /web/environments/:id/user-file/batch body: {paths} → {success, data: {deleted, failed}}
+        """
+        resp = self.delete(f"/web/environments/{env_id}/user-file/batch", json={"paths": paths})
+        return self._unwrap(resp)
+
+    # ── Control 模块（/web/sessions/:id/*） ──
+
+    def send_session_event(self, session_id: str, data: dict) -> dict:
+        """向会话发送事件
+        POST /web/sessions/:id/events body: {type, ...} → {success, data: {status, event}}
+        """
+        resp = self.post(f"/web/sessions/{session_id}/events", json=data)
+        return self._unwrap(resp)
+
+    def send_session_control(self, session_id: str, data: dict) -> dict:
+        """向会话发送控制指令
+        POST /web/sessions/:id/control body: {type, ...} → {success, data: {status, event}}
+        """
+        resp = self.post(f"/web/sessions/{session_id}/control", json=data)
+        return self._unwrap(resp)
+
+    def interrupt_session(self, session_id: str) -> dict:
+        """中断会话
+        POST /web/sessions/:id/interrupt → {success, data: null}
+        """
+        resp = self.post(f"/web/sessions/{session_id}/interrupt")
+        return self._unwrap(resp)
+
+    # ── Workflow Engine 模块（/web/workflow-engine） ──
+
+    def workflow_engine_action(self, data: dict) -> dict:
+        """工作流引擎 action 分发
+        POST /web/workflow-engine body: {action, ...} → {success, data: {...}}
+        """
+        resp = self.post("/web/workflow-engine", json=data)
+        return self._unwrap(resp)
+
+    # ── Task V1 模块（已废弃，/web/tasks/*） ──
+
+    def list_tasks(self) -> dict:
+        """获取任务列表（v1 已废弃）
+        GET /web/tasks → {success, data: [...]}
+        """
+        resp = self.get("/web/tasks")
+        return self._unwrap(resp)
+
+    def get_task(self, task_id: str) -> dict:
+        """获取任务详情（v1 已废弃）
+        GET /web/tasks/:id → {success, data: {task}}
+        """
+        resp = self.get(f"/web/tasks/{task_id}")
+        return self._unwrap(resp)
+
+    def create_task(self, data: dict) -> dict:
+        """创建任务（v1 已废弃）
+        POST /web/tasks body: {...} → {success, data: {task}}
+        """
+        resp = self.post("/web/tasks", json=data)
+        return self._unwrap(resp)
+
+    def update_task(self, task_id: str, data: dict) -> dict:
+        """更新任务（v1 已废弃）
+        PUT /web/tasks/:id body: {...} → {success, data: {task}}
+        """
+        resp = self.put(f"/web/tasks/{task_id}", json=data)
+        return self._unwrap(resp)
+
+    def delete_task(self, task_id: str) -> dict:
+        """删除任务（v1 已废弃）
+        DELETE /web/tasks/:id → {success, data: null}
+        """
+        resp = self.delete(f"/web/tasks/{task_id}")
+        return self._unwrap(resp)
+
+    def toggle_task(self, task_id: str) -> dict:
+        """切换任务启用状态（v1 已废弃）
+        POST /web/tasks/:id/toggle → {success, data: {task}}
+        """
+        resp = self.post(f"/web/tasks/{task_id}/toggle")
+        return self._unwrap(resp)
+
+    def trigger_task(self, task_id: str) -> dict:
+        """手动触发任务（v1 已废弃）
+        POST /web/tasks/:id/trigger → {success, data: {task}}
+        """
+        resp = self.post(f"/web/tasks/{task_id}/trigger")
+        return self._unwrap(resp)
+
+    def get_task_logs(self, task_id: str, params: dict | None = None) -> dict:
+        """获取任务执行日志（v1 已废弃）
+        GET /web/tasks/:id/logs → {success, data: {logs}}
+        """
+        resp = self.get(f"/web/tasks/{task_id}/logs", params=params)
+        return self._unwrap(resp)
+
+    def clear_task_logs(self, task_id: str) -> dict:
+        """清空任务日志（v1 已废弃）
+        DELETE /web/tasks/:id/logs → {success, data: null}
+        """
+        resp = self.delete(f"/web/tasks/{task_id}/logs")
+        return self._unwrap(resp)

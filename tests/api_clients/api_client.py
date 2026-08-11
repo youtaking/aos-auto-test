@@ -277,3 +277,65 @@ class ApiClient(BaseClient):
         POST /api/workflows/:workflowId/execute body: {inputs, mode}
         """
         return self.post(f"/api/workflows/{workflow_id}/execute", json=data)
+
+    # ── Sandbox 模块（/api/system，需要 System API Key） ──
+
+    def list_sandbox_pools(self, params: dict | None = None) -> dict:
+        """获取沙盒池列表
+        GET /api/system/sandbox-pools → pool list
+        """
+        return self.get("/api/system/sandbox-pools", params=params)
+
+    def create_sandbox_pool(self, data: dict) -> dict:
+        """创建沙盒池
+        POST /api/system/sandbox-pools body: {name, template, ...} → pool detail
+        """
+        return self.post("/api/system/sandbox-pools", json=data)
+
+    def get_sandbox_pool(self, pool_id: str) -> dict:
+        """获取沙盒池详情
+        GET /api/system/sandbox-pools/:poolId → pool detail
+        """
+        return self.get(f"/api/system/sandbox-pools/{pool_id}")
+
+    def update_sandbox_pool(self, pool_id: str, data: dict) -> dict:
+        """更新沙盒池
+        PUT /api/system/sandbox-pools/:poolId body: {...} → pool detail
+        """
+        return self.put(f"/api/system/sandbox-pools/{pool_id}", json=data)
+
+    def delete_sandbox_pool(self, pool_id: str) -> dict:
+        """删除沙盒池
+        DELETE /api/system/sandbox-pools/:poolId → {deleted: true}
+        """
+        return self.delete(f"/api/system/sandbox-pools/{pool_id}")
+
+    def list_sandbox_instances(self, params: dict | None = None) -> dict:
+        """获取沙盒实例列表
+        GET /api/system/sandbox-instances → instance list
+        """
+        return self.get("/api/system/sandbox-instances", params=params)
+
+    def get_sandbox_instance(self, instance_id: str) -> dict:
+        """获取沙盒实例详情
+        GET /api/system/sandbox-instances/:instanceId → instance detail
+        """
+        return self.get(f"/api/system/sandbox-instances/{instance_id}")
+
+    def update_sandbox_instance(self, instance_id: str, data: dict) -> dict:
+        """更新沙盒实例
+        PUT /api/system/sandbox-instances/:instanceId body: {resourceOverrides} → instance detail
+        """
+        return self.put(f"/api/system/sandbox-instances/{instance_id}", json=data)
+
+    def delete_sandbox_instance(self, instance_id: str) -> dict:
+        """删除沙盒实例
+        DELETE /api/system/sandbox-instances/:instanceId → {deleted: true}
+        """
+        return self.delete(f"/api/system/sandbox-instances/{instance_id}")
+
+    def rebuild_sandbox_instances(self, data: dict) -> dict:
+        """重建沙盒实例
+        POST /api/system/sandbox-instances/rebuild body: {poolId, ...} → rebuild result
+        """
+        return self.post("/api/system/sandbox-instances/rebuild", json=data)
