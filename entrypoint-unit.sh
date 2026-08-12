@@ -40,7 +40,6 @@ done
 # 将测试文件放入 workspace（作为 workspace 的一个包）
 mkdir -p "$WORKSPACE_ROOT/tests"
 cp -r /app/tests/* "$WORKSPACE_ROOT/tests/"
-
 # 2. 生成 tsconfig.json（@fenix/* → FenixAgent src/*）
 echo ">>> Generating tsconfig.json..."
 cat > "$WORKSPACE_ROOT/tests/tsconfig.json" << TSEOF
@@ -121,7 +120,13 @@ else
   echo "    Dependencies ready (from cache)."
 fi
 
-# 4. 运行测试
+# 4. 软链 node_modules 到源码目录（bun 从 /app/fenix-source-parent/src/ 解析 import 时需要）
+if [ ! -e "$FENIX_ROOT/node_modules" ]; then
+  ln -s "$WORKSPACE_ROOT/node_modules" "$FENIX_ROOT/node_modules"
+  echo "    Symlinked node_modules → $WORKSPACE_ROOT/node_modules"
+fi
+
+# 5. 运行测试
 echo ">>> Running bun test..."
 mkdir -p "$WORKSPACE_ROOT/tests/results"
 cd "$WORKSPACE_ROOT/tests"
