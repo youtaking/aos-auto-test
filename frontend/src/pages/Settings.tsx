@@ -3,8 +3,10 @@ import { listProjects, createProject, updateProject, deleteProject, activateProj
 import { listAuthConfigs, createAuthConfig, updateAuthConfig, deleteAuthConfig, activateAuthConfig } from "../api/authConfigs";
 import { listLLMConfigs, createLLMConfig, updateLLMConfig, deleteLLMConfig, activateLLMConfig } from "../api/llmConfigs";
 import { listZentaoConfigs, createZentaoConfig, updateZentaoConfig, deleteZentaoConfig, activateZentaoConfig } from "../api/zentaoConfigs";
+import { listSettings, updateSetting } from "../api/settings";
+import { pollNow } from "../api/branches";
 import type { Project, AuthConfig, LLMConfig, ZentaoConfig } from "../api/types";
-import { Check, Trash2, Pencil, X, Eye, EyeOff, Plus } from "lucide-react";
+import { Check, Trash2, Pencil, X, Eye, EyeOff, Plus, RefreshCw } from "lucide-react";
 
 export default function Settings() {
   // ── 项目管理 ──
@@ -42,6 +44,20 @@ export default function Settings() {
   const [ztForm, setZtForm] = useState({ name: "", base_url: "", username: "", password: "", product_id: 1 });
   const ztEmptyForm = { name: "", base_url: "", username: "", password: "", product_id: 1 };
 
+  // ── 分支轮询配置 ──
+  const [bpEnabled, setBpEnabled] = useState(false);
+  const [bpInterval, setBpInterval] = useState(300);
+  const [bpRepo, setBpRepo] = useState("");
+  const [bpToken, setBpToken] = useState("");
+  const [bpInclude, setBpInclude] = useState("");
+  const [bpExclude, setBpExclude] = useState("");
+  const [bpShowToken, setBpShowToken] = useState(false);
+  const [bpSaving, setBpSaving] = useState(false);
+  const [bpTesting, setBpTesting] = useState(false);
+  const [bpTestResult, setBpTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [bpPolling, setBpPolling] = useState(false);
+  const [bpPollMsg, setBpPollMsg] = useState("");
+
   const load = () => {
     listProjects().then(setProjects).catch(console.error);
     listAuthConfigs().then(setAuthConfigs).catch(console.error);
@@ -49,6 +65,63 @@ export default function Settings() {
     listZentaoConfigs().then(setZtConfigs).catch(console.error);
   };
   useEffect(() => { load(); }, []);
+
+  // ── 加载分支轮询配置 ──
+  useEffect(() => {
+    listSettings()
+      .then((items) => {
+        const m: Record<string, string> = {};
+        items.forEach((s) => { m[s.key] = s.value; });
+        setBpEnabled(m["branch_poll_enabled"] === "true");
+        if (m["branch_poll_interval"]) setBpInterval(Number(m["branch_poll_interval"]));
+        if (m["branch_poll_repo"]) setBpRepo(m["branch_poll_repo"]);
+        if (m["github_token"]) setBpToken(m["github_token"]);
+        if (m["branch_poll_include"]) setBpInclude(m["branch_poll_include"]);
+        if (m["branch_poll_exclude"]) setBpExclude(m["branch_poll_exclude"]);
+      })
+      .catch(console.error);
+  }, []);
+
+  // ── 分支轮询操作 ──
+  const bpSave = async () => {
+    setBpSaving(true);
+    try {
+      await updateSetting("branch_poll_enabled", String(bpEnabled));
+      await updateSetting("branch_poll_interval", String(bpInterval));
+      await updateSetting("branch_poll_repo", bpRepo);
+      await updateSetting("github_token", bpToken);
+      await updateSetting("branch_poll_include", bpInclude);
+      await updateSetting("branch_poll_exclude", bpExclude);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setBpSaving(false);
+    }
+  };
+  const bpTestConnection = async () => {
+    setBpTesting(true);
+    setBpTestResult(null);
+    try {
+      await pollNow();
+      setBpTestResult({ ok: true, msg: "连接成功，轮询已触发" });
+    } catch (e: any) {
+      setBpTestResult({ ok: false, msg: e.message || "连接失败" });
+    } finally {
+      setBpTesting(false);
+    }
+  };
+  const bpTriggerPoll = async () => {
+    setBpPolling(true);
+    setBpPollMsg("");
+    try {
+      await pollNow();
+      setBpPollMsg("轮询已触发");
+    } catch (e: any) {
+      setBpPollMsg(e.message || "轮询失败");
+    } finally {
+      setBpPolling(false);
+    }
+  };
 
   // ── 项目操作 ──
   const handleCreateProject = async () => {
@@ -541,6 +614,115 @@ export default function Settings() {
               )}
             </div>
           ))}
+        </div>
+      </div>
+
+      {/* ── 分支轮询配置 ── */}
+      <div className="bg-white rounded-xl shadow-sm p-6 space-y-4">
+        <h2 className="text-lg font-semibold">分支轮询配置</h2>
+
+        {/* 轮询开关 */}
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-sm font-medium text-gray-700">启用轮询</div>
+            <div className="text-xs text-gray-400">定时检查 GitHub 仓库的新分支</div>
+          </div>
+          <button
+            onClick={() => setBpEnabled(!bpEnabled)}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${bpEnabled ? "bg-blue-600" : "bg-gray-300"}`}
+          >
+            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${bpEnabled ? "translate-x-6" : "translate-x-1"}`} />
+          </button>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          {/* 仓库地址 */}
+          <div className="col-span-2">
+            <label className="block text-sm text-gray-600 mb-1">仓库地址</label>
+            <input value={bpRepo} onChange={(e) => setBpRepo(e.target.value)} placeholder="owner/repo" className="w-full px-3 py-2 border rounded-lg" />
+          </div>
+
+          {/* GitHub Token */}
+          <div className="col-span-2">
+            <label className="block text-sm text-gray-600 mb-1">GitHub Token</label>
+            <div className="relative">
+              <input
+                type={bpShowToken ? "text" : "password"}
+                value={bpToken}
+                onChange={(e) => setBpToken(e.target.value)}
+                placeholder="ghp_..."
+                className="w-full px-3 py-2 pr-10 border rounded-lg"
+              />
+              <button
+                type="button"
+                onClick={() => setBpShowToken(!bpShowToken)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600"
+              >
+                {bpShowToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+          </div>
+
+          {/* 轮询间隔 */}
+          <div>
+            <label className="block text-sm text-gray-600 mb-1">轮询间隔（秒）</label>
+            <input type="number" value={bpInterval} onChange={(e) => setBpInterval(Number(e.target.value))} min={60} className="w-full px-3 py-2 border rounded-lg" />
+          </div>
+
+          {/* 空占位 */}
+          <div />
+
+          {/* 包含规则 */}
+          <div>
+            <label className="block text-sm text-gray-600 mb-1">包含规则</label>
+            <input value={bpInclude} onChange={(e) => setBpInclude(e.target.value)} placeholder="feat/*,fix/*" className="w-full px-3 py-2 border rounded-lg" />
+          </div>
+
+          {/* 排除规则 */}
+          <div>
+            <label className="block text-sm text-gray-600 mb-1">排除规则</label>
+            <input value={bpExclude} onChange={(e) => setBpExclude(e.target.value)} placeholder="dependabot/*" className="w-full px-3 py-2 border rounded-lg" />
+          </div>
+        </div>
+
+        {/* 测试连接结果 */}
+        {bpTestResult && (
+          <div className={`text-sm px-3 py-2 rounded-lg ${bpTestResult.ok ? "bg-green-50 text-green-700" : "bg-red-50 text-red-600"}`}>
+            {bpTestResult.msg}
+          </div>
+        )}
+
+        {/* 轮询消息 */}
+        {bpPollMsg && (
+          <div className={`text-sm px-3 py-2 rounded-lg ${bpPollMsg.includes("失败") ? "bg-red-50 text-red-600" : "bg-green-50 text-green-700"}`}>
+            {bpPollMsg}
+          </div>
+        )}
+
+        {/* 操作按钮 */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={bpSave}
+            disabled={bpSaving}
+            className={`px-4 py-2 text-white rounded-lg ${bpSaving ? "bg-gray-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700"}`}
+          >
+            {bpSaving ? "保存中..." : "保存配置"}
+          </button>
+          <button
+            onClick={bpTestConnection}
+            disabled={bpTesting || !bpRepo || !bpToken}
+            className={`px-4 py-2 rounded-lg border ${bpTesting || !bpRepo || !bpToken ? "text-gray-400 border-gray-200 cursor-not-allowed" : "text-gray-700 border-gray-300 hover:bg-gray-100"}`}
+          >
+            {bpTesting ? "测试中..." : "测试连接"}
+          </button>
+          <button
+            onClick={bpTriggerPoll}
+            disabled={bpPolling}
+            className={`flex items-center gap-1 px-4 py-2 rounded-lg border ${bpPolling ? "text-gray-400 border-gray-200 cursor-not-allowed" : "text-gray-700 border-gray-300 hover:bg-gray-100"}`}
+          >
+            <RefreshCw className={`w-4 h-4 ${bpPolling ? "animate-spin" : ""}`} />
+            {bpPolling ? "轮询中..." : "立即轮询"}
+          </button>
         </div>
       </div>
     </div>
