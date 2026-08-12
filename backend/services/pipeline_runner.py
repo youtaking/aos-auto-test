@@ -70,6 +70,7 @@ async def _execute_tests(
     auth_env: dict,
     case_ids: list[int] | None,
     pipeline_id: int | None = None,
+    branch: str = "main",
 ):
     """Execute pytest and store results."""
     async with async_session() as db:
@@ -85,9 +86,15 @@ async def _execute_tests(
 
         try:
             report_path = f"report_run_{run_id}.json"
+
+            if branch and branch != "main":
+                scan_dirs = [f"branches/{branch}/api_suites/"]
+            else:
+                scan_dirs = ["tests/suites/", "tests/api_suites/"]
+
             cmd = [
                 sys.executable, "-m", "pytest",
-                "tests/suites/", "tests/api_suites/",
+                *scan_dirs,
                 "-v", "--tb=short",
                 f"--base-url={project_url}",
                 "--json-report", f"--json-report-file={report_path}",
@@ -101,7 +108,7 @@ async def _execute_tests(
                 if selected_cases:
                     node_ids = [f"{c.file_path}::{c.function_name}" for c in selected_cases]
                     cmd.extend(node_ids)
-                    cmd = [c for c in cmd if c not in ("tests/suites/", "tests/api_suites/")]
+                    cmd = [c for c in cmd if c not in scan_dirs]
 
             env = {
                 **os.environ,
@@ -135,7 +142,7 @@ async def _execute_tests(
                         if pipeline_id:
                             await _broadcast(pipeline_id, "test_log", {"line": stripped})
 
-                    m = re.match(r"^(tests/\S+::\S+)\s+(PASSED|FAILED|SKIPPED|ERROR)", stripped)
+                    m = re.match(r"^((?:tests|branches)/\S+::\S+)\s+(PASSED|FAILED|SKIPPED|ERROR)", stripped)
                     if m:
                         outcome = m.group(2).lower()
                         func_name = m.group(1).split("::")[-1]
