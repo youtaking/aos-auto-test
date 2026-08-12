@@ -4,15 +4,46 @@ set -e
 FENIX_SRC="/app/fenix-source-parent/src"
 FENIX_ROOT="/app/fenix-source-parent"
 CACHE_DIR="/app/cache"
+# 用 /workspace 模拟 monorepo 根目录，让 bun 正确解析 workspace:* 依赖
+WORKSPACE_ROOT="/workspace"
 
 echo "=== Unit Test Runner ==="
 echo "    Source: $FENIX_SRC"
 echo "    Tests:  /app/tests"
 echo "    Cache:  $CACHE_DIR"
+echo "    Workspace: $WORKSPACE_ROOT"
 
-# 1. 生成 tsconfig.json（@fenix/* → FenixAgent src/*）
+# 1. 搭建 workspace 结构（bun install 必须在 workspace 根目录运行）
+echo ">>> Setting up workspace structure..."
+mkdir -p "$WORKSPACE_ROOT"
+cp "$FENIX_ROOT/package.json" "$WORKSPACE_ROOT/package.json"
+
+# 复制 lockfile（bun.lockb 或 bun.lock）
+LOCK_NAME=""
+if [ -f "$FENIX_ROOT/bun.lockb" ]; then
+  LOCK_NAME="bun.lockb"
+elif [ -f "$FENIX_ROOT/bun.lock" ]; then
+  LOCK_NAME="bun.lock"
+fi
+[ -n "$LOCK_NAME" ] && cp "$FENIX_ROOT/$LOCK_NAME" "$WORKSPACE_ROOT/$LOCK_NAME"
+
+# 创建 workspace 包的 stub 目录（让 bun 能解析 workspace:* 依赖）
+mkdir -p "$WORKSPACE_ROOT/packages"
+for pkg_dir in "$FENIX_ROOT/packages"/*/; do
+  if [ -f "${pkg_dir}package.json" ]; then
+    pkg_name=$(basename "$pkg_dir")
+    mkdir -p "$WORKSPACE_ROOT/packages/$pkg_name"
+    cp "${pkg_dir}package.json" "$WORKSPACE_ROOT/packages/$pkg_name/package.json"
+  fi
+done
+
+# 将测试文件放入 workspace（作为 workspace 的一个包）
+mkdir -p "$WORKSPACE_ROOT/tests"
+cp -r /app/tests/* "$WORKSPACE_ROOT/tests/"
+
+# 2. 生成 tsconfig.json（@fenix/* → FenixAgent src/*）
 echo ">>> Generating tsconfig.json..."
-cat > /app/tests/tsconfig.json << TSEOF
+cat > "$WORKSPACE_ROOT/tests/tsconfig.json" << TSEOF
 {
   "compilerOptions": {
     "target": "ES2022",
@@ -31,80 +62,79 @@ cat > /app/tests/tsconfig.json << TSEOF
 }
 TSEOF
 
-# 1b. 生成 bunfig.toml（preload setup-globals + setup-mocks，确保 mock.module() 生效）
+# 2b. 生成 bunfig.toml（preload setup-globals + setup-mocks，确保 mock.module() 生效）
 echo ">>> Generating bunfig.toml..."
-cat > /app/tests/bunfig.toml << BFEOF
+cat > "$WORKSPACE_ROOT/tests/bunfig.toml" << BFEOF
 [test]
 root = "."
 preload = ["${FENIX_SRC}/test-utils/setup-globals.ts", "${FENIX_SRC}/test-utils/setup-mocks.ts"]
 BFEOF
 
-# 2. 安装依赖（优先使用预装缓存）
+# 3. 安装依赖（从 workspace 根目录运行，正确解析 workspace:* 依赖）
 echo ">>> Installing dependencies..."
-if [ -f "$FENIX_ROOT/package.json" ]; then
-  cp "$FENIX_ROOT/package.json" /app/tests/package.json
-
-  # 检查 lockfile 是否与缓存一致（支持 bun.lockb 和 bun.lock 两种格式）
-  NEED_INSTALL=true
-
-  # 确定实际使用的锁文件名称
-  LOCK_NAME=""
-  if [ -f "$FENIX_ROOT/bun.lockb" ]; then
-    LOCK_NAME="bun.lockb"
-  elif [ -f "$FENIX_ROOT/bun.lock" ]; then
-    LOCK_NAME="bun.lock"
-  fi
-
-  CACHE_LOCK_NAME=""
-  if [ -f "$CACHE_DIR/bun.lockb" ]; then
-    CACHE_LOCK_NAME="bun.lockb"
-  elif [ -f "$CACHE_DIR/bun.lock" ]; then
-    CACHE_LOCK_NAME="bun.lock"
-  fi
-
-  if [ -n "$LOCK_NAME" ] && [ -n "$CACHE_LOCK_NAME" ]; then
-    cp "$FENIX_ROOT/$LOCK_NAME" "/app/tests/$LOCK_NAME"
-    if cmp -s "$FENIX_ROOT/$LOCK_NAME" "$CACHE_DIR/$CACHE_LOCK_NAME"; then
-      echo "    Lockfile unchanged, using cached node_modules..."
-      cp -r "$CACHE_DIR/node_modules" /app/tests/node_modules
-      NEED_INSTALL=false
-    fi
-  elif [ -z "$LOCK_NAME" ] && [ -d "$CACHE_DIR/node_modules" ] && [ "$(ls -A $CACHE_DIR/node_modules 2>/dev/null)" ]; then
-    echo "    No lockfile, using cached node_modules..."
-    cp -r "$CACHE_DIR/node_modules" /app/tests/node_modules
-    NEED_INSTALL=false
-  fi
-
-  if [ "$NEED_INSTALL" = "true" ]; then
-    echo "    Lockfile changed or no cache, running bun install..."
-    cd /app/tests && bun install --no-save 2>&1 | tail -3
-    # 更新缓存（供下次使用）
-    rm -rf "$CACHE_DIR/node_modules"
-    cp -r /app/tests/node_modules "$CACHE_DIR/node_modules"
-    # 保存实际生成的锁文件
-    if [ -f /app/tests/bun.lockb ]; then
-      cp /app/tests/bun.lockb "$CACHE_DIR/bun.lockb"
-    elif [ -f /app/tests/bun.lock ]; then
-      cp /app/tests/bun.lock "$CACHE_DIR/bun.lock"
-    fi
-    echo "    Dependencies installed and cache updated."
-  else
-    echo "    Dependencies ready (from cache)."
-  fi
-else
-  echo "    WARNING: No package.json found at $FENIX_ROOT, skipping bun install."
+NEED_INSTALL=true
+CACHE_LOCK_NAME=""
+if [ -f "$CACHE_DIR/bun.lockb" ]; then
+  CACHE_LOCK_NAME="bun.lockb"
+elif [ -f "$CACHE_DIR/bun.lock" ]; then
+  CACHE_LOCK_NAME="bun.lock"
 fi
 
-# 3. 运行测试
+if [ -n "$LOCK_NAME" ] && [ -n "$CACHE_LOCK_NAME" ]; then
+  if cmp -s "$FENIX_ROOT/$LOCK_NAME" "$CACHE_DIR/$CACHE_LOCK_NAME"; then
+    if [ -d "$CACHE_DIR/node_modules" ] && [ "$(ls -A $CACHE_DIR/node_modules 2>/dev/null)" ]; then
+      echo "    Lockfile unchanged, using cached node_modules..."
+      cp -r "$CACHE_DIR/node_modules" "$WORKSPACE_ROOT/node_modules"
+      NEED_INSTALL=false
+    fi
+  fi
+elif [ -z "$LOCK_NAME" ] && [ -d "$CACHE_DIR/node_modules" ] && [ "$(ls -A $CACHE_DIR/node_modules 2>/dev/null)" ]; then
+  echo "    No lockfile, using cached node_modules..."
+  cp -r "$CACHE_DIR/node_modules" "$WORKSPACE_ROOT/node_modules"
+  NEED_INSTALL=false
+fi
+
+if [ "$NEED_INSTALL" = "true" ]; then
+  echo "    Lockfile changed or no cache, running bun install in workspace root..."
+  cd "$WORKSPACE_ROOT"
+  set +e
+  bun install --no-save 2>&1 | tail -10
+  INSTALL_EXIT=$?
+  set -e
+  if [ $INSTALL_EXIT -ne 0 ]; then
+    echo "    ERROR: bun install failed (exit $INSTALL_EXIT)"
+    echo "    Workspace packages found:"
+    ls -la "$WORKSPACE_ROOT/packages/" 2>/dev/null || echo "    (none)"
+    exit 1
+  fi
+  # 更新缓存（供下次使用）
+  rm -rf "$CACHE_DIR/node_modules"
+  cp -r "$WORKSPACE_ROOT/node_modules" "$CACHE_DIR/node_modules"
+  # 保存实际生成的锁文件
+  if [ -f "$WORKSPACE_ROOT/bun.lockb" ]; then
+    cp "$WORKSPACE_ROOT/bun.lockb" "$CACHE_DIR/bun.lockb"
+  elif [ -f "$WORKSPACE_ROOT/bun.lock" ]; then
+    cp "$WORKSPACE_ROOT/bun.lock" "$CACHE_DIR/bun.lock"
+  fi
+  echo "    Dependencies installed and cache updated."
+else
+  echo "    Dependencies ready (from cache)."
+fi
+
+# 4. 运行测试
 echo ">>> Running bun test..."
-mkdir -p /app/tests/results
-cd /app/tests
+mkdir -p "$WORKSPACE_ROOT/tests/results"
+cd "$WORKSPACE_ROOT/tests"
 
 # bun test --reporter=junit 必须配 --reporter-outfile
 set +e
 bun test --reporter=junit --reporter-outfile=results/unit-junit.xml
 TEST_EXIT=$?
 set -e
+
+# 将结果复制回 /app/tests/results（供 Jenkins 读取）
+mkdir -p /app/tests/results
+cp -f results/unit-junit.xml /app/tests/results/unit-junit.xml 2>/dev/null || true
 
 if [ -s results/unit-junit.xml ]; then
     echo ">>> junit XML written: $(wc -c < results/unit-junit.xml) bytes"

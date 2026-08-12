@@ -9,7 +9,7 @@ pipeline {
         string(name: 'POLL_INTERVAL',    defaultValue: '30',                                  description: '轮询间隔（分钟）')
         string(name: 'AUTOTEST_URL',     defaultValue: 'http://100.105.181.173:8111',        description: 'AutoTest 后端地址')
         string(name: 'TEST_REPO',        defaultValue: 'https://github.com/youtaking/aos-auto-test.git', description: '测试代码仓库')
-        string(name: 'TEST_REPO_BRANCH', defaultValue: 'feat/jenkins-pipeline',               description: '测试代码分支')
+        string(name: 'TEST_REPO_BRANCH', defaultValue: 'master',               description: '测试代码分支')
         booleanParam(name: 'FORCE_RESET', defaultValue: false,                                description: '强制触发测试（清除上次 commitId 记录）')
     }
 
@@ -100,7 +100,7 @@ pipeline {
                         rm -rf /tmp/staging-autotest /tmp/autotest.tar.gz
                     fi
                 '''.replace('__TEST_REPO__', params.TEST_REPO.replace('.git', ''))
-                  .replace('__TEST_BRANCH__', params.TEST_REPO_BRANCH ?: 'feat/jenkins-pipeline')
+                  .replace('__TEST_BRANCH__', params.TEST_REPO_BRANCH ?: 'master')
             }
         }
 
@@ -220,7 +220,7 @@ pipeline {
                     rm -f /tmp/fenix.tar.gz
                     echo "    App source: $(ls app/ | wc -l) files/dirs"
                 '''.replace('__TEST_REPO__', params.TEST_REPO.replace('.git', ''))
-                  .replace('__TEST_BRANCH__', params.TEST_REPO_BRANCH ?: 'feat/jenkins-pipeline')
+                  .replace('__TEST_BRANCH__', params.TEST_REPO_BRANCH ?: 'master')
                   .replace('__APP_REPO__', params.APP_REPO.replace('.git', ''))
                   .replace('__APP_BRANCH__', params.APP_BRANCH ?: 'main')
             }
@@ -343,7 +343,7 @@ except:
                         docker run --rm \\
                           --name "staging-unit-runner-${BUILD_NUMBER}" \\
                           -v "${JENKINS_WORKSPACE_HOST}/autotest/unit_tests:/app/tests" \\
-                          -v "${JENKINS_WORKSPACE_HOST}/app:/app/fenix-source-parent:ro" \\
+                          -v "${JENKINS_WORKSPACE_HOST}/app:/app/fenix-source-parent" \\
                           unit-runner:latest
                         UNIT_EXIT=$?
                         set -e
