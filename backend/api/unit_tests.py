@@ -25,7 +25,7 @@ router = APIRouter()
 UNIT_TESTS_DIR = Path(__file__).resolve().parent.parent.parent / "unit_tests"
 
 
-def discover_unit_tests(base_dir: Path) -> list[dict]:
+def discover_unit_tests(base_dir: Path, branch: str = "main") -> list[dict]:
     """扫描 unit_tests/ 目录，提取 describe/test 结构（逐行解析，正确关联 describe → test）"""
     cases = []
     for ts_file in base_dir.rglob("*.test.ts"):
@@ -65,6 +65,7 @@ def discover_unit_tests(base_dir: Path) -> list[dict]:
                     "describe_block": describe_name,
                     "test_name": test_name,
                     "full_name": f"{describe_name} > {test_name}",
+                    "branch": branch,
                 })
 
             # 跟踪花括号深度
@@ -106,10 +107,15 @@ def parse_junit_xml(xml_path: Path) -> list[dict]:
 
 
 @router.get("/unit-tests", response_model=ApiResponse)
-async def list_unit_tests(db: AsyncSession = Depends(get_async_session)):
-    """获取所有单元测试用例（按文件 → describe → test 树形结构）"""
+async def list_unit_tests(
+    branch: str = "main",
+    db: AsyncSession = Depends(get_async_session),
+):
+    """获取指定分支的单元测试用例（按文件 → describe → test 树形结构）"""
     result = await db.execute(
-        select(UnitTestCase).order_by(UnitTestCase.file_path, UnitTestCase.id)
+        select(UnitTestCase)
+        .where(UnitTestCase.branch == branch)
+        .order_by(UnitTestCase.file_path, UnitTestCase.id)
     )
     cases = result.scalars().all()
 
@@ -141,38 +147,73 @@ async def list_unit_tests(db: AsyncSession = Depends(get_async_session)):
 
 @router.post("/unit-tests/discover", response_model=ApiResponse)
 async def discover_tests(db: AsyncSession = Depends(get_async_session)):
-    """扫描 unit_tests/ 目录，解析并同步用例到 DB（保留测试结果）"""
-    if not UNIT_TESTS_DIR.exists():
-        return ApiResponse(success=False, error=f"目录不存在: {UNIT_TESTS_DIR}")
+    """扫描 unit_tests/ 和 branches/*/unit_tests/ 目录，解析并同步用例到 DB（保留测试结果）"""
+    total_discovered = 0
+    total_new = 0
+    total_updated = 0
+    total_removed = 0
 
-    discovered = discover_unit_tests(UNIT_TESTS_DIR)
+    # 1. 扫描 main 基线
+    if UNIT_TESTS_DIR.exists():
+        discovered = discover_unit_tests(UNIT_TESTS_DIR, branch="main")
+        seen = set()
+        unique = []
+        for c in discovered:
+            key = (c["full_name"], c["branch"])
+            if key not in seen:
+                seen.add(key)
+                unique.append(c)
+        new_c, upd_c, rem_c = await _sync_unit_test_cases(db, unique, branch="main")
+        total_discovered += len(unique)
+        total_new += new_c
+        total_updated += upd_c
+        total_removed += rem_c
 
-    # 按 full_name 去重
-    seen = set()
-    unique_discovered = []
-    for c in discovered:
-        if c["full_name"] not in seen:
-            seen.add(c["full_name"])
-            unique_discovered.append(c)
-
-    new_count, updated_count, removed_count = await _sync_unit_test_cases(db, unique_discovered)
+    # 2. 扫描 branches/*/unit_tests/
+    branches_dir = UNIT_TESTS_DIR.parent / "branches"
+    if branches_dir.exists():
+        for branch_dir in branches_dir.iterdir():
+            if not branch_dir.is_dir():
+                continue
+            branch_unit_dir = branch_dir / "unit_tests"
+            if not branch_unit_dir.exists():
+                continue
+            branch_name = branch_dir.name
+            discovered = discover_unit_tests(branch_unit_dir, branch=branch_name)
+            seen = set()
+            unique = []
+            for c in discovered:
+                key = (c["full_name"], c["branch"])
+                if key not in seen:
+                    seen.add(key)
+                    unique.append(c)
+            new_c, upd_c, rem_c = await _sync_unit_test_cases(db, unique, branch=branch_name)
+            total_discovered += len(unique)
+            total_new += new_c
+            total_updated += upd_c
+            total_removed += rem_c
 
     return ApiResponse(data={
-        "discovered": len(unique_discovered),
-        "new": new_count,
-        "updated": updated_count,
-        "removed": removed_count,
+        "discovered": total_discovered,
+        "new": total_new,
+        "updated": total_updated,
+        "removed": total_removed,
     })
 
 
-async def _sync_unit_test_cases(db: AsyncSession, discovered: list[dict]) -> tuple[int, int, int]:
+async def _sync_unit_test_cases(
+    db: AsyncSession, discovered: list[dict], branch: str = "main"
+) -> tuple[int, int, int]:
     """同步单元测试用例：merge 策略，不删除测试结果。
+    仅操作指定分支的用例。
     返回 (new_count, updated_count, removed_count)
     """
     from sqlalchemy import update
 
-    # 获取现有用例
-    result = await db.execute(select(UnitTestCase))
+    # 获取当前分支的现有用例
+    result = await db.execute(
+        select(UnitTestCase).where(UnitTestCase.branch == branch)
+    )
     existing = {c.full_name: c for c in result.scalars().all()}
 
     discovered_names = set()

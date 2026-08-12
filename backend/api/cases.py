@@ -45,6 +45,7 @@ async def sync_test_cases(
     collected: list[dict],
     suite_labels: dict[str, str],
     test_type: str = "ui",
+    branch: str = "main",
 ) -> dict:
     """
     全量同步：对比文件系统与 DB，新增缺失的、清理过期的、删除空套件。
@@ -84,9 +85,12 @@ async def sync_test_cases(
         # 文件系统上的函数名集合
         fs_funcs = {item["function_name"] for item in items}
 
-        # DB 中该套件的所有用例
+        # DB 中该套件在当前分支的所有用例
         db_result = await db.execute(
-            select(TestCase).where(TestCase.suite_id == suite.id)
+            select(TestCase).where(
+                TestCase.suite_id == suite.id,
+                TestCase.branch == branch,
+            )
         )
         db_cases = {c.function_name: c for c in db_result.scalars().all()}
         # 短名索引（不含类前缀），用于处理 ClassName::test_xxx 的迁移
@@ -118,6 +122,7 @@ async def sync_test_cases(
                     function_name=fn,
                     tags=f"{priority.lower()},{suite_key}",
                     priority=priority,
+                    branch=branch,
                     timeout=30,
                 ))
                 new_cases += 1
@@ -136,7 +141,7 @@ async def sync_test_cases(
             )
             removed_cases += len(stale_funcs)
 
-    # 3b. 清理 DB 中存在但文件系统上已完全没有的套件（整个文件被删除）
+    # 3b. 清理 DB 中存在但文件系统上已完全没有的套件（仅清理当前分支的用例）
     fs_suite_keys = set(grouped.keys())
     all_db_suites = await db.execute(
         select(TestSuite).where(
@@ -146,9 +151,12 @@ async def sync_test_cases(
     )
     for suite in all_db_suites.scalars().all():
         if suite.tags not in fs_suite_keys:
-            # 该套件对应的测试文件已不存在，删除所有用例
+            # 该套件对应的测试文件在当前分支已不存在，仅删除该分支的用例
             db_result = await db.execute(
-                select(TestCase).where(TestCase.suite_id == suite.id)
+                select(TestCase).where(
+                    TestCase.suite_id == suite.id,
+                    TestCase.branch == branch,
+                )
             )
             stale_cases = db_result.scalars().all()
             if stale_cases:
