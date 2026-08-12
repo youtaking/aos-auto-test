@@ -46,6 +46,26 @@ async def lifespan(app: FastAPI):
                     print(f"[AutoDiscover] API: scanned {api_stats['discovered']}, "
                           f"new {api_stats['new_cases']}, cleaned {api_stats['removed_cases']}")
 
+                # 分支 API 测试扫描
+                from pathlib import Path as _Path
+                branches_dir = _Path("branches")
+                if branches_dir.exists():
+                    for branch_dir in branches_dir.iterdir():
+                        if not branch_dir.is_dir():
+                            continue
+                        branch_api_dir = str(branch_dir / "api_suites")
+                        if not _Path(branch_api_dir).exists():
+                            continue
+                        branch_name = branch_dir.name
+                        branch_collected = runner.collect_tests_api(test_dir=branch_api_dir)
+                        if branch_collected:
+                            branch_stats = await sync_test_cases(
+                                db, project, branch_collected, API_SUITE_LABELS, "api",
+                                branch=branch_name,
+                            )
+                            print(f"[AutoDiscover] API ({branch_name}): scanned {branch_stats['discovered']}, "
+                                  f"new {branch_stats['new_cases']}, cleaned {branch_stats['removed_cases']}")
+
     except Exception as e:
         print(f"[AutoDiscover] 用例同步失败: {e}")
 
@@ -54,19 +74,43 @@ async def lifespan(app: FastAPI):
         from backend.api.unit_tests import discover_unit_tests, UNIT_TESTS_DIR, _sync_unit_test_cases
         from backend.db.models import UnitTestCase, UnitTestResult
 
+        # Main 基线
         if UNIT_TESTS_DIR.exists():
-            discovered = discover_unit_tests(UNIT_TESTS_DIR)
-            # 按 full_name 去重，防止解析出重复用例
+            discovered = discover_unit_tests(UNIT_TESTS_DIR, branch="main")
             seen = set()
             unique_discovered = []
             for c in discovered:
-                if c["full_name"] not in seen:
-                    seen.add(c["full_name"])
+                key = (c["full_name"], c["branch"])
+                if key not in seen:
+                    seen.add(key)
                     unique_discovered.append(c)
             async with async_session() as db:
-                new_c, updated_c, removed_c = await _sync_unit_test_cases(db, unique_discovered)
-            print(f"[AutoDiscover] Unit: discovered {len(unique_discovered)}, "
+                new_c, updated_c, removed_c = await _sync_unit_test_cases(db, unique_discovered, branch="main")
+            print(f"[AutoDiscover] Unit (main): discovered {len(unique_discovered)}, "
                   f"new {new_c}, updated {updated_c}, removed {removed_c}")
+
+        # 分支目录
+        branches_dir = UNIT_TESTS_DIR.parent / "branches"
+        if branches_dir.exists():
+            for branch_dir in branches_dir.iterdir():
+                if not branch_dir.is_dir():
+                    continue
+                branch_unit_dir = branch_dir / "unit_tests"
+                if not branch_unit_dir.exists():
+                    continue
+                branch_name = branch_dir.name
+                discovered = discover_unit_tests(branch_unit_dir, branch=branch_name)
+                seen = set()
+                unique_discovered = []
+                for c in discovered:
+                    key = (c["full_name"], c["branch"])
+                    if key not in seen:
+                        seen.add(key)
+                        unique_discovered.append(c)
+                async with async_session() as db:
+                    new_c, updated_c, removed_c = await _sync_unit_test_cases(db, unique_discovered, branch=branch_name)
+                print(f"[AutoDiscover] Unit ({branch_name}): discovered {len(unique_discovered)}, "
+                      f"new {new_c}, updated {updated_c}, removed {removed_c}")
     except Exception as e:
         print(f"[AutoDiscover] Unit test discovery failed: {e}")
 
