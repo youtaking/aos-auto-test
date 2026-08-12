@@ -1,11 +1,12 @@
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, PlayCircle, ListChecks, Settings, Eye, Plug, FileText, Brain, GitPullRequest, TestTube } from "lucide-react";
+import { LayoutDashboard, PlayCircle, ListChecks, Settings, Eye, Plug, FileText, Brain, GitPullRequest, TestTube, GitBranch } from "lucide-react";
 
 const navItems = [
   { to: "/dashboard", icon: LayoutDashboard, label: "总览" },
   { to: "/runs", icon: PlayCircle, label: "运行记录" },
   { to: "/cases", icon: ListChecks, label: "用例管理" },
   { to: "/unit-tests", icon: TestTube, label: "单元测试" },
+  { to: "/branches", icon: GitBranch, label: "分支管理" },
   { to: "/api-tests", icon: Plug, label: "接口测试" },
   { to: "/reports", icon: FileText, label: "测试报告" },
   { to: "/ai-analysis", icon: Brain, label: "AI 分析" },
