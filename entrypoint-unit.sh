@@ -27,13 +27,13 @@ elif [ -f "$FENIX_ROOT/bun.lock" ]; then
 fi
 [ -n "$LOCK_NAME" ] && cp "$FENIX_ROOT/$LOCK_NAME" "$WORKSPACE_ROOT/$LOCK_NAME"
 
-# 创建 workspace 包的 stub 目录（让 bun 能解析 workspace:* 依赖）
+# 创建 workspace 包的软链（指向真实包目录，让 bun 能解析 workspace:* 依赖及其源码）
 mkdir -p "$WORKSPACE_ROOT/packages"
 for pkg_dir in "$FENIX_ROOT/packages"/*/; do
   if [ -f "${pkg_dir}package.json" ]; then
     pkg_name=$(basename "$pkg_dir")
-    mkdir -p "$WORKSPACE_ROOT/packages/$pkg_name"
-    cp "${pkg_dir}package.json" "$WORKSPACE_ROOT/packages/$pkg_name/package.json"
+    # 软链到真实包目录（包含 src/、package.json 等），确保 workspace 包源码可正常导入
+    ln -sfn "${pkg_dir%/}" "$WORKSPACE_ROOT/packages/$pkg_name"
   fi
 done
 
