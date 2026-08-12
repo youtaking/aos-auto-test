@@ -17,8 +17,8 @@ export interface UnitTestRunResult {
   }[];
 }
 
-export async function listUnitTests(): Promise<UnitTestFile[]> {
-  return get<UnitTestFile[]>("/unit-tests");
+export async function listUnitTests(branch: string = "main"): Promise<UnitTestFile[]> {
+  return get<UnitTestFile[]>("/unit-tests", { branch });
 }
 
 export async function discoverUnitTests(): Promise<{ discovered: number }> {

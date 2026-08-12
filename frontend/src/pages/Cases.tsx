@@ -6,6 +6,7 @@ import { triggerRun } from "../api/runs";
 import { getCollection, updateCollection, listCollections, createCollection } from "../api/collections";
 import { ChevronDown, RefreshCw, FolderOpen } from "lucide-react";
 import CollectionManager from "../components/CollectionManager";
+import BranchSelector from "../components/BranchSelector";
 import type { TestSuite, TestCase, Collection } from "../api/types";
 
 export default function Cases() {
@@ -25,6 +26,7 @@ export default function Cases() {
   const [priorityFilters, setPriorityFilters] = useState<Record<string, string>>({});
   const [quickColName, setQuickColName] = useState("");
   const [savingCol, setSavingCol] = useState(false);
+  const [apiBranch, setApiBranch] = useState("main");
 
   const loadCases = () => {
     listProjects().then((projs) => {
@@ -44,10 +46,15 @@ export default function Cases() {
 
   useEffect(() => {
     if (suites.length === 0) return;
+    const apiSuiteIds = new Set(suites.filter((s) => s.test_type === "api").map((s) => s.id));
     Promise.all(
-      suites.map((s) => get<TestCase[]>(`/suites/${s.id}/cases`))
+      suites.map((s) =>
+        apiSuiteIds.has(s.id) && apiBranch !== "main"
+          ? get<TestCase[]>(`/suites/${s.id}/cases`, { branch: apiBranch })
+          : get<TestCase[]>(`/suites/${s.id}/cases`)
+      )
     ).then((results) => setCases(results.flat())).catch(console.error);
-  }, [suites]);
+  }, [suites, apiBranch]);
 
   const handleSync = async () => {
     if (syncing) return;
@@ -158,7 +165,7 @@ export default function Cases() {
   const uiCases = cases.filter((c) => uiSuites.some((s) => s.id === c.suite_id));
   const apiCases = cases.filter((c) => apiSuites.some((s) => s.id === c.suite_id));
 
-  const renderSuiteSection = (sectionKey: string, title: string, sectionSuites: TestSuite[], sectionCases: TestCase[], accent: string) => {
+  const renderSuiteSection = (sectionKey: string, title: string, sectionSuites: TestSuite[], sectionCases: TestCase[], accent: string, branchValue?: string) => {
     const pFilter = priorityFilters[sectionKey] || "all";
     const filteredCases = pFilter === "all"
       ? sectionCases
@@ -202,6 +209,11 @@ export default function Cases() {
             >
               {filteredCases.every((c) => selectedIds.has(c.id)) ? "取消全选" : "全选可见"}
             </button>
+          )}
+          {branchValue !== undefined && (
+            <div onClick={(e) => e.stopPropagation()}>
+              <BranchSelector value={branchValue} onChange={(b) => setApiBranch(b)} />
+            </div>
           )}
         </div>
 
@@ -402,7 +414,7 @@ export default function Cases() {
           {renderSuiteSection("section-ui", "UI 测试", uiSuites, uiCases, "bg-blue-500")}
 
           {/* Web API 测试 */}
-          {renderSuiteSection("section-api", "Web API 测试", apiSuites, apiCases, "bg-orange-500")}
+          {renderSuiteSection("section-api", "Web API 测试", apiSuites, apiCases, "bg-orange-500", apiBranch)}
 
       {showCollections && (
         <CollectionManager
