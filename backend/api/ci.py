@@ -17,6 +17,7 @@ from backend.schemas.ci import (
     PipelineResponse, CIConfigResponse, CIConfigUpdate,
 )
 from backend.schemas.common import ApiResponse
+from backend.api.branches import _validate_branch_name
 
 router = APIRouter()
 
@@ -386,11 +387,14 @@ async def resolve_tests(
     """根据 CI 配置或分支，解析出 pytest node ID 列表"""
     # 如果有 branch 参数，扫描分支目录
     if branch and branch != "main":
+        _validate_branch_name(branch)
+        from backend.api.unit_tests import UNIT_TESTS_DIR
         from engine.runner import TestRunner
         runner = TestRunner()
-        branch_api_dir = f"branches/{branch}/api_suites"
-        if Path(branch_api_dir).exists():
-            collected = runner.collect_tests_api(test_dir=branch_api_dir)
+        branches_dir = UNIT_TESTS_DIR.parent / "branches"
+        branch_api_dir = branches_dir / branch / "api_suites"
+        if branch_api_dir.exists():
+            collected = runner.collect_tests_api(test_dir=str(branch_api_dir))
             node_ids = [f"{c['file_path']}::{c['function_name']}" for c in collected]
             return ApiResponse(data={"node_ids": node_ids})
         else:
@@ -434,11 +438,14 @@ async def staging_resolve_tests(
     """根据 CI 配置的 Staging 用例集或分支，解析出 pytest node ID 列表"""
     # 如果有 branch 参数，扫描分支目录
     if branch and branch != "main":
+        _validate_branch_name(branch)
+        from backend.api.unit_tests import UNIT_TESTS_DIR
         from engine.runner import TestRunner
         runner = TestRunner()
-        branch_api_dir = f"branches/{branch}/api_suites"
-        if Path(branch_api_dir).exists():
-            collected = runner.collect_tests_api(test_dir=branch_api_dir)
+        branches_dir = UNIT_TESTS_DIR.parent / "branches"
+        branch_api_dir = branches_dir / branch / "api_suites"
+        if branch_api_dir.exists():
+            collected = runner.collect_tests_api(test_dir=str(branch_api_dir))
             node_ids = [f"{c['file_path']}::{c['function_name']}" for c in collected]
             return ApiResponse(data={"node_ids": node_ids})
         else:
@@ -485,6 +492,7 @@ async def resolve_unit_tests(
     PROJECT_ROOT = UNIT_TESTS_DIR.parent  # unit_tests/ 的父目录就是项目根
 
     if branch and branch != "main":
+        _validate_branch_name(branch)
         unit_dir = PROJECT_ROOT / "branches" / branch / "unit_tests"
     else:
         unit_dir = UNIT_TESTS_DIR
