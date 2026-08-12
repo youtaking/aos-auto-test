@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { listUnitTests, runUnitTests, discoverUnitTests } from "../api/unitTests";
 import { listSettings, updateSetting } from "../api/settings";
+import BranchSelector from "../components/BranchSelector";
 import type { UnitTestFile, UnitTestRunResult } from "../api/unitTests";
 
 export default function UnitTests() {
@@ -23,23 +24,27 @@ export default function UnitTests() {
 
   // 选择运行
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [branch, setBranch] = useState("main");
 
   const load = () => {
     setLoading(true);
     discoverUnitTests()
-      .then(() => listUnitTests())
+      .then(() => listUnitTests(branch))
       .then(setFiles)
       .catch(console.error)
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
     listSettings()
       .then((items) => {
         const fp = items.find((s) => s.key === "fenix_source_path");
         if (fp) setFenixPath(fp.value);
       })
       .catch(console.error);
-  };
+  }, []);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [branch]);
 
   const handleRun = async () => {
     if (running) return;
@@ -139,6 +144,7 @@ export default function UnitTests() {
             {loading ? "加载中..." : `${files.length} 个测试文件 / ${totalTests} 个用例`}
           </p>
         </div>
+        <BranchSelector value={branch} onChange={(b) => { setBranch(b); }} />
         <div className="flex gap-2">
           <button
             onClick={() => setShowConfig(!showConfig)}
