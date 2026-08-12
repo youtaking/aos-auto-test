@@ -4,7 +4,7 @@ pipeline {
     parameters {
         string(name: 'IMAGE_BUILD_NUMBER', description: 'Use images from which build number?', defaultValue: '')
         string(name: 'TEST_TARGETS', description: 'Custom test paths (leave empty to auto-resolve)', defaultValue: '')
-        string(name: 'TEST_REPO_BRANCH', description: '测试代码分支',                    defaultValue: 'feat/jenkins-pipeline')
+        string(name: 'TEST_REPO_BRANCH', description: '测试代码分支',                    defaultValue: 'master')
         string(name: 'APP_REPO',     description: '被测项目仓库地址（单元测试需要源码）', defaultValue: 'https://github.com/HuangPuStar/FenixAgent.git')
         string(name: 'APP_BRANCH',   description: '被测项目分支',                       defaultValue: 'main')
         string(name: 'TEST_REPO',    description: '测试代码仓库地址',                   defaultValue: 'https://github.com/youtaking/aos-auto-test.git')
@@ -148,9 +148,9 @@ pipeline {
                     echo "    App: $(ls app/ | wc -l) files/dirs"
                     echo ""
                     echo "<<< [1/5] Clone Test Code — DONE"
-                '''.replace('__TEST_ARCHIVE_URL__', TEST_REPO.replace('.git', '') + "/archive/refs/heads/${params.TEST_REPO_BRANCH ?: 'feat/jenkins-pipeline'}.tar.gz")
+                '''.replace('__TEST_ARCHIVE_URL__', TEST_REPO.replace('.git', '') + "/archive/refs/heads/${params.TEST_REPO_BRANCH ?: 'master'}.tar.gz")
                   .replace('__APP_ARCHIVE_URL__', APP_REPO.replace('.git', '') + "/archive/refs/heads/${params.APP_BRANCH ?: 'main'}.tar.gz")
-                  .replace('__TEST_REPO_BRANCH__', params.TEST_REPO_BRANCH ?: 'feat/jenkins-pipeline')
+                  .replace('__TEST_REPO_BRANCH__', params.TEST_REPO_BRANCH ?: 'master')
                   .replace('__APP_BRANCH__', params.APP_BRANCH ?: 'main')
             }
         }
@@ -354,7 +354,7 @@ services:
     image: unit-runner:latest
     volumes:
       - __WORKSPACE__/autotest/unit_tests:/app/tests
-      - __WORKSPACE__/app:/app/fenix-source-parent:ro
+      - __WORKSPACE__/app:/app/fenix-source-parent
 '''.replace('__PG_PORT__', PG_PORT)
   .replace('__LITE_PORT__', LITE_PORT)
   .replace('__IMAGE_TAG__', IMAGE_TAG)
@@ -544,7 +544,7 @@ PYEOF
                         echo "<<< Create Pipeline Record — DONE"
                     '''.replace('__AUTOTEST_URL__', AUTOTEST_URL)
                       .replace('__BUILD_NUMBER__', BUILD_NUMBER)
-                      .replace('__TEST_REPO_BRANCH__', params.TEST_REPO_BRANCH ?: 'feat/jenkins-pipeline')
+                      .replace('__TEST_REPO_BRANCH__', params.TEST_REPO_BRANCH ?: 'master')
                       .replace('__TEST_REPO__', TEST_REPO.replace('.git', ''))
                       .replace('__HOST_IP__', HOST_IP)
                       .replace('__RCS_PORT__', RCS_PORT)

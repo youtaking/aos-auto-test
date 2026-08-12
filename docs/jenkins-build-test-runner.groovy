@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     parameters {
-        string(name: 'TEST_REPO_BRANCH', description: 'aos-auto-test 分支', defaultValue: 'feat/jenkins-pipeline')
+        string(name: 'TEST_REPO_BRANCH', description: 'aos-auto-test 分支', defaultValue: 'master')
         booleanParam(name: 'FORCE_REBUILD', description: '强制重新构建（删除旧镜像）', defaultValue: false)
     }
 
