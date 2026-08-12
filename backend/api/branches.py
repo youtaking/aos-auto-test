@@ -1,11 +1,10 @@
 # backend/api/branches.py
 """分支管理 API"""
 import logging
-import os
 import platform
+import re
 import shutil
 import subprocess
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
@@ -14,11 +13,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.db.config import get_async_session
 from backend.db.models import BranchTracker
 from backend.schemas.common import ApiResponse
-from backend.schemas.branch import BranchCreate, BranchInfo, PromoteReport, CanGenerateResponse
+from backend.schemas.branch import BranchCreate, GenerateRequest
 from backend.services.branch_poller import BranchPoller, PROJECT_ROOT, BRANCHES_DIR
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+_BRANCH_RE = re.compile(r'^[a-zA-Z0-9._\-/]+$')
+
+
+def _validate_branch_name(name: str) -> str:
+    """校验分支名，拒绝非法字符以防止路径穿越和命令注入。"""
+    if not _BRANCH_RE.match(name):
+        raise HTTPException(status_code=400, detail=f"Invalid branch name: {name}")
+    return name
 
 
 @router.get("/branches", response_model=ApiResponse)
@@ -116,6 +124,7 @@ async def delete_branch(
     db: AsyncSession = Depends(get_async_session),
 ):
     """删除分支目录和追踪记录"""
+    _validate_branch_name(branch_name)
     branch_dir = BRANCHES_DIR / branch_name
 
     deleted_dir = False
@@ -138,6 +147,7 @@ async def delete_branch(
 @router.post("/branches/{branch_name}/promote", response_model=ApiResponse)
 async def promote_branch(branch_name: str):
     """提取分支中新增的用例文件到 main"""
+    _validate_branch_name(branch_name)
     branch_dir = BRANCHES_DIR / branch_name
     if not branch_dir.exists():
         raise HTTPException(status_code=404, detail=f"分支目录不存在: {branch_name}")
@@ -215,8 +225,10 @@ async def can_generate():
 
 
 @router.post("/branches/{branch_name}/generate", response_model=ApiResponse)
-async def launch_generate(branch_name: str, body: dict = None):
+async def launch_generate(branch_name: str, body: GenerateRequest = GenerateRequest()):
     """拉起 Claude Code 生成分支用例"""
+    _validate_branch_name(branch_name)
+
     claude_path = shutil.which("claude")
     if not claude_path:
         raise HTTPException(
@@ -224,9 +236,7 @@ async def launch_generate(branch_name: str, body: dict = None):
             detail="Claude Code 未安装或不在 PATH 中，请在本地终端手动执行",
         )
 
-    test_type = "api"
-    if body and body.get("test_type"):
-        test_type = body["test_type"]
+    test_type = body.test_type
 
     if test_type == "api":
         prompt = (
