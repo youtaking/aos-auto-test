@@ -139,6 +139,9 @@ pipeline {
                     rm -f /tmp/autotest.tar.gz
                     echo "    Test code: $(ls autotest/ | wc -l) files/dirs in autotest/"
 
+                    # 确保 branches/ 目录存在（Docker volume mount 需要）
+                    mkdir -p autotest/branches
+
                     echo ""
                     echo "<<< [1/7] Clone Repos — DONE"
                 '''.replace('__APP_ARCHIVE_URL__', APP_REPO.replace('.git', '') + "/archive/refs/heads/${params.APP_BRANCH ?: 'main'}.tar.gz")
@@ -236,7 +239,7 @@ pipeline {
                     set +e
                         echo ">>> Querying AutoTest API for test targets..."
                         curl -s -H "Authorization: Bearer $TOKEN" \\
-                          __AUTOTEST_URL__/api/ci/resolve-tests > resolve_resp.json
+                          "__AUTOTEST_URL__/api/ci/resolve-tests?branch=__APP_BRANCH__" > resolve_resp.json
 
                         echo ">>> API response:"
                         cat resolve_resp.json
@@ -268,9 +271,33 @@ except Exception as e:
                             echo "    Targets: /app/tests/suites /app/tests/api_suites"
                         fi
 
+                        echo ">>> Resolving unit tests..."
+                        curl -s -H "Authorization: Bearer $TOKEN" \\
+                          "__AUTOTEST_URL__/api/ci/resolve-unit-tests?branch=__APP_BRANCH__" > unit_resolve_resp.json
+
+                        python3 -c "
+import json
+try:
+    data = json.load(open('unit_resolve_resp.json'))
+    files = data.get('data', {}).get('files', [])
+    if files:
+        fixed = [('/app/' + f if not f.startswith('/') else f) for f in files]
+        print(' '.join(fixed))
+except Exception as e:
+    import sys
+    print(f'Parse error: {e}', file=sys.stderr)
+" > unit_test_targets.txt 2>/dev/null
+
+                        if [ -s unit_test_targets.txt ]; then
+                            echo "    Unit test targets: $(cat unit_test_targets.txt)"
+                        else
+                            echo "    No unit test targets"
+                        fi
+
                         echo ""
                         echo "<<< [3/7] Resolve Tests — DONE"
                     '''.replace('__AUTOTEST_URL__', AUTOTEST_URL)
+                      .replace('__APP_BRANCH__', params.APP_BRANCH ?: 'main')
                 }
             }
         }
@@ -284,6 +311,9 @@ except Exception as e:
                     echo "[4/7] Write Compose — START"
                     echo "============================================================"
                 '''
+                def TEST_ROOT = (params.APP_BRANCH && params.APP_BRANCH != "main")
+                    ? "/app/branches/${params.APP_BRANCH}/unit_tests"
+                    : "/app/tests"
                 writeFile file: 'docker-compose.yml', text: '''
 services:
   postgres:
@@ -352,6 +382,7 @@ services:
         condition: service_healthy
     volumes:
       - __WORKSPACE__/autotest/tests:/app/tests
+      - __WORKSPACE__/autotest/branches:/app/branches
       - __WORKSPACE__/autotest/conftest.py:/app/conftest.py
       - __WORKSPACE__/autotest/pytest.ini:/app/pytest.ini
     environment:
@@ -365,7 +396,10 @@ services:
     image: unit-runner:latest
     volumes:
       - __WORKSPACE__/autotest/unit_tests:/app/tests
-      - __WORKSPACE__/app:/app/fenix-source-parent
+      - __WORKSPACE__/autotest/branches:/app/branches
+      - __WORKSPACE__/app:/app/fenix-source-parent:ro
+    environment:
+      TEST_ROOT: __TEST_ROOT__
 '''.replace('__PG_PORT__', PG_PORT)
   .replace('__LITE_PORT__', LITE_PORT)
   .replace('__IMAGE_TAG__', "${PROJECT_NAME}:${BUILD_NUMBER}")
@@ -374,6 +408,7 @@ services:
   .replace('__HOST_IP__', HOST_IP)
   .replace('__WORKSPACE__', env.WORKSPACE.replace('/var/jenkins_home', '/opt/1panel/apps/jenkins/jenkins/data'))
   .replace('__TEST_TARGETS__', readFile('test_targets.txt').trim())
+  .replace('__TEST_ROOT__', TEST_ROOT)
 
                 sh '''
                     set +x
