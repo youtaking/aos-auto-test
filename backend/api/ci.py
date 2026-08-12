@@ -379,8 +379,24 @@ async def get_pipeline_logs(
 
 
 @router.get("/ci/resolve-tests", response_model=ApiResponse)
-async def resolve_tests(db: AsyncSession = Depends(get_async_session)):
-    """根据 CI 配置的用例集，解析出 pytest node ID 列表"""
+async def resolve_tests(
+    branch: str = "",
+    db: AsyncSession = Depends(get_async_session),
+):
+    """根据 CI 配置或分支，解析出 pytest node ID 列表"""
+    # 如果有 branch 参数，扫描分支目录
+    if branch and branch != "main":
+        from engine.runner import TestRunner
+        runner = TestRunner()
+        branch_api_dir = f"branches/{branch}/api_suites"
+        if Path(branch_api_dir).exists():
+            collected = runner.collect_tests_api(test_dir=branch_api_dir)
+            node_ids = [f"{c['file_path']}::{c['function_name']}" for c in collected]
+            return ApiResponse(data={"node_ids": node_ids})
+        else:
+            return ApiResponse(data={"node_ids": [], "warning": f"branch dir not found: {branch_api_dir}"})
+
+    # 原有逻辑：从 CI config 的 collection_ids 解析
     config = await _get_ci_config(db)
 
     if not config.collection_ids:
@@ -411,8 +427,24 @@ async def resolve_tests(db: AsyncSession = Depends(get_async_session)):
 
 
 @router.get("/ci/staging-resolve-tests", response_model=ApiResponse)
-async def staging_resolve_tests(db: AsyncSession = Depends(get_async_session)):
-    """根据 CI 配置的 Staging 用例集，解析出 pytest node ID 列表"""
+async def staging_resolve_tests(
+    branch: str = "",
+    db: AsyncSession = Depends(get_async_session),
+):
+    """根据 CI 配置的 Staging 用例集或分支，解析出 pytest node ID 列表"""
+    # 如果有 branch 参数，扫描分支目录
+    if branch and branch != "main":
+        from engine.runner import TestRunner
+        runner = TestRunner()
+        branch_api_dir = f"branches/{branch}/api_suites"
+        if Path(branch_api_dir).exists():
+            collected = runner.collect_tests_api(test_dir=branch_api_dir)
+            node_ids = [f"{c['file_path']}::{c['function_name']}" for c in collected]
+            return ApiResponse(data={"node_ids": node_ids})
+        else:
+            return ApiResponse(data={"node_ids": [], "warning": f"branch dir not found: {branch_api_dir}"})
+
+    # 原有逻辑：从 CI config 的 staging_collection_ids 解析
     config = await _get_ci_config(db)
 
     if not config.staging_collection_ids:
@@ -440,3 +472,32 @@ async def staging_resolve_tests(db: AsyncSession = Depends(get_async_session)):
 
     node_ids = [f"{c.file_path}::{c.function_name}" for c in cases]
     return ApiResponse(data={"node_ids": node_ids})
+
+
+@router.get("/ci/resolve-unit-tests", response_model=ApiResponse)
+async def resolve_unit_tests(
+    branch: str = "",
+    db: AsyncSession = Depends(get_async_session),
+):
+    """解析单元测试文件列表（供 Jenkins pipeline 使用）"""
+    from backend.api.unit_tests import UNIT_TESTS_DIR
+
+    PROJECT_ROOT = UNIT_TESTS_DIR.parent  # unit_tests/ 的父目录就是项目根
+
+    if branch and branch != "main":
+        unit_dir = PROJECT_ROOT / "branches" / branch / "unit_tests"
+    else:
+        unit_dir = UNIT_TESTS_DIR
+
+    if not unit_dir.exists():
+        return ApiResponse(data={"files": [], "warning": f"dir not found: {unit_dir}"})
+
+    files = []
+    for ts_file in unit_dir.rglob("*.test.ts"):
+        # 路径相对于 PROJECT_ROOT，确保容器内路径正确：
+        # main → unit_tests/xxx.test.ts → /app/unit_tests/xxx.test.ts（挂载到 /app/tests）
+        # branch → branches/{branch}/unit_tests/xxx.test.ts → /app/branches/{branch}/unit_tests/xxx.test.ts
+        relative = ts_file.relative_to(PROJECT_ROOT).as_posix()
+        files.append(relative)
+
+    return ApiResponse(data={"files": sorted(files)})
