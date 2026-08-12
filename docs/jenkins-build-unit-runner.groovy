@@ -117,7 +117,7 @@ pipeline {
                     }
 
                     download_repo \\
-                      "https://github.com/youtaking/FenixAgent/archive/refs/heads/main.tar.gz" \\
+                      "https://github.com/HuangPuStar/FenixAgent/archive/refs/heads/main.tar.gz" \\
                       /tmp/fenix.tar.gz
                     tar xzf /tmp/fenix.tar.gz --strip-components=1 -C /tmp/fenix-cache
                     rm -f /tmp/fenix.tar.gz
