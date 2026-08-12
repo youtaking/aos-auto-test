@@ -27,6 +27,30 @@ DEFAULT_SETTINGS = {
         "default": "",
         "description": "FenixAgent 源码 src 目录路径（用于单元测试模块解析 @fenix/* 导入）",
     },
+    "branch_poll_enabled": {
+        "default": "false",
+        "description": "是否启用 Fenix 分支轮询",
+    },
+    "branch_poll_interval": {
+        "default": "30",
+        "description": "分支轮询间隔（分钟）",
+    },
+    "branch_poll_repo": {
+        "default": "https://github.com/HuangPuStar/FenixAgent",
+        "description": "Fenix 仓库地址",
+    },
+    "github_token": {
+        "default": "",
+        "description": "GitHub Personal Access Token（用于轮询私有仓库）",
+    },
+    "branch_poll_include": {
+        "default": "*",
+        "description": "分支名匹配规则（逗号分隔，支持通配符）",
+    },
+    "branch_poll_exclude": {
+        "default": "",
+        "description": "分支名排除规则（逗号分隔）",
+    },
 }
 
 
