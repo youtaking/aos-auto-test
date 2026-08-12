@@ -2,7 +2,7 @@
 """数据库 ORM 模型"""
 from datetime import datetime, timezone, timedelta
 from sqlalchemy import (
-    Column, Integer, String, Text, DateTime, ForeignKey, Index, JSON
+    Column, Integer, String, Text, DateTime, ForeignKey, Index, JSON, UniqueConstraint
 )
 from sqlalchemy.orm import relationship
 from backend.db.base import Base
@@ -103,6 +103,7 @@ class TestCase(Base):
     function_name = Column(String(300), nullable=False)
     tags = Column(String(500), default="")
     priority = Column(String(10), default="P1")
+    branch = Column(String(200), default="main")  # 所属分支，默认 main
     timeout = Column(Integer, default=60)
     created_at = Column(DateTime, default=_now)
     updated_at = Column(DateTime, default=_now, onupdate=_now)
@@ -113,6 +114,7 @@ class TestCase(Base):
     __table_args__ = (
         Index("ix_test_cases_suite_id", "suite_id"),
         Index("ix_test_cases_function_name", "function_name"),
+        Index("ix_test_cases_branch", "branch"),
     )
 
 
@@ -277,13 +279,16 @@ class UnitTestCase(Base):
     file_path = Column(String(500), nullable=False)        # 相对路径，如 services/phone-number.test.ts
     describe_block = Column(String(200), default="")       # describe 名称
     test_name = Column(String(300), nullable=False)         # test/it 名称
-    full_name = Column(String(500), nullable=False, unique=True)  # describe > test 完整名
+    full_name = Column(String(500), nullable=False)  # describe > test 完整名
+    branch = Column(String(200), default="main")
     discovered_at = Column(DateTime, default=_now)
 
     results = relationship("UnitTestResult", back_populates="case", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("ix_unit_test_cases_file_path", "file_path"),
+        Index("ix_unit_test_cases_branch", "branch"),
+        UniqueConstraint("full_name", "branch", name="uq_unit_test_case_full_name_branch"),
     )
 
 
@@ -338,6 +343,19 @@ class Setting(Base):
     key = Column(String(200), nullable=False, unique=True, index=True)
     value = Column(Text, default="")
     description = Column(String(500), default="")
+    updated_at = Column(DateTime, default=_now, onupdate=_now)
+
+
+class BranchTracker(Base):
+    """Fenix 分支追踪记录"""
+    __tablename__ = "branch_trackers"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    branch_name = Column(String(200), unique=True, nullable=False)
+    last_commit_sha = Column(String(40), default="")
+    status = Column(String(20), default="up_to_date")
+    # up_to_date / needs_update / deleted
+    discovered_at = Column(DateTime, default=_now)
     updated_at = Column(DateTime, default=_now, onupdate=_now)
 
 
