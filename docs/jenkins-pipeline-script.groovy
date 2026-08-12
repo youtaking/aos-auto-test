@@ -10,7 +10,7 @@ pipeline {
         string(name: 'APP_REPO',     description: '被测项目仓库地址（如 FenixAgent）',   defaultValue: 'https://github.com/HuangPuStar/FenixAgent.git')
         string(name: 'APP_BRANCH',   description: '被测项目分支',                       defaultValue: 'main')
         string(name: 'TEST_REPO',    description: '测试代码仓库地址（如 aos-auto-test）', defaultValue: 'https://github.com/youtaking/aos-auto-test.git')
-        string(name: 'TEST_REPO_BRANCH', description: '测试代码分支',                    defaultValue: 'feat/jenkins-pipeline')
+        string(name: 'TEST_REPO_BRANCH', description: '测试代码分支',                    defaultValue: 'master')
         string(name: 'AUTOTEST_URL', description: 'AutoTest 后端地址（用于上传测试结果和日志）', defaultValue: 'http://100.105.181.173:8111')
         string(name: 'HOST_IP', description: '宿主机 IP（RCS 服务对外地址，用于健康检查和 target_url）', defaultValue: '100.105.114.178')
     }
@@ -142,9 +142,9 @@ pipeline {
                     echo ""
                     echo "<<< [1/7] Clone Repos — DONE"
                 '''.replace('__APP_ARCHIVE_URL__', APP_REPO.replace('.git', '') + "/archive/refs/heads/${params.APP_BRANCH ?: 'main'}.tar.gz")
-                  .replace('__TEST_ARCHIVE_URL__', TEST_REPO.replace('.git', '') + "/archive/refs/heads/${params.TEST_REPO_BRANCH ?: 'feat/jenkins-pipeline'}.tar.gz")
+                  .replace('__TEST_ARCHIVE_URL__', TEST_REPO.replace('.git', '') + "/archive/refs/heads/${params.TEST_REPO_BRANCH ?: 'master'}.tar.gz")
                   .replace('__APP_BRANCH__', params.APP_BRANCH ?: 'main')
-                  .replace('__TEST_REPO_BRANCH__', params.TEST_REPO_BRANCH ?: 'feat/jenkins-pipeline')
+                  .replace('__TEST_REPO_BRANCH__', params.TEST_REPO_BRANCH ?: 'master')
                   .replace('__PR_BRANCH__', params.PR_BRANCH ?: 'main')
                   .replace('__PROJECT_NAME__', PROJECT_NAME)
                   .replace('__RCS_PORT__', RCS_PORT)
@@ -364,7 +364,7 @@ services:
     image: unit-runner:latest
     volumes:
       - __WORKSPACE__/autotest/unit_tests:/app/tests
-      - __WORKSPACE__/app:/app/fenix-source-parent:ro
+      - __WORKSPACE__/app:/app/fenix-source-parent
 '''.replace('__PG_PORT__', PG_PORT)
   .replace('__LITE_PORT__', LITE_PORT)
   .replace('__IMAGE_TAG__', "${PROJECT_NAME}:${BUILD_NUMBER}")
