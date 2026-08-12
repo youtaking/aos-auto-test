@@ -4,12 +4,13 @@ set -e
 FENIX_SRC="/app/fenix-source-parent/src"
 FENIX_ROOT="/app/fenix-source-parent"
 CACHE_DIR="/app/cache"
+TEST_ROOT="${TEST_ROOT:-/app/tests}"
 # 用 /workspace 模拟 monorepo 根目录，让 bun 正确解析 workspace:* 依赖
 WORKSPACE_ROOT="/workspace"
 
 echo "=== Unit Test Runner ==="
 echo "    Source: $FENIX_SRC"
-echo "    Tests:  /app/tests"
+echo "    Tests:  $TEST_ROOT"
 echo "    Cache:  $CACHE_DIR"
 echo "    Workspace: $WORKSPACE_ROOT"
 
@@ -39,7 +40,7 @@ done
 
 # 将测试文件放入 workspace（作为 workspace 的一个包）
 mkdir -p "$WORKSPACE_ROOT/tests"
-cp -r /app/tests/* "$WORKSPACE_ROOT/tests/"
+cp -r "$TEST_ROOT"/* "$WORKSPACE_ROOT/tests/"
 # 2. 生成 tsconfig.json（@fenix/* → FenixAgent src/*）
 echo ">>> Generating tsconfig.json..."
 cat > "$WORKSPACE_ROOT/tests/tsconfig.json" << TSEOF
