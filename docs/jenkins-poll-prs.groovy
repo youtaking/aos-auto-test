@@ -11,7 +11,7 @@
 //   2. 勾选 "This project is parameterized"，添加以下参数：
 //        MONITOR_TYPE    String  默认 pr
 //        MONITOR_BRANCH  String  默认 main
-//        REPO_URL        String  默认 https://github.com/youtaking/FenixAgent
+//        REPO_URL        String  默认 https://github.com/HuangPuStar/FenixAgent
 //        TARGET_JOB      String  默认 PR-Pipeline-build
 //        GITHUB_TOKEN    String  默认空（可选，提高 rate limit）
 //        FORCE_RESET     String  默认 false（设为 true 清除状态，以全新首次运行状态触发所有 PR）
@@ -37,7 +37,7 @@ def getParam(String name, String defaultVal) {
 
 MONITOR_TYPE   = getParam("MONITOR_TYPE",   "pr")
 MONITOR_BRANCH = getParam("MONITOR_BRANCH", "main")
-REPO_URL       = getParam("REPO_URL",       "https://github.com/youtaking/FenixAgent")
+REPO_URL       = getParam("REPO_URL",       "https://github.com/HuangPuStar/FenixAgent")
 TARGET_JOB     = getParam("TARGET_JOB",     "PR-Pipeline-build")
 GITHUB_TOKEN   = getParam("GITHUB_TOKEN",   "")
 FORCE_RESET    = getParam("FORCE_RESET",    "false") == "true"
