@@ -7,7 +7,7 @@ from backend.db.config import init_db, close_db
 from backend.api import (
     projects, suites, runs, cases, dashboard, api_tests,
     auth_configs, llm_configs, zentao_configs, ai_analysis,
-    ci, collections, unit_tests, settings,
+    ci, collections, unit_tests, settings, branches,
 )
 from backend import ws as ws_module
 
@@ -142,6 +142,7 @@ app.include_router(ci.router, prefix="/api", tags=["ci-pipelines"])
 app.include_router(collections.router, prefix="/api", tags=["collections"])
 app.include_router(unit_tests.router, prefix="/api", tags=["unit-tests"])
 app.include_router(settings.router, prefix="/api", tags=["settings"])
+app.include_router(branches.router, prefix="/api", tags=["branches"])
 app.include_router(ws_module.router, tags=["websocket"])
 
 
