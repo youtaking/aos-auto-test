@@ -269,10 +269,12 @@ async def discover_cases(db: AsyncSession = Depends(get_async_session)):
 
 
 @router.get("/suites/{suite_id}/cases", response_model=ApiResponse)
-async def list_cases(suite_id: int, db: AsyncSession = Depends(get_async_session)):
+async def list_cases(suite_id: int, branch: str = "main", db: AsyncSession = Depends(get_async_session)):
     """获取套件下的用例列表"""
     result = await db.execute(
-        select(TestCase).where(TestCase.suite_id == suite_id).order_by(TestCase.name)
+        select(TestCase)
+        .where(TestCase.suite_id == suite_id, TestCase.branch == branch)
+        .order_by(TestCase.name)
     )
     cases = result.scalars().all()
     return ApiResponse(data=[CaseResponse.model_validate(c) for c in cases])
