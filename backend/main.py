@@ -48,7 +48,7 @@ async def lifespan(app: FastAPI):
 
                 # 分支 API 测试扫描
                 from pathlib import Path as _Path
-                branches_dir = _Path("branches")
+                branches_dir = _Path(__file__).resolve().parent.parent / "branches"
                 if branches_dir.exists():
                     for branch_dir in branches_dir.iterdir():
                         if not branch_dir.is_dir():
