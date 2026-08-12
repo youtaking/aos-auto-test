@@ -23,8 +23,10 @@ _BRANCH_RE = re.compile(r'^[a-zA-Z0-9._\-/]+$')
 
 
 def _validate_branch_name(name: str) -> str:
-    """校验分支名，拒绝非法字符以防止路径穿越和命令注入。"""
+    """校验分支名，拒绝非法字符和 .. 路径段以防止路径穿越和命令注入。"""
     if not _BRANCH_RE.match(name):
+        raise HTTPException(status_code=400, detail=f"Invalid branch name: {name}")
+    if '..' in name:
         raise HTTPException(status_code=400, detail=f"Invalid branch name: {name}")
     return name
 

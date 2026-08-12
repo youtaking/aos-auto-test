@@ -1,10 +1,17 @@
 # backend/schemas/branch.py
 """分支管理请求/响应模型"""
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class BranchCreate(BaseModel):
     branch_name: str = Field(..., pattern=r'^[a-zA-Z0-9._\-/]+$')
+
+    @field_validator('branch_name')
+    @classmethod
+    def no_dotdot(cls, v: str) -> str:
+        if '..' in v:
+            raise ValueError('branch_name must not contain ..')
+        return v
 
 
 class GenerateRequest(BaseModel):
