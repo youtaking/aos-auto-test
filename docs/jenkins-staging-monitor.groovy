@@ -4,6 +4,8 @@ pipeline {
     parameters {
         string(name: 'HEALTH_URL',       defaultValue: 'http://192.168.122.18:38879/health',   description: '健康检查完整 URL')
         string(name: 'TARGET_URL',       defaultValue: 'http://192.168.122.18:38879',          description: '测试目标地址')
+        string(name: 'APP_REPO',         defaultValue: 'https://github.com/HuangPuStar/FenixAgent.git', description: '被测项目仓库地址（单元测试需要）')
+        string(name: 'APP_BRANCH',       defaultValue: 'main',                               description: '被测项目分支（单元测试源码）')
         string(name: 'POLL_INTERVAL',    defaultValue: '30',                                  description: '轮询间隔（分钟）')
         string(name: 'AUTOTEST_URL',     defaultValue: 'http://100.105.181.173:8111',        description: 'AutoTest 后端地址')
         string(name: 'TEST_REPO',        defaultValue: 'https://github.com/youtaking/aos-auto-test.git', description: '测试代码仓库')
@@ -26,39 +28,39 @@ pipeline {
                     echo "[Staging Monitor] Check Runner Images"
                     echo "============================================================"
 
+                    download_repo() {
+                        local url="$1"
+                        local output="$2"
+                        local proxies="https://gh-proxy.com https://mirror.ghproxy.com https://ghfast.top https://ghproxy.net"
+                        for proxy in $proxies ""; do
+                            if [ -n "$proxy" ]; then
+                                full_url="${proxy}/${url}"
+                            else
+                                full_url="$url"
+                            fi
+                            echo "    Trying: ${full_url}"
+                            for i in 1 2 3; do
+                                if curl --fail -SL --connect-timeout 10 --max-time 300 "${full_url}" -o "${output}" 2>/dev/null; then
+                                    if [ -s "${output}" ] && tar tzf "${output}" > /dev/null 2>&1; then
+                                        echo "    OK (proxy: ${proxy:-direct})"
+                                        return 0
+                                    fi
+                                fi
+                                echo "    Attempt $i failed, retrying..."
+                                sleep 3
+                            done
+                            echo "    Proxy ${proxy:-direct} failed, trying next..."
+                        done
+                        echo "    ERROR: All proxies failed!"
+                        return 1
+                    }
+
                     if docker image inspect test-runner:latest > /dev/null 2>&1; then
                         echo ">>> test-runner:latest exists."
                     else
                         echo ">>> test-runner:latest not found, building..."
                         rm -rf /tmp/staging-autotest
                         mkdir -p /tmp/staging-autotest
-
-                        download_repo() {
-                            local url="$1"
-                            local output="$2"
-                            local proxies="https://gh-proxy.com https://mirror.ghproxy.com https://ghfast.top https://ghproxy.net"
-                            for proxy in $proxies ""; do
-                                if [ -n "$proxy" ]; then
-                                    full_url="${proxy}/${url}"
-                                else
-                                    full_url="$url"
-                                fi
-                                echo "    Trying: ${full_url}"
-                                for i in 1 2 3; do
-                                    if curl --fail -SL --connect-timeout 10 --max-time 300 "${full_url}" -o "${output}" 2>/dev/null; then
-                                        if [ -s "${output}" ] && tar tzf "${output}" > /dev/null 2>&1; then
-                                            echo "    OK (proxy: ${proxy:-direct})"
-                                            return 0
-                                        fi
-                                    fi
-                                    echo "    Attempt $i failed, retrying..."
-                                    sleep 3
-                                done
-                                echo "    Proxy ${proxy:-direct} failed, trying next..."
-                            done
-                            echo "    ERROR: All proxies failed!"
-                            return 1
-                        }
 
                         ARCHIVE_URL="__TEST_REPO__/archive/refs/heads/__TEST_BRANCH__.tar.gz"
                         download_repo "${ARCHIVE_URL}" /tmp/autotest.tar.gz || true
@@ -70,6 +72,30 @@ pipeline {
                             echo "    test-runner:latest built."
                         else
                             echo "    WARNING: Dockerfile.runner not found, cannot build test-runner."
+                        fi
+                        rm -rf /tmp/staging-autotest /tmp/autotest.tar.gz
+                    fi
+
+                    if docker image inspect unit-runner:latest > /dev/null 2>&1; then
+                        echo ">>> unit-runner:latest exists."
+                    else
+                        echo ">>> unit-runner:latest not found, building..."
+                        rm -rf /tmp/staging-autotest
+                        mkdir -p /tmp/staging-autotest
+
+                        ARCHIVE_URL="__TEST_REPO__/archive/refs/heads/__TEST_BRANCH__.tar.gz"
+                        download_repo "${ARCHIVE_URL}" /tmp/autotest.tar.gz || true
+                        if [ -f /tmp/autotest.tar.gz ] && [ -s /tmp/autotest.tar.gz ]; then
+                            tar xzf /tmp/autotest.tar.gz --strip-components=1 -C /tmp/staging-autotest
+                        fi
+                        if [ -f /tmp/staging-autotest/Dockerfile.unit-runner ]; then
+                            mkdir -p /tmp/staging-autotest/cache
+                            [ -f /tmp/staging-autotest/cache/package.json ] || echo '{"name":"empty","version":"0.0.0"}' > /tmp/staging-autotest/cache/package.json
+                            [ -f /tmp/staging-autotest/cache/bun.lockb ] || touch /tmp/staging-autotest/cache/bun.lockb
+                            docker build -t unit-runner:latest -f /tmp/staging-autotest/Dockerfile.unit-runner /tmp/staging-autotest/
+                            echo "    unit-runner:latest built."
+                        else
+                            echo "    WARNING: Dockerfile.unit-runner not found, cannot build unit-runner."
                         fi
                         rm -rf /tmp/staging-autotest /tmp/autotest.tar.gz
                     fi
@@ -183,8 +209,20 @@ pipeline {
                     tar xzf /tmp/autotest.tar.gz --strip-components=1 -C autotest
                     rm -f /tmp/autotest.tar.gz
                     echo "    Test code: $(ls autotest/ | wc -l) files/dirs"
+
+                    # 克隆被测项目源码（单元测试需要 @fenix/* 路径别名）
+                    rm -rf app
+                    mkdir -p app
+                    APP_ARCHIVE_URL="__APP_REPO__/archive/refs/heads/__APP_BRANCH__.tar.gz"
+                    echo ">>> Downloading app source (${APP_ARCHIVE_URL})..."
+                    download_repo "${APP_ARCHIVE_URL}" /tmp/fenix.tar.gz
+                    tar xzf /tmp/fenix.tar.gz --strip-components=1 -C app
+                    rm -f /tmp/fenix.tar.gz
+                    echo "    App source: $(ls app/ | wc -l) files/dirs"
                 '''.replace('__TEST_REPO__', params.TEST_REPO.replace('.git', ''))
                   .replace('__TEST_BRANCH__', params.TEST_REPO_BRANCH ?: 'feat/jenkins-pipeline')
+                  .replace('__APP_REPO__', params.APP_REPO.replace('.git', ''))
+                  .replace('__APP_BRANCH__', params.APP_BRANCH ?: 'main')
             }
         }
 
@@ -260,6 +298,71 @@ except Exception as e:
             }
         }
 
+        stage('Run Unit Tests') {
+            when {
+                expression { readFile('.poll_result').trim() == 'CHANGED' }
+            }
+            steps {
+                withCredentials([string(credentialsId: 'autotest-token', variable: 'TOKEN')]) {
+                    sh '''
+                        set +x
+                        echo "============================================================"
+                        echo "[Staging Monitor] Run Unit Tests"
+                        echo "============================================================"
+
+                        PIPELINE_ID=$(cat .pipeline_id 2>/dev/null || echo "")
+                        echo "  Pipeline ID: $PIPELINE_ID"
+
+                        # 1. 通知后端：单元测试开始
+                        UNIT_RUN_ID=""
+                        if [ -n "$PIPELINE_ID" ] && [ "$PIPELINE_ID" != "" ]; then
+                            echo ">>> Notifying backend: unit tests starting..."
+                            START_RESP=$(curl -sf -X POST \\
+                              -H "Authorization: Bearer $TOKEN" \\
+                              -H "Content-Type: application/json" \\
+                              -d "{\\"pipeline_id\\": $PIPELINE_ID}" \\
+                              "__AUTOTEST_URL__/api/unit-tests/runs/start" 2>/dev/null || echo "")
+                            echo "    Response: $START_RESP"
+                            UNIT_RUN_ID=$(echo "$START_RESP" | python3 -c "
+import sys, json
+try:
+    print(json.load(sys.stdin).get('data', {}).get('run_id', ''))
+except:
+    print('')
+" 2>/dev/null)
+                            echo "    Unit run_id: $UNIT_RUN_ID"
+                        fi
+                        echo "$UNIT_RUN_ID" > .unit_run_id
+
+                        # 2. 运行 unit-runner
+                        JENKINS_WORKSPACE_HOST=$(echo "${WORKSPACE}" | sed 's|/var/jenkins_home|/opt/1panel/apps/jenkins/jenkins/data|')
+
+                        mkdir -p autotest/unit_tests/results
+
+                        set +e
+                        docker run --rm \\
+                          --name "staging-unit-runner-${BUILD_NUMBER}" \\
+                          -v "${JENKINS_WORKSPACE_HOST}/autotest/unit_tests:/app/tests" \\
+                          -v "${JENKINS_WORKSPACE_HOST}/app:/app/fenix-source-parent:ro" \\
+                          unit-runner:latest
+                        UNIT_EXIT=$?
+                        set -e
+
+                        echo ">>> Unit test exit code: $UNIT_EXIT"
+
+                        if [ -f autotest/unit_tests/results/unit-junit.xml ]; then
+                            echo "    junit XML: $(wc -c < autotest/unit_tests/results/unit-junit.xml) bytes"
+                        else
+                            echo "    WARNING: unit-junit.xml not found!"
+                        fi
+
+                        echo ""
+                        echo "<<< Run Unit Tests — DONE"
+                    '''.replace('__AUTOTEST_URL__', params.AUTOTEST_URL)
+                }
+            }
+        }
+
         stage('Run Tests') {
             when {
                 expression { readFile('.poll_result').trim() == 'CHANGED' }
@@ -314,14 +417,38 @@ except Exception as e:
 
                         echo ">>> Test exit code: $TEST_EXIT"
 
-                        # 上报结果
+                        # 上报集成测试结果
                         if [ -f autotest/tests/results/report.json ]; then
-                            echo ">>> Uploading test results..."
+                            echo ">>> Uploading integration test results..."
                             curl -sf -X POST \\
                               -H "Authorization: Bearer $TOKEN" \\
                               -H "Content-Type: application/json" \\
                               -d @autotest/tests/results/report.json \\
                               "__AUTOTEST_URL__/api/pipelines/${PIPELINE_ID}/results" > /dev/null 2>&1 || true
+                        fi
+
+                        # 上报单元测试结果
+                        UNIT_RUN_ID=$(cat .unit_run_id 2>/dev/null || echo "")
+                        if [ -f autotest/unit_tests/results/unit-junit.xml ] && [ -n "$PIPELINE_ID" ]; then
+                            echo ">>> Uploading unit test results (pipeline_id=$PIPELINE_ID)..."
+                            python3 -c "
+import json
+xml_content = open('autotest/unit_tests/results/unit-junit.xml', 'r', encoding='utf-8').read()
+run_id = '$UNIT_RUN_ID'.strip()
+payload = {'pipeline_id': int($PIPELINE_ID), 'junit_xml': xml_content}
+if run_id:
+    payload['run_id'] = int(run_id)
+open('/tmp/unit-upload.json', 'w', encoding='utf-8').write(json.dumps(payload))
+"
+                            curl -sf -X POST \\
+                              -H "Authorization: Bearer $TOKEN" \\
+                              -H "Content-Type: application/json" \\
+                              -d @/tmp/unit-upload.json \\
+                              "__AUTOTEST_URL__/api/unit-tests/results" > /dev/null 2>&1 || true
+                            echo "    Unit test results uploaded."
+                        else
+                            [ ! -f autotest/unit_tests/results/unit-junit.xml ] && echo "    WARNING: unit-junit.xml not found."
+                            [ -z "$PIPELINE_ID" ] && echo "    WARNING: No pipeline ID."
                         fi
 
                         # 更新最终状态
