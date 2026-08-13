@@ -647,12 +647,18 @@ except:
                     '''.replace('__AUTOTEST_URL__', AUTOTEST_URL)
                 }
 
-                // 2. 运行单元测试（失败不阻塞 pipeline，结果统一在 post { always } 上传）
+                // 2. 运行单元测试（捕获退出码，不立即失败，确保集成测试也能执行）
                 sh '''
                     set +x
                     echo ">>> Starting unit-runner (bun:test)..."
                 '''
-                sh "docker-compose -p ${PROJECT_NAME} up unit-runner || true"
+                script {
+                    env.UNIT_EXIT = sh(
+                        script: "docker-compose -p ${PROJECT_NAME} up unit-runner",
+                        returnStatus: true
+                    ).toString()
+                    echo "    unit-runner exit code: ${env.UNIT_EXIT}"
+                }
 
                 sh '''
                     set +x
@@ -693,12 +699,31 @@ except:
                     echo ">>> Starting test-runner (streaming logs)..."
                 '''
                 sh "docker-compose -p ${PROJECT_NAME} logs -f test-runner &"
-                sh "docker-compose -p ${PROJECT_NAME} up test-runner || true"
+                script {
+                    env.INTEGRATION_EXIT = sh(
+                        script: "docker-compose -p ${PROJECT_NAME} up test-runner",
+                        returnStatus: true
+                    ).toString()
+                    echo "    test-runner exit code: ${env.INTEGRATION_EXIT}"
+                }
                 sh '''
                     set +x
                     echo ""
                     echo "<<< [7/7] Run Tests — DONE"
                 '''
+            }
+        }
+
+        stage('Check Results') {
+            steps {
+                script {
+                    def unitExit = env.UNIT_EXIT ?: "0"
+                    def intExit = env.INTEGRATION_EXIT ?: "0"
+                    echo "    Unit test exit: ${unitExit}, Integration test exit: ${intExit}"
+                    if (unitExit != "0" || intExit != "0") {
+                        error("Tests failed (unit=${unitExit}, integration=${intExit})")
+                    }
+                }
             }
         }
 

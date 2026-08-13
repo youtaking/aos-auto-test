@@ -40,7 +40,12 @@ done
 
 # 将测试文件放入 workspace（作为 workspace 的一个包）
 mkdir -p "$WORKSPACE_ROOT/tests"
-cp -r "$TEST_ROOT"/* "$WORKSPACE_ROOT/tests/"
+if [ -d "$TEST_ROOT" ] && [ "$(ls -A "$TEST_ROOT" 2>/dev/null)" ]; then
+  cp -r "$TEST_ROOT"/* "$WORKSPACE_ROOT/tests/" 2>/dev/null || true
+  echo "    Copied tests from $TEST_ROOT ($(find "$TEST_ROOT" -name '*.test.ts' | wc -l) test files)"
+else
+  echo "    WARNING: TEST_ROOT=$TEST_ROOT is empty or does not exist!"
+fi
 # 2. 生成 tsconfig.json（@fenix/* → FenixAgent src/*）
 echo ">>> Generating tsconfig.json..."
 cat > "$WORKSPACE_ROOT/tests/tsconfig.json" << TSEOF
@@ -97,12 +102,36 @@ fi
 if [ "$NEED_INSTALL" = "true" ]; then
   echo "    Lockfile changed or no cache, running bun install in workspace root..."
   cd "$WORKSPACE_ROOT"
+
+  # 诊断：列出 workspace 包
+  echo "    Workspace packages:"
+  for pkg in "$WORKSPACE_ROOT/packages"/*/; do
+    if [ -f "${pkg}package.json" ]; then
+      pkg_name=$(basename "$pkg")
+      is_link=$( [ -L "${pkg%/}" ] && echo "symlink" || echo "dir" )
+      echo "      $pkg_name ($is_link → $(readlink -f "${pkg%/}" 2>/dev/null || echo '?'))"
+    fi
+  done
+
   set +e
-  bun install --no-save 2>&1 | tail -10
+  bun install --no-save 2>&1 | tail -20
   INSTALL_EXIT=$?
   set -e
+
   if [ $INSTALL_EXIT -ne 0 ]; then
-    echo "    ERROR: bun install failed (exit $INSTALL_EXIT)"
+    echo "    WARNING: bun install with lockfile failed (exit $INSTALL_EXIT)"
+    echo "    Retrying without lockfile..."
+    rm -f bun.lock bun.lockb
+    set +e
+    bun install --no-save 2>&1 | tail -20
+    INSTALL_EXIT=$?
+    set -e
+  fi
+
+  if [ $INSTALL_EXIT -ne 0 ]; then
+    echo "    ERROR: bun install failed after retry (exit $INSTALL_EXIT)"
+    echo "    bun version: $(bun --version)"
+    echo "    package.json workspaces: $(python3 -c "import json; print(json.load(open('package.json')).get('workspaces','N/A'))" 2>/dev/null || echo "parse failed")"
     echo "    Workspace packages found:"
     ls -la "$WORKSPACE_ROOT/packages/" 2>/dev/null || echo "    (none)"
     exit 1
