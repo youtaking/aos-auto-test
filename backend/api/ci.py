@@ -286,7 +286,8 @@ async def update_ci_config(
     config = await _get_ci_config(db)
     for field in ["timeout_minutes", "max_queue_size", "auth_token",
                    "run_api_tests", "run_e2e_p0", "run_e2e_all",
-                   "collection_ids", "staging_collection_ids"]:
+                   "collection_ids", "staging_collection_ids",
+                   "branch_e2e_collection_ids"]:
         value = getattr(body, field, None)
         if value is not None:
             setattr(config, field, value)
@@ -385,19 +386,41 @@ async def resolve_tests(
     db: AsyncSession = Depends(get_async_session),
 ):
     """根据 CI 配置或分支，解析出 pytest node ID 列表"""
-    # 如果有 branch 参数，扫描分支目录
+    # 如果有 branch 参数，扫描分支目录 + 配置的 E2E 测试集
     if branch and branch != "main":
         _validate_branch_name(branch)
         from engine.runner import TestRunner
         runner = TestRunner()
         # 使用相对路径，避免 Windows 绝对路径污染 pytest node ID
         branch_api_dir = Path("branches") / branch / "api_suites"
+        node_ids = []
         if branch_api_dir.exists():
             collected = runner.collect_tests_api(test_dir=str(branch_api_dir.as_posix()))
             node_ids = [f"{c['file_path']}::{c['function_name']}" for c in collected]
-            return ApiResponse(data={"node_ids": node_ids})
-        else:
+
+        # 加上 CI 配置的 E2E 测试集
+        config = await _get_ci_config(db)
+        if config.branch_e2e_collection_ids:
+            e2e_result = await db.execute(
+                select(TestCollection).where(
+                    TestCollection.id.in_(config.branch_e2e_collection_ids)
+                )
+            )
+            e2e_collections = e2e_result.scalars().all()
+            e2e_case_ids: set[int] = set()
+            for c in e2e_collections:
+                if c.case_ids:
+                    e2e_case_ids.update(c.case_ids)
+            if e2e_case_ids:
+                e2e_cases = await db.execute(
+                    select(TestCase).where(TestCase.id.in_(list(e2e_case_ids)))
+                )
+                for tc in e2e_cases.scalars().all():
+                    node_ids.append(f"{tc.file_path}::{tc.function_name}")
+
+        if not node_ids and not branch_api_dir.exists():
             return ApiResponse(data={"node_ids": [], "warning": f"branch dir not found: {branch_api_dir}"})
+        return ApiResponse(data={"node_ids": node_ids})
 
     # 原有逻辑：从 CI config 的 collection_ids 解析
     config = await _get_ci_config(db)

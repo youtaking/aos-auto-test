@@ -267,6 +267,7 @@ class CIConfig(Base):
     run_e2e_all = Column(Integer, default=0)
     collection_ids = Column(JSON, nullable=True)  # 选中的用例集 ID 数组
     staging_collection_ids = Column(JSON, nullable=True)  # Staging 测试集 ID 数组
+    branch_e2e_collection_ids = Column(JSON, nullable=True)  # PR 分支 E2E 测试集 ID 数组
     created_at = Column(DateTime, default=_now)
     updated_at = Column(DateTime, default=_now, onupdate=_now)
 
