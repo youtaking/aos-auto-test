@@ -14,7 +14,12 @@ class BranchCreate(BaseModel):
         return v
 
 
+class BranchAction(BaseModel):
+    branch_name: str
+
+
 class GenerateRequest(BaseModel):
+    branch_name: str
     test_type: str = "api"
 
 

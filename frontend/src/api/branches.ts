@@ -31,11 +31,11 @@ export async function createBranch(branchName: string) {
 }
 
 export async function deleteBranch(branchName: string) {
-  return del<{ branch_name: string; dir_deleted: boolean }>(`/branches/${branchName}`);
+  return del<{ branch_name: string; dir_deleted: boolean }>(`/branches/delete?branch_name=${encodeURIComponent(branchName)}`);
 }
 
 export async function promoteBranch(branchName: string) {
-  return post<PromoteReport>(`/branches/${branchName}/promote`);
+  return post<PromoteReport>("/branches/promote", { branch_name: branchName });
 }
 
 export async function pollNow() {
@@ -51,5 +51,5 @@ export async function canGenerate() {
 }
 
 export async function launchGenerate(branchName: string, testType: string = "api") {
-  return post<{ launched: boolean }>(`/branches/${branchName}/generate`, { test_type: testType });
+  return post<{ launched: boolean }>("/branches/generate", { branch_name: branchName, test_type: testType });
 }
