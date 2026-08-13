@@ -1,10 +1,7 @@
 # backend/services/branch_poller.py
-"""GitHub 分支轮询服务：检测 Fenix 仓库的新分支和更新"""
-import fnmatch
+"""GitHub PR 轮询服务：检测 Fenix 仓库的 open PR，跟踪分支用例状态"""
 import logging
-import shutil
 from pathlib import Path
-from datetime import datetime
 
 import httpx
 from sqlalchemy import select
@@ -20,7 +17,7 @@ BRANCHES_DIR = PROJECT_ROOT / "branches"
 
 
 class BranchPoller:
-    """轮询 GitHub API 检测 Fenix 仓库分支变化"""
+    """轮询 GitHub Pulls API，检测 Fenix 仓库 open PR 变化"""
 
     async def _get_settings(self, db: AsyncSession) -> dict[str, str]:
         """读取分支轮询相关配置"""
@@ -29,20 +26,9 @@ class BranchPoller:
         return settings
 
     def _parse_repo(self, repo_url: str) -> tuple[str, str]:
-        """从仓库 URL 提取 owner/repo，如 https://github.com/owner/repo → (owner, repo)"""
+        """从仓库 URL 提取 owner/repo"""
         parts = repo_url.rstrip("/").split("/")
         return parts[-2], parts[-1]
-
-    def _match_branch(self, name: str, include: str, exclude: str) -> bool:
-        """判断分支名是否匹配 include/exclude 规则"""
-        include_patterns = [p.strip() for p in include.split(",") if p.strip()]
-        exclude_patterns = [p.strip() for p in exclude.split(",") if p.strip()]
-
-        if exclude_patterns and any(fnmatch.fnmatch(name, p) for p in exclude_patterns):
-            return False
-        if include_patterns and not any(fnmatch.fnmatch(name, p) for p in include_patterns):
-            return False
-        return True
 
     async def poll_once(self) -> dict:
         """执行一次轮询，返回结果摘要"""
@@ -55,105 +41,126 @@ class BranchPoller:
 
             repo_url = settings.get("branch_poll_repo", "")
             github_token = settings.get("github_token", "")
-            include = settings.get("branch_poll_include", "*")
-            exclude = settings.get("branch_poll_exclude", "")
 
             if not repo_url:
                 return {"status": "error", "message": "branch_poll_repo not configured"}
 
             owner, repo = self._parse_repo(repo_url)
 
-            # 调用 GitHub API
             headers = {"Accept": "application/vnd.github.v3+json"}
             if github_token:
                 headers["Authorization"] = f"Bearer {github_token}"
 
+            # 1. 拉取 open PRs
             try:
                 async with httpx.AsyncClient() as client:
                     resp = await client.get(
-                        f"https://api.github.com/repos/{owner}/{repo}/branches",
+                        f"https://api.github.com/repos/{owner}/{repo}/pulls",
                         headers=headers,
-                        params={"per_page": 100},
+                        params={"state": "open", "base": "main", "per_page": 100},
                         timeout=30,
                     )
                     resp.raise_for_status()
-                    remote_branches = resp.json()
+                    open_prs = resp.json()
             except Exception as e:
-                logger.error(f"GitHub API error: {e}")
+                logger.error(f"GitHub API error (open PRs): {e}")
                 return {"status": "error", "message": str(e)}
 
-            # 获取已有追踪记录
+            # 构建 open PR 映射: branch_name -> {sha, pr_number}
+            open_branches: dict[str, dict] = {}
+            for pr in open_prs:
+                branch_name = pr["head"]["ref"]
+                sha = pr["head"]["sha"]
+                pr_number = pr["number"]
+                open_branches[branch_name] = {"sha": sha, "pr_number": pr_number}
+
+            # 2. 获取已有追踪记录
             result = await db.execute(select(BranchTracker))
             trackers = {t.branch_name: t for t in result.scalars().all()}
 
-            new_branches = []
-            updated_branches = []
+            new_prs = []
+            updated_prs = []
 
-            for rb in remote_branches:
-                name = rb["name"]
-                sha = rb["commit"]["sha"]
-
-                # 跳过 main/master
-                if name in ("main", "master"):
-                    continue
-
-                if not self._match_branch(name, include, exclude):
-                    continue
-
-                if name not in trackers:
-                    # 新分支
+            # 3. 处理 open PRs
+            for branch_name, info in open_branches.items():
+                if branch_name not in trackers:
+                    # 新 PR — 只记录，不创建目录
                     tracker = BranchTracker(
-                        branch_name=name,
-                        last_commit_sha=sha,
-                        status="up_to_date",
+                        branch_name=branch_name,
+                        last_commit_sha=info["sha"],
+                        pr_number=info["pr_number"],
+                        dev_status="open",
+                        case_status="pending",
                     )
                     db.add(tracker)
-                    new_branches.append(name)
-                    # 创建分支目录
-                    self._create_branch_dirs(name)
+                    new_prs.append(branch_name)
                 else:
-                    tracker = trackers[name]
-                    if tracker.last_commit_sha != sha:
-                        tracker.last_commit_sha = sha
-                        tracker.status = "needs_update"
-                        updated_branches.append(name)
+                    tracker = trackers[branch_name]
+                    if tracker.last_commit_sha != info["sha"]:
+                        tracker.last_commit_sha = info["sha"]
+                        tracker.pr_number = info["pr_number"]
+                        updated_prs.append(branch_name)
 
-            # 检测已删除的分支
-            remote_names = {rb["name"] for rb in remote_branches}
-            deleted_branches = []
+            # 4. 检测从 open 列表消失的 PR（可能合入或关闭）
+            disappeared = []
             for name, tracker in trackers.items():
-                if name not in remote_names and tracker.status != "deleted":
-                    tracker.status = "deleted"
-                    deleted_branches.append(name)
+                if tracker.dev_status != "open":
+                    continue  # 只关注 open 状态的
+                if name in open_branches:
+                    continue  # 还在 open 列表中
+
+                # PR 从 open 消失了，查 closed PRs 判断是合入还是关闭
+                pr_status = await self._check_closed_pr(
+                    owner, repo, name, headers
+                )
+                if pr_status == "merged":
+                    tracker.dev_status = "merged"
+                    if tracker.case_status == "active":
+                        tracker.case_status = "ready_to_sync"
+                else:
+                    tracker.dev_status = "closed"
+                    if tracker.case_status == "active":
+                        tracker.case_status = "disposable"
+                disappeared.append(name)
 
             await db.commit()
 
             return {
                 "status": "ok",
-                "new": new_branches,
-                "updated": updated_branches,
-                "deleted": deleted_branches,
-                "total_remote": len(remote_branches),
+                "new_prs": new_prs,
+                "updated": updated_prs,
+                "disappeared": disappeared,
+                "total_open_prs": len(open_prs),
             }
 
-    def _create_branch_dirs(self, branch_name: str):
-        """从 main 复制 API 和单元测试用例到分支目录"""
-        branch_dir = BRANCHES_DIR / branch_name
-        if branch_dir.exists():
-            return
+    async def _check_closed_pr(
+        self, owner: str, repo: str, branch_name: str, headers: dict
+    ) -> str:
+        """查询已关闭的 PR，判断是 merged 还是 closed"""
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(
+                    f"https://api.github.com/repos/{owner}/{repo}/pulls",
+                    headers=headers,
+                    params={
+                        "state": "closed",
+                        "head": f"{owner}:{branch_name}",
+                        "sort": "updated",
+                        "direction": "desc",
+                        "per_page": 1,
+                    },
+                    timeout=30,
+                )
+                resp.raise_for_status()
+                closed_prs = resp.json()
 
-        branch_dir.mkdir(parents=True, exist_ok=True)
+                if closed_prs:
+                    pr = closed_prs[0]
+                    if pr.get("merged_at"):
+                        return "merged"
+                    return "closed"
+        except Exception as e:
+            logger.warning(f"Failed to check closed PR for {branch_name}: {e}")
 
-        # 复制 API 测试用例
-        api_suites_src = PROJECT_ROOT / "tests" / "api_suites"
-        api_suites_dst = branch_dir / "api_suites"
-        if api_suites_src.exists() and not api_suites_dst.exists():
-            shutil.copytree(api_suites_src, api_suites_dst)
-            logger.info(f"Copied API suites to branches/{branch_name}/api_suites/")
-
-        # 复制单元测试用例
-        unit_tests_src = PROJECT_ROOT / "unit_tests"
-        unit_tests_dst = branch_dir / "unit_tests"
-        if unit_tests_src.exists() and not unit_tests_dst.exists():
-            shutil.copytree(unit_tests_src, unit_tests_dst)
-            logger.info(f"Copied unit tests to branches/{branch_name}/unit_tests/")
+        # 查不到就默认 closed
+        return "closed"

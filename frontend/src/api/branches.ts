@@ -3,7 +3,9 @@ import { get, post, del } from "./client";
 export interface BranchInfo {
   branch_name: string;
   last_commit_sha: string;
-  status: string;
+  pr_number: number | null;
+  dev_status: string;
+  case_status: string;
   discovered_at: string | null;
   updated_at: string | null;
   has_dir: boolean;

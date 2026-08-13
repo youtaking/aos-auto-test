@@ -19,7 +19,9 @@ export default function BranchSelector({ value, onChange }: Props) {
           data.unshift({
             branch_name: "main",
             last_commit_sha: "",
-            status: "up_to_date",
+            pr_number: null,
+            dev_status: "up_to_date",
+            case_status: "active",
             discovered_at: null,
             updated_at: null,
             has_dir: false,
@@ -41,8 +43,8 @@ export default function BranchSelector({ value, onChange }: Props) {
         {branches.map((b) => (
           <option key={b.branch_name} value={b.branch_name}>
             {b.branch_name}
-            {b.status === "needs_update" ? " (有更新)" : ""}
-            {b.status === "deleted" ? " (已删除)" : ""}
+            {b.dev_status === "merged" ? " (已合入)" : ""}
+            {b.dev_status === "closed" ? " (已关闭)" : ""}
           </option>
         ))}
       </select>

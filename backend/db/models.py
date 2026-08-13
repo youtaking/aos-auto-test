@@ -353,8 +353,11 @@ class BranchTracker(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     branch_name = Column(String(200), unique=True, nullable=False)
     last_commit_sha = Column(String(40), default="")
-    status = Column(String(20), default="up_to_date")
-    # up_to_date / needs_update / deleted
+    pr_number = Column(Integer, nullable=True)  # 关联的 PR 编号
+    dev_status = Column(String(20), default="open")
+    # open / merged / closed / manual（手动创建的无 PR）
+    case_status = Column(String(20), default="pending")
+    # pending（未创建）/ active（使用中）/ ready_to_sync（可同步）/ disposable（可清理）
     discovered_at = Column(DateTime, default=_now)
     updated_at = Column(DateTime, default=_now, onupdate=_now)
 

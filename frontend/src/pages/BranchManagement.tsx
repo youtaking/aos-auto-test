@@ -2,7 +2,8 @@ import { useEffect, useState, useCallback } from "react";
 import {
   RefreshCw, Plus, Trash2, ArrowUpCircle, Play,
   Settings, GitBranch, CheckCircle2, AlertCircle,
-  XCircle, Loader2,
+  XCircle, Loader2, ExternalLink, FolderOpen, Clock,
+  Archive,
 } from "lucide-react";
 import {
   listBranches, createBranch, deleteBranch, promoteBranch,
@@ -10,17 +11,38 @@ import {
   type BranchInfo,
 } from "../api/branches";
 
-/* ---------- 状态徽章 ---------- */
+/* ---------- 开发状态徽章 ---------- */
 
-const statusConfig: Record<string, { label: string; cls: string; icon: typeof CheckCircle2 }> = {
-  up_to_date: { label: "已同步", cls: "bg-green-50 text-green-700 border-green-200", icon: CheckCircle2 },
-  needs_update: { label: "需更新", cls: "bg-orange-50 text-orange-700 border-orange-200", icon: AlertCircle },
-  deleted: { label: "已删除", cls: "bg-gray-50 text-gray-500 border-gray-200", icon: XCircle },
-  manual: { label: "手动", cls: "bg-blue-50 text-blue-700 border-blue-200", icon: GitBranch },
+const devStatusConfig: Record<string, { label: string; cls: string; icon: typeof CheckCircle2 }> = {
+  open: { label: "Open", cls: "bg-green-50 text-green-700 border-green-200", icon: GitBranch },
+  merged: { label: "已合入", cls: "bg-purple-50 text-purple-700 border-purple-200", icon: CheckCircle2 },
+  closed: { label: "已关闭", cls: "bg-red-50 text-red-600 border-red-200", icon: XCircle },
+  manual: { label: "手动", cls: "bg-blue-50 text-blue-700 border-blue-200", icon: FolderOpen },
+  up_to_date: { label: "主干", cls: "bg-gray-50 text-gray-500 border-gray-200", icon: GitBranch },
 };
 
-function StatusBadge({ status }: { status: string }) {
-  const cfg = statusConfig[status] ?? statusConfig.deleted;
+function DevStatusBadge({ status }: { status: string }) {
+  const cfg = devStatusConfig[status] ?? devStatusConfig.closed;
+  const Icon = cfg.icon;
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${cfg.cls}`}>
+      <Icon className="w-3 h-3" />
+      {cfg.label}
+    </span>
+  );
+}
+
+/* ---------- 测试集状态徽章 ---------- */
+
+const caseStatusConfig: Record<string, { label: string; cls: string; icon: typeof CheckCircle2 }> = {
+  pending: { label: "未创建", cls: "bg-gray-50 text-gray-500 border-gray-200", icon: Clock },
+  active: { label: "使用中", cls: "bg-green-50 text-green-700 border-green-200", icon: CheckCircle2 },
+  ready_to_sync: { label: "可同步", cls: "bg-blue-50 text-blue-700 border-blue-200", icon: ArrowUpCircle },
+  disposable: { label: "可清理", cls: "bg-orange-50 text-orange-700 border-orange-200", icon: Archive },
+};
+
+function CaseStatusBadge({ status }: { status: string }) {
+  const cfg = caseStatusConfig[status] ?? caseStatusConfig.pending;
   const Icon = cfg.icon;
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${cfg.cls}`}>
@@ -172,7 +194,7 @@ export default function BranchManagement() {
       {/* 页头 */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">分支管理</h1>
+          <h1 className="text-2xl font-bold">分支用例</h1>
           <p className="text-gray-500 mt-1">
             {loading ? "加载中..." : `共 ${branches.length} 个分支`}
           </p>
@@ -251,15 +273,17 @@ export default function BranchManagement() {
           </div>
         ) : branches.length === 0 ? (
           <div className="p-8 text-center text-gray-400">
-            暂无分支数据，点击"手动轮询"同步 Git 分支
+            暂无分支数据，点击"手动轮询"同步 GitHub Open PR
           </div>
         ) : (
           <table className="w-full">
             <thead>
               <tr className="border-b bg-gray-50">
                 <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">分支名</th>
+                <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">PR</th>
                 <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Commit</th>
-                <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">状态</th>
+                <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">开发状态</th>
+                <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">测试集状态</th>
                 <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">更新时间</th>
                 <th className="text-right px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">操作</th>
               </tr>
@@ -269,7 +293,7 @@ export default function BranchManagement() {
                 const isGeneratingApi = generating === `${b.branch_name}:api`;
                 const isGeneratingUnit = generating === `${b.branch_name}:unit`;
                 const isPromoting = promoting === b.branch_name;
-                const isDeleted = b.status === "deleted";
+                const isMain = b.branch_name === "main";
 
                 return (
                   <tr key={b.branch_name} className="hover:bg-gray-50 transition-colors">
@@ -280,66 +304,85 @@ export default function BranchManagement() {
                       </div>
                     </td>
                     <td className="px-5 py-3">
+                      {b.pr_number ? (
+                        <span className="inline-flex items-center gap-1 text-xs text-gray-600">
+                          <ExternalLink className="w-3 h-3" />
+                          #{b.pr_number}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-gray-400">-</span>
+                      )}
+                    </td>
+                    <td className="px-5 py-3">
                       <code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded font-mono">
                         {b.last_commit_sha?.substring(0, 8) || "-"}
                       </code>
                     </td>
                     <td className="px-5 py-3">
-                      <StatusBadge status={b.status} />
+                      <DevStatusBadge status={b.dev_status} />
+                    </td>
+                    <td className="px-5 py-3">
+                      <CaseStatusBadge status={b.case_status} />
                     </td>
                     <td className="px-5 py-3 text-sm text-gray-500">
                       {b.updated_at ? new Date(b.updated_at).toLocaleString("zh-CN") : "-"}
                     </td>
                     <td className="px-5 py-3">
                       <div className="flex items-center justify-end gap-1.5">
-                        <button
-                          onClick={() => handleGenerate(b.branch_name, "api")}
-                          disabled={!!generating || isDeleted}
-                          title="生成 API 用例"
-                          className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-1 ${
-                            generating || isDeleted
-                              ? "bg-gray-100 text-gray-400 cursor-not-allowed"
-                              : "bg-blue-50 text-blue-700 hover:bg-blue-100"
-                          }`}
-                        >
-                          <Play className="w-3 h-3" />
-                          {isGeneratingApi ? "启动中..." : "API 用例"}
-                        </button>
-                        <button
-                          onClick={() => handleGenerate(b.branch_name, "unit")}
-                          disabled={!!generating || isDeleted}
-                          title="生成单元测试"
-                          className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-1 ${
-                            generating || isDeleted
-                              ? "bg-gray-100 text-gray-400 cursor-not-allowed"
-                              : "bg-purple-50 text-purple-700 hover:bg-purple-100"
-                          }`}
-                        >
-                          <Play className="w-3 h-3" />
-                          {isGeneratingUnit ? "启动中..." : "单元测试"}
-                        </button>
-                        <button
-                          onClick={() => handlePromote(b.branch_name)}
-                          disabled={!!promoting || isDeleted}
-                          title="Promote 到主干"
-                          className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-1 ${
-                            promoting || isDeleted
-                              ? "bg-gray-100 text-gray-400 cursor-not-allowed"
-                              : "bg-green-50 text-green-700 hover:bg-green-100"
-                          }`}
-                        >
-                          <ArrowUpCircle className="w-3 h-3" />
-                          {isPromoting ? "..." : "Promote"}
-                        </button>
+                        {/* 生成按钮：只有测试集状态为 active 或有目录时才显示 */}
+                        {!isMain && b.case_status !== "pending" && (
+                          <>
+                            <button
+                              onClick={() => handleGenerate(b.branch_name, "api")}
+                              disabled={!!generating}
+                              title="生成 API 用例"
+                              className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-1 ${
+                                generating
+                                  ? "bg-gray-100 text-gray-400 cursor-not-allowed"
+                                  : "bg-blue-50 text-blue-700 hover:bg-blue-100"
+                              }`}
+                            >
+                              <Play className="w-3 h-3" />
+                              {isGeneratingApi ? "启动中..." : "API 用例"}
+                            </button>
+                            <button
+                              onClick={() => handleGenerate(b.branch_name, "unit")}
+                              disabled={!!generating}
+                              title="生成单元测试"
+                              className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-1 ${
+                                generating
+                                  ? "bg-gray-100 text-gray-400 cursor-not-allowed"
+                                  : "bg-purple-50 text-purple-700 hover:bg-purple-100"
+                              }`}
+                            >
+                              <Play className="w-3 h-3" />
+                              {isGeneratingUnit ? "启动中..." : "单元测试"}
+                            </button>
+                          </>
+                        )}
+
+                        {/* Promote 按钮：只有 ready_to_sync 或有目录时显示 */}
+                        {(b.case_status === "ready_to_sync" || b.has_dir) && (
+                          <button
+                            onClick={() => handlePromote(b.branch_name)}
+                            disabled={!!promoting}
+                            title="Promote 到主干"
+                            className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-1 ${
+                              promoting
+                                ? "bg-gray-100 text-gray-400 cursor-not-allowed"
+                                : "bg-green-50 text-green-700 hover:bg-green-100"
+                            }`}
+                          >
+                            <ArrowUpCircle className="w-3 h-3" />
+                            {isPromoting ? "..." : "Promote"}
+                          </button>
+                        )}
+
+                        {/* 删除按钮 */}
                         <button
                           onClick={() => setDeleteTarget(b)}
-                          disabled={isDeleted}
                           title="删除分支"
-                          className={`p-1.5 rounded-lg transition-colors ${
-                            isDeleted
-                              ? "text-gray-300 cursor-not-allowed"
-                              : "text-red-400 hover:bg-red-50 hover:text-red-600"
-                          }`}
+                          className="p-1.5 rounded-lg transition-colors text-red-400 hover:bg-red-50 hover:text-red-600"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -358,7 +401,7 @@ export default function BranchManagement() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
             <h2 className="text-lg font-semibold">创建分支</h2>
-            <p className="text-sm text-gray-500">输入新的分支名称，系统将自动从主干创建。</p>
+            <p className="text-sm text-gray-500">输入新的分支名称，系统将自动从主干创建用例目录。</p>
             <input
               autoFocus
               value={newName}
