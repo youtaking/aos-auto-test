@@ -3,12 +3,12 @@ import {
   RefreshCw, Plus, Trash2, ArrowUpCircle, Play,
   Settings, GitBranch, CheckCircle2, AlertCircle,
   XCircle, Loader2, ExternalLink, FolderOpen, Clock,
-  Archive,
+  Archive, FileCode, FileText, X, Eye,
 } from "lucide-react";
 import {
   listBranches, createBranch, deleteBranch, promoteBranch,
-  pollNow, canGenerate, launchGenerate,
-  type BranchInfo,
+  pollNow, canGenerate, launchGenerate, listBranchCases,
+  type BranchInfo, type BranchCases,
 } from "../api/branches";
 
 /* ---------- 开发状态徽章 ---------- */
@@ -74,6 +74,12 @@ export default function BranchManagement() {
   // Promote
   const [promoting, setPromoting] = useState<string | null>(null);
   const [promoteResult, setPromoteResult] = useState<{ branch: string; files: string[] } | null>(null);
+
+  // 用例抽屉
+  const [casesDrawer, setCasesDrawer] = useState<string | null>(null);
+  const [casesData, setCasesData] = useState<BranchCases | null>(null);
+  const [casesLoading, setCasesLoading] = useState(false);
+  const [casesTab, setCasesTab] = useState<"api" | "unit">("api");
 
   // 错误/提示
   const [error, setError] = useState<string | null>(null);
@@ -184,6 +190,21 @@ export default function BranchManagement() {
       setError(e.message);
     } finally {
       setGenerating(null);
+    }
+  };
+
+  const handleViewCases = async (branchName: string) => {
+    setCasesDrawer(branchName);
+    setCasesTab("api");
+    setCasesLoading(true);
+    try {
+      const data = await listBranchCases(branchName);
+      setCasesData(data);
+    } catch (e: any) {
+      setError(e.message);
+      setCasesData(null);
+    } finally {
+      setCasesLoading(false);
     }
   };
 
@@ -300,7 +321,16 @@ export default function BranchManagement() {
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-2">
                         <GitBranch className="w-4 h-4 text-gray-400 shrink-0" />
-                        <span className="font-medium text-sm">{b.branch_name}</span>
+                        {b.has_dir && !isMain ? (
+                          <button
+                            onClick={() => handleViewCases(b.branch_name)}
+                            className="font-medium text-sm text-blue-600 hover:text-blue-800 hover:underline"
+                          >
+                            {b.branch_name}
+                          </button>
+                        ) : (
+                          <span className="font-medium text-sm">{b.branch_name}</span>
+                        )}
                       </div>
                     </td>
                     <td className="px-5 py-3">
@@ -460,6 +490,91 @@ export default function BranchManagement() {
               >
                 {deleting ? "删除中..." : "确认删除"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 用例抽屉 */}
+      {casesDrawer && (
+        <div className="fixed inset-0 z-50 flex justify-end bg-black/30" onClick={() => setCasesDrawer(null)}>
+          <div
+            className="w-full max-w-md bg-white shadow-xl flex flex-col animate-in slide-in-from-right"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* 头部 */}
+            <div className="flex items-center justify-between px-5 py-4 border-b">
+              <div className="flex items-center gap-2">
+                <GitBranch className="w-4 h-4 text-gray-500" />
+                <span className="font-semibold text-sm">{casesDrawer}</span>
+              </div>
+              <button onClick={() => setCasesDrawer(null)} className="p-1 hover:bg-gray-100 rounded">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Tab */}
+            <div className="flex border-b">
+              <button
+                onClick={() => setCasesTab("api")}
+                className={`flex-1 px-4 py-2.5 text-sm font-medium transition-colors ${
+                  casesTab === "api"
+                    ? "text-blue-600 border-b-2 border-blue-600"
+                    : "text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                <FileCode className="w-4 h-4 inline mr-1.5" />
+                API 用例 {casesData ? `(${casesData.api_suites.length})` : ""}
+              </button>
+              <button
+                onClick={() => setCasesTab("unit")}
+                className={`flex-1 px-4 py-2.5 text-sm font-medium transition-colors ${
+                  casesTab === "unit"
+                    ? "text-blue-600 border-b-2 border-blue-600"
+                    : "text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                <FileText className="w-4 h-4 inline mr-1.5" />
+                单元测试 {casesData ? `(${casesData.unit_tests.length})` : ""}
+              </button>
+            </div>
+
+            {/* 文件列表 */}
+            <div className="flex-1 overflow-y-auto">
+              {casesLoading ? (
+                <div className="p-8 text-center text-gray-400">
+                  <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2" />
+                  加载中...
+                </div>
+              ) : !casesData ? (
+                <div className="p-8 text-center text-gray-400">加载失败</div>
+              ) : (
+                (() => {
+                  const files = casesTab === "api" ? casesData.api_suites : casesData.unit_tests;
+                  if (files.length === 0) {
+                    return (
+                      <div className="p-8 text-center text-gray-400">
+                        {casesTab === "api" ? "暂无 API 用例" : "暂无单元测试"}
+                      </div>
+                    );
+                  }
+                  return (
+                    <ul className="divide-y">
+                      {files.map((f) => (
+                        <li key={f.path} className="px-5 py-3 hover:bg-gray-50 flex items-center justify-between">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <FileCode className="w-4 h-4 text-gray-400 shrink-0" />
+                            <span className="text-sm font-mono truncate">{f.path}</span>
+                          </div>
+                          <span className="text-xs text-gray-400 shrink-0 ml-2">
+                            {(f.size / 1024).toFixed(1)}KB
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  );
+                })()
+              )}
             </div>
           </div>
         </div>
