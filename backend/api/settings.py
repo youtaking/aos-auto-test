@@ -43,14 +43,6 @@ DEFAULT_SETTINGS = {
         "default": "",
         "description": "GitHub Personal Access Token（用于轮询私有仓库）",
     },
-    "branch_poll_include": {
-        "default": "*",
-        "description": "分支名匹配规则（逗号分隔，支持通配符）",
-    },
-    "branch_poll_exclude": {
-        "default": "",
-        "description": "分支名排除规则（逗号分隔）",
-    },
 }
 
 

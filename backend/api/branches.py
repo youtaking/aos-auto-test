@@ -51,7 +51,9 @@ async def list_branches(db: AsyncSession = Depends(get_async_session)):
         data.append({
             "branch_name": t.branch_name,
             "last_commit_sha": t.last_commit_sha,
-            "status": t.status,
+            "pr_number": t.pr_number,
+            "dev_status": t.dev_status,
+            "case_status": t.case_status,
             "discovered_at": t.discovered_at.isoformat() if t.discovered_at else None,
             "updated_at": t.updated_at.isoformat() if t.updated_at else None,
             "has_dir": t.branch_name in fs_branches,
@@ -62,7 +64,9 @@ async def list_branches(db: AsyncSession = Depends(get_async_session)):
         data.append({
             "branch_name": name,
             "last_commit_sha": "",
-            "status": "manual",
+            "pr_number": None,
+            "dev_status": "manual",
+            "case_status": "active",
             "discovered_at": None,
             "updated_at": None,
             "has_dir": True,
@@ -73,7 +77,9 @@ async def list_branches(db: AsyncSession = Depends(get_async_session)):
         data.insert(0, {
             "branch_name": "main",
             "last_commit_sha": "",
-            "status": "up_to_date",
+            "pr_number": None,
+            "dev_status": "up_to_date",
+            "case_status": "active",
             "discovered_at": None,
             "updated_at": None,
             "has_dir": False,
@@ -109,7 +115,7 @@ async def create_branch(
         shutil.copytree(unit_src, unit_dst)
 
     # 入库
-    tracker = BranchTracker(branch_name=branch_name, status="up_to_date")
+    tracker = BranchTracker(branch_name=branch_name, dev_status="manual", case_status="active")
     db.add(tracker)
     await db.commit()
 
@@ -207,7 +213,9 @@ async def get_trackers(db: AsyncSession = Depends(get_async_session)):
             "id": t.id,
             "branch_name": t.branch_name,
             "last_commit_sha": t.last_commit_sha,
-            "status": t.status,
+            "pr_number": t.pr_number,
+            "dev_status": t.dev_status,
+            "case_status": t.case_status,
             "discovered_at": t.discovered_at.isoformat() if t.discovered_at else None,
             "updated_at": t.updated_at.isoformat() if t.updated_at else None,
         }

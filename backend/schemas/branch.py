@@ -21,9 +21,12 @@ class GenerateRequest(BaseModel):
 class BranchInfo(BaseModel):
     branch_name: str
     last_commit_sha: str
-    status: str
+    pr_number: int | None = None
+    dev_status: str = "open"
+    case_status: str = "pending"
     discovered_at: str | None = None
     updated_at: str | None = None
+    has_dir: bool = False
 
 
 class PromoteReport(BaseModel):

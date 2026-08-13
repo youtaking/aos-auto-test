@@ -49,8 +49,6 @@ export default function Settings() {
   const [bpInterval, setBpInterval] = useState(300);
   const [bpRepo, setBpRepo] = useState("");
   const [bpToken, setBpToken] = useState("");
-  const [bpInclude, setBpInclude] = useState("");
-  const [bpExclude, setBpExclude] = useState("");
   const [bpShowToken, setBpShowToken] = useState(false);
   const [bpSaving, setBpSaving] = useState(false);
   const [bpTesting, setBpTesting] = useState(false);
@@ -76,8 +74,6 @@ export default function Settings() {
         if (m["branch_poll_interval"]) setBpInterval(Number(m["branch_poll_interval"]));
         if (m["branch_poll_repo"]) setBpRepo(m["branch_poll_repo"]);
         if (m["github_token"]) setBpToken(m["github_token"]);
-        if (m["branch_poll_include"]) setBpInclude(m["branch_poll_include"]);
-        if (m["branch_poll_exclude"]) setBpExclude(m["branch_poll_exclude"]);
       })
       .catch(console.error);
   }, []);
@@ -90,8 +86,6 @@ export default function Settings() {
       await updateSetting("branch_poll_interval", String(bpInterval));
       await updateSetting("branch_poll_repo", bpRepo);
       await updateSetting("github_token", bpToken);
-      await updateSetting("branch_poll_include", bpInclude);
-      await updateSetting("branch_poll_exclude", bpExclude);
     } catch (e) {
       console.error(e);
     } finally {
@@ -625,7 +619,7 @@ export default function Settings() {
         <div className="flex items-center justify-between">
           <div>
             <div className="text-sm font-medium text-gray-700">启用轮询</div>
-            <div className="text-xs text-gray-400">定时检查 GitHub 仓库的新分支</div>
+            <div className="text-xs text-gray-400">定时检查 GitHub 仓库的 Open PR</div>
           </div>
           <button
             onClick={() => setBpEnabled(!bpEnabled)}
@@ -671,18 +665,6 @@ export default function Settings() {
 
           {/* 空占位 */}
           <div />
-
-          {/* 包含规则 */}
-          <div>
-            <label className="block text-sm text-gray-600 mb-1">包含规则</label>
-            <input value={bpInclude} onChange={(e) => setBpInclude(e.target.value)} placeholder="feat/*,fix/*" className="w-full px-3 py-2 border rounded-lg" />
-          </div>
-
-          {/* 排除规则 */}
-          <div>
-            <label className="block text-sm text-gray-600 mb-1">排除规则</label>
-            <input value={bpExclude} onChange={(e) => setBpExclude(e.target.value)} placeholder="dependabot/*" className="w-full px-3 py-2 border rounded-lg" />
-          </div>
         </div>
 
         {/* 测试连接结果 */}
