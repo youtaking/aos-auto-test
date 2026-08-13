@@ -251,7 +251,7 @@ try:
     data = json.load(open('resolve_resp.json'))
     ids = data.get('data', {}).get('node_ids', [])
     if ids:
-        fixed = [('/app/' + i if not i.startswith('/') else i) for i in ids]
+        fixed = [('/app/' + i if not i.startswith('/') and not i.startswith('branches/') else i) for i in ids]
         print(' '.join(fixed))
 except Exception as e:
     import sys
@@ -281,7 +281,7 @@ try:
     data = json.load(open('unit_resolve_resp.json'))
     files = data.get('data', {}).get('files', [])
     if files:
-        fixed = [('/app/' + f if not f.startswith('/') else f) for f in files]
+        fixed = [('/app/' + f if not f.startswith('/') and not f.startswith('branches/') else f) for f in files]
         print(' '.join(fixed))
 except Exception as e:
     import sys
