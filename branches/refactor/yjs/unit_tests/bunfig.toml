@@ -1,0 +1,3 @@
+[test]
+root = "."
+preload = ["../fenix-source/src/test-utils/setup-globals.ts", "../fenix-source/src/test-utils/setup-mocks.ts"]
