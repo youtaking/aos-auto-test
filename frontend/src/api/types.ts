@@ -157,7 +157,8 @@ export interface CIConfig {
   run_e2e_p0: number;
   run_e2e_all: number;
   collection_ids: number[] | null;
-  staging_collection_ids: number[] | null;  // Staging 测试集 ID 数组
+  staging_collection_ids: number[] | null;
+  branch_e2e_collection_ids: number[] | null;
   created_at: string;
   updated_at: string;
 }

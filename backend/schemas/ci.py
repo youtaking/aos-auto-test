@@ -71,6 +71,7 @@ class CIConfigResponse(BaseModel):
     run_e2e_all: int
     collection_ids: Optional[List[int]] = None
     staging_collection_ids: Optional[List[int]] = None  # Staging 测试集 ID 数组
+    branch_e2e_collection_ids: Optional[List[int]] = None  # PR 分支 E2E 测试集 ID 数组
     created_at: datetime
     updated_at: datetime
 
@@ -87,3 +88,4 @@ class CIConfigUpdate(BaseModel):
     run_e2e_all: Optional[int] = None
     collection_ids: Optional[List[int]] = None
     staging_collection_ids: Optional[List[int]] = None  # Staging 测试集 ID 数组
+    branch_e2e_collection_ids: Optional[List[int]] = None  # PR 分支 E2E 测试集 ID 数组
