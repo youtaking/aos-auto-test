@@ -238,6 +238,43 @@ async def get_trackers(db: AsyncSession = Depends(get_async_session)):
     return ApiResponse(data=data)
 
 
+@router.get("/branches/cases", response_model=ApiResponse)
+async def list_branch_cases(branch_name: str):
+    """列出指定分支下的测试用例文件"""
+    _validate_branch_name(branch_name)
+    branch_dir = BRANCHES_DIR / branch_name
+    if not branch_dir.exists():
+        raise HTTPException(status_code=404, detail=f"分支目录不存在: {branch_name}")
+
+    api_suites = []
+    api_dir = branch_dir / "api_suites"
+    if api_dir.exists():
+        for f in sorted(api_dir.rglob("*.py")):
+            api_suites.append({
+                "name": f.name,
+                "path": f.relative_to(branch_dir).as_posix(),
+                "size": f.stat().st_size,
+                "modified": f.stat().st_mtime,
+            })
+
+    unit_tests = []
+    unit_dir = branch_dir / "unit_tests"
+    if unit_dir.exists():
+        for f in sorted(unit_dir.rglob("*.test.ts")):
+            unit_tests.append({
+                "name": f.name,
+                "path": f.relative_to(branch_dir).as_posix(),
+                "size": f.stat().st_size,
+                "modified": f.stat().st_mtime,
+            })
+
+    return ApiResponse(data={
+        "branch_name": branch_name,
+        "api_suites": api_suites,
+        "unit_tests": unit_tests,
+    })
+
+
 @router.get("/branches/can-generate", response_model=ApiResponse)
 async def can_generate():
     """检测本地是否可以拉起 Claude Code"""
@@ -277,10 +314,20 @@ async def launch_generate(body: GenerateRequest):
     system = platform.system()
     try:
         if system == "Windows":
-            inner_cmd = f'cd /d "{PROJECT_ROOT}" && claude --dangerously-skip-permissions "{prompt}"'
-            subprocess.Popen(
-                f'cmd /c start "生成用例-{branch_name}" cmd /k "{inner_cmd}"',
+            # 写入临时 bat 文件（GBK 编码，cmd.exe 默认用 GBK 读取）
+            bat_path = PROJECT_ROOT / "_temp" / f"gen-{branch_name.replace('/', '-')}.bat"
+            bat_path.parent.mkdir(parents=True, exist_ok=True)
+            bat_path.write_text(
+                f'@echo off\n'
+                f'title gen-{branch_name.replace("/", "-")}\n'
+                f'cd /d "{PROJECT_ROOT}"\n'
+                f'claude --dangerously-skip-permissions "{prompt}"\n',
+                encoding="gbk",
             )
+            subprocess.Popen([
+                "wt.exe", "--title", f"gen-{branch_name.replace('/', '-')}",
+                "cmd", "/k", str(bat_path),
+            ])
         elif system == "Darwin":
             subprocess.Popen([
                 "osascript", "-e",

@@ -234,8 +234,14 @@ pipeline {
                     set +x
                     set +e
                         echo ">>> Querying AutoTest API for test targets..."
+                        BRANCH_PARAM="__PR_BRANCH__"
+                        if [ -n "$BRANCH_PARAM" ] && [ "$BRANCH_PARAM" != "main" ]; then
+                            RESOLVE_URL="__AUTOTEST_URL__/api/ci/resolve-tests?branch=${BRANCH_PARAM}"
+                        else
+                            RESOLVE_URL="__AUTOTEST_URL__/api/ci/resolve-tests"
+                        fi
                         curl -s -H "Authorization: Bearer $TOKEN" \\
-                          __AUTOTEST_URL__/api/ci/resolve-tests > resolve_resp.json
+                          "$RESOLVE_URL" > resolve_resp.json
 
                         echo ">>> API response:"
                         cat resolve_resp.json
@@ -247,7 +253,7 @@ try:
     data = json.load(open('resolve_resp.json'))
     ids = data.get('data', {}).get('node_ids', [])
     if ids:
-        fixed = [('/app/' + i if not i.startswith('/') else i) for i in ids]
+        fixed = [('/app/' + i if not i.startswith('/') and not i.startswith('branches/') else i) for i in ids]
         print(' '.join(fixed))
 except Exception as e:
     import sys
@@ -270,6 +276,7 @@ except Exception as e:
                         echo ""
                         echo "<<< [3/7] Resolve Tests — DONE"
                     '''.replace('__AUTOTEST_URL__', AUTOTEST_URL)
+                      .replace('__PR_BRANCH__', params.PR_BRANCH ?: 'main')
                 }
             }
         }
@@ -351,6 +358,7 @@ services:
         condition: service_healthy
     volumes:
       - __WORKSPACE__/autotest/tests:/app/tests
+      - __WORKSPACE__/autotest/branches:/app/branches
       - __WORKSPACE__/autotest/conftest.py:/app/conftest.py
       - __WORKSPACE__/autotest/pytest.ini:/app/pytest.ini
     environment:
@@ -363,7 +371,7 @@ services:
   unit-runner:
     image: unit-runner:latest
     volumes:
-      - __WORKSPACE__/autotest/unit_tests:/app/tests
+      - __UNIT_TEST_MOUNT__:/app/tests
       - __WORKSPACE__/app:/app/fenix-source-parent
 '''.replace('__PG_PORT__', PG_PORT)
   .replace('__LITE_PORT__', LITE_PORT)
@@ -372,6 +380,9 @@ services:
   .replace('__RCS_PORT__', RCS_PORT)
   .replace('__HOST_IP__', HOST_IP)
   .replace('__WORKSPACE__', env.WORKSPACE.replace('/var/jenkins_home', '/opt/1panel/apps/jenkins/jenkins/data'))
+  .replace('__UNIT_TEST_MOUNT__', (params.PR_BRANCH && params.PR_BRANCH != 'main')
+      ? env.WORKSPACE.replace('/var/jenkins_home', '/opt/1panel/apps/jenkins/jenkins/data') + '/autotest/branches/' + params.PR_BRANCH + '/unit_tests'
+      : env.WORKSPACE.replace('/var/jenkins_home', '/opt/1panel/apps/jenkins/jenkins/data') + '/autotest/unit_tests')
   .replace('__TEST_TARGETS__', readFile('test_targets.txt').trim())
 
                 sh '''

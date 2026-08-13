@@ -288,6 +288,7 @@ async def _execute_api_tests(
 async def list_api_cases(
     module: str | None = None,
     priority: str | None = None,
+    branch: str | None = None,
     db: AsyncSession = Depends(get_async_session),
 ):
     """获取接口测试用例列表"""
@@ -303,6 +304,8 @@ async def list_api_cases(
         query = query.where(TestCase.tags.contains(module))
     if priority:
         query = query.where(TestCase.priority == priority)
+    if branch:
+        query = query.where(TestCase.branch == branch)
     query = query.order_by(TestCase.id)
 
     result = await db.execute(query)
@@ -317,6 +320,7 @@ async def list_api_cases(
         "tags": c.tags,
         "priority": c.priority,
         "timeout": c.timeout,
+        "branch": c.branch,
     } for c in cases])
 
 

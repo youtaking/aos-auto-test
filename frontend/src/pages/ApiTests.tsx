@@ -5,6 +5,7 @@ import { cancelRun } from "../api/runs";
 import { listProjects } from "../api/projects";
 import type { ApiTestCase, ApiRunDetail } from "../api/apiTests";
 import type { TestRun, TestResult, Project } from "../api/types";
+import BranchSelector from "../components/BranchSelector";
 
 const statusIcon: Record<string, string> = {
   passed: "✅", failed: "❌", skipped: "⏭️", error: "⚠️",
@@ -32,6 +33,7 @@ export default function ApiTests() {
   const [showResults, setShowResults] = useState(false);
   const [moduleFilter, setModuleFilter] = useState("");
   const [priorityFilter, setPriorityFilter] = useState("");
+  const [branch, setBranch] = useState("main");
   const [projects, setProjects] = useState<Project[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
   const logContainerRef = useRef<HTMLDivElement>(null);
@@ -62,10 +64,11 @@ export default function ApiTests() {
     const params: Record<string, string> = {};
     if (moduleFilter) params.module = moduleFilter;
     if (priorityFilter) params.priority = priorityFilter;
+    if (branch) params.branch = branch;
     listApiCases(params).then(setCases).catch(console.error);
     listProjects().then(setProjects).catch(console.error);
     listApiRuns().then(setRuns).catch(console.error);
-  }, [moduleFilter, priorityFilter]);
+  }, [moduleFilter, priorityFilter, branch]);
 
   // 轮询运行列表
   useEffect(() => {
@@ -334,6 +337,7 @@ export default function ApiTests() {
         <div className="px-4 py-3 border-b bg-gray-50 flex items-center justify-between">
           <span className="font-medium">接口用例</span>
           <div className="flex items-center gap-3">
+            <BranchSelector value={branch} onChange={(b) => setBranch(b)} />
             <select
               value={moduleFilter}
               onChange={(e) => setModuleFilter(e.target.value)}

@@ -46,6 +46,23 @@ export async function getTrackers() {
   return get<Record<string, unknown>[]>("/branches/trackers");
 }
 
+export interface BranchCaseFile {
+  name: string;
+  path: string;
+  size: number;
+  modified: number;
+}
+
+export interface BranchCases {
+  branch_name: string;
+  api_suites: BranchCaseFile[];
+  unit_tests: BranchCaseFile[];
+}
+
+export async function listBranchCases(branchName: string) {
+  return get<BranchCases>(`/branches/cases?branch_name=${encodeURIComponent(branchName)}`);
+}
+
 export async function canGenerate() {
   return get<CanGenerateResponse>("/branches/can-generate");
 }

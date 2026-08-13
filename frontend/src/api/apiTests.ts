@@ -10,6 +10,7 @@ export interface ApiTestCase {
   tags: string;
   priority: string;
   timeout: number;
+  branch: string;
 }
 
 export interface ApiRunDetail {
@@ -17,7 +18,7 @@ export interface ApiRunDetail {
   results: TestResult[];
 }
 
-export const listApiCases = (params?: { module?: string; priority?: string }) =>
+export const listApiCases = (params?: { module?: string; priority?: string; branch?: string }) =>
   get<ApiTestCase[]>("/api-tests/cases", params);
 
 export const triggerApiRun = (projectId: number, caseIds?: number[]) => {
