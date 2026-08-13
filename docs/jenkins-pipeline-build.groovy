@@ -311,6 +311,7 @@ except Exception as e:
                     echo "[4/7] Write Compose — START"
                     echo "============================================================"
                 '''
+                script {
                 def TEST_ROOT = (params.APP_BRANCH && params.APP_BRANCH != "main")
                     ? "/app/branches/${params.APP_BRANCH}/unit_tests"
                     : "/app/tests"
@@ -409,6 +410,7 @@ services:
   .replace('__WORKSPACE__', env.WORKSPACE.replace('/var/jenkins_home', '/opt/1panel/apps/jenkins/jenkins/data'))
   .replace('__TEST_TARGETS__', readFile('test_targets.txt').trim())
   .replace('__TEST_ROOT__', TEST_ROOT)
+                }
 
                 sh '''
                     set +x
