@@ -1,0 +1,598 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bun test" tests="355" assertions="610" failures="0" skipped="0" time="1.8741552">
+  <testsuite name="auth\trusted-origins.test.ts" file="auth\trusted-origins.test.ts" tests="2" assertions="2" failures="0" skipped="0" time="0" hostname="">
+    <testsuite name="trusted origins" file="auth\trusted-origins.test.ts" line="4" tests="2" assertions="2" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="includes local dev origin and configured public URLs" classname="trusted origins" time="0.000315" file="auth\trusted-origins.test.ts" line="5" assertions="1" />
+      <testcase name="parses comma-separated trusted origins" classname="trusted origins" time="0.000045" file="auth\trusted-origins.test.ts" line="14" assertions="1" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="utils\executable.test.ts" file="utils\executable.test.ts" tests="5" assertions="6" failures="0" skipped="0" time="0" hostname="">
+    <testsuite name="isExecutable" file="utils\executable.test.ts" line="4" tests="2" assertions="2" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="returns true for an executable file" classname="isExecutable" time="0.000428" file="utils\executable.test.ts" line="5" assertions="1" />
+      <testcase name="returns false for a non-existent file" classname="isExecutable" time="0.000126" file="utils\executable.test.ts" line="10" assertions="1" />
+    </testsuite>
+    <testsuite name="resolveExecutable" file="utils\executable.test.ts" line="15" tests="3" assertions="4" failures="0" skipped="0" time="0.837" hostname="">
+      <testcase name="resolves &apos;bun&apos; executable" classname="resolveExecutable" time="0.282781" file="utils\executable.test.ts" line="16" assertions="2" />
+      <testcase name="resolves &apos;node&apos; executable" classname="resolveExecutable" time="0.25806" file="utils\executable.test.ts" line="22" assertions="1" />
+      <testcase name="throws for non-existent command" classname="resolveExecutable" time="0.297713" file="utils\executable.test.ts" line="27" assertions="1" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="errors\error-classes.test.ts" file="errors\error-classes.test.ts" tests="12" assertions="24" failures="0" skipped="0" time="0" hostname="">
+    <testsuite name="AppError" file="errors\error-classes.test.ts" line="10" tests="3" assertions="6" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="默认 statusCode 为 500" classname="AppError" time="0.000065" file="errors\error-classes.test.ts" line="11" assertions="4" />
+      <testcase name="可自定义 statusCode" classname="AppError" time="0.000012" file="errors\error-classes.test.ts" line="19" assertions="1" />
+      <testcase name="是 Error 的实例" classname="AppError" time="0.000018" file="errors\error-classes.test.ts" line="24" assertions="1" />
+    </testsuite>
+    <testsuite name="ValidationError" file="errors\error-classes.test.ts" line="29" tests="3" assertions="6" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="statusCode 为 400，code 为 VALIDATION_ERROR" classname="ValidationError" time="0.00003" file="errors\error-classes.test.ts" line="30" assertions="4" />
+      <testcase name="是 AppError 的实例" classname="ValidationError" time="0.00001" file="errors\error-classes.test.ts" line="38" assertions="1" />
+      <testcase name="是 Error 的实例" classname="ValidationError" time="0.000008" file="errors\error-classes.test.ts" line="42" assertions="1" />
+    </testsuite>
+    <testsuite name="NotFoundError" file="errors\error-classes.test.ts" line="47" tests="2" assertions="4" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="statusCode 为 404，code 为 NOT_FOUND" classname="NotFoundError" time="0.000019" file="errors\error-classes.test.ts" line="48" assertions="3" />
+      <testcase name="是 AppError 的实例" classname="NotFoundError" time="0.000007" file="errors\error-classes.test.ts" line="55" assertions="1" />
+    </testsuite>
+    <testsuite name="ConflictError" file="errors\error-classes.test.ts" line="60" tests="2" assertions="4" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="statusCode 为 409，code 为 ALREADY_EXISTS" classname="ConflictError" time="0.000018" file="errors\error-classes.test.ts" line="61" assertions="3" />
+      <testcase name="是 AppError 的实例" classname="ConflictError" time="0.000007" file="errors\error-classes.test.ts" line="68" assertions="1" />
+    </testsuite>
+    <testsuite name="ConfigWriteError" file="errors\error-classes.test.ts" line="73" tests="2" assertions="4" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="statusCode 为 500，code 为 CONFIG_WRITE_ERROR" classname="ConfigWriteError" time="0.000017" file="errors\error-classes.test.ts" line="74" assertions="3" />
+      <testcase name="是 AppError 的实例" classname="ConfigWriteError" time="0.000006" file="errors\error-classes.test.ts" line="81" assertions="1" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="services\agent-config-validators.test.ts" file="services\agent-config-validators.test.ts" tests="7" assertions="25" failures="0" skipped="0" time="0" hostname="">
+    <testsuite name="AGENT_SETTABLE_FIELDS" file="services\agent-config-validators.test.ts" line="40" tests="2" assertions="8" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="包含所有期望的可设置字段" classname="AGENT_SETTABLE_FIELDS" time="0.000056" file="services\agent-config-validators.test.ts" line="41" assertions="6" />
+      <testcase name="不再保留 top_p / topP 历史映射" classname="AGENT_SETTABLE_FIELDS" time="0.000013" file="services\agent-config-validators.test.ts" line="48" assertions="2" />
+    </testsuite>
+    <testsuite name="validateAgentData extra 校验" file="services\agent-config-validators.test.ts" line="56" tests="3" assertions="7" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="合法数据返回 null" classname="validateAgentData extra 校验" time="0.00011" file="services\agent-config-validators.test.ts" line="57" assertions="3" />
+      <testcase name="拒绝非法 extra" classname="validateAgentData extra 校验" time="0.000016" file="services\agent-config-validators.test.ts" line="63" assertions="3" />
+      <testcase name="拒绝非法 knowledge" classname="validateAgentData extra 校验" time="0.000011" file="services\agent-config-validators.test.ts" line="69" assertions="1" />
+    </testsuite>
+    <testsuite name="isBuiltInAgent (expanded)" file="services\agent-config-validators.test.ts" line="76" tests="2" assertions="10" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="识别内置 agent" classname="isBuiltInAgent (expanded)" time="0.00003" file="services\agent-config-validators.test.ts" line="77" assertions="7" />
+      <testcase name="拒绝非内置 agent" classname="isBuiltInAgent (expanded)" time="0.00001" file="services\agent-config-validators.test.ts" line="87" assertions="3" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="services\automation-state.test.ts" file="services\automation-state.test.ts" tests="22" assertions="36" failures="0" skipped="0" time="0" hostname="">
+    <testsuite name="getAutomationStateSnapshot" file="services\automation-state.test.ts" line="9" tests="12" assertions="22" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="metadata 无 automation_state 时返回 undefined" classname="getAutomationStateSnapshot" time="0.000085" file="services\automation-state.test.ts" line="10" assertions="4" />
+      <testcase name="automation_state 为 null 时返回 disabled" classname="getAutomationStateSnapshot" time="0.000058" file="services\automation-state.test.ts" line="17" assertions="1" />
+      <testcase name="非 object 的 automation_state 返回 disabled" classname="getAutomationStateSnapshot" time="0.000055" file="services\automation-state.test.ts" line="27" assertions="4" />
+      <testcase name="enabled 为 true 时正确归一化" classname="getAutomationStateSnapshot" time="0.000015" file="services\automation-state.test.ts" line="34" assertions="1" />
+      <testcase name="enabled 非 true 值归一化为 false" classname="getAutomationStateSnapshot" time="0.000009" file="services\automation-state.test.ts" line="39" assertions="1" />
+      <testcase name="接受 phase: standby" classname="getAutomationStateSnapshot" time="0.00001" file="services\automation-state.test.ts" line="44" assertions="1" />
+      <testcase name="接受 phase: sleeping" classname="getAutomationStateSnapshot" time="0.000353" file="services\automation-state.test.ts" line="51" assertions="1" />
+      <testcase name="拒绝非法 phase 值" classname="getAutomationStateSnapshot" time="0.000034" file="services\automation-state.test.ts" line="58" assertions="5" />
+      <testcase name="归一化 next_tick_at 为 number" classname="getAutomationStateSnapshot" time="0.000016" file="services\automation-state.test.ts" line="67" assertions="1" />
+      <testcase name="归一化非 number 的 next_tick_at 为 null" classname="getAutomationStateSnapshot" time="0.000009" file="services\automation-state.test.ts" line="74" assertions="1" />
+      <testcase name="归一化 sleep_until 为 number" classname="getAutomationStateSnapshot" time="0.00001" file="services\automation-state.test.ts" line="81" assertions="1" />
+      <testcase name="完整有效状态归一化" classname="getAutomationStateSnapshot" time="0.000015" file="services\automation-state.test.ts" line="88" assertions="1" />
+    </testsuite>
+    <testsuite name="getAutomationStateEventPayload" file="services\automation-state.test.ts" line="106" tests="4" assertions="5" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="无 metadata 时返回 disabled 默认值" classname="getAutomationStateEventPayload" time="0.000022" file="services\automation-state.test.ts" line="107" assertions="1" />
+      <testcase name="null metadata 返回 disabled 默认值" classname="getAutomationStateEventPayload" time="0.000011" file="services\automation-state.test.ts" line="117" assertions="1" />
+      <testcase name="有 automation_state 时返回归一化值" classname="getAutomationStateEventPayload" time="0.000012" file="services\automation-state.test.ts" line="127" assertions="1" />
+      <testcase name="每次调用返回新对象（不是冻结引用）" classname="getAutomationStateEventPayload" time="0.00002" file="services\automation-state.test.ts" line="144" assertions="2" />
+    </testsuite>
+    <testsuite name="automationStatesEqual" file="services\automation-state.test.ts" line="152" tests="6" assertions="9" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="相同状态返回 true" classname="automationStatesEqual" time="0.000021" file="services\automation-state.test.ts" line="160" assertions="1" />
+      <testcase name="enabled 不同返回 false" classname="automationStatesEqual" time="0.000166" file="services\automation-state.test.ts" line="164" assertions="1" />
+      <testcase name="phase 不同返回 false" classname="automationStatesEqual" time="0.000016" file="services\automation-state.test.ts" line="168" assertions="2" />
+      <testcase name="next_tick_at 不同返回 false" classname="automationStatesEqual" time="0.000011" file="services\automation-state.test.ts" line="173" assertions="2" />
+      <testcase name="sleep_until 不同返回 false" classname="automationStatesEqual" time="0.000051" file="services\automation-state.test.ts" line="178" assertions="2" />
+      <testcase name="两个 disabled 默认值相等" classname="automationStatesEqual" time="0.00002" file="services\automation-state.test.ts" line="183" assertions="1" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="services\build-info.test.ts" file="services\build-info.test.ts" tests="6" assertions="8" failures="0" skipped="0" time="0" hostname="">
+    <testsuite name="resolveCommitId" file="services\build-info.test.ts" line="4" tests="5" assertions="5" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="无注入且无 git 时返回 unknown" classname="resolveCommitId" time="0.000033" file="services\build-info.test.ts" line="5" assertions="1" />
+      <testcase name="构建注入值优先于 git 回调" classname="resolveCommitId" time="0.000012" file="services\build-info.test.ts" line="9" assertions="1" />
+      <testcase name="无注入时使用 git 回调值" classname="resolveCommitId" time="0.000016" file="services\build-info.test.ts" line="13" assertions="1" />
+      <testcase name="空白注入值被忽略，使用 git 回调" classname="resolveCommitId" time="0.000017" file="services\build-info.test.ts" line="17" assertions="1" />
+      <testcase name="unknown 注入值被忽略，使用 git 回调" classname="resolveCommitId" time="0.000011" file="services\build-info.test.ts" line="21" assertions="1" />
+    </testsuite>
+    <testsuite name="buildHealthInfo" file="services\build-info.test.ts" line="26" tests="1" assertions="3" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="包含 status ok 和 startedAt" classname="buildHealthInfo" time="0.000036" file="services\build-info.test.ts" line="27" assertions="3" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="services\build-model-data.test.ts" file="services\build-model-data.test.ts" tests="12" assertions="18" failures="0" skipped="0" time="0" hostname="">
+    <testsuite name="buildModelData" file="services\build-model-data.test.ts" line="23" tests="7" assertions="12" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="将前端字段映射为 PG 字段" classname="buildModelData" time="0.000228" file="services\build-model-data.test.ts" line="24" assertions="5" />
+      <testcase name="将 data.name 映射为 displayName" classname="buildModelData" time="0.000026" file="services\build-model-data.test.ts" line="39" assertions="1" />
+      <testcase name="非字符串 name 不映射为 displayName" classname="buildModelData" time="0.000031" file="services\build-model-data.test.ts" line="44" assertions="1" />
+      <testcase name="将 data.limit 映射为 limitConfig" classname="buildModelData" time="0.000022" file="services\build-model-data.test.ts" line="49" assertions="1" />
+      <testcase name="空输入返回空对象" classname="buildModelData" time="0.000026" file="services\build-model-data.test.ts" line="54" assertions="1" />
+      <testcase name="透传 null 值以支持清除字段" classname="buildModelData" time="0.000025" file="services\build-model-data.test.ts" line="59" assertions="2" />
+      <testcase name="跳过 undefined 值的字段" classname="buildModelData" time="0.000019" file="services\build-model-data.test.ts" line="65" assertions="1" />
+    </testsuite>
+    <testsuite name="mapCoreStatus" file="services\build-model-data.test.ts" line="87" tests="5" assertions="6" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="running → running" classname="mapCoreStatus" time="0.000041" file="services\build-model-data.test.ts" line="88" assertions="1" />
+      <testcase name="stopped → stopped" classname="mapCoreStatus" time="0.000011" file="services\build-model-data.test.ts" line="92" assertions="1" />
+      <testcase name="stopping → stopped（合并为同一状态）" classname="mapCoreStatus" time="0.000009" file="services\build-model-data.test.ts" line="96" assertions="1" />
+      <testcase name="error → error" classname="mapCoreStatus" time="0.000009" file="services\build-model-data.test.ts" line="100" assertions="1" />
+      <testcase name="未知状态 → starting" classname="mapCoreStatus" time="0.000019" file="services\build-model-data.test.ts" line="104" assertions="2" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="services\capabilities-coalescing.test.ts" file="services\capabilities-coalescing.test.ts" tests="5" assertions="8" failures="0" skipped="0" time="0" hostname="">
+    <testsuite name="capabilities nullish coalescing" file="services\capabilities-coalescing.test.ts" line="6" tests="5" assertions="8" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="capabilities 为 null 时返回 null" classname="capabilities nullish coalescing" time="0.000019" file="services\capabilities-coalescing.test.ts" line="7" assertions="1" />
+      <testcase name="capabilities 为 undefined 时返回 null" classname="capabilities nullish coalescing" time="0.000006" file="services\capabilities-coalescing.test.ts" line="12" assertions="1" />
+      <testcase name="capabilities 有值时保留原值" classname="capabilities nullish coalescing" time="0.000029" file="services\capabilities-coalescing.test.ts" line="17" assertions="1" />
+      <testcase name="capabilities 为空对象时保留（不转为 null）" classname="capabilities nullish coalescing" time="0.000007" file="services\capabilities-coalescing.test.ts" line="22" assertions="1" />
+      <testcase name="?? 和 || 对 false/0/&apos;&apos; 行为不同" classname="capabilities nullish coalescing" time="0.000014" file="services\capabilities-coalescing.test.ts" line="27" assertions="4" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="services\config-validators.test.ts" file="services\config-validators.test.ts" tests="35" assertions="49" failures="0" skipped="0" time="0" hostname="">
+    <testsuite name="validateMcpConfig" file="services\config-validators.test.ts" line="39" tests="13" assertions="15" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="接受有效的 local 配置" classname="validateMcpConfig" time="0.000206" file="services\config-validators.test.ts" line="40" assertions="1" />
+      <testcase name="接受有效的 remote 配置" classname="validateMcpConfig" time="0.000038" file="services\config-validators.test.ts" line="44" assertions="1" />
+      <testcase name="接受 enabled:false 的快捷禁用配置" classname="validateMcpConfig" time="0.000029" file="services\config-validators.test.ts" line="48" assertions="1" />
+      <testcase name="拒绝非 object 输入" classname="validateMcpConfig" time="0.000025" file="services\config-validators.test.ts" line="52" assertions="2" />
+      <testcase name="拒绝缺少 type 字段的配置" classname="validateMcpConfig" time="0.000028" file="services\config-validators.test.ts" line="57" assertions="1" />
+      <testcase name="拒绝 local 类型缺少 command" classname="validateMcpConfig" time="0.000018" file="services\config-validators.test.ts" line="61" assertions="1" />
+      <testcase name="拒绝 command 非数组" classname="validateMcpConfig" time="0.000022" file="services\config-validators.test.ts" line="65" assertions="1" />
+      <testcase name="拒绝 remote 类型缺少 url" classname="validateMcpConfig" time="0.000017" file="services\config-validators.test.ts" line="69" assertions="1" />
+      <testcase name="拒绝无效 timeout（负数或零）" classname="validateMcpConfig" time="0.000045" file="services\config-validators.test.ts" line="73" assertions="2" />
+      <testcase name="拒绝未知 type" classname="validateMcpConfig" time="0.000024" file="services\config-validators.test.ts" line="78" assertions="1" />
+      <testcase name="接受有效的 streamable-http 配置" classname="validateMcpConfig" time="0.000023" file="services\config-validators.test.ts" line="82" assertions="1" />
+      <testcase name="拒绝 streamable-http 缺少 url" classname="validateMcpConfig" time="0.000022" file="services\config-validators.test.ts" line="86" assertions="1" />
+      <testcase name="拒绝 streamable-http 无效 headers" classname="validateMcpConfig" time="0.000021" file="services\config-validators.test.ts" line="90" assertions="1" />
+    </testsuite>
+    <testsuite name="isValidMcpName" file="services\config-validators.test.ts" line="104" tests="6" assertions="10" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="接受合法 kebab-case 名称" classname="isValidMcpName" time="0.000086" file="services\config-validators.test.ts" line="105" assertions="3" />
+      <testcase name="拒绝空字符串" classname="isValidMcpName" time="0.00002" file="services\config-validators.test.ts" line="111" assertions="1" />
+      <testcase name="拒绝包含连续连字符的名称" classname="isValidMcpName" time="0.000019" file="services\config-validators.test.ts" line="115" assertions="1" />
+      <testcase name="拒绝大写字母" classname="isValidMcpName" time="0.000034" file="services\config-validators.test.ts" line="119" assertions="1" />
+      <testcase name="拒绝以连字符开头或结尾" classname="isValidMcpName" time="0.000019" file="services\config-validators.test.ts" line="123" assertions="2" />
+      <testcase name="拒绝超长名称（&gt;64 字符）" classname="isValidMcpName" time="0.000037" file="services\config-validators.test.ts" line="128" assertions="2" />
+    </testsuite>
+    <testsuite name="toServerInfo" file="services\config-validators.test.ts" line="160" tests="3" assertions="3" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="转换 local 类型" classname="toServerInfo" time="0.000141" file="services\config-validators.test.ts" line="161" assertions="1" />
+      <testcase name="转换 remote 类型" classname="toServerInfo" time="0.000037" file="services\config-validators.test.ts" line="170" assertions="1" />
+      <testcase name="转换 disabled 且无 type 的配置" classname="toServerInfo" time="0.000014" file="services\config-validators.test.ts" line="179" assertions="1" />
+    </testsuite>
+    <testsuite name="validateAgentData" file="services\config-validators.test.ts" line="209" tests="3" assertions="4" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="接受合法数据" classname="validateAgentData" time="0.000049" file="services\config-validators.test.ts" line="210" assertions="1" />
+      <testcase name="拒绝非法 extra" classname="validateAgentData" time="0.000017" file="services\config-validators.test.ts" line="214" assertions="2" />
+      <testcase name="拒绝非法 knowledge" classname="validateAgentData" time="0.000028" file="services\config-validators.test.ts" line="219" assertions="1" />
+    </testsuite>
+    <testsuite name="isBuiltInAgent" file="services\config-validators.test.ts" line="232" tests="2" assertions="4" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="识别内置 agent" classname="isBuiltInAgent" time="0.000052" file="services\config-validators.test.ts" line="233" assertions="3" />
+      <testcase name="非内置返回 false" classname="isBuiltInAgent" time="0.000007" file="services\config-validators.test.ts" line="239" assertions="1" />
+    </testsuite>
+    <testsuite name="normalizeKnowledgeConfig" file="services\config-validators.test.ts" line="261" tests="3" assertions="3" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="去重并 trim knowledgeBaseIds" classname="normalizeKnowledgeConfig" time="0.00007" file="services\config-validators.test.ts" line="262" assertions="1" />
+      <testcase name="null 输入返回 null" classname="normalizeKnowledgeConfig" time="0.000009" file="services\config-validators.test.ts" line="267" assertions="1" />
+      <testcase name="过滤非法值" classname="normalizeKnowledgeConfig" time="0.000014" file="services\config-validators.test.ts" line="271" assertions="1" />
+    </testsuite>
+    <testsuite name="validateWorkspacePath" file="services\config-validators.test.ts" line="290" tests="3" assertions="3" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="拒绝相对路径" classname="validateWorkspacePath" time="0.000033" file="services\config-validators.test.ts" line="291" assertions="1" />
+      <testcase name="拒绝根路径 /" classname="validateWorkspacePath" time="0.000008" file="services\config-validators.test.ts" line="295" assertions="1" />
+      <testcase name="接受合法绝对路径" classname="validateWorkspacePath" time="0.000033" file="services\config-validators.test.ts" line="302" assertions="1" />
+    </testsuite>
+    <testsuite name="KEBAB_CASE_RE" file="services\config-validators.test.ts" line="312" tests="2" assertions="7" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="接受合法 kebab-case" classname="KEBAB_CASE_RE" time="0.000018" file="services\config-validators.test.ts" line="313" assertions="3" />
+      <testcase name="拒绝非法格式" classname="KEBAB_CASE_RE" time="0.000014" file="services\config-validators.test.ts" line="319" assertions="4" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="services\environment-startup-lock.test.ts" file="services\environment-startup-lock.test.ts" tests="2" assertions="5" failures="0" skipped="0" time="0" hostname="">
+    <testsuite name="environment startup lock" file="services\environment-startup-lock.test.ts" line="4" tests="2" assertions="5" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="coalesces concurrent startup operations for the same environment" classname="environment startup lock" time="0.000355" file="services\environment-startup-lock.test.ts" line="6" assertions="2" />
+      <testcase name="releases the lock after a failed startup" classname="environment startup lock" time="0.000137" file="services\environment-startup-lock.test.ts" line="31" assertions="3" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="services\jsonb.test.ts" file="services\jsonb.test.ts" tests="14" assertions="14" failures="0" skipped="0" time="0" hostname="">
+    <testsuite name="parseJsonb" file="services\jsonb.test.ts" line="4" tests="10" assertions="10" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="null 输入返回 null" classname="parseJsonb" time="0.000038" file="services\jsonb.test.ts" line="5" assertions="1" />
+      <testcase name="undefined 输入返回 null" classname="parseJsonb" time="0.000008" file="services\jsonb.test.ts" line="9" assertions="1" />
+      <testcase name="正常对象直接返回" classname="parseJsonb" time="0.000015" file="services\jsonb.test.ts" line="13" assertions="1" />
+      <testcase name="正常数组直接返回" classname="parseJsonb" time="0.000012" file="services\jsonb.test.ts" line="18" assertions="1" />
+      <testcase name="JSON 字符串被解析为对象" classname="parseJsonb" time="0.000014" file="services\jsonb.test.ts" line="23" assertions="1" />
+      <testcase name="双重编码字符串被正确解析" classname="parseJsonb" time="0.000019" file="services\jsonb.test.ts" line="27" assertions="1" />
+      <testcase name="无效 JSON 字符串返回 null" classname="parseJsonb" time="0.000029" file="services\jsonb.test.ts" line="32" assertions="1" />
+      <testcase name="解析后仍为纯字符串（非 JSON）返回 null" classname="parseJsonb" time="0.00001" file="services\jsonb.test.ts" line="36" assertions="1" />
+      <testcase name="数字类型直接返回" classname="parseJsonb" time="0.000008" file="services\jsonb.test.ts" line="40" assertions="1" />
+      <testcase name="布尔类型直接返回" classname="parseJsonb" time="0.000006" file="services\jsonb.test.ts" line="44" assertions="1" />
+    </testsuite>
+    <testsuite name="parseJsonbOr" file="services\jsonb.test.ts" line="49" tests="4" assertions="4" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="解析成功返回解析结果" classname="parseJsonbOr" time="0.000015" file="services\jsonb.test.ts" line="50" assertions="1" />
+      <testcase name="解析失败返回 fallback" classname="parseJsonbOr" time="0.000023" file="services\jsonb.test.ts" line="54" assertions="1" />
+      <testcase name="null 输入返回 fallback" classname="parseJsonbOr" time="0.000008" file="services\jsonb.test.ts" line="59" assertions="1" />
+      <testcase name="对象输入直接返回（不走 JSON 解析）" classname="parseJsonbOr" time="0.000009" file="services\jsonb.test.ts" line="63" assertions="1" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="services\machine-connection-waiter.test.ts" file="services\machine-connection-waiter.test.ts" tests="3" assertions="6" failures="0" skipped="0" time="0.015" hostname="">
+    <testcase name="resolves immediately when the machine is already online" classname="" time="0.000211" file="services\machine-connection-waiter.test.ts" line="5" assertions="2" />
+    <testcase name="uses increasing polling intervals after the initial status check" classname="" time="0.000097" file="services\machine-connection-waiter.test.ts" line="17" assertions="3" />
+    <testcase name="rejects when the machine stays offline" classname="" time="0.015565" file="services\machine-connection-waiter.test.ts" line="38" assertions="1" />
+  </testsuite>
+  <testsuite name="services\mcp-command-validation.test.ts" file="services\mcp-command-validation.test.ts" tests="5" assertions="5" failures="0" skipped="0" time="0" hostname="">
+    <testsuite name="validateMcpConfig command validation (some vs every)" file="services\mcp-command-validation.test.ts" line="31" tests="5" assertions="5" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="accepts valid string command array" classname="validateMcpConfig command validation (some vs every)" time="0.000151" file="services\mcp-command-validation.test.ts" line="32" assertions="1" />
+      <testcase name="rejects command array with non-string element" classname="validateMcpConfig command validation (some vs every)" time="0.000028" file="services\mcp-command-validation.test.ts" line="41" assertions="1" />
+      <testcase name="rejects empty command array" classname="validateMcpConfig command validation (some vs every)" time="0.000021" file="services\mcp-command-validation.test.ts" line="50" assertions="1" />
+      <testcase name="rejects command array with null" classname="validateMcpConfig command validation (some vs every)" time="0.000011" file="services\mcp-command-validation.test.ts" line="59" assertions="1" />
+      <testcase name="rejects command array with object" classname="validateMcpConfig command validation (some vs every)" time="0.000012" file="services\mcp-command-validation.test.ts" line="68" assertions="1" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="services\mcp-server-info.test.ts" file="services\mcp-server-info.test.ts" tests="10" assertions="18" failures="0" skipped="0" time="0" hostname="">
+    <testsuite name="toServerInfo (extended)" file="services\mcp-server-info.test.ts" line="45" tests="10" assertions="18" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="禁用且无 type 返回 disabled 类型" classname="toServerInfo (extended)" time="0.000205" file="services\mcp-server-info.test.ts" line="46" assertions="2" />
+      <testcase name="local 类型解析 command 数组" classname="toServerInfo (extended)" time="0.000055" file="services\mcp-server-info.test.ts" line="52" assertions="2" />
+      <testcase name="command 为非数组时安全降级为空字符串" classname="toServerInfo (extended)" time="0.000027" file="services\mcp-server-info.test.ts" line="62" assertions="2" />
+      <testcase name="command 缺失时安全降级" classname="toServerInfo (extended)" time="0.000021" file="services\mcp-server-info.test.ts" line="72" assertions="2" />
+      <testcase name="remote 类型解析 url" classname="toServerInfo (extended)" time="0.000027" file="services\mcp-server-info.test.ts" line="82" assertions="2" />
+      <testcase name="remote 类型无 url 时降级为空字符串" classname="toServerInfo (extended)" time="0.000017" file="services\mcp-server-info.test.ts" line="92" assertions="2" />
+      <testcase name="透传 timeout 配置" classname="toServerInfo (extended)" time="0.000025" file="services\mcp-server-info.test.ts" line="102" assertions="1" />
+      <testcase name="streamable-http 类型正确识别" classname="toServerInfo (extended)" time="0.000019" file="services\mcp-server-info.test.ts" line="111" assertions="2" />
+      <testcase name="streamable-http 无 url 时降级为空字符串" classname="toServerInfo (extended)" time="0.000017" file="services\mcp-server-info.test.ts" line="121" assertions="2" />
+      <testcase name="未知类型归为 remote" classname="toServerInfo (extended)" time="0.000013" file="services\mcp-server-info.test.ts" line="131" assertions="1" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="services\mcp-type-validation.test.ts" file="services\mcp-type-validation.test.ts" tests="9" assertions="19" failures="0" skipped="0" time="0" hostname="">
+    <testsuite name="validateMcpConfig type validation" file="services\mcp-type-validation.test.ts" line="30" tests="5" assertions="5" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="accepts streamable-http type" classname="validateMcpConfig type validation" time="0.000112" file="services\mcp-type-validation.test.ts" line="31" assertions="1" />
+      <testcase name="accepts local type" classname="validateMcpConfig type validation" time="0.00004" file="services\mcp-type-validation.test.ts" line="35" assertions="1" />
+      <testcase name="accepts remote type" classname="validateMcpConfig type validation" time="0.000013" file="services\mcp-type-validation.test.ts" line="39" assertions="1" />
+      <testcase name="rejects unknown type" classname="validateMcpConfig type validation" time="0.000012" file="services\mcp-type-validation.test.ts" line="43" assertions="1" />
+      <testcase name="allows enabled-only config" classname="validateMcpConfig type validation" time="0.000022" file="services\mcp-type-validation.test.ts" line="47" assertions="1" />
+    </testsuite>
+    <testsuite name="isValidMcpName (extended)" file="services\mcp-type-validation.test.ts" line="52" tests="2" assertions="8" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="accepts valid kebab-case names" classname="isValidMcpName (extended)" time="0.000038" file="services\mcp-type-validation.test.ts" line="53" assertions="3" />
+      <testcase name="rejects invalid names" classname="isValidMcpName (extended)" time="0.000024" file="services\mcp-type-validation.test.ts" line="59" assertions="5" />
+    </testsuite>
+    <testsuite name="VALID_MCP_TYPES" file="services\mcp-type-validation.test.ts" line="68" tests="2" assertions="6" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="包含 local, remote, streamable-http" classname="VALID_MCP_TYPES" time="0.000019" file="services\mcp-type-validation.test.ts" line="69" assertions="3" />
+      <testcase name="不包含其他类型" classname="VALID_MCP_TYPES" time="0.000014" file="services\mcp-type-validation.test.ts" line="75" assertions="3" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="services\pagination-bounds.test.ts" file="services\pagination-bounds.test.ts" tests="6" assertions="9" failures="0" skipped="0" time="0" hostname="">
+    <testsuite name="listExecutionLogs pagination bounds" file="services\pagination-bounds.test.ts" line="12" tests="6" assertions="9" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="正常值不变" classname="listExecutionLogs pagination bounds" time="0.000419" file="services\pagination-bounds.test.ts" line="13" assertions="2" />
+      <testcase name="page &lt;= 0 钳位到 1" classname="listExecutionLogs pagination bounds" time="0.000014" file="services\pagination-bounds.test.ts" line="18" assertions="2" />
+      <testcase name="浮点 page 向下取整" classname="listExecutionLogs pagination bounds" time="0.000014" file="services\pagination-bounds.test.ts" line="23" assertions="1" />
+      <testcase name="pageSize &lt;= 0 钳位到 1" classname="listExecutionLogs pagination bounds" time="0.000012" file="services\pagination-bounds.test.ts" line="27" assertions="2" />
+      <testcase name="pageSize &gt; 100 钳位到 100" classname="listExecutionLogs pagination bounds" time="0.000007" file="services\pagination-bounds.test.ts" line="32" assertions="1" />
+      <testcase name="浮点 pageSize 向下取整" classname="listExecutionLogs pagination bounds" time="0.000007" file="services\pagination-bounds.test.ts" line="36" assertions="1" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="services\phone-number.test.ts" file="services\phone-number.test.ts" tests="10" assertions="10" failures="0" skipped="0" time="0" hostname="">
+    <testsuite name="phone-number" file="services\phone-number.test.ts" line="8" tests="10" assertions="10" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="归一化带 +86 前缀的手机号" classname="phone-number" time="0.00014" file="services\phone-number.test.ts" line="9" assertions="1" />
+      <testcase name="归一化带 86 前缀的 13 位手机号" classname="phone-number" time="0.000018" file="services\phone-number.test.ts" line="13" assertions="1" />
+      <testcase name="归一化纯 11 位手机号" classname="phone-number" time="0.000007" file="services\phone-number.test.ts" line="17" assertions="1" />
+      <testcase name="归一化带空格和括号的手机号" classname="phone-number" time="0.000015" file="services\phone-number.test.ts" line="21" assertions="1" />
+      <testcase name="拒绝 12 位非法手机号" classname="phone-number" time="0.000037" file="services\phone-number.test.ts" line="25" assertions="1" />
+      <testcase name="拒绝非 1 开头的手机号" classname="phone-number" time="0.000027" file="services\phone-number.test.ts" line="29" assertions="1" />
+      <testcase name="拒绝空字符串" classname="phone-number" time="0.000014" file="services\phone-number.test.ts" line="33" assertions="1" />
+      <testcase name="生成临时邮箱" classname="phone-number" time="0.000018" file="services\phone-number.test.ts" line="37" assertions="1" />
+      <testcase name="判断邮箱标识符 - 包含 @" classname="phone-number" time="0.000015" file="services\phone-number.test.ts" line="41" assertions="1" />
+      <testcase name="判断邮箱标识符 - 手机号" classname="phone-number" time="0.000007" file="services\phone-number.test.ts" line="45" assertions="1" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="services\remote-file-service.test.ts" file="services\remote-file-service.test.ts" tests="3" assertions="3" failures="0" skipped="0" time="0" hostname="">
+    <testsuite name="remote file machine resolution" file="services\remote-file-service.test.ts" line="4" tests="3" assertions="3" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="uses the sandbox instance machine id for a sandbox agent node" classname="remote file machine resolution" time="0.000054" file="services\remote-file-service.test.ts" line="6" assertions="1" />
+      <testcase name="prefers the default sandbox instance over the default machine" classname="remote file machine resolution" time="0.000015" file="services\remote-file-service.test.ts" line="18" assertions="1" />
+      <testcase name="keeps explicit machine resolution unchanged" classname="remote file machine resolution" time="0.000028" file="services\remote-file-service.test.ts" line="30" assertions="1" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="services\sandbox-api-error-mapping.test.ts" file="services\sandbox-api-error-mapping.test.ts" tests="3" assertions="3" failures="0" skipped="0" time="0" hostname="">
+    <testsuite name="sandbox API error mapping" file="services\sandbox-api-error-mapping.test.ts" line="6" tests="3" assertions="3" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="maps PostgreSQL unique constraint errors to HTTP 409" classname="sandbox API error mapping" time="0.000131" file="services\sandbox-api-error-mapping.test.ts" line="8" assertions="1" />
+      <testcase name="maps an unconfigured provider to HTTP 503" classname="sandbox API error mapping" time="0.000032" file="services\sandbox-api-error-mapping.test.ts" line="17" assertions="1" />
+      <testcase name="maps provider unavailable errors to HTTP 503" classname="sandbox API error mapping" time="0.000036" file="services\sandbox-api-error-mapping.test.ts" line="27" assertions="1" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="services\sandbox-config.test.ts" file="services\sandbox-config.test.ts" tests="7" assertions="9" failures="0" skipped="0" time="0" hostname="">
+    <testsuite name="sandbox config snapshot" file="services\sandbox-config.test.ts" line="14" tests="7" assertions="9" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="resolves image and resource overrides into a complete snapshot" classname="sandbox config snapshot" time="0.000131" file="services\sandbox-config.test.ts" line="16" assertions="1" />
+      <testcase name="replaces volumes as a whole when overrides provide volumes" classname="sandbox config snapshot" time="0.000042" file="services\sandbox-config.test.ts" line="34" assertions="1" />
+      <testcase name="copies defaults when overrides are absent" classname="sandbox config snapshot" time="0.000015" file="services\sandbox-config.test.ts" line="43" assertions="1" />
+      <testcase name="snapshots provider extra configuration" classname="sandbox config snapshot" time="0.000018" file="services\sandbox-config.test.ts" line="52" assertions="1" />
+      <testcase name="prefixes host volume sources with the stable user workspace" classname="sandbox config snapshot" time="0.000184" file="services\sandbox-config.test.ts" line="67" assertions="1" />
+      <testcase name="normalizes logical volume path variants before prefixing the user" classname="sandbox config snapshot" time="0.000072" file="services\sandbox-config.test.ts" line="83" assertions="1" />
+      <testcase name="rejects unsafe user workspace volume paths" classname="sandbox config snapshot" time="0.000088" file="services\sandbox-config.test.ts" line="99" assertions="3" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="services\sandbox-default-pool.test.ts" file="services\sandbox-default-pool.test.ts" tests="4" assertions="7" failures="0" skipped="0" time="0" hostname="">
+    <testsuite name="default sandbox pool" file="services\sandbox-default-pool.test.ts" line="23" tests="4" assertions="7" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="does not initialize when sandbox is disabled" classname="default sandbox pool" time="0.000184" file="services\sandbox-default-pool.test.ts" line="25" assertions="2" />
+      <testcase name="requires all default sandbox settings" classname="default sandbox pool" time="0.000083" file="services\sandbox-default-pool.test.ts" line="41" assertions="1" />
+      <testcase name="upserts a global pool from current settings" classname="default sandbox pool" time="0.000149" file="services\sandbox-default-pool.test.ts" line="48" assertions="3" />
+      <testcase name="rejects malformed resources" classname="default sandbox pool" time="0.000045" file="services\sandbox-default-pool.test.ts" line="71" assertions="1" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="services\sandbox-execution-handler.test.ts" file="services\sandbox-execution-handler.test.ts" tests="4" assertions="9" failures="0" skipped="0" time="0.027" hostname="">
+    <testcase name="waits for the machine to become online and returns its id" classname="" time="0.000479" file="services\sandbox-execution-handler.test.ts" line="10" assertions="1" />
+    <testcase name="accepts a machine that is already online" classname="" time="0.000119" file="services\sandbox-execution-handler.test.ts" line="36" assertions="1" />
+    <testcase name="retries the existing provider resource after the first ACP timeout" classname="" time="0.012052" file="services\sandbox-execution-handler.test.ts" line="63" assertions="4" />
+    <testcase name="recreates the sandbox when retrying the existing provider resource fails" classname="" time="0.015172" file="services\sandbox-execution-handler.test.ts" line="106" assertions="3" />
+  </testsuite>
+  <testsuite name="services\sandbox-manager.test.ts" file="services\sandbox-manager.test.ts" tests="14" assertions="29" failures="0" skipped="0" time="0" hostname="">
+    <testsuite name="SandboxManager machine identity" file="services\sandbox-manager.test.ts" line="42" tests="14" assertions="29" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="creates a machine identity and passes RCS_MACHINE_ID to the provider" classname="SandboxManager machine identity" time="0.000833" file="services\sandbox-manager.test.ts" line="48" assertions="3" />
+      <testcase name="uses the agent type configured by the sandbox pool" classname="SandboxManager machine identity" time="0.000213" file="services\sandbox-manager.test.ts" line="99" assertions="1" />
+      <testcase name="passes the stable user workspace path when creating a sandbox" classname="SandboxManager machine identity" time="0.000242" file="services\sandbox-manager.test.ts" line="143" assertions="1" />
+      <testcase name="keeps the stable user workspace path when updating instance config" classname="SandboxManager machine identity" time="0.000547" file="services\sandbox-manager.test.ts" line="189" assertions="1" />
+      <testcase name="keeps the stable user workspace path when rebuilding an instance" classname="SandboxManager machine identity" time="0.000392" file="services\sandbox-manager.test.ts" line="237" assertions="1" />
+      <testcase name="reuses the existing machine identity on retry" classname="SandboxManager machine identity" time="0.000272" file="services\sandbox-manager.test.ts" line="284" assertions="2" />
+      <testcase name="destroys the provider resource and unregisters by machine id" classname="SandboxManager machine identity" time="0.000224" file="services\sandbox-manager.test.ts" line="321" assertions="3" />
+      <testcase name="marks active instances recovering after restart" classname="SandboxManager machine identity" time="0.000159" file="services\sandbox-manager.test.ts" line="362" assertions="2" />
+      <testcase name="rebuilds changed instances without replacing machine identity" classname="SandboxManager machine identity" time="0.000185" file="services\sandbox-manager.test.ts" line="385" assertions="4" />
+      <testcase name="dry-run only returns changed instances" classname="SandboxManager machine identity" time="0.000141" file="services\sandbox-manager.test.ts" line="431" assertions="1" />
+      <testcase name="resumes the existing provider resource during recovery" classname="SandboxManager machine identity" time="0.000201" file="services\sandbox-manager.test.ts" line="473" assertions="2" />
+      <testcase name="restarts an existing provider resource without destroying it" classname="SandboxManager machine identity" time="0.000229" file="services\sandbox-manager.test.ts" line="515" assertions="4" />
+      <testcase name="reconciles a ready instance when its machine is offline" classname="SandboxManager machine identity" time="0.000151" file="services\sandbox-manager.test.ts" line="555" assertions="1" />
+      <testcase name="recreates the provider resource when the existing resource is errored" classname="SandboxManager machine identity" time="0.000268" file="services\sandbox-manager.test.ts" line="592" assertions="3" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="services\sandbox-pool-config-api.test.ts" file="services\sandbox-pool-config-api.test.ts" tests="2" assertions="3" failures="0" skipped="0" time="0" hostname="">
+    <testsuite name="Sandbox Pool 配置查询" file="services\sandbox-pool-config-api.test.ts" line="4" tests="2" assertions="3" failures="0" skipped="0" time="0.001" hostname="">
+      <testcase name="沙盒关闭返回空选项" classname="Sandbox Pool 配置查询" time="0.001095" file="services\sandbox-pool-config-api.test.ts" line="6" assertions="1" />
+      <testcase name="沙盒开启返回组织可读 Pool 的轻量选项" classname="Sandbox Pool 配置查询" time="0.000169" file="services\sandbox-pool-config-api.test.ts" line="15" assertions="2" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="services\sandbox-provider-registry.test.ts" file="services\sandbox-provider-registry.test.ts" tests="2" assertions="2" failures="0" skipped="0" time="0" hostname="">
+    <testsuite name="sandbox provider configuration" file="services\sandbox-provider-registry.test.ts" line="6" tests="2" assertions="2" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="registers the configured OpenSandbox Cluster provider" classname="sandbox provider configuration" time="0.000191" file="services\sandbox-provider-registry.test.ts" line="8" assertions="1" />
+      <testcase name="does not register an incomplete configuration" classname="sandbox provider configuration" time="0.000199" file="services\sandbox-provider-registry.test.ts" line="23" assertions="1" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="services\sandbox-schema.test.ts" file="services\sandbox-schema.test.ts" tests="3" assertions="3" failures="0" skipped="0" time="0" hostname="">
+    <testsuite name="sandbox schema" file="services\sandbox-schema.test.ts" line="4" tests="3" assertions="3" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="defines machine_id on sandbox instances" classname="sandbox schema" time="0.000874" file="services\sandbox-schema.test.ts" line="6" assertions="1" />
+      <testcase name="defines provider extra configuration on sandbox pools" classname="sandbox schema" time="0.000087" file="services\sandbox-schema.test.ts" line="11" assertions="1" />
+      <testcase name="defines a machine type column" classname="sandbox schema" time="0.000017" file="services\sandbox-schema.test.ts" line="16" assertions="1" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="services\sanitize-execution-log.test.ts" file="services\sanitize-execution-log.test.ts" tests="3" assertions="14" failures="0" skipped="0" time="0" hostname="">
+    <testsuite name="sanitizeExecutionLog" file="services\sanitize-execution-log.test.ts" line="45" tests="3" assertions="14" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="正确映射所有字段" classname="sanitizeExecutionLog" time="0.00013" file="services\sanitize-execution-log.test.ts" line="48" assertions="9" />
+      <testcase name="不包含 statusCode 字段" classname="sanitizeExecutionLog" time="0.000029" file="services\sanitize-execution-log.test.ts" line="71" assertions="1" />
+      <testcase name="null 字段使用默认值" classname="sanitizeExecutionLog" time="0.000022" file="services\sanitize-execution-log.test.ts" line="86" assertions="4" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="services\task-cron-empty.test.ts" file="services\task-cron-empty.test.ts" tests="5" assertions="5" failures="0" skipped="0" time="0" hostname="">
+    <testsuite name="validateTaskInput: empty cron on update" file="services\task-cron-empty.test.ts" line="42" tests="5" assertions="5" failures="0" skipped="0" time="0.001" hostname="">
+      <testcase name="rejects empty string cron on update" classname="validateTaskInput: empty cron on update" time="0.001153" file="services\task-cron-empty.test.ts" line="43" assertions="1" />
+      <testcase name="rejects whitespace-only cron on update" classname="validateTaskInput: empty cron on update" time="0.000042" file="services\task-cron-empty.test.ts" line="47" assertions="1" />
+      <testcase name="accepts valid cron on update" classname="validateTaskInput: empty cron on update" time="0.000237" file="services\task-cron-empty.test.ts" line="51" assertions="1" />
+      <testcase name="accepts undefined cron on update" classname="validateTaskInput: empty cron on update" time="0.000018" file="services\task-cron-empty.test.ts" line="55" assertions="1" />
+      <testcase name="rejects empty string cron on create" classname="validateTaskInput: empty cron on update" time="0.000019" file="services\task-cron-empty.test.ts" line="59" assertions="1" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="services\task-headers.test.ts" file="services\task-headers.test.ts" tests="9" assertions="9" failures="0" skipped="0" time="0" hostname="">
+    <testsuite name="parseHeaders" file="services\task-headers.test.ts" line="32" tests="9" assertions="9" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="返回已解析的对象" classname="parseHeaders" time="0.000081" file="services\task-headers.test.ts" line="33" assertions="1" />
+      <testcase name="解析双重编码的 JSON 字符串" classname="parseHeaders" time="0.00003" file="services\task-headers.test.ts" line="38" assertions="1" />
+      <testcase name="解析单层 JSON 字符串" classname="parseHeaders" time="0.000016" file="services\task-headers.test.ts" line="44" assertions="1" />
+      <testcase name="null 返回 null" classname="parseHeaders" time="0.000009" file="services\task-headers.test.ts" line="49" assertions="1" />
+      <testcase name="undefined 返回 null" classname="parseHeaders" time="0.000006" file="services\task-headers.test.ts" line="53" assertions="1" />
+      <testcase name="空字符串返回 null" classname="parseHeaders" time="0.00001" file="services\task-headers.test.ts" line="57" assertions="1" />
+      <testcase name="非法 JSON 返回 null" classname="parseHeaders" time="0.000034" file="services\task-headers.test.ts" line="61" assertions="1" />
+      <testcase name="数组返回 null" classname="parseHeaders" time="0.000013" file="services\task-headers.test.ts" line="65" assertions="1" />
+      <testcase name="空对象返回空对象" classname="parseHeaders" time="0.000008" file="services\task-headers.test.ts" line="69" assertions="1" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="services\task-log-id-uuid.test.ts" file="services\task-log-id-uuid.test.ts" tests="4" assertions="43" failures="0" skipped="0" time="0" hostname="">
+    <testsuite name="task/log ID generation: UUID format" file="services\task-log-id-uuid.test.ts" line="17" tests="4" assertions="43" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="generateTaskId returns valid UUID" classname="task/log ID generation: UUID format" time="0.000084" file="services\task-log-id-uuid.test.ts" line="18" assertions="1" />
+      <testcase name="generateLogId returns valid UUID" classname="task/log ID generation: UUID format" time="0.000018" file="services\task-log-id-uuid.test.ts" line="23" assertions="1" />
+      <testcase name="generates unique IDs across calls" classname="task/log ID generation: UUID format" time="0.000103" file="services\task-log-id-uuid.test.ts" line="28" assertions="1" />
+      <testcase name="no longer uses task_ or log_ prefix" classname="task/log ID generation: UUID format" time="0.000035" file="services\task-log-id-uuid.test.ts" line="37" assertions="40" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="services\task-timeout-error.test.ts" file="services\task-timeout-error.test.ts" tests="7" assertions="10" failures="0" skipped="0" time="0" hostname="">
+    <testsuite name="timeout detection instanceof Error" file="services\task-timeout-error.test.ts" line="5" tests="7" assertions="10" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="detects DOMException TimeoutError (Bun runtime)" classname="timeout detection instanceof Error" time="0.000078" file="services\task-timeout-error.test.ts" line="10" assertions="1" />
+      <testcase name="detects DOMException AbortError" classname="timeout detection instanceof Error" time="0.000014" file="services\task-timeout-error.test.ts" line="15" assertions="1" />
+      <testcase name="detects plain Error with name TimeoutError (Node.js runtime)" classname="timeout detection instanceof Error" time="0.000019" file="services\task-timeout-error.test.ts" line="20" assertions="1" />
+      <testcase name="detects plain Error with name AbortError" classname="timeout detection instanceof Error" time="0.000013" file="services\task-timeout-error.test.ts" line="26" assertions="1" />
+      <testcase name="non-Error objects are not detected as timeout" classname="timeout detection instanceof Error" time="0.000016" file="services\task-timeout-error.test.ts" line="32" assertions="4" />
+      <testcase name="generic Error is not detected as timeout" classname="timeout detection instanceof Error" time="0.000011" file="services\task-timeout-error.test.ts" line="39" assertions="1" />
+      <testcase name="TypeError is not detected as timeout" classname="timeout detection instanceof Error" time="0.000018" file="services\task-timeout-error.test.ts" line="44" assertions="1" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="services\task-utils-edges.test.ts" file="services\task-utils-edges.test.ts" tests="10" assertions="14" failures="0" skipped="0" time="0" hostname="">
+    <testsuite name="truncateSummary" file="services\task-utils-edges.test.ts" line="14" tests="6" assertions="8" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="null/undefined 返回 null" classname="truncateSummary" time="0.000041" file="services\task-utils-edges.test.ts" line="15" assertions="2" />
+      <testcase name="空字符串返回 null" classname="truncateSummary" time="0.000009" file="services\task-utils-edges.test.ts" line="20" assertions="1" />
+      <testcase name="短字符串原样返回" classname="truncateSummary" time="0.000011" file="services\task-utils-edges.test.ts" line="24" assertions="1" />
+      <testcase name="恰好 2000 字符不截断" classname="truncateSummary" time="0.000027" file="services\task-utils-edges.test.ts" line="28" assertions="2" />
+      <testcase name="超过 2000 字符截断" classname="truncateSummary" time="0.000019" file="services\task-utils-edges.test.ts" line="34" assertions="1" />
+      <testcase name="保留 unicode 字符" classname="truncateSummary" time="0.00001" file="services\task-utils-edges.test.ts" line="40" assertions="1" />
+    </testsuite>
+    <testsuite name="toUnixTimestamp" file="services\task-utils-edges.test.ts" line="51" tests="4" assertions="6" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="null/undefined 返回 null" classname="toUnixTimestamp" time="0.000023" file="services\task-utils-edges.test.ts" line="52" assertions="2" />
+      <testcase name="正常日期转换为 Unix 时间戳" classname="toUnixTimestamp" time="0.000028" file="services\task-utils-edges.test.ts" line="57" assertions="1" />
+      <testcase name="毫秒部分被截断（Math.floor）" classname="toUnixTimestamp" time="0.000034" file="services\task-utils-edges.test.ts" line="62" assertions="2" />
+      <testcase name="epoch 零点返回 0" classname="toUnixTimestamp" time="0.000011" file="services\task-utils-edges.test.ts" line="69" assertions="1" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="services\task-validators.test.ts" file="services\task-validators.test.ts" tests="25" assertions="44" failures="0" skipped="0" time="0" hostname="">
+    <testsuite name="validateCron" file="services\task-validators.test.ts" line="49" tests="5" assertions="12" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="接受标准的 5 字段 cron" classname="validateCron" time="0.000279" file="services\task-validators.test.ts" line="50" assertions="3" />
+      <testcase name="拒绝非 5 字段表达式" classname="validateCron" time="0.000128" file="services\task-validators.test.ts" line="56" assertions="3" />
+      <testcase name="拒绝包含非法字符的字段" classname="validateCron" time="0.00002" file="services\task-validators.test.ts" line="62" assertions="2" />
+      <testcase name="接受合法 cron 特殊字符" classname="validateCron" time="0.000461" file="services\task-validators.test.ts" line="67" assertions="3" />
+      <testcase name="自动 trim 前后空白" classname="validateCron" time="0.00001" file="services\task-validators.test.ts" line="73" assertions="1" />
+    </testsuite>
+    <testsuite name="normalizeTimezone" file="services\task-validators.test.ts" line="80" tests="5" assertions="8" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="null/undefined 返回 null" classname="normalizeTimezone" time="0.000024" file="services\task-validators.test.ts" line="81" assertions="2" />
+      <testcase name="空字符串返回 null" classname="normalizeTimezone" time="0.000008" file="services\task-validators.test.ts" line="86" assertions="1" />
+      <testcase name="纯空白字符串返回 null" classname="normalizeTimezone" time="0.000007" file="services\task-validators.test.ts" line="90" assertions="1" />
+      <testcase name="保留有效时区字符串" classname="normalizeTimezone" time="0.000015" file="services\task-validators.test.ts" line="94" assertions="3" />
+      <testcase name="trim 两侧空白" classname="normalizeTimezone" time="0.000007" file="services\task-validators.test.ts" line="100" assertions="1" />
+    </testsuite>
+    <testsuite name="validateTaskInput" file="services\task-validators.test.ts" line="107" tests="15" assertions="24" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="创建模式要求 name/url/cron 非空" classname="validateTaskInput" time="0.000091" file="services\task-validators.test.ts" line="108" assertions="3" />
+      <testcase name="创建模式接受完整输入" classname="validateTaskInput" time="0.000018" file="services\task-validators.test.ts" line="114" assertions="1" />
+      <testcase name="更新模式允许部分字段为空" classname="validateTaskInput" time="0.00001" file="services\task-validators.test.ts" line="118" assertions="2" />
+      <testcase name="拒绝超过 128 字符的名称" classname="validateTaskInput" time="0.000013" file="services\task-validators.test.ts" line="123" assertions="1" />
+      <testcase name="接受 128 字符的名称" classname="validateTaskInput" time="0.00001" file="services\task-validators.test.ts" line="127" assertions="1" />
+      <testcase name="拒绝纯空白的名称" classname="validateTaskInput" time="0.000007" file="services\task-validators.test.ts" line="131" assertions="1" />
+      <testcase name="拒绝纯空白的 URL" classname="validateTaskInput" time="0.000008" file="services\task-validators.test.ts" line="135" assertions="1" />
+      <testcase name="接受所有标准 HTTP 方法" classname="validateTaskInput" time="0.000056" file="services\task-validators.test.ts" line="139" assertions="7" />
+      <testcase name="接受小写 HTTP 方法（自动 upperCase）" classname="validateTaskInput" time="0.000013" file="services\task-validators.test.ts" line="145" assertions="1" />
+      <testcase name="拒绝非法 HTTP 方法" classname="validateTaskInput" time="0.000012" file="services\task-validators.test.ts" line="149" assertions="1" />
+      <testcase name="拒绝空字符串 method" classname="validateTaskInput" time="0.000009" file="services\task-validators.test.ts" line="153" assertions="1" />
+      <testcase name="拒绝纯空白 method" classname="validateTaskInput" time="0.000018" file="services\task-validators.test.ts" line="157" assertions="1" />
+      <testcase name="更新模式下 name 为 undefined 时不报 name 错误" classname="validateTaskInput" time="0.00001" file="services\task-validators.test.ts" line="161" assertions="1" />
+      <testcase name="更新模式下 url 为 undefined 时不报 url 错误" classname="validateTaskInput" time="0.000006" file="services\task-validators.test.ts" line="165" assertions="1" />
+      <testcase name="更新模式下 name 为空字符串时仍报错" classname="validateTaskInput" time="0.000009" file="services\task-validators.test.ts" line="169" assertions="1" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="services\transport-normalize.test.ts" file="services\transport-normalize.test.ts" tests="28" assertions="30" failures="0" skipped="0" time="0" hostname="">
+    <testsuite name="extractContent" file="services\transport-normalize.test.ts" line="55" tests="9" assertions="9" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="returns empty string for null payload" classname="extractContent" time="0.000188" file="services\transport-normalize.test.ts" line="56" assertions="1" />
+      <testcase name="returns empty string for undefined payload" classname="extractContent" time="0.000012" file="services\transport-normalize.test.ts" line="60" assertions="1" />
+      <testcase name="returns the string for string payload" classname="extractContent" time="0.000013" file="services\transport-normalize.test.ts" line="64" assertions="1" />
+      <testcase name="extracts content field from object payload" classname="extractContent" time="0.000054" file="services\transport-normalize.test.ts" line="68" assertions="1" />
+      <testcase name="extracts message.content string from object payload" classname="extractContent" time="0.000019" file="services\transport-normalize.test.ts" line="72" assertions="1" />
+      <testcase name="extracts text blocks from message.content array" classname="extractContent" time="0.000076" file="services\transport-normalize.test.ts" line="76" assertions="1" />
+      <testcase name="ignores non-text blocks in message.content array" classname="extractContent" time="0.000022" file="services\transport-normalize.test.ts" line="88" assertions="1" />
+      <testcase name="returns empty string when no extractable content" classname="extractContent" time="0.000011" file="services\transport-normalize.test.ts" line="100" assertions="1" />
+      <testcase name="prefers direct content over message.content" classname="extractContent" time="0.000013" file="services\transport-normalize.test.ts" line="104" assertions="1" />
+    </testsuite>
+    <testsuite name="normalizePayload — field preservation" file="services\transport-normalize.test.ts" line="111" tests="15" assertions="15" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="preserves raw payload" classname="normalizePayload — field preservation" time="0.000013" file="services\transport-normalize.test.ts" line="112" assertions="1" />
+      <testcase name="preserves uuid field" classname="normalizePayload — field preservation" time="0.00001" file="services\transport-normalize.test.ts" line="117" assertions="1" />
+      <testcase name="does not preserve uuid when empty string" classname="normalizePayload — field preservation" time="0.00001" file="services\transport-normalize.test.ts" line="121" assertions="1" />
+      <testcase name="preserves isSynthetic boolean" classname="normalizePayload — field preservation" time="0.00001" file="services\transport-normalize.test.ts" line="125" assertions="1" />
+      <testcase name="preserves status string" classname="normalizePayload — field preservation" time="0.000008" file="services\transport-normalize.test.ts" line="129" assertions="1" />
+      <testcase name="preserves subtype string" classname="normalizePayload — field preservation" time="0.000008" file="services\transport-normalize.test.ts" line="133" assertions="1" />
+      <testcase name="preserves tool_name from tool_name field" classname="normalizePayload — field preservation" time="0.00001" file="services\transport-normalize.test.ts" line="137" assertions="1" />
+      <testcase name="preserves tool_name from name field" classname="normalizePayload — field preservation" time="0.000009" file="services\transport-normalize.test.ts" line="141" assertions="1" />
+      <testcase name="preserves tool_input from tool_input field" classname="normalizePayload — field preservation" time="0.000013" file="services\transport-normalize.test.ts" line="145" assertions="1" />
+      <testcase name="preserves tool_input from input field" classname="normalizePayload — field preservation" time="0.000012" file="services\transport-normalize.test.ts" line="150" assertions="1" />
+      <testcase name="preserves request_id" classname="normalizePayload — field preservation" time="0.00001" file="services\transport-normalize.test.ts" line="155" assertions="1" />
+      <testcase name="preserves request object" classname="normalizePayload — field preservation" time="0.00001" file="services\transport-normalize.test.ts" line="159" assertions="1" />
+      <testcase name="preserves approved field" classname="normalizePayload — field preservation" time="0.000008" file="services\transport-normalize.test.ts" line="164" assertions="1" />
+      <testcase name="preserves updated_input" classname="normalizePayload — field preservation" time="0.000014" file="services\transport-normalize.test.ts" line="168" assertions="1" />
+      <testcase name="preserves message field for backward compat" classname="normalizePayload — field preservation" time="0.000015" file="services\transport-normalize.test.ts" line="173" assertions="1" />
+    </testsuite>
+    <testsuite name="normalizePayload — task_state type" file="services\transport-normalize.test.ts" line="181" tests="4" assertions="6" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="preserves task_list_id (snake_case)" classname="normalizePayload — task_state type" time="0.00001" file="services\transport-normalize.test.ts" line="182" assertions="1" />
+      <testcase name="preserves taskListId (camelCase)" classname="normalizePayload — task_state type" time="0.000008" file="services\transport-normalize.test.ts" line="186" assertions="1" />
+      <testcase name="preserves tasks array" classname="normalizePayload — task_state type" time="0.000014" file="services\transport-normalize.test.ts" line="190" assertions="1" />
+      <testcase name="does not preserve task fields for non-task_state type" classname="normalizePayload — task_state type" time="0.00002" file="services\transport-normalize.test.ts" line="195" assertions="3" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="services\workspace-resolver.test.ts" file="services\workspace-resolver.test.ts" tests="4" assertions="11" failures="0" skipped="0" time="0" hostname="">
+    <testsuite name="resolveWorkspacePath" file="services\workspace-resolver.test.ts" line="5" tests="4" assertions="11" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="默认使用 cwd/workspaces 作为根目录" classname="resolveWorkspacePath" time="0.000258" file="services\workspace-resolver.test.ts" line="6" assertions="1" />
+      <testcase name="WORKSPACE_ROOT 已设置时使用配置值" classname="resolveWorkspacePath" time="0.000127" file="services\workspace-resolver.test.ts" line="16" assertions="1" />
+      <testcase name="不同 orgId + userId + envId 产生不同路径" classname="resolveWorkspacePath" time="0.0001" file="services\workspace-resolver.test.ts" line="27" assertions="6" />
+      <testcase name="相同 org/user 下不同 envId 产生不同路径" classname="resolveWorkspacePath" time="0.000072" file="services\workspace-resolver.test.ts" line="46" assertions="3" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="transport\client-payload.test.ts" file="transport\client-payload.test.ts" tests="19" assertions="37" failures="0" skipped="0" time="0" hostname="">
+    <testsuite name="toClientPayload — user message" file="transport\client-payload.test.ts" line="97" tests="8" assertions="12" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="maps user type with content" classname="toClientPayload — user message" time="0.000135" file="transport\client-payload.test.ts" line="98" assertions="4" />
+      <testcase name="maps user_message type same as user" classname="toClientPayload — user message" time="0.000021" file="transport\client-payload.test.ts" line="107" assertions="2" />
+      <testcase name="falls back to message field when content is missing" classname="toClientPayload — user message" time="0.000015" file="transport\client-payload.test.ts" line="114" assertions="1" />
+      <testcase name="falls back to empty string when both content and message missing" classname="toClientPayload — user message" time="0.000012" file="transport\client-payload.test.ts" line="120" assertions="1" />
+      <testcase name="includes isSynthetic when true" classname="toClientPayload — user message" time="0.000013" file="transport\client-payload.test.ts" line="126" assertions="1" />
+      <testcase name="does not include isSynthetic when false" classname="toClientPayload — user message" time="0.000014" file="transport\client-payload.test.ts" line="131" assertions="1" />
+      <testcase name="uses payload.uuid when present" classname="toClientPayload — user message" time="0.000011" file="transport\client-payload.test.ts" line="136" assertions="1" />
+      <testcase name="falls back to event.id when payload.uuid is missing" classname="toClientPayload — user message" time="0.000015" file="transport\client-payload.test.ts" line="141" assertions="1" />
+    </testsuite>
+    <testsuite name="toClientPayload — permission response" file="transport\client-payload.test.ts" line="149" tests="6" assertions="13" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="approved=true maps to allow behavior" classname="toClientPayload — permission response" time="0.000023" file="transport\client-payload.test.ts" line="150" assertions="4" />
+      <testcase name="approved=false maps to deny behavior with error" classname="toClientPayload — permission response" time="0.00002" file="transport\client-payload.test.ts" line="160" assertions="4" />
+      <testcase name="approved=false includes feedback message when provided" classname="toClientPayload — permission response" time="0.000064" file="transport\client-payload.test.ts" line="170" assertions="1" />
+      <testcase name="passes through existing response directly" classname="toClientPayload — permission response" time="0.000024" file="transport\client-payload.test.ts" line="176" assertions="2" />
+      <testcase name="includes updatedInput when approved with updated_input" classname="toClientPayload — permission response" time="0.000018" file="transport\client-payload.test.ts" line="184" assertions="1" />
+      <testcase name="includes updatedPermissions when approved with updated_permissions" classname="toClientPayload — permission response" time="0.000023" file="transport\client-payload.test.ts" line="191" assertions="1" />
+    </testsuite>
+    <testsuite name="toClientPayload — interrupt" file="transport\client-payload.test.ts" line="201" tests="1" assertions="3" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="maps interrupt to control_request with subtype interrupt" classname="toClientPayload — interrupt" time="0.000017" file="transport\client-payload.test.ts" line="202" assertions="3" />
+    </testsuite>
+    <testsuite name="toClientPayload — control_request" file="transport\client-payload.test.ts" line="213" tests="3" assertions="5" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="passes through request_id and request from payload" classname="toClientPayload — control_request" time="0.00002" file="transport\client-payload.test.ts" line="214" assertions="3" />
+      <testcase name="falls back request to payload when no request field" classname="toClientPayload — control_request" time="0.000015" file="transport\client-payload.test.ts" line="222" assertions="1" />
+      <testcase name="falls back request_id to event.id when missing" classname="toClientPayload — control_request" time="0.000015" file="transport\client-payload.test.ts" line="228" assertions="1" />
+    </testsuite>
+    <testsuite name="toClientPayload — default types" file="transport\client-payload.test.ts" line="237" tests="1" assertions="4" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="passes through unknown type with type/uuid/session_id/message" classname="toClientPayload — default types" time="0.000018" file="transport\client-payload.test.ts" line="238" assertions="4" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="transport\event-bus.test.ts" file="transport\event-bus.test.ts" tests="20" assertions="34" failures="0" skipped="0" time="0" hostname="">
+    <testsuite name="EventBus" file="transport\event-bus.test.ts" line="96" tests="15" assertions="27" failures="0" skipped="0" time="0" hostname="">
+      <testsuite name="publish" file="transport\event-bus.test.ts" line="103" tests="3" assertions="4" failures="0" skipped="0" time="0" hostname="">
+        <testcase name="publishes event with seqNum starting at 1" classname="publish &amp;gt; EventBus" time="0.000132" file="transport\event-bus.test.ts" line="104" assertions="2" />
+        <testcase name="increments seqNum on each publish" classname="publish &amp;gt; EventBus" time="0.000033" file="transport\event-bus.test.ts" line="112" assertions="1" />
+        <testcase name="throws when publishing to a closed bus" classname="publish &amp;gt; EventBus" time="0.000039" file="transport\event-bus.test.ts" line="119" assertions="1" />
+      </testsuite>
+      <testsuite name="subscribe" file="transport\event-bus.test.ts" line="127" tests="5" assertions="10" failures="0" skipped="0" time="0" hostname="">
+        <testcase name="receives published events" classname="subscribe &amp;gt; EventBus" time="0.000049" file="transport\event-bus.test.ts" line="128" assertions="2" />
+        <testcase name="unsubscribe stops receiving events" classname="subscribe &amp;gt; EventBus" time="0.000024" file="transport\event-bus.test.ts" line="136" assertions="1" />
+        <testcase name="multiple subscribers all receive events" classname="subscribe &amp;gt; EventBus" time="0.00003" file="transport\event-bus.test.ts" line="144" assertions="2" />
+        <testcase name="subscriber error does not affect other subscribers" classname="subscribe &amp;gt; EventBus" time="0.000056" file="transport\event-bus.test.ts" line="154" assertions="1" />
+        <testcase name="subscriberCount" classname="subscribe &amp;gt; EventBus" time="0.000028" file="transport\event-bus.test.ts" line="162" assertions="4" />
+      </testsuite>
+      <testsuite name="getEventsSince" file="transport\event-bus.test.ts" line="173" tests="3" assertions="5" failures="0" skipped="0" time="0" hostname="">
+        <testcase name="returns events after given seqNum" classname="getEventsSince &amp;gt; EventBus" time="0.000044" file="transport\event-bus.test.ts" line="174" assertions="3" />
+        <testcase name="returns empty for seqNum beyond last" classname="getEventsSince &amp;gt; EventBus" time="0.000016" file="transport\event-bus.test.ts" line="184" assertions="1" />
+        <testcase name="returns all events when seqNum is 0" classname="getEventsSince &amp;gt; EventBus" time="0.000016" file="transport\event-bus.test.ts" line="189" assertions="1" />
+      </testsuite>
+      <testsuite name="getLastSeqNum" file="transport\event-bus.test.ts" line="196" tests="2" assertions="2" failures="0" skipped="0" time="0" hostname="">
+        <testcase name="returns 0 for empty bus" classname="getLastSeqNum &amp;gt; EventBus" time="0.000009" file="transport\event-bus.test.ts" line="197" assertions="1" />
+        <testcase name="returns last seqNum after publishes" classname="getLastSeqNum &amp;gt; EventBus" time="0.000014" file="transport\event-bus.test.ts" line="201" assertions="1" />
+      </testsuite>
+      <testsuite name="close" file="transport\event-bus.test.ts" line="208" tests="1" assertions="2" failures="0" skipped="0" time="0" hostname="">
+        <testcase name="clears subscribers and prevents publishing" classname="close &amp;gt; EventBus" time="0.000023" file="transport\event-bus.test.ts" line="209" assertions="2" />
+      </testsuite>
+      <testsuite name="event eviction" file="transport\event-bus.test.ts" line="219" tests="1" assertions="4" failures="0" skipped="0" time="0.001" hostname="">
+        <testcase name="evicts oldest events when exceeding MAX_EVENTS_PER_BUS" classname="event eviction &amp;gt; EventBus" time="0.001999" file="transport\event-bus.test.ts" line="220" assertions="4" />
+      </testsuite>
+    </testsuite>
+    <testsuite name="EventBus registry" file="transport\event-bus.test.ts" line="234" tests="5" assertions="7" failures="0" skipped="0" time="0" hostname="">
+      <testsuite name="getEventBus" file="transport\event-bus.test.ts" line="241" tests="2" assertions="3" failures="0" skipped="0" time="0" hostname="">
+        <testcase name="creates new bus for unknown session" classname="getEventBus &amp;gt; EventBus registry" time="0.000156" file="transport\event-bus.test.ts" line="242" assertions="2" />
+        <testcase name="returns same bus for same session" classname="getEventBus &amp;gt; EventBus registry" time="0.000037" file="transport\event-bus.test.ts" line="248" assertions="1" />
+      </testsuite>
+      <testsuite name="removeEventBus" file="transport\event-bus.test.ts" line="255" tests="2" assertions="3" failures="0" skipped="0" time="0" hostname="">
+        <testcase name="removes and closes bus" classname="removeEventBus &amp;gt; EventBus registry" time="0.000079" file="transport\event-bus.test.ts" line="256" assertions="2" />
+        <testcase name="no-op for non-existent bus" classname="removeEventBus &amp;gt; EventBus registry" time="0.000016" file="transport\event-bus.test.ts" line="265" assertions="1" />
+      </testsuite>
+      <testsuite name="getAllEventBuses" file="transport\event-bus.test.ts" line="270" tests="1" assertions="1" failures="0" skipped="0" time="0" hostname="">
+        <testcase name="returns all registered buses" classname="getAllEventBuses &amp;gt; EventBus registry" time="0.000029" file="transport\event-bus.test.ts" line="271" assertions="1" />
+      </testsuite>
+    </testsuite>
+  </testsuite>
+  <testsuite name="packages\sandbox-provider\http-client.test.ts" file="packages\sandbox-provider\http-client.test.ts" tests="3" assertions="5" failures="0" skipped="0" time="0" hostname="">
+    <testsuite name="ClusterHttpClient" file="packages\sandbox-provider\http-client.test.ts" line="5" tests="3" assertions="5" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="sends bearer authentication and decodes JSON" classname="ClusterHttpClient" time="0.000853" file="packages\sandbox-provider\http-client.test.ts" line="7" assertions="3" />
+      <testcase name="preserves HTTP status and retryability" classname="ClusterHttpClient" time="0.000217" file="packages\sandbox-provider\http-client.test.ts" line="20" assertions="1" />
+      <testcase name="marks server errors as retryable" classname="ClusterHttpClient" time="0.000094" file="packages\sandbox-provider\http-client.test.ts" line="31" assertions="1" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="packages\sandbox-provider\integration-flow.test.ts" file="packages\sandbox-provider\integration-flow.test.ts" tests="2" assertions="8" failures="0" skipped="0" time="0" hostname="">
+    <testsuite name="OpenSandbox Cluster Provider integration flow" file="packages\sandbox-provider\integration-flow.test.ts" line="19" tests="2" assertions="8" failures="0" skipped="0" time="0.025" hostname="">
+      <testcase name="runs the lifecycle through one cluster binding" classname="OpenSandbox Cluster Provider integration flow" time="0.000807" file="packages\sandbox-provider\integration-flow.test.ts" line="21" assertions="6" />
+      <testcase name="does not retry create after a timeout" classname="OpenSandbox Cluster Provider integration flow" time="0.02547" file="packages\sandbox-provider\integration-flow.test.ts" line="78" assertions="2" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="packages\sandbox-provider\opensandbox-cluster-provider.test.ts" file="packages\sandbox-provider\opensandbox-cluster-provider.test.ts" tests="6" assertions="13" failures="0" skipped="0" time="0" hostname="">
+    <testsuite name="OpenSandboxClusterProvider contract" file="packages\sandbox-provider\opensandbox-cluster-provider.test.ts" line="19" tests="6" assertions="13" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="keeps business sandbox id separate from provider sandbox id" classname="OpenSandboxClusterProvider contract" time="0.000035" file="packages\sandbox-provider\opensandbox-cluster-provider.test.ts" line="21" assertions="2" />
+      <testcase name="allocates and creates a sandbox through the cluster proxy" classname="OpenSandboxClusterProvider contract" time="0.000396" file="packages\sandbox-provider\opensandbox-cluster-provider.test.ts" line="27" assertions="4" />
+      <testcase name="gets and resumes the existing provider sandbox" classname="OpenSandboxClusterProvider contract" time="0.000227" file="packages\sandbox-provider\opensandbox-cluster-provider.test.ts" line="71" assertions="3" />
+      <testcase name="releases allocation after destroy" classname="OpenSandboxClusterProvider contract" time="0.000108" file="packages\sandbox-provider\opensandbox-cluster-provider.test.ts" line="99" assertions="1" />
+      <testcase name="releases allocation when the provider sandbox is already gone" classname="OpenSandboxClusterProvider contract" time="0.000198" file="packages\sandbox-provider\opensandbox-cluster-provider.test.ts" line="124" assertions="1" />
+      <testcase name="does not release allocation when remote destroy fails" classname="OpenSandboxClusterProvider contract" time="0.000123" file="packages\sandbox-provider\opensandbox-cluster-provider.test.ts" line="148" assertions="2" />
+    </testsuite>
+  </testsuite>
+  <testsuite name="packages\sandbox-provider\request-mapping.test.ts" file="packages\sandbox-provider\request-mapping.test.ts" tests="3" assertions="3" failures="0" skipped="0" time="0" hostname="">
+    <testsuite name="OpenSandbox Cluster request mapping" file="packages\sandbox-provider\request-mapping.test.ts" line="44" tests="3" assertions="3" failures="0" skipped="0" time="0" hostname="">
+      <testcase name="maps image resources environment and relative host volumes" classname="OpenSandbox Cluster request mapping" time="0.00027" file="packages\sandbox-provider\request-mapping.test.ts" line="46" assertions="1" />
+      <testcase name="maps OpenSandbox entrypoint from provider extra" classname="OpenSandbox Cluster request mapping" time="0.000127" file="packages\sandbox-provider\request-mapping.test.ts" line="71" assertions="1" />
+      <testcase name="rejects a volume without a source path" classname="OpenSandbox Cluster request mapping" time="0.000077" file="packages\sandbox-provider\request-mapping.test.ts" line="90" assertions="1" />
+    </testsuite>
+  </testsuite>
+</testsuites>

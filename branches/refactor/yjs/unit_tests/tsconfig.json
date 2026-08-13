@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "baseUrl": ".",
+    "types": ["bun"],
+    "strict": true,
+    "paths": {
+      "@fenix/sandbox-provider": ["../fenix-source/packages/sandbox-provider/src"],
+      "@fenix/sandbox-provider/*": ["../fenix-source/packages/sandbox-provider/src/*"],
+      "@fenix/*": ["../fenix-source/src/*"]
+    }
+  },
+  "include": ["**/*.ts"]
+}
