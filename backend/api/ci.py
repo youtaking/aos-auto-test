@@ -388,13 +388,12 @@ async def resolve_tests(
     # 如果有 branch 参数，扫描分支目录
     if branch and branch != "main":
         _validate_branch_name(branch)
-        from backend.api.unit_tests import UNIT_TESTS_DIR
         from engine.runner import TestRunner
         runner = TestRunner()
-        branches_dir = UNIT_TESTS_DIR.parent / "branches"
-        branch_api_dir = branches_dir / branch / "api_suites"
+        # 使用相对路径，避免 Windows 绝对路径污染 pytest node ID
+        branch_api_dir = Path("branches") / branch / "api_suites"
         if branch_api_dir.exists():
-            collected = runner.collect_tests_api(test_dir=str(branch_api_dir))
+            collected = runner.collect_tests_api(test_dir=str(branch_api_dir.as_posix()))
             node_ids = [f"{c['file_path']}::{c['function_name']}" for c in collected]
             return ApiResponse(data={"node_ids": node_ids})
         else:
@@ -439,13 +438,12 @@ async def staging_resolve_tests(
     # 如果有 branch 参数，扫描分支目录
     if branch and branch != "main":
         _validate_branch_name(branch)
-        from backend.api.unit_tests import UNIT_TESTS_DIR
         from engine.runner import TestRunner
         runner = TestRunner()
-        branches_dir = UNIT_TESTS_DIR.parent / "branches"
-        branch_api_dir = branches_dir / branch / "api_suites"
+        # 使用相对路径，避免 Windows 绝对路径污染 pytest node ID
+        branch_api_dir = Path("branches") / branch / "api_suites"
         if branch_api_dir.exists():
-            collected = runner.collect_tests_api(test_dir=str(branch_api_dir))
+            collected = runner.collect_tests_api(test_dir=str(branch_api_dir.as_posix()))
             node_ids = [f"{c['file_path']}::{c['function_name']}" for c in collected]
             return ApiResponse(data={"node_ids": node_ids})
         else:
