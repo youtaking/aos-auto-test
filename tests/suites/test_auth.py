@@ -317,7 +317,10 @@ def test_auth_008_token_expired_redirect(logged_in_page, base_url):
         ctx.clear_cookies()
 
         # 访问受保护页面
-        page.goto(f"{base_url}/ctrl/agent/chat")
+        try:
+            page.goto(f"{base_url}/ctrl/agent/chat", wait_until="domcontentloaded")
+        except Exception:
+            pass  # SPA 路由可能中断初始导航
         page.wait_for_timeout(800)
 
         # 应自动跳转到登录页
@@ -339,7 +342,10 @@ def test_auth_009_unauthenticated_redirect(logged_in_page, base_url):
 
     try:
         # 直接访问受保护页面
-        page.goto(f"{base_url}/ctrl/agent/chat")
+        try:
+            page.goto(f"{base_url}/ctrl/agent/chat", wait_until="domcontentloaded")
+        except Exception:
+            pass  # SPA 路由可能中断初始导航
 
         # 等待重定向到登录页（客户端 JS 重定向，需要等 URL 变化）
         try:
@@ -366,7 +372,10 @@ def test_auth_009_unauthenticated_redirect(logged_in_page, base_url):
 def test_auth_011_refresh_keeps_login(logged_in_page, base_url):
     """✅ 人工评审通过 | TC-AUTH-011: 登录后刷新页面保持登录状态"""
     # 确保已登录
-    logged_in_page.goto(f"{base_url}/ctrl/agent/home")
+    try:
+        logged_in_page.goto(f"{base_url}/ctrl/agent/home", wait_until="domcontentloaded")
+    except Exception:
+        pass  # SPA 路由可能中断初始导航
     logged_in_page.wait_for_timeout(800)
     assert "/ctrl/login" not in logged_in_page.url, "应先确保已登录"
 
@@ -438,7 +447,10 @@ def test_auth_014_change_password_ui(logged_in_page, base_url):
     不真正修改密码以避免影响后续测试
     """
     # 确保已登录
-    logged_in_page.goto(f"{base_url}/ctrl/agent/home")
+    try:
+        logged_in_page.goto(f"{base_url}/ctrl/agent/home", wait_until="domcontentloaded")
+    except Exception:
+        pass  # SPA 路由可能中断初始导航
     logged_in_page.wait_for_timeout(800)
 
     auth = AuthPage(logged_in_page, base_url)
@@ -469,7 +481,10 @@ def test_auth_014_change_password_ui(logged_in_page, base_url):
 @pytest.mark.p1
 def test_auth_015_change_password_validation(logged_in_page, base_url):
     """✅ 人工评审通过 | TC-AUTH-015: 密码修改校验 — 验证前端校验逻辑"""
-    logged_in_page.goto(f"{base_url}/ctrl/agent/home")
+    try:
+        logged_in_page.goto(f"{base_url}/ctrl/agent/home", wait_until="domcontentloaded")
+    except Exception:
+        pass  # SPA 路由可能中断初始导航
     # 元素级等待，替代固定 timeout（CI Docker 渲染慢）
     try:
         logged_in_page.locator("button.agent-sidebar-user-button").first.wait_for(
@@ -529,7 +544,10 @@ def test_auth_015_change_password_validation(logged_in_page, base_url):
 @pytest.mark.p1
 def test_auth_015b_change_password_required_fields(logged_in_page, base_url):
     """✅ 人工评审通过 | TC-AUTH-015b: 修改密码弹窗三个输入框均为必填项（逐个留空验证）"""
-    logged_in_page.goto(f"{base_url}/ctrl/agent/home")
+    try:
+        logged_in_page.goto(f"{base_url}/ctrl/agent/home", wait_until="domcontentloaded")
+    except Exception:
+        pass  # SPA 路由可能中断初始导航
     # 元素级等待，替代固定 timeout（CI Docker 渲染慢）
     try:
         logged_in_page.locator("button.agent-sidebar-user-button").first.wait_for(
@@ -586,7 +604,10 @@ def test_auth_015b_change_password_required_fields(logged_in_page, base_url):
 def test_auth_016_default_account_resources(logged_in_page, base_url):
     """✅ 人工评审通过 | TC-AUTH-016: 默认系统账号和公开资源"""
     # 确保已登录
-    logged_in_page.goto(f"{base_url}/ctrl/agent/home")
+    try:
+        logged_in_page.goto(f"{base_url}/ctrl/agent/home", wait_until="domcontentloaded")
+    except Exception:
+        pass  # SPA 路由可能中断初始导航
     # 元素级等待，替代固定 timeout（CI Docker 渲染慢）
     try:
         logged_in_page.locator("button.agent-sidebar-user-button").first.wait_for(

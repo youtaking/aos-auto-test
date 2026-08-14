@@ -335,7 +335,10 @@ def test_session_persistence_refresh(logged_in_page, base_url):
     session_url = logged_in_page.url
 
     # 5. 导航到完全不同的页面，再回到原会话 URL
-    logged_in_page.goto(f"{base_url}/ctrl/agent/algorithms")
+    try:
+        logged_in_page.goto(f"{base_url}/ctrl/agent/algorithms", wait_until="domcontentloaded")
+    except Exception:
+        pass  # SPA 路由可能中断初始导航
     logged_in_page.wait_for_load_state("networkidle")
     logged_in_page.goto(session_url, wait_until="networkidle")
     logged_in_page.wait_for_load_state("networkidle")

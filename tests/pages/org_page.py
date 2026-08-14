@@ -16,7 +16,10 @@ class OrgPage:
 
     def goto(self):
         """通过侧边栏导航到组织管理页面"""
-        self.page.goto(self.url)
+        try:
+            self.page.goto(self.url, wait_until="domcontentloaded")
+        except Exception:
+            pass  # SPA 路由可能中断初始导航
         self.page.wait_for_load_state("networkidle")
         # 等待组织按钮列表渲染完成
         try:

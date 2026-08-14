@@ -78,7 +78,10 @@ def test_skill_list_loading_skeleton(logged_in_page, base_url):
     logged_in_page.route("**/web/config/skills*", delay_skills_api)
 
     # 先导航到其他页面，并清除浏览器缓存（防止应用级数据缓存跳过 API）
-    logged_in_page.goto(f"{base_url}/ctrl/agent/dashboard")
+    try:
+        logged_in_page.goto(f"{base_url}/ctrl/agent/dashboard", wait_until="domcontentloaded")
+    except Exception:
+        pass  # SPA 路由可能中断初始导航
     logged_in_page.wait_for_load_state("networkidle")
     logged_in_page.evaluate("() => { sessionStorage.clear(); localStorage.clear(); }")
 
@@ -263,7 +266,10 @@ def test_skill_delete_via_ui(logged_in_page, base_url):
     assert upload_resp.status_code < 400, f"预置测试技能上传失败: HTTP {upload_resp.status_code}"
 
     # ── Step 3: 导航到技能管理页面 ──
-    logged_in_page.goto(f"{base_url}/ctrl/agent/skills")
+    try:
+        logged_in_page.goto(f"{base_url}/ctrl/agent/skills", wait_until="domcontentloaded")
+    except Exception:
+        pass  # SPA 路由可能中断初始导航
     logged_in_page.wait_for_load_state("networkidle")
 
     # ── Step 4: 找到测试技能卡片的删除按钮 ──
@@ -616,7 +622,10 @@ def test_skill_upload_conflict_handling(logged_in_page, base_url):
             f"首次上传失败: HTTP {upload_resp.status_code}"
 
         # 导航到技能管理页面
-        logged_in_page.goto(f"{base_url}/ctrl/agent/skills")
+        try:
+            logged_in_page.goto(f"{base_url}/ctrl/agent/skills", wait_until="domcontentloaded")
+        except Exception:
+            pass  # SPA 路由可能中断初始导航
         logged_in_page.wait_for_load_state("networkidle")
 
         # 创建同名临时文件

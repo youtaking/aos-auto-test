@@ -12,7 +12,10 @@ class WorkflowPage:
         self.url = f"{base_url}/ctrl/agent/workflow"
 
     def goto(self):
-        self.page.goto(self.url)
+        try:
+            self.page.goto(self.url, wait_until="domcontentloaded")
+        except Exception:
+            pass  # SPA 路由可能中断初始导航
         self.page.wait_for_load_state("networkidle")
 
     def is_loaded(self) -> bool:
@@ -54,7 +57,10 @@ class MemoryPage:
         self.url = f"{base_url}/ctrl/agent/memories"
 
     def goto(self):
-        self.page.goto(self.url)
+        try:
+            self.page.goto(self.url, wait_until="domcontentloaded")
+        except Exception:
+            pass  # SPA 路由可能中断初始导航
         self.page.wait_for_load_state("networkidle")
 
     def is_loaded(self) -> bool:
@@ -97,7 +103,10 @@ class KnowledgeBasePage:
         self.url = f"{base_url}/ctrl/agent/knowledge-bases"
 
     def goto(self):
-        self.page.goto(self.url)
+        try:
+            self.page.goto(self.url, wait_until="domcontentloaded")
+        except Exception:
+            pass  # SPA 路由可能中断初始导航
         self.page.wait_for_load_state("networkidle")
 
     def is_loaded(self) -> bool:
@@ -137,7 +146,10 @@ class TasksPage:
         self.url = f"{base_url}/ctrl/agent/tasks"
 
     def goto(self):
-        self.page.goto(self.url)
+        try:
+            self.page.goto(self.url, wait_until="domcontentloaded")
+        except Exception:
+            pass  # SPA 路由可能中断初始导航
         self.page.wait_for_load_state("networkidle")
 
     def is_loaded(self) -> bool:
@@ -182,7 +194,10 @@ class OrganizationPage:
         self.url = f"{base_url}/ctrl/agent/organizations"
 
     def goto(self):
-        self.page.goto(self.url)
+        try:
+            self.page.goto(self.url, wait_until="domcontentloaded")
+        except Exception:
+            pass  # SPA 路由可能中断初始导航
         self.page.wait_for_load_state("networkidle")
 
     def is_loaded(self) -> bool:
@@ -217,7 +232,10 @@ class ApiKeyPage:
         self.url = f"{base_url}/ctrl/agent/apikeys"
 
     def goto(self):
-        self.page.goto(self.url)
+        try:
+            self.page.goto(self.url, wait_until="domcontentloaded")
+        except Exception:
+            pass  # SPA 路由可能中断初始导航
         self.page.wait_for_load_state("networkidle")
 
     def is_loaded(self) -> bool:

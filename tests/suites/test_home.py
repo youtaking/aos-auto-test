@@ -9,7 +9,10 @@ import pytest
 @pytest.mark.p1
 def test_home_page_loads(logged_in_page, base_url):
     """TC-HOME-001: 首页加载并显示描述输入框"""
-    logged_in_page.goto(f"{base_url}/ctrl/agent/home")
+    try:
+        logged_in_page.goto(f"{base_url}/ctrl/agent/home", wait_until="domcontentloaded")
+    except Exception:
+        pass  # SPA 路由可能中断初始导航
     logged_in_page.wait_for_load_state("networkidle")
 
     textarea = logged_in_page.locator(
@@ -24,7 +27,10 @@ def test_home_page_loads(logged_in_page, base_url):
 @pytest.mark.p0
 def test_home_quick_create_template(logged_in_page, base_url):
     """TC-HOME-002: 点击模板快捷填充描述"""
-    logged_in_page.goto(f"{base_url}/ctrl/agent/home")
+    try:
+        logged_in_page.goto(f"{base_url}/ctrl/agent/home", wait_until="domcontentloaded")
+    except Exception:
+        pass  # SPA 路由可能中断初始导航
     logged_in_page.wait_for_load_state("networkidle")
 
     # 获取所有模板药丸
@@ -105,7 +111,10 @@ def test_home_quick_create_template(logged_in_page, base_url):
 @pytest.mark.p1
 def test_home_description_input(logged_in_page, base_url):
     """TC-HOME-003: 输入描述后一键创建按钮可用"""
-    logged_in_page.goto(f"{base_url}/ctrl/agent/home")
+    try:
+        logged_in_page.goto(f"{base_url}/ctrl/agent/home", wait_until="domcontentloaded")
+    except Exception:
+        pass  # SPA 路由可能中断初始导航
     logged_in_page.wait_for_load_state("networkidle")
 
     textarea = logged_in_page.locator(

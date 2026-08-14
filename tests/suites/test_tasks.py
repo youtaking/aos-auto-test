@@ -533,7 +533,10 @@ def test_create_agent_task(logged_in_page, base_url):
 def test_chat_tasks_panel(logged_in_page, base_url):
     """Chat 右侧 TasksPanel 面板展示（TC-TASK-016） | ✅ 人工评审通过 |"""
     # 进入对话页面
-    logged_in_page.goto(f"{base_url}/ctrl/agent/home")
+    try:
+        logged_in_page.goto(f"{base_url}/ctrl/agent/home", wait_until="domcontentloaded")
+    except Exception:
+        pass  # SPA 路由可能中断初始导航
     logged_in_page.wait_for_load_state("networkidle")
 
     # 选择一个 Agent

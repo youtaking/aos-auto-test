@@ -12,7 +12,10 @@ class ChannelsPage:
         self.url = f"{base_url}/ctrl/agent/channels"
 
     def goto(self):
-        self.page.goto(self.url)
+        try:
+            self.page.goto(self.url, wait_until="domcontentloaded")
+        except Exception:
+            pass  # SPA 路由可能中断初始导航
         self.page.wait_for_load_state("networkidle")
 
     def is_loaded(self) -> bool:

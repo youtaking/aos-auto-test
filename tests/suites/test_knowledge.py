@@ -208,7 +208,10 @@ def test_kb_004_upload_file(logged_in_page, base_url, request):
 
     try:
         # 导航到知识库详情页
-        logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}")
+        try:
+            logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}", wait_until="domcontentloaded")
+        except Exception:
+            pass  # SPA 路由可能中断初始导航
         logged_in_page.wait_for_load_state("networkidle")
 
         # 验证详情页加载
@@ -285,7 +288,10 @@ def test_kb_007_delete_resource(logged_in_page, base_url, request):
 
     try:
         # 导航到知识库详情页
-        logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}")
+        try:
+            logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}", wait_until="domcontentloaded")
+        except Exception:
+            pass  # SPA 路由可能中断初始导航
         logged_in_page.wait_for_load_state("networkidle")
 
         # 1. 上传文件
@@ -432,7 +438,10 @@ def test_kb_010_detail_panel(logged_in_page, base_url):
     kb_name = kb["name"]
 
     # 导航到知识库详情页
-    logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}")
+    try:
+        logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}", wait_until="domcontentloaded")
+    except Exception:
+        pass  # SPA 路由可能中断初始导航
     logged_in_page.wait_for_load_state("networkidle")
 
     body_text = logged_in_page.inner_text("body")
@@ -478,7 +487,10 @@ def test_kb_011_upload_duplicate_confirm(logged_in_page, base_url, request):
         f.write("第一次上传的内容。\n用于测试同名文件覆盖确认。")
 
     try:
-        logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}")
+        try:
+            logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}", wait_until="domcontentloaded")
+        except Exception:
+            pass  # SPA 路由可能中断初始导航
         logged_in_page.wait_for_load_state("networkidle")
 
         # 第一次上传
@@ -548,7 +560,10 @@ def test_kb_012_parse_status_polling(logged_in_page, base_url, request):
         f.write("用于测试解析状态轮询的文件内容。\n包含多行文本以触发解析流程。\n第三行数据。")
 
     try:
-        logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}")
+        try:
+            logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}", wait_until="domcontentloaded")
+        except Exception:
+            pass  # SPA 路由可能中断初始导航
         logged_in_page.wait_for_load_state("networkidle")
 
         # 上传文件
@@ -603,7 +618,10 @@ def test_kb_013_reparse_resource(logged_in_page, base_url, request):
         f.write("用于测试重新解析功能的文件。\n包含足够的内容以生成分块。")
 
     try:
-        logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}")
+        try:
+            logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}", wait_until="domcontentloaded")
+        except Exception:
+            pass  # SPA 路由可能中断初始导航
         logged_in_page.wait_for_load_state("networkidle")
 
         # 上传文件并等待解析完成
@@ -705,7 +723,10 @@ def test_kb_014_retrieval_test_panel(logged_in_page, base_url):
     if not kb_id:
         kb_id = kbs[0]["id"]
 
-    logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}")
+    try:
+        logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}", wait_until="domcontentloaded")
+    except Exception:
+        pass  # SPA 路由可能中断初始导航
     logged_in_page.wait_for_load_state("networkidle")
 
     # 点击检索测试 Tab
@@ -756,7 +777,10 @@ def test_kb_015_knowledge_graph(logged_in_page, base_url):
         pytest.skip("知识库列表为空")
 
     kb_id = kbs[0]["id"]
-    logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}")
+    try:
+        logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}", wait_until="domcontentloaded")
+    except Exception:
+        pass  # SPA 路由可能中断初始导航
     logged_in_page.wait_for_load_state("networkidle")
 
     body_text = logged_in_page.inner_text("body")
@@ -797,7 +821,10 @@ def test_kb_016_vector_model_management(logged_in_page, base_url):
         pytest.skip("知识库列表为空")
 
     kb_id = kbs[0]["id"]
-    logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}")
+    try:
+        logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}", wait_until="domcontentloaded")
+    except Exception:
+        pass  # SPA 路由可能中断初始导航
     logged_in_page.wait_for_load_state("networkidle")
 
     body_text = logged_in_page.inner_text("body")
@@ -909,7 +936,10 @@ def test_kb_018_resource_preview(logged_in_page, base_url, request):
         f.write(preview_content)
 
     try:
-        logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}")
+        try:
+            logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}", wait_until="domcontentloaded")
+        except Exception:
+            pass  # SPA 路由可能中断初始导航
         logged_in_page.wait_for_load_state("networkidle")
 
         # 上传文件
@@ -1009,7 +1039,10 @@ def test_kb_019_toggle_resource_enabled(logged_in_page, base_url, request):
         f.write("用于测试资源启用/禁用的文件内容。")
 
     try:
-        logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}")
+        try:
+            logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}", wait_until="domcontentloaded")
+        except Exception:
+            pass  # SPA 路由可能中断初始导航
         logged_in_page.wait_for_load_state("networkidle")
 
         # 上传文件
@@ -1058,7 +1091,10 @@ def test_kb_020_edit_kb_info(logged_in_page, base_url, request):
     register_cleanup(request, lambda kid=kb_id: _delete_kb_api(logged_in_page, base_url, kid))
 
     try:
-        logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}")
+        try:
+            logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}", wait_until="domcontentloaded")
+        except Exception:
+            pass  # SPA 路由可能中断初始导航
         logged_in_page.wait_for_load_state("networkidle")
 
         body_text = logged_in_page.inner_text("body")
