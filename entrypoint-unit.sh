@@ -36,15 +36,21 @@ for pkg_dir in "$FENIX_ROOT/packages"/*/; do
   if [ -f "${pkg_dir}package.json" ]; then
     pkg_dir_name=$(basename "$pkg_dir")
     # 读取 package.json 中的实际 name（如 @fenix/claude-code 而非 plugin-claude-code）
-    pkg_json_name=$(jq -r '.name' "${pkg_dir}package.json" 2>/dev/null || echo "")
+    pkg_json_name=$(bun -e "console.log(require('${pkg_dir}package.json').name)" 2>/dev/null || echo "")
 
     # 方式1：复制到 packages/（比 symlink 更可靠，bun 对跨 volume symlink 有兼容性问题）
     cp -r "${pkg_dir%/}" "$WORKSPACE_ROOT/packages/$pkg_dir_name" 2>/dev/null || ln -sfn "${pkg_dir%/}" "$WORKSPACE_ROOT/packages/$pkg_dir_name"
 
     # 方式2：将所有 workspace 包加到根 package.json 的 dependencies，
     # 强制 bun 安装并 hoist 所有依赖（解决 pino 等包没被 hoist 的问题）
-    if [ -n "$pkg_json_name" ] && [ "$pkg_json_name" != "null" ]; then
-      jq --arg name "$pkg_json_name" '.dependencies[$name] = "workspace:*"' "$WORKSPACE_ROOT/package.json" > "$WORKSPACE_ROOT/package.json.tmp" && mv "$WORKSPACE_ROOT/package.json.tmp" "$WORKSPACE_ROOT/package.json"
+    if [ -n "$pkg_json_name" ] && [ "$pkg_json_name" != "undefined" ]; then
+      bun -e "
+const fs = require('fs');
+const pkg = JSON.parse(fs.readFileSync('$WORKSPACE_ROOT/package.json', 'utf8'));
+if (!pkg.dependencies) pkg.dependencies = {};
+pkg.dependencies['$pkg_json_name'] = 'workspace:*';
+fs.writeFileSync('$WORKSPACE_ROOT/package.json', JSON.stringify(pkg, null, 2));
+" 2>/dev/null || echo "    WARNING: Failed to add $pkg_json_name to root dependencies"
     fi
   fi
 done
@@ -119,7 +125,7 @@ if [ "$NEED_INSTALL" = "true" ]; then
   for pkg in "$WORKSPACE_ROOT/packages"/*/; do
     if [ -f "${pkg}package.json" ]; then
       dir_name=$(basename "$pkg")
-      json_name=$(jq -r '.name // "?"' "${pkg}package.json" 2>/dev/null || echo "parse_error")
+      json_name=$(bun -e "console.log(require('${pkg}package.json').name || '?')" 2>/dev/null || echo "parse_error")
       is_link=$( [ -L "${pkg%/}" ] && echo "symlink" || echo "copy" )
       echo "      $dir_name → $json_name ($is_link)"
     fi
@@ -143,7 +149,7 @@ if [ "$NEED_INSTALL" = "true" ]; then
   if [ $INSTALL_EXIT -ne 0 ]; then
     echo "    ERROR: bun install failed after retry (exit $INSTALL_EXIT)"
     echo "    bun version: $(bun --version)"
-    echo "    package.json workspaces: $(python3 -c "import json; print(json.load(open('package.json')).get('workspaces','N/A'))" 2>/dev/null || echo "parse failed")"
+    echo "    package.json workspaces: $(bun -e "console.log(JSON.stringify(require('./package.json').workspaces) || 'N/A')" 2>/dev/null || echo "parse failed")"
     echo "    Workspace packages found:"
     ls -la "$WORKSPACE_ROOT/packages/" 2>/dev/null || echo "    (none)"
     exit 1
