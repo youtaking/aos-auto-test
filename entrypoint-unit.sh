@@ -42,16 +42,25 @@ for pkg_dir in "$FENIX_ROOT/packages"/*/; do
     cp -r "${pkg_dir%/}" "$WORKSPACE_ROOT/packages/$pkg_dir_name" 2>/dev/null || ln -sfn "${pkg_dir%/}" "$WORKSPACE_ROOT/packages/$pkg_dir_name"
 
     # 方式2：将所有 workspace 包加到根 package.json 的 dependencies，
-    # 强制 bun 安装并 hoist 所有依赖（解决 pino 等包没被 hoist 的问题）
+    # 并将其依赖也加到根 dependencies，强制 bun 安装并 hoist 所有依赖
     if [ -n "$pkg_json_name" ] && [ "$pkg_json_name" != "undefined" ]; then
       cd "$WORKSPACE_ROOT"
       bun -e "
 const fs = require('fs');
-const pkg = JSON.parse(fs.readFileSync('./package.json', 'utf8'));
-if (!pkg.dependencies) pkg.dependencies = {};
-pkg.dependencies['$pkg_json_name'] = 'workspace:*';
-fs.writeFileSync('./package.json', JSON.stringify(pkg, null, 2));
-console.log('Added $pkg_json_name to root dependencies');
+const rootPkg = JSON.parse(fs.readFileSync('./package.json', 'utf8'));
+const wsPkg = JSON.parse(fs.readFileSync('./packages/$pkg_dir_name/package.json', 'utf8'));
+if (!rootPkg.dependencies) rootPkg.dependencies = {};
+// 加 workspace 包本身
+rootPkg.dependencies['$pkg_json_name'] = 'workspace:*';
+// 把 workspace 包的依赖也加到 root（确保 bun hoist 到顶层 node_modules）
+const wsDeps = wsPkg.dependencies || {};
+for (const [name, version] of Object.entries(wsDeps)) {
+  if (!rootPkg.dependencies[name]) {
+    rootPkg.dependencies[name] = version;
+  }
+}
+fs.writeFileSync('./package.json', JSON.stringify(rootPkg, null, 2));
+console.log('Added $pkg_json_name + ' + Object.keys(wsDeps).length + ' deps');
 " || echo "    WARNING: Failed to add $pkg_json_name to root dependencies"
       cd - > /dev/null
     fi
