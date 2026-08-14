@@ -17,17 +17,17 @@ class AgentConfigPage:
     def goto_agents(self):
         # 使用 /ctrl/agent/home（与 chat 测试一致），侧边栏更可靠
         self.page.goto(self.create_url)
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
 
     def goto_create(self):
         """导航到新建智能体页面（直接 URL 导航，不依赖侧边栏按钮）"""
         if "/ctrl/agent/home" in self.page.url:
             # 已在创建页面，先导航离开再回来确保 SPA 状态重置
             self.page.goto(self.agents_url)
-            self.page.wait_for_load_state("networkidle")
+            self.page.wait_for_load_state("domcontentloaded")
         # 直接 URL 导航到创建页面（比侧边栏按钮更可靠，尤其在删除 agent 后的 chat 页面）
         self.page.goto(self.create_url)
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
         # 等待 textarea 和模版卡片出现（SPA 动态渲染）
         try:
             self.page.locator("textarea").first.wait_for(
@@ -115,7 +115,7 @@ class AgentConfigPage:
                         return card
             if attempt < retries:
                 self.page.wait_for_timeout(2000)
-                self.page.reload(wait_until="networkidle")
+                self.page.reload(wait_until="domcontentloaded")
                 self.page.wait_for_timeout(1000)
                 card = self.page.locator("button.agent-sidebar-agent-card").filter(has_text=name)
         return card
@@ -308,7 +308,7 @@ class AgentConfigPage:
         if ta.count() > 0:
             ta.first.fill(text)
             ta.first.press("Enter")
-            self.page.wait_for_load_state("networkidle")
+            self.page.wait_for_load_state("domcontentloaded")
 
     def get_last_message(self) -> str:
         """获取最后一条 AI 回复"""
@@ -337,7 +337,7 @@ class AgentConfigPage:
         modal.wait_for(state="visible", timeout=10000)
         # 等待 modal 内容加载（API 请求完成）
         try:
-            self.page.wait_for_load_state("networkidle", timeout=5000)
+            self.page.wait_for_load_state("domcontentloaded", timeout=5000)
         except Exception:
             pass
         self.page.wait_for_timeout(1000)

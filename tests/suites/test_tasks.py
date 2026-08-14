@@ -537,7 +537,7 @@ def test_chat_tasks_panel(logged_in_page, base_url):
         logged_in_page.goto(f"{base_url}/ctrl/agent/home", wait_until="domcontentloaded")
     except Exception:
         pass  # SPA 路由可能中断初始导航
-    logged_in_page.wait_for_load_state("networkidle")
+    logged_in_page.wait_for_load_state("domcontentloaded")
 
     # 选择一个 Agent
     agent_card = logged_in_page.locator("button.agent-sidebar-agent-card")

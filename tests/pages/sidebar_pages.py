@@ -16,7 +16,7 @@ class WorkflowPage:
             self.page.goto(self.url, wait_until="domcontentloaded")
         except Exception:
             pass  # SPA 路由可能中断初始导航
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
 
     def is_loaded(self) -> bool:
         return "/ctrl/agent/workflow" in self.page.url and \
@@ -61,7 +61,7 @@ class MemoryPage:
             self.page.goto(self.url, wait_until="domcontentloaded")
         except Exception:
             pass  # SPA 路由可能中断初始导航
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
 
     def is_loaded(self) -> bool:
         return "/ctrl/agent/memor" in self.page.url and \
@@ -107,7 +107,7 @@ class KnowledgeBasePage:
             self.page.goto(self.url, wait_until="domcontentloaded")
         except Exception:
             pass  # SPA 路由可能中断初始导航
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
 
     def is_loaded(self) -> bool:
         return "/ctrl/agent/knowledge" in self.page.url and \
@@ -150,7 +150,7 @@ class TasksPage:
             self.page.goto(self.url, wait_until="domcontentloaded")
         except Exception:
             pass  # SPA 路由可能中断初始导航
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
 
     def is_loaded(self) -> bool:
         return "/ctrl/agent/tasks" in self.page.url and \
@@ -198,7 +198,7 @@ class OrganizationPage:
             self.page.goto(self.url, wait_until="domcontentloaded")
         except Exception:
             pass  # SPA 路由可能中断初始导航
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
 
     def is_loaded(self) -> bool:
         return "/ctrl/agent/organization" in self.page.url and \
@@ -236,7 +236,7 @@ class ApiKeyPage:
             self.page.goto(self.url, wait_until="domcontentloaded")
         except Exception:
             pass  # SPA 路由可能中断初始导航
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
 
     def is_loaded(self) -> bool:
         return "/ctrl/agent/apikeys" in self.page.url and \
@@ -305,7 +305,7 @@ class SidebarNavigation:
         )
         if btn.count() > 0:
             btn.first.click()
-            self.page.wait_for_load_state("networkidle")
+            self.page.wait_for_load_state("domcontentloaded")
 
     def is_nav_active(self, name: str) -> bool:
         """某导航项是否处于激活状态"""

@@ -14,7 +14,7 @@ class LoginPage:
             self.page.goto(self.url, wait_until="domcontentloaded")
         except Exception:
             pass  # SPA 路由可能中断初始导航
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
 
     def login(self, email: str, password: str):
         self.page.fill("#auth-email", email)

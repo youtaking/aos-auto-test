@@ -18,7 +18,7 @@ class ChatTestPage:
             self.page.goto(f"{self.base_url}/ctrl/agent/home", wait_until="domcontentloaded")
         except Exception:
             pass  # SPA 路由可能中断初始导航
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
         card = self.page.locator("button.agent-sidebar-agent-card").filter(has_text=agent_name)
         if card.count() == 0:
             return
@@ -273,7 +273,7 @@ class ChatTestPage:
         textarea = self.page.locator("textarea").first
         textarea.fill(text)
         textarea.press("Enter")
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
 
     def send_message_with_shift_enter(self, lines: list[str]):
         """用 Shift+Enter 输入多行消息并发送"""
@@ -285,7 +285,7 @@ class ChatTestPage:
                 textarea.press("Shift+Enter")
         self.page.wait_for_timeout(300)
         textarea.press("Enter")
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
 
     def get_textarea_value(self) -> str:
         return self.page.locator("textarea").first.input_value()
@@ -329,7 +329,7 @@ class ChatTestPage:
         textarea.press("Enter")
         self.page.wait_for_timeout(200)
         textarea.press("Enter")
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
 
     # === 消息计数 ===
 
@@ -453,4 +453,4 @@ class ChatTestPage:
 
     def refresh_page(self):
         self.page.reload()
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")

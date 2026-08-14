@@ -16,7 +16,7 @@ class ModelsPage:
             self.page.goto(self.url, wait_until="domcontentloaded")
         except Exception:
             pass  # SPA 路由可能中断初始导航（net::ERR_ABORTED）
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
 
     def is_loaded(self) -> bool:
         return self.page.locator("h1, h2").filter(has_text="模型库").count() > 0
@@ -58,7 +58,7 @@ class SkillsPage:
             self.page.goto(self.url, wait_until="domcontentloaded")
         except Exception:
             pass  # SPA 路由可能中断初始导航（net::ERR_ABORTED）
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
 
     def is_loaded(self) -> bool:
         return self.page.locator("h1, h2").filter(has_text="技能管理").count() > 0
@@ -83,7 +83,7 @@ class SkillsPage:
 
         self.page.on("response", on_resp)
         self.page.reload()
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
         return skills_data
 
     def search(self, keyword: str):
@@ -127,7 +127,7 @@ class McpPage:
             self.page.goto(self.url, wait_until="domcontentloaded")
         except Exception:
             pass  # SPA 路由可能中断初始导航（net::ERR_ABORTED）
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
 
     def is_loaded(self) -> bool:
         return self.page.locator("h1, h2").filter(has_text="MCP").count() > 0
@@ -166,7 +166,7 @@ class SitesPage:
             self.page.goto(self.url, wait_until="domcontentloaded")
         except Exception:
             pass  # SPA 路由可能中断初始导航（net::ERR_ABORTED）
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
 
     def is_loaded(self) -> bool:
         return self.page.locator("h1, h2").filter(has_text="Agent Sites").count() > 0

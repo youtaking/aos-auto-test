@@ -121,6 +121,7 @@ async def _execute_api_tests(
                 **os.environ,
                 "FENIX_API_KEY": api_key,
                 "PYTHONUNBUFFERED": "1",
+                "PYTHONUTF8": "1",
             }
 
             proc = subprocess.Popen(

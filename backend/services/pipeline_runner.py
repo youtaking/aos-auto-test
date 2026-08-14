@@ -115,6 +115,7 @@ async def _execute_tests(
                 "HEADLESS": "true",
                 "FENIX_URL": project_url,
                 "PYTHONUNBUFFERED": "1",
+                "PYTHONUTF8": "1",
                 "FENIX_API_BASE_URL": project_url,
             }
             if auth_env:

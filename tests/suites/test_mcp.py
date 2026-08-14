@@ -503,7 +503,7 @@ def test_remote_url(logged_in_page, base_url):
             toast_texts.extend(errors)
             break
 
-    logged_in_page.wait_for_load_state("networkidle", timeout=10000)
+    logged_in_page.wait_for_load_state("domcontentloaded", timeout=10000)
 
     # 验证有反馈
     dialog = logged_in_page.locator("[role='dialog']")
@@ -569,7 +569,7 @@ def test_view_tools(logged_in_page, base_url):
             toast_texts.extend(errors)
             break
 
-    logged_in_page.wait_for_load_state("networkidle", timeout=10000)
+    logged_in_page.wait_for_load_state("domcontentloaded", timeout=10000)
 
     # 验证有工具相关信息
     dialog = logged_in_page.locator("[role='dialog']")
@@ -635,7 +635,7 @@ def test_inspect_server(logged_in_page, base_url):
             toast_texts.extend(errors)
             break
 
-    logged_in_page.wait_for_load_state("networkidle", timeout=10000)
+    logged_in_page.wait_for_load_state("domcontentloaded", timeout=10000)
 
     # 验证有状态信息
     dialog = logged_in_page.locator("[role='dialog']")
@@ -984,7 +984,7 @@ def test_mcp_api_auth(logged_in_page, base_url, browser_instance):
     # 1. 已认证：拦截内部 MCP API，验证返回 200
     api_responses = mcp.setup_api_interceptor("/web/config/mcp")
     logged_in_page.reload()
-    logged_in_page.wait_for_load_state("networkidle")
+    logged_in_page.wait_for_load_state("domcontentloaded")
 
     list_resps = [r for r in api_responses if r["method"] == "GET" and r["status"] < 400]
     assert len(list_resps) > 0, "已认证用户未能获取 MCP 列表 API 响应"
@@ -1003,7 +1003,7 @@ def test_mcp_api_auth(logged_in_page, base_url, browser_instance):
     unauth_page.on("response", on_unauth_resp)
     try:
         unauth_page.goto(f"{base_url}/ctrl/agent/mcp")
-        unauth_page.wait_for_load_state("networkidle", timeout=10000)
+        unauth_page.wait_for_load_state("domcontentloaded", timeout=10000)
     except Exception:
         pass  # 可能被重定向到登录页
 
@@ -1058,7 +1058,7 @@ def test_mcp_api_tools(logged_in_page, base_url):
             toast_texts.extend(errors)
             break
 
-    logged_in_page.wait_for_load_state("networkidle", timeout=10000)
+    logged_in_page.wait_for_load_state("domcontentloaded", timeout=10000)
 
     # 验证工具数据
     toast_combined = " ".join(toast_texts)

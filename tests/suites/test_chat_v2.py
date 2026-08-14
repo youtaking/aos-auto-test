@@ -354,15 +354,15 @@ def test_session_persistence_refresh(logged_in_page, base_url):
         logged_in_page.goto(f"{base_url}/ctrl/agent/algorithms", wait_until="domcontentloaded")
     except Exception:
         pass  # SPA 路由可能中断初始导航
-    logged_in_page.wait_for_load_state("networkidle")
-    logged_in_page.goto(session_url, wait_until="networkidle")
-    logged_in_page.wait_for_load_state("networkidle")
+    logged_in_page.wait_for_load_state("domcontentloaded")
+    logged_in_page.goto(session_url, wait_until="domcontentloaded")
+    logged_in_page.wait_for_load_state("domcontentloaded")
 
     # 6. 如果消息未出现，做一次 reload
     log_check = logged_in_page.locator("div[role='log']")
     if log_check.count() > 0 and user_message not in log_check.first.inner_text():
-        logged_in_page.reload(wait_until="networkidle")
-        logged_in_page.wait_for_load_state("networkidle")
+        logged_in_page.reload(wait_until="domcontentloaded")
+        logged_in_page.wait_for_load_state("domcontentloaded")
 
     # 7. 轮询等待消息加载（最长 15 秒）
     messages_after = ""
@@ -734,7 +734,7 @@ def test_prevent_double_send(logged_in_page, base_url):
     textarea.press("Enter")
 
     # 等待响应完成
-    logged_in_page.wait_for_load_state("networkidle", timeout=8000)
+    logged_in_page.wait_for_load_state("domcontentloaded", timeout=8000)
 
     # 验证：用户消息气泡只有 1 个（bg-user-bubble 是用户消息的标识）
     log_area_after = logged_in_page.locator("div[role='log']")

@@ -481,7 +481,7 @@ class TestWorkflow:
                 logged_in_page.goto(f"{base_url}/ctrl/agent/workflow?tab=runs", wait_until="domcontentloaded")
             except Exception:
                 pass  # SPA 路由可能中断初始导航
-            logged_in_page.wait_for_load_state("networkidle")
+            logged_in_page.wait_for_load_state("domcontentloaded")
         else:
             run_link.first.click()
             logged_in_page.wait_for_timeout(800)

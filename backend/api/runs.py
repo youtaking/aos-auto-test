@@ -784,6 +784,7 @@ async def run_single_test(
     env = {
         **os.environ,
         "PYTHONUNBUFFERED": "1",
+        "PYTHONUTF8": "1",
     }
     if is_api:
         env["FENIX_API_KEY"] = _load_api_key()
