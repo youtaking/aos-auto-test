@@ -52,15 +52,16 @@ const wsPkg = JSON.parse(fs.readFileSync('./packages/$pkg_dir_name/package.json'
 if (!rootPkg.dependencies) rootPkg.dependencies = {};
 // 加 workspace 包本身
 rootPkg.dependencies['$pkg_json_name'] = 'workspace:*';
-// 把 workspace 包的依赖也加到 root（确保 bun hoist 到顶层 node_modules）
-const wsDeps = wsPkg.dependencies || {};
+// 把 workspace 包的 dependencies + devDependencies 都加到 root（确保 bun hoist 到顶层 node_modules）
+const wsDeps = { ...(wsPkg.dependencies || {}), ...(wsPkg.devDependencies || {}) };
+const depCount = Object.keys(wsDeps).length;
 for (const [name, version] of Object.entries(wsDeps)) {
   if (!rootPkg.dependencies[name]) {
     rootPkg.dependencies[name] = version;
   }
 }
 fs.writeFileSync('./package.json', JSON.stringify(rootPkg, null, 2));
-console.log('Added $pkg_json_name + ' + Object.keys(wsDeps).length + ' deps');
+console.log('Added $pkg_json_name + ' + depCount + ' deps');
 " || echo "    WARNING: Failed to add $pkg_json_name to root dependencies"
       cd - > /dev/null
     fi
