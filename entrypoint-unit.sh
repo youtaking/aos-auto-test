@@ -29,12 +29,33 @@ fi
 [ -n "$LOCK_NAME" ] && cp "$FENIX_ROOT/$LOCK_NAME" "$WORKSPACE_ROOT/$LOCK_NAME"
 
 # 创建 workspace 包的软链（指向真实包目录，让 bun 能解析 workspace:* 依赖及其源码）
+# 注意：bun 对 symlink 解析有时不可靠（尤其在 Docker 跨 volume 时），
+# 所以同时预创建 node_modules 条目作为双保险
 mkdir -p "$WORKSPACE_ROOT/packages"
+mkdir -p "$WORKSPACE_ROOT/node_modules/@fenix"
 for pkg_dir in "$FENIX_ROOT/packages"/*/; do
   if [ -f "${pkg_dir}package.json" ]; then
-    pkg_name=$(basename "$pkg_dir")
-    # 软链到真实包目录（包含 src/、package.json 等），确保 workspace 包源码可正常导入
-    ln -sfn "${pkg_dir%/}" "$WORKSPACE_ROOT/packages/$pkg_name"
+    pkg_dir_name=$(basename "$pkg_dir")
+    # 读取 package.json 中的实际 name（如 @fenix/claude-code 而非 plugin-claude-code）
+    pkg_json_name=$(python3 -c "import json; print(json.load(open('${pkg_dir}package.json'))['name'])" 2>/dev/null || echo "")
+
+    # 方式1：复制到 packages/（比 symlink 更可靠，bun 对跨 volume symlink 有兼容性问题）
+    cp -r "${pkg_dir%/}" "$WORKSPACE_ROOT/packages/$pkg_dir_name" 2>/dev/null || ln -sfn "${pkg_dir%/}" "$WORKSPACE_ROOT/packages/$pkg_dir_name"
+
+    # 方式2：在 node_modules 中预创建条目（双保险）
+    if [ -n "$pkg_json_name" ]; then
+      case "$pkg_json_name" in
+        @*)
+          scope=$(echo "$pkg_json_name" | cut -d'/' -f1)
+          short=$(echo "$pkg_json_name" | cut -d'/' -f2)
+          mkdir -p "$WORKSPACE_ROOT/node_modules/$scope"
+          ln -sfn "$WORKSPACE_ROOT/packages/$pkg_dir_name" "$WORKSPACE_ROOT/node_modules/$scope/$short"
+          ;;
+        *)
+          ln -sfn "$WORKSPACE_ROOT/packages/$pkg_dir_name" "$WORKSPACE_ROOT/node_modules/$pkg_json_name"
+          ;;
+      esac
+    fi
   fi
 done
 
@@ -103,15 +124,19 @@ if [ "$NEED_INSTALL" = "true" ]; then
   echo "    Lockfile changed or no cache, running bun install in workspace root..."
   cd "$WORKSPACE_ROOT"
 
-  # 诊断：列出 workspace 包
+  # 诊断：列出 workspace 包（显示目录名 + package.json name）
   echo "    Workspace packages:"
   for pkg in "$WORKSPACE_ROOT/packages"/*/; do
     if [ -f "${pkg}package.json" ]; then
-      pkg_name=$(basename "$pkg")
-      is_link=$( [ -L "${pkg%/}" ] && echo "symlink" || echo "dir" )
-      echo "      $pkg_name ($is_link → $(readlink -f "${pkg%/}" 2>/dev/null || echo '?'))"
+      dir_name=$(basename "$pkg")
+      json_name=$(python3 -c "import json; print(json.load(open('${pkg}package.json')).get('name','?'))" 2>/dev/null || echo "parse_error")
+      is_link=$( [ -L "${pkg%/}" ] && echo "symlink" || echo "copy" )
+      echo "      $dir_name → $json_name ($is_link)"
     fi
   done
+  echo "    Pre-linked node_modules:"
+  ls -la "$WORKSPACE_ROOT/node_modules/" 2>/dev/null | grep "^l" | head -20
+  ls -la "$WORKSPACE_ROOT/node_modules/@fenix/" 2>/dev/null | grep "^l" | head -20
 
   set +e
   bun install --no-save 2>&1 | tail -20

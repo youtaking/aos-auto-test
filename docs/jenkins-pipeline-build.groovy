@@ -391,6 +391,7 @@ services:
       FENIX_API_BASE_URL: http://rcs:3001
       HEADLESS: "true"
       PYTHONUNBUFFERED: "1"
+      PYTHONPATH: /app
     command: 'pytest __TEST_TARGETS__ -v --tb=short --base-url=http://rcs:3001 --json-report --json-report-file=/app/tests/results/report.json'
 
   unit-runner:
@@ -681,7 +682,7 @@ except:
                 '''
                 script {
                     env.UNIT_EXIT = sh(
-                        script: "docker-compose -p ${PROJECT_NAME} up unit-runner",
+                        script: "docker-compose -p ${PROJECT_NAME} up --exit-code-from unit-runner unit-runner",
                         returnStatus: true
                     ).toString()
                     echo "    unit-runner exit code: ${env.UNIT_EXIT}"
@@ -728,7 +729,7 @@ except:
                 sh "docker-compose -p ${PROJECT_NAME} logs -f test-runner &"
                 script {
                     env.INTEGRATION_EXIT = sh(
-                        script: "docker-compose -p ${PROJECT_NAME} up test-runner",
+                        script: "docker-compose -p ${PROJECT_NAME} up --exit-code-from test-runner test-runner",
                         returnStatus: true
                     ).toString()
                     echo "    test-runner exit code: ${env.INTEGRATION_EXIT}"
