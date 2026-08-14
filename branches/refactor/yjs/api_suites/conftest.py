@@ -12,20 +12,23 @@ from tests.api_clients.api_client import ApiClient
 def api_test_config():
     """加载测试配置"""
     config_path = Path(__file__).parent.parent / "fixtures" / "test_data.yaml"
+    if not config_path.exists():
+        # 分支无独立 fixtures，回退到主目录
+        config_path = Path("/app/tests/fixtures/test_data.yaml")
     with open(config_path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
 @pytest.fixture(scope="session")
 def api_base_url(request, api_test_config):
-    """被测系统 URL：优先 CLI 参数 > 环境变量 > 配置文件"""
+    """被测系统 URL：优先 CLI 参数 > 环境变量 > 配置文件（统一去除尾斜杠）"""
     cli_url = request.config.getoption("--base-url", default="")
     if cli_url:
-        return cli_url
+        return cli_url.rstrip("/")
     env_url = os.environ.get("FENIX_URL")
     if env_url:
-        return env_url
-    return api_test_config["fenixagent"]["url"]
+        return env_url.rstrip("/")
+    return api_test_config["fenixagent"]["url"].rstrip("/")
 
 
 @pytest.fixture(scope="session")
