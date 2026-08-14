@@ -454,8 +454,12 @@ def test_skill_group_display(logged_in_page, base_url):
         )
 
         # 验证分组标题元素存在
+        # 真实 DOM：sectionTitle() 渲染 div.mb-3.border-b > span (标题) + span (计数)
+        # 中文文本："私有技能" / "他人共享技能"；英文："Private" / "Shared"
         group_headers = logged_in_page.locator(
-            "h3, h4, [data-slot='group-header']"
+            "div.mb-3.border-b span, "
+            "span:text-is('私有技能'), span:text-is('他人共享技能'), "
+            "span:text-is('Private'), span:text-is('Shared')"
         )
         assert group_headers.count() > 0, "分组标题元素不存在"
     else:
@@ -628,10 +632,10 @@ def test_skill_upload_conflict_handling(logged_in_page, base_url):
             pass  # SPA 路由可能中断初始导航
         logged_in_page.wait_for_load_state("networkidle")
 
-        # 创建同名临时文件
-        test_file = os.path.join(
-            tempfile.gettempdir(), f"{conflict_skill_name}.md"
-        )
+        # 创建同名临时目录（UI 上传需要目录，含 SKILL.md）
+        test_dir = os.path.join(tempfile.gettempdir(), conflict_skill_name)
+        os.makedirs(test_dir, exist_ok=True)
+        test_file = os.path.join(test_dir, "SKILL.md")
         with open(test_file, "w", encoding="utf-8") as f:
             f.write(conflict_content)
 
@@ -642,10 +646,25 @@ def test_skill_upload_conflict_handling(logged_in_page, base_url):
                 upload_btn = logged_in_page.get_by_role("button", name="上传")
             assert upload_btn.count() > 0, "上传按钮不存在"
 
-            with logged_in_page.expect_file_chooser() as fc_info:
-                upload_btn.first.click()
-            fc_info.value.set_files(test_file)
-            logged_in_page.wait_for_timeout(800)
+            # 点击"上传技能"按钮 → 打开上传对话框
+            upload_btn.first.click()
+            logged_in_page.wait_for_timeout(1000)
+
+            # 对话框中出现拖拽区域（"点击选择包含技能的文件夹"），点击它触发文件选择器
+            dropzone = logged_in_page.locator(
+                "div.border-dashed, [class*='border-dashed']"
+            ).filter(has_text="选择").first
+            if dropzone.count() == 0:
+                # 回退：查找对话框内的 input[type=file] 直接设文件
+                file_input = logged_in_page.locator("input[type='file']")
+                assert file_input.count() > 0, "上传对话框中未找到文件输入"
+                file_input.first.set_input_files(test_dir)
+                logged_in_page.wait_for_timeout(800)
+            else:
+                with logged_in_page.expect_file_chooser() as fc_info:
+                    dropzone.click()
+                fc_info.value.set_files(test_dir)
+                logged_in_page.wait_for_timeout(800)
 
             # 检查冲突对话框
             dialog = logged_in_page.locator("[role=dialog]")
@@ -678,8 +697,8 @@ def test_skill_upload_conflict_handling(logged_in_page, base_url):
                 )
 
         finally:
-            if os.path.exists(test_file):
-                os.remove(test_file)
+            import shutil
+            shutil.rmtree(test_dir, ignore_errors=True)
 
     finally:
         # 清理

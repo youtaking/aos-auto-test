@@ -306,6 +306,12 @@ def _page_error_monitor(request):
             # 白名单：新建 Agent 配置加载期间的瞬态 404
             if "Failed to load agent config" in msg.text:
                 return
+            # 白名单：知识库删除后轮询 resources 返回"知识库不存在"
+            if "知识库不存在" in msg.text and "knowledgeBases" in msg.text:
+                return
+            # 白名单：知识库删除后详情页加载失败
+            if "Failed to load detail" in msg.text and "知识库不存在" in msg.text:
+                return
             # 非致命：服务端并发限制，记为警告
             if "并发上限" in msg.text:
                 warnings.append(f"[console.error] {msg.text}")
@@ -329,11 +335,17 @@ def _page_error_monitor(request):
             # 白名单：已知的非关键接口错误
             if "web/organizations" in response.url:
                 return
+            # 白名单：views 环境接口 404（服务端未实现）
+            if "web/environments/views" in response.url and response.status == 404:
+                return
             # 白名单：登录模块错误密码测试的预期 401
             if "auth/sign-in" in response.url and response.status == 401:
                 return
             # 白名单：测试 Provider 用假 URL 获取模型列表的已知 500
             if "fetch-models" in response.url:
+                return
+            # 白名单：模型连通性测试用假 URL 的预期 500
+            if "actions/test-model" in response.url:
                 return
             # 白名单：MCP 检测本地服务器返回 400（系统正确拒绝）
             if "mcp/actions/inspect" in response.url:
@@ -352,6 +364,12 @@ def _page_error_monitor(request):
                 return
             # 白名单：新建 Agent 配置加载期间的瞬态 404
             if response.status == 404 and "/web/config/agents" in response.url:
+                return
+            # 白名单：知识库删除后页面轮询 resources 的 404
+            if response.status == 404 and "/web/knowledgeBases/" in response.url and "/resources" in response.url:
+                return
+            # 白名单：知识库删除后页面轮询 KB 详情的 404
+            if response.status == 404 and "/web/knowledgeBases/" in response.url:
                 return
             # 非致命：并发限制引发的 API 错误，记为警告
             if "environments" in response.url and "enter" in response.url:
