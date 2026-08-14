@@ -1,12 +1,12 @@
 import { useEffect, useState, useCallback } from "react";
 import {
-  RefreshCw, Plus, Trash2, ArrowUpCircle, Play,
+  RefreshCw, Plus, Trash2, ArrowUpCircle, Play, RotateCcw,
   Settings, GitBranch, CheckCircle2, AlertCircle,
   XCircle, Loader2, ExternalLink, FolderOpen, Clock,
   Archive, FileCode, FileText, X, Eye,
 } from "lucide-react";
 import {
-  listBranches, createBranch, deleteBranch, promoteBranch,
+  listBranches, createBranch, deleteBranch, resetBranch, promoteBranch,
   pollNow, canGenerate, launchGenerate, listBranchCases,
   type BranchInfo, type BranchCases,
 } from "../api/branches";
@@ -67,6 +67,10 @@ export default function BranchManagement() {
   // 删除确认
   const [deleteTarget, setDeleteTarget] = useState<BranchInfo | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  // 重置确认
+  const [resetTarget, setResetTarget] = useState<BranchInfo | null>(null);
+  const [resetting, setResetting] = useState(false);
 
   // 生成用例
   const [generating, setGenerating] = useState<string | null>(null);
@@ -145,6 +149,21 @@ export default function BranchManagement() {
       setError(e.message);
     } finally {
       setDeleting(false);
+    }
+  };
+
+  const handleReset = async () => {
+    if (!resetTarget || resetting) return;
+    setResetting(true);
+    try {
+      await resetBranch(resetTarget.branch_name);
+      setResetTarget(null);
+      await load();
+      showToast("重置完成，用例已从主干重新复制");
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setResetting(false);
     }
   };
 
@@ -408,6 +427,17 @@ export default function BranchManagement() {
                           </button>
                         )}
 
+                        {/* 重置按钮 */}
+                        {!isMain && b.has_dir && (
+                          <button
+                            onClick={() => setResetTarget(b)}
+                            title="重置用例（从主干重新复制）"
+                            className="p-1.5 rounded-lg transition-colors text-orange-400 hover:bg-orange-50 hover:text-orange-600"
+                          >
+                            <RotateCcw className="w-4 h-4" />
+                          </button>
+                        )}
+
                         {/* 删除按钮 */}
                         <button
                           onClick={() => setDeleteTarget(b)}
@@ -489,6 +519,38 @@ export default function BranchManagement() {
                 }`}
               >
                 {deleting ? "删除中..." : "确认删除"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 重置确认弹窗 */}
+      {resetTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
+            <h2 className="text-lg font-semibold text-orange-600">确认重置</h2>
+            <p className="text-sm text-gray-600">
+              确定要重置分支 <code className="bg-gray-100 px-1.5 py-0.5 rounded font-mono">{resetTarget.branch_name}</code> 吗？
+            </p>
+            <p className="text-sm text-orange-600 bg-orange-50 rounded-lg p-3">
+              分支上的所有用例修改将丢失，将从主干重新复制用例。
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setResetTarget(null)}
+                className="px-4 py-2 border rounded-lg text-sm font-medium hover:bg-gray-50"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleReset}
+                disabled={resetting}
+                className={`px-4 py-2 text-white rounded-lg text-sm font-medium transition-colors ${
+                  resetting ? "bg-gray-400 cursor-not-allowed" : "bg-orange-600 hover:bg-orange-700"
+                }`}
+              >
+                {resetting ? "重置中..." : "确认重置"}
               </button>
             </div>
           </div>

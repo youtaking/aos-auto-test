@@ -34,6 +34,12 @@ export async function deleteBranch(branchName: string) {
   return del<{ branch_name: string; dir_deleted: boolean }>(`/branches/delete?branch_name=${encodeURIComponent(branchName)}`);
 }
 
+export async function resetBranch(branchName: string) {
+  return post<{ branch_name: string; api_suites_copied: boolean; unit_tests_copied: boolean }>(
+    "/branches/reset", { branch_name: branchName }
+  );
+}
+
 export async function promoteBranch(branchName: string) {
   return post<PromoteReport>("/branches/promote", { branch_name: branchName });
 }
