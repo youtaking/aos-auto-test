@@ -116,7 +116,8 @@ async def update_pipeline_status(
     await db.commit()
     await db.refresh(pipeline)
 
-    return ApiResponse(data=_pipeline_to_response(pipeline))
+    run = await db.get(TestRun, pipeline.run_id) if pipeline.run_id else None
+    return ApiResponse(data=_pipeline_to_response(pipeline, run))
 
 
 @router.post("/pipelines/{pipeline_id}/results", response_model=ApiResponse)
