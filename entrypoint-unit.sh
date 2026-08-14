@@ -32,7 +32,6 @@ fi
 # 注意：bun 对 symlink 解析有时不可靠（尤其在 Docker 跨 volume 时），
 # 所以同时预创建 node_modules 条目作为双保险
 mkdir -p "$WORKSPACE_ROOT/packages"
-mkdir -p "$WORKSPACE_ROOT/node_modules/@fenix"
 for pkg_dir in "$FENIX_ROOT/packages"/*/; do
   if [ -f "${pkg_dir}package.json" ]; then
     pkg_dir_name=$(basename "$pkg_dir")
@@ -42,19 +41,20 @@ for pkg_dir in "$FENIX_ROOT/packages"/*/; do
     # 方式1：复制到 packages/（比 symlink 更可靠，bun 对跨 volume symlink 有兼容性问题）
     cp -r "${pkg_dir%/}" "$WORKSPACE_ROOT/packages/$pkg_dir_name" 2>/dev/null || ln -sfn "${pkg_dir%/}" "$WORKSPACE_ROOT/packages/$pkg_dir_name"
 
-    # 方式2：在 node_modules 中预创建条目（双保险）
+    # 方式2：将所有 workspace 包加到根 package.json 的 dependencies，
+    # 强制 bun 安装并 hoist 所有依赖（解决 pino 等包没被 hoist 的问题）
     if [ -n "$pkg_json_name" ]; then
-      case "$pkg_json_name" in
-        @*)
-          scope=$(echo "$pkg_json_name" | cut -d'/' -f1)
-          short=$(echo "$pkg_json_name" | cut -d'/' -f2)
-          mkdir -p "$WORKSPACE_ROOT/node_modules/$scope"
-          ln -sfn "$WORKSPACE_ROOT/packages/$pkg_dir_name" "$WORKSPACE_ROOT/node_modules/$scope/$short"
-          ;;
-        *)
-          ln -sfn "$WORKSPACE_ROOT/packages/$pkg_dir_name" "$WORKSPACE_ROOT/node_modules/$pkg_json_name"
-          ;;
-      esac
+      python3 -c "
+import json
+pkg_path = '$WORKSPACE_ROOT/package.json'
+with open(pkg_path, 'r') as f:
+    data = json.load(f)
+if 'dependencies' not in data:
+    data['dependencies'] = {}
+data['dependencies']['$pkg_json_name'] = 'workspace:*'
+with open(pkg_path, 'w') as f:
+    json.dump(data, f, indent=2)
+" 2>/dev/null || echo "    WARNING: Failed to add $pkg_json_name to root dependencies"
     fi
   fi
 done
@@ -134,9 +134,6 @@ if [ "$NEED_INSTALL" = "true" ]; then
       echo "      $dir_name → $json_name ($is_link)"
     fi
   done
-  echo "    Pre-linked node_modules:"
-  ls -la "$WORKSPACE_ROOT/node_modules/" 2>/dev/null | grep "^l" | head -20
-  ls -la "$WORKSPACE_ROOT/node_modules/@fenix/" 2>/dev/null | grep "^l" | head -20
 
   set +e
   bun install --no-save 2>&1 | tail -20
