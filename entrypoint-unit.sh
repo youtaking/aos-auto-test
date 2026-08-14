@@ -143,7 +143,7 @@ Object.entries(deps).filter(([k,v]) => v === 'workspace:*').forEach(([k,v]) => c
 " 2>/dev/null || echo "      (failed to read)"
 
   set +e
-  bun install --no-save 2>&1 | tail -20
+  bun install 2>&1 | tail -20
   INSTALL_EXIT=$?
   set -e
 
@@ -152,7 +152,7 @@ Object.entries(deps).filter(([k,v]) => v === 'workspace:*').forEach(([k,v]) => c
     echo "    Retrying without lockfile..."
     rm -f bun.lock bun.lockb
     set +e
-    bun install --no-save 2>&1 | tail -20
+    bun install 2>&1 | tail -20
     INSTALL_EXIT=$?
     set -e
   fi
