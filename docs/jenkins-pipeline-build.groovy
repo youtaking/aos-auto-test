@@ -399,7 +399,7 @@ services:
     volumes:
       - __WORKSPACE__/autotest/unit_tests:/app/tests
       - __WORKSPACE__/autotest/branches:/app/branches
-      - __WORKSPACE__/app:/app/fenix-source-parent:ro
+      - __WORKSPACE__/app:/app/fenix-source-parent
     environment:
       TEST_ROOT: __TEST_ROOT__
 '''.replace('__PG_PORT__', PG_PORT)
