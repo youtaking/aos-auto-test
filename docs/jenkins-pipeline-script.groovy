@@ -657,6 +657,11 @@ PYEOF
                     echo "============================================================"
                     echo "Run Unit Tests — START"
                     echo "============================================================"
+                    echo ">>> Clearing stale test result files..."
+                    rm -f autotest/unit_tests/results/unit-junit.xml
+                    rm -f autotest/tests/results/report.json
+                    rm -f unit-junit.xml report.json
+                    echo "    Done."
                 '''
 
                 // 1. 获取 PIPELINE_ID 并通知后端"单元测试开始"
