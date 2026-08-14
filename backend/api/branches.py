@@ -139,6 +139,54 @@ async def create_branch(
     })
 
 
+@router.post("/branches/reset", response_model=ApiResponse)
+async def reset_branch(
+    body: BranchAction,
+    db: AsyncSession = Depends(get_async_session),
+):
+    """重置分支用例：删除分支目录下的用例，从 main 重新复制"""
+    branch_name = body.branch_name
+    _validate_branch_name(branch_name)
+
+    if branch_name == "main":
+        raise HTTPException(status_code=400, detail="不能重置 main 分支")
+
+    branch_dir = BRANCHES_DIR / branch_name
+    if not branch_dir.exists():
+        raise HTTPException(status_code=404, detail=f"分支目录不存在: {branch_name}")
+
+    # 删除现有用例目录
+    api_dst = branch_dir / "api_suites"
+    unit_dst = branch_dir / "unit_tests"
+    if api_dst.exists():
+        shutil.rmtree(api_dst)
+    if unit_dst.exists():
+        shutil.rmtree(unit_dst)
+
+    # 从 main 重新复制
+    api_src = PROJECT_ROOT / "tests" / "api_suites"
+    unit_src = PROJECT_ROOT / "unit_tests"
+    if api_src.exists():
+        shutil.copytree(api_src, api_dst)
+    if unit_src.exists():
+        shutil.copytree(unit_src, unit_dst)
+
+    # 更新追踪记录状态
+    result = await db.execute(
+        select(BranchTracker).where(BranchTracker.branch_name == branch_name)
+    )
+    tracker = result.scalars().first()
+    if tracker:
+        tracker.case_status = "active"
+        await db.commit()
+
+    return ApiResponse(data={
+        "branch_name": branch_name,
+        "api_suites_copied": api_dst.exists(),
+        "unit_tests_copied": unit_dst.exists(),
+    })
+
+
 @router.delete("/branches/delete", response_model=ApiResponse)
 async def delete_branch(
     branch_name: str,
