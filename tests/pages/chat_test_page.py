@@ -13,21 +13,31 @@ class ChatTestPage:
     # === 导航 ===
 
     def goto_agent_chat(self, agent_name: str = "通用助手"):
-        """进入指定 Agent 的对话页"""
+        """进入指定 Agent 的对话页（带重试）"""
         self.page.goto(f"{self.base_url}/ctrl/agent/home")
         self.page.wait_for_load_state("networkidle")
         card = self.page.locator("button.agent-sidebar-agent-card").filter(has_text=agent_name)
-        if card.count() > 0:
-            card.first.scroll_into_view_if_needed()
-            self.page.wait_for_timeout(300)
-            card.first.click()
-            # 等待聊天界面渲染完成（textarea + 消息区域或 header 出现）
+        if card.count() == 0:
+            return
+        card.first.scroll_into_view_if_needed()
+        self.page.wait_for_timeout(300)
+        card.first.click()
+        # 等待聊天界面渲染（textarea 出现），失败则重试一次
+        for _attempt in range(2):
             try:
                 self.page.locator("textarea").first.wait_for(
                     state="visible", timeout=8000
                 )
+                return  # 成功
             except Exception:
-                self.page.wait_for_timeout(3000)
+                if _attempt == 0:
+                    # 第一次失败：可能 SPA 导航被中断，重新点击
+                    card = self.page.locator("button.agent-sidebar-agent-card").filter(has_text=agent_name)
+                    if card.count() > 0:
+                        card.first.click()
+                    self.page.wait_for_timeout(1000)
+        # 最终回退
+        self.page.wait_for_timeout(2000)
 
     def is_chat_loaded(self) -> bool:
         """聊天界面是否加载完成（URL 不变，通过 textarea 判断）"""

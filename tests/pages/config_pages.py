@@ -12,7 +12,10 @@ class ModelsPage:
         self.url = f"{base_url}/ctrl/agent/models"
 
     def goto(self):
-        self.page.goto(self.url)
+        try:
+            self.page.goto(self.url, wait_until="domcontentloaded")
+        except Exception:
+            pass  # SPA 路由可能中断初始导航（net::ERR_ABORTED）
         self.page.wait_for_load_state("networkidle")
 
     def is_loaded(self) -> bool:
@@ -51,7 +54,10 @@ class SkillsPage:
         self.url = f"{base_url}/ctrl/agent/skills"
 
     def goto(self):
-        self.page.goto(self.url)
+        try:
+            self.page.goto(self.url, wait_until="domcontentloaded")
+        except Exception:
+            pass  # SPA 路由可能中断初始导航（net::ERR_ABORTED）
         self.page.wait_for_load_state("networkidle")
 
     def is_loaded(self) -> bool:
@@ -117,7 +123,10 @@ class McpPage:
         self.url = f"{base_url}/ctrl/agent/mcp"
 
     def goto(self):
-        self.page.goto(self.url)
+        try:
+            self.page.goto(self.url, wait_until="domcontentloaded")
+        except Exception:
+            pass  # SPA 路由可能中断初始导航（net::ERR_ABORTED）
         self.page.wait_for_load_state("networkidle")
 
     def is_loaded(self) -> bool:
@@ -153,7 +162,10 @@ class SitesPage:
         self.url = f"{base_url}/ctrl/agent/sites"
 
     def goto(self):
-        self.page.goto(self.url)
+        try:
+            self.page.goto(self.url, wait_until="domcontentloaded")
+        except Exception:
+            pass  # SPA 路由可能中断初始导航（net::ERR_ABORTED）
         self.page.wait_for_load_state("networkidle")
 
     def is_loaded(self) -> bool:

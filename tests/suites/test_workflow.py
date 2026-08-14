@@ -141,7 +141,10 @@ class TestWorkflow:
         if not wf_id:
             pytest.skip("无法获取或创建工作流 ID")
         try:
-            logged_in_page.goto(f"{base_url}/ctrl/agent/workflow/{wf_id}/edit")
+            try:
+                logged_in_page.goto(f"{base_url}/ctrl/agent/workflow/{wf_id}/edit", wait_until="domcontentloaded")
+            except Exception:
+                pass  # SPA 路由可能中断初始导航
             logged_in_page.wait_for_load_state("domcontentloaded")
             assert "/workflow/" in logged_in_page.url, \
                 f"未跳转到编辑页: {logged_in_page.url}"
@@ -166,7 +169,10 @@ class TestWorkflow:
         if not wf_id:
             pytest.skip("无法获取或创建工作流 ID")
         try:
-            logged_in_page.goto(f"{base_url}/ctrl/agent/workflow/{wf_id}/edit")
+            try:
+                logged_in_page.goto(f"{base_url}/ctrl/agent/workflow/{wf_id}/edit", wait_until="domcontentloaded")
+            except Exception:
+                pass  # SPA 路由可能中断初始导航
             logged_in_page.wait_for_load_state("domcontentloaded")
             # 查找添加节点按钮或节点面板
             add_btn = logged_in_page.get_by_role("button", name="添加节点").or_(
@@ -196,7 +202,10 @@ class TestWorkflow:
         if not wf_id:
             pytest.skip("无法获取或创建工作流 ID")
         try:
-            logged_in_page.goto(f"{base_url}/ctrl/agent/workflow/{wf_id}/edit")
+            try:
+                logged_in_page.goto(f"{base_url}/ctrl/agent/workflow/{wf_id}/edit", wait_until="domcontentloaded")
+            except Exception:
+                pass  # SPA 路由可能中断初始导航
             logged_in_page.wait_for_load_state("domcontentloaded")
             # 查找保存/草稿按钮
             save_btn = logged_in_page.get_by_role("button", name="保存").or_(
@@ -219,7 +228,10 @@ class TestWorkflow:
         if not wf_id:
             pytest.skip("无法获取或创建工作流 ID")
         try:
-            logged_in_page.goto(f"{base_url}/ctrl/agent/workflow/{wf_id}/edit")
+            try:
+                logged_in_page.goto(f"{base_url}/ctrl/agent/workflow/{wf_id}/edit", wait_until="domcontentloaded")
+            except Exception:
+                pass  # SPA 路由可能中断初始导航
             logged_in_page.wait_for_load_state("domcontentloaded")
             publish_btn = logged_in_page.get_by_role("button", name="发布")
             save_btn = logged_in_page.get_by_role("button", name="保存")
@@ -247,7 +259,10 @@ class TestWorkflow:
             assert r.status < 400 or r.status == 404, \
                 f"版本 API 返回异常状态码: {r.status}"
             # 或通过 UI 查看版本 tab
-            logged_in_page.goto(f"{base_url}/ctrl/agent/workflow/{wf_id}/edit")
+            try:
+                logged_in_page.goto(f"{base_url}/ctrl/agent/workflow/{wf_id}/edit", wait_until="domcontentloaded")
+            except Exception:
+                pass  # SPA 路由可能中断初始导航
             logged_in_page.wait_for_load_state("domcontentloaded")
             version_link = logged_in_page.get_by_role("link", name="版本").or_(
                 logged_in_page.locator("button").filter(has_text="版本")
@@ -283,7 +298,10 @@ class TestWorkflow:
                 assert body.count() > 0, "运行记录页面无内容"
             else:
                 # 无运行记录链接，验证编辑器中的运行按钮
-                logged_in_page.goto(f"{base_url}/ctrl/agent/workflow/{wf_id}/edit")
+                try:
+                    logged_in_page.goto(f"{base_url}/ctrl/agent/workflow/{wf_id}/edit", wait_until="domcontentloaded")
+                except Exception:
+                    pass  # SPA 路由可能中断初始导航
                 logged_in_page.wait_for_load_state("domcontentloaded")
                 run_btn = loc.run_or_execute_button(logged_in_page)
                 assert run_btn.count() > 0, "无运行或执行按钮"
@@ -324,7 +342,10 @@ class TestWorkflow:
             assert r.status < 500, \
                 f"触发器 API 返回异常状态码: {r.status}"
             # 通过 UI 查看触发器
-            logged_in_page.goto(f"{base_url}/ctrl/agent/workflow/{wf_id}/edit")
+            try:
+                logged_in_page.goto(f"{base_url}/ctrl/agent/workflow/{wf_id}/edit", wait_until="domcontentloaded")
+            except Exception:
+                pass  # SPA 路由可能中断初始导航
             logged_in_page.wait_for_load_state("domcontentloaded")
             trigger_ui = loc.button_by_name_or_title(logged_in_page, "触发器").or_(
                 logged_in_page.locator('[role="tab"]').filter(has_text="触发器")
@@ -345,7 +366,10 @@ class TestWorkflow:
         if not wf_id:
             pytest.skip("无法获取或创建工作流 ID")
         try:
-            logged_in_page.goto(f"{base_url}/ctrl/agent/workflow/{wf_id}/edit")
+            try:
+                logged_in_page.goto(f"{base_url}/ctrl/agent/workflow/{wf_id}/edit", wait_until="domcontentloaded")
+            except Exception:
+                pass  # SPA 路由可能中断初始导航
             logged_in_page.wait_for_load_state("domcontentloaded")
             assert "/workflow/" in logged_in_page.url and "/edit" in logged_in_page.url, \
                 f"未进入编辑器: {logged_in_page.url}"
@@ -392,7 +416,10 @@ class TestWorkflow:
         try:
             logged_in_page.on("request", on_request)
             logged_in_page.on("websocket", on_ws)
-            logged_in_page.goto(f"{base_url}/ctrl/agent/workflow/{wf_id}/edit")
+            try:
+                logged_in_page.goto(f"{base_url}/ctrl/agent/workflow/{wf_id}/edit", wait_until="domcontentloaded")
+            except Exception:
+                pass  # SPA 路由可能中断初始导航
             logged_in_page.wait_for_load_state("domcontentloaded")
             # SSE 或 WebSocket 连接应至少有一个
             has_realtime = len(sse_connections) > 0 or len(ws_connections) > 0
@@ -424,7 +451,10 @@ class TestWorkflow:
         )
         if run_link.count() == 0:
             # 尝试直接在 URL 中添加 tab 参数
-            logged_in_page.goto(f"{base_url}/ctrl/agent/workflow?tab=runs")
+            try:
+                logged_in_page.goto(f"{base_url}/ctrl/agent/workflow?tab=runs", wait_until="domcontentloaded")
+            except Exception:
+                pass  # SPA 路由可能中断初始导航
             logged_in_page.wait_for_load_state("networkidle")
         else:
             run_link.first.click()
@@ -525,7 +555,10 @@ class TestWorkflow:
         if not wf_id:
             pytest.skip("无法获取或创建工作流 ID")
         try:
-            logged_in_page.goto(f"{base_url}/ctrl/agent/workflow/{wf_id}/edit")
+            try:
+                logged_in_page.goto(f"{base_url}/ctrl/agent/workflow/{wf_id}/edit", wait_until="domcontentloaded")
+            except Exception:
+                pass  # SPA 路由可能中断初始导航
             logged_in_page.wait_for_load_state("domcontentloaded")
 
             run_btn = loc.run_or_execute_button(logged_in_page)
@@ -561,7 +594,10 @@ class TestWorkflow:
         if not wf_id:
             pytest.skip("无法获取或创建工作流 ID")
         try:
-            logged_in_page.goto(f"{base_url}/ctrl/agent/workflow/{wf_id}/edit")
+            try:
+                logged_in_page.goto(f"{base_url}/ctrl/agent/workflow/{wf_id}/edit", wait_until="domcontentloaded")
+            except Exception:
+                pass  # SPA 路由可能中断初始导航
             logged_in_page.wait_for_load_state("domcontentloaded")
 
             yaml_btn = logged_in_page.locator("button").filter(has_text="YAML")
