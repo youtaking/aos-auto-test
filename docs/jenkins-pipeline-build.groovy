@@ -440,6 +440,57 @@ services:
                     echo "============================================================"
                 '''.replace('__PROJECT_NAME__', PROJECT_NAME)
 
+                // 端口清理：防止残留容器占用端口（不影响其他正在运行的 build）
+                sh '''
+                    set +x
+                    echo ">>> Pre-deploy cleanup: freeing ports __RCS_PORT__, __PG_PORT__, __LITE_PORT__..."
+
+                    # 1. 清理同项目名的残留容器（重新触发同一 build 号时）
+                    if docker-compose -p __PROJECT_NAME__ ps -q 2>/dev/null | grep -q .; then
+                        echo "    Found existing containers for __PROJECT_NAME__, removing..."
+                        docker-compose -p __PROJECT_NAME__ down -v --remove-orphans 2>/dev/null || true
+                    fi
+
+                    # 2. 检查目标端口是否被占用
+                    PORT_CONFLICT=false
+                    for port in __RCS_PORT__ __PG_PORT__ __LITE_PORT__; do
+                        CONTAINER_ID=$(docker ps --filter "publish=$port" --format "{{.ID}}" 2>/dev/null || true)
+                        if [ -n "$CONTAINER_ID" ]; then
+                            CONTAINER_NAME=$(docker inspect --format "{{.Name}}" "$CONTAINER_ID" 2>/dev/null | sed 's|^/||')
+                            # 只清理已退出/stale 的容器，不杀其他活跃 build 的容器
+                            CONTAINER_STATE=$(docker inspect --format "{{.State.Status}}" "$CONTAINER_ID" 2>/dev/null || echo "unknown")
+                            # 如果是 pr-env 容器且不是当前 build，检查是否属于已完成的 build
+                            if echo "$CONTAINER_NAME" | grep -q "^pr-env-"; then
+                                echo "    Port $port used by $CONTAINER_NAME (state=$CONTAINER_STATE)"
+                                if [ "$CONTAINER_STATE" = "exited" ] || [ "$CONTAINER_STATE" = "dead" ]; then
+                                    echo "    Stale container, removing..."
+                                    docker rm -f "$CONTAINER_ID" 2>/dev/null || true
+                                else
+                                    echo "    WARNING: Port $port occupied by active container $CONTAINER_NAME"
+                                    PORT_CONFLICT=true
+                                fi
+                            else
+                                echo "    Port $port used by non-pipeline container $CONTAINER_NAME, skipping."
+                                PORT_CONFLICT=true
+                            fi
+                        else
+                            echo "    Port $port is available."
+                        fi
+                    done
+
+                    if [ "$PORT_CONFLICT" = "true" ]; then
+                        echo ""
+                        echo "    ERROR: Port conflict detected! Another active build or container is using the same ports."
+                        echo "    This build needs a different port offset. Aborting to avoid interference."
+                        exit 1
+                    fi
+
+                    echo "    Pre-deploy cleanup done."
+                '''.replace('__PROJECT_NAME__', PROJECT_NAME)
+                  .replace('__RCS_PORT__', RCS_PORT)
+                  .replace('__PG_PORT__', PG_PORT)
+                  .replace('__LITE_PORT__', LITE_PORT)
+
                 sh '''
                     set +x
                     echo ">>> Preparing pg-init scripts..."
