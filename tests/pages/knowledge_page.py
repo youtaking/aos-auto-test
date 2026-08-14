@@ -19,12 +19,12 @@ class KnowledgePage:
             self.page.goto(self.url, wait_until="domcontentloaded")
         except Exception:
             pass  # SPA 路由可能中断初始导航
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
 
     def goto_via_sidebar(self):
         btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="知识库")
         btn.first.click()
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
 
     def is_loaded(self) -> bool:
         return "/ctrl/agent/knowledge" in self.page.url and self.page.locator("div.agent-panel-body").count() > 0

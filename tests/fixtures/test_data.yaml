@@ -1,5 +1,5 @@
 fenixagent:
-  url: http://localhost:8080
+  url: http://100.105.9.16:38879
   admin:
     email: xiaochun@agent.com
     password: '12345678'

@@ -82,7 +82,7 @@ def test_skill_list_loading_skeleton(logged_in_page, base_url):
         logged_in_page.goto(f"{base_url}/ctrl/agent/dashboard", wait_until="domcontentloaded")
     except Exception:
         pass  # SPA 路由可能中断初始导航
-    logged_in_page.wait_for_load_state("networkidle")
+    logged_in_page.wait_for_load_state("domcontentloaded")
     logged_in_page.evaluate("() => { sessionStorage.clear(); localStorage.clear(); }")
 
     # 导航到技能页（不等 networkidle，立即检查骨架屏）
@@ -93,7 +93,7 @@ def test_skill_list_loading_skeleton(logged_in_page, base_url):
     had_loading = skills.has_skeleton_or_spinner()
 
     # 等待 API 延迟结束 + 加载完成
-    logged_in_page.wait_for_load_state("networkidle")
+    logged_in_page.wait_for_load_state("domcontentloaded")
 
     # 取消路由拦截
     logged_in_page.unroute("**/web/config/skills*")
@@ -270,7 +270,7 @@ def test_skill_delete_via_ui(logged_in_page, base_url):
         logged_in_page.goto(f"{base_url}/ctrl/agent/skills", wait_until="domcontentloaded")
     except Exception:
         pass  # SPA 路由可能中断初始导航
-    logged_in_page.wait_for_load_state("networkidle")
+    logged_in_page.wait_for_load_state("domcontentloaded")
 
     # ── Step 4: 找到测试技能卡片的删除按钮 ──
     # 用技能名定位文本元素，向上找到最近的 .group 父容器（即技能卡片）
@@ -630,7 +630,7 @@ def test_skill_upload_conflict_handling(logged_in_page, base_url):
             logged_in_page.goto(f"{base_url}/ctrl/agent/skills", wait_until="domcontentloaded")
         except Exception:
             pass  # SPA 路由可能中断初始导航
-        logged_in_page.wait_for_load_state("networkidle")
+        logged_in_page.wait_for_load_state("domcontentloaded")
 
         # 创建同名临时目录（UI 上传需要目录，含 SKILL.md）
         test_dir = os.path.join(tempfile.gettempdir(), conflict_skill_name)

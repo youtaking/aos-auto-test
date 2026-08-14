@@ -11,7 +11,7 @@ class ChatPage:
     def goto_home(self):
         """进入首页（对话创建页）"""
         self.page.goto(f"{self.base_url}/ctrl/agent/home")
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
 
     def is_home_loaded(self) -> bool:
         """首页是否加载完成"""

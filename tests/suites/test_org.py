@@ -742,7 +742,7 @@ def test_org_set_active(logged_in_page, base_url):
     except Exception:
         # 页面重载超时不阻断测试，尝试强制导航到当前 URL
         logged_in_page.goto(logged_in_page.url, timeout=30000)
-    logged_in_page.wait_for_load_state("networkidle")
+    logged_in_page.wait_for_load_state("domcontentloaded")
 
     # 验证侧边栏或页面内容反映了当前活跃组织
     body_text = logged_in_page.inner_text("body")

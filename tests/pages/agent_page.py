@@ -14,7 +14,7 @@ class AgentPage:
             self.page.goto(self.url, wait_until="domcontentloaded")
         except Exception:
             pass  # SPA 路由可能中断初始导航
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
 
     def is_loaded(self) -> bool:
         """页面标题「智能体管理」可见"""
@@ -87,7 +87,7 @@ class AgentPage:
             dialog.get_by_role("button", name="确定")
         )
         submit_btn.first.click()
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
 
     def close_dialog(self):
         """关闭对话框"""
@@ -108,7 +108,7 @@ class AgentPage:
         # 找到包含该名称的卡片，点击"进入对话"
         card = self.page.locator(f"text={name}").first
         card.click()
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
 
     def get_filter_buttons(self) -> list[str]:
         """获取所有分类筛选按钮的文字（从「全部」按钮的父容器中动态获取）"""

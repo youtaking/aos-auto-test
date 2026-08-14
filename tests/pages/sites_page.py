@@ -16,7 +16,7 @@ class SitesListPage:
             self.page.goto(self.url, wait_until="domcontentloaded")
         except Exception:
             pass  # SPA 路由可能中断初始导航
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
 
     def is_loaded(self) -> bool:
         return "/ctrl/agent/sites" in self.page.url and self.page.locator("div.agent-panel-content").count() > 0
@@ -171,7 +171,7 @@ class SitesListPage:
                     with self.page.context.expect_page() as new_page_info:
                         open_btn.click()
                     new_page = new_page_info.value
-                    new_page.wait_for_load_state("networkidle")
+                    new_page.wait_for_load_state("domcontentloaded")
                     return new_page
         return None
 
@@ -290,7 +290,7 @@ class SiteBuilderChatPage:
         """进入建站助手对话页"""
         # 先到首页
         self.page.goto(f"{self.base_url}/ctrl/agent/home")
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
 
         # 滚动侧边栏找到建站助手
         builder_card = self.page.locator("button.agent-sidebar-agent-card").filter(

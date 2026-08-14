@@ -414,7 +414,7 @@ def test_agent_025_bind_mcp(logged_in_page, base_url):
     try:
         # 2. 导航到智能体列表
         ac.goto_agents()
-        logged_in_page.wait_for_load_state("networkidle")
+        logged_in_page.wait_for_load_state("domcontentloaded")
 
         # 3. 找到新建 Agent 的卡片容器，hover 后点击"智能体配置"
         card = ac.wait_for_agent_card(agent_name)
@@ -427,13 +427,13 @@ def test_agent_025_bind_mcp(logged_in_page, base_url):
         config_btn.click()
         logged_in_page.locator("div.absolute.inset-0.z-50").wait_for(state="visible", timeout=10000)
         try:
-            logged_in_page.wait_for_load_state("networkidle", timeout=5000)
+            logged_in_page.wait_for_load_state("domcontentloaded", timeout=5000)
         except Exception:
             pass
         logged_in_page.wait_for_timeout(1000)
         # 等待 modal 内容加载
         try:
-            logged_in_page.wait_for_load_state("networkidle", timeout=5000)
+            logged_in_page.wait_for_load_state("domcontentloaded", timeout=5000)
         except Exception:
             pass
         logged_in_page.wait_for_timeout(1000)
@@ -483,7 +483,7 @@ def test_agent_025_bind_mcp(logged_in_page, base_url):
         restart_btn = logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启")
         restart_btn.wait_for(state="visible", timeout=5000)
         restart_btn.click()
-        logged_in_page.wait_for_load_state("networkidle")
+        logged_in_page.wait_for_load_state("domcontentloaded")
 
         # 7. 重新打开配置，验证 MCP 已绑定
         card = ac.wait_for_agent_card(agent_name)
@@ -492,7 +492,7 @@ def test_agent_025_bind_mcp(logged_in_page, base_url):
         agent_wrapper.locator('button[title="智能体配置"]').click()
         logged_in_page.locator("div.absolute.inset-0.z-50").wait_for(state="visible", timeout=10000)
         try:
-            logged_in_page.wait_for_load_state("networkidle", timeout=5000)
+            logged_in_page.wait_for_load_state("domcontentloaded", timeout=5000)
         except Exception:
             pass
         logged_in_page.wait_for_timeout(1000)
@@ -527,7 +527,7 @@ def test_agent_026_no_mcp(logged_in_page, base_url, shared_agent):
     agent_name = shared_agent["name"]
 
     ac.goto_agents()
-    logged_in_page.wait_for_load_state("networkidle")
+    logged_in_page.wait_for_load_state("domcontentloaded")
 
     # 找到共享 Agent 的卡片，确认存在
     card = ac.wait_for_agent_card(agent_name)
@@ -541,7 +541,7 @@ def test_agent_026_no_mcp(logged_in_page, base_url, shared_agent):
         )
     except Exception:
         pass
-    logged_in_page.wait_for_load_state("networkidle")
+    logged_in_page.wait_for_load_state("domcontentloaded")
     if _check_concurrency_limit(logged_in_page):
         pytest.skip("服务器并发上限，无法进入对话页面")
     assert ac.is_on_chat_page(), "不绑定 MCP 的 Agent 也应能进入对话页面"
@@ -562,7 +562,7 @@ def test_agent_027_bind_skill(logged_in_page, base_url):
     try:
         # 2. 导航到智能体列表
         ac.goto_agents()
-        logged_in_page.wait_for_load_state("networkidle")
+        logged_in_page.wait_for_load_state("domcontentloaded")
 
         # 3. 找到新建 Agent 的卡片容器，hover 后点击"智能体配置"
         card = ac.wait_for_agent_card(agent_name)
@@ -574,7 +574,7 @@ def test_agent_027_bind_skill(logged_in_page, base_url):
         agent_wrapper.locator('button[title="智能体配置"]').click()
         logged_in_page.locator("div.absolute.inset-0.z-50").wait_for(state="visible", timeout=10000)
         try:
-            logged_in_page.wait_for_load_state("networkidle", timeout=5000)
+            logged_in_page.wait_for_load_state("domcontentloaded", timeout=5000)
         except Exception:
             pass
         logged_in_page.wait_for_timeout(1000)
@@ -619,7 +619,7 @@ def test_agent_027_bind_skill(logged_in_page, base_url):
         restart_btn = logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启")
         restart_btn.wait_for(state="visible", timeout=5000)
         restart_btn.click()
-        logged_in_page.wait_for_load_state("networkidle")
+        logged_in_page.wait_for_load_state("domcontentloaded")
 
         # 7. 重新打开配置，验证 Skill 已绑定
         card = ac.wait_for_agent_card(agent_name)
@@ -630,7 +630,7 @@ def test_agent_027_bind_skill(logged_in_page, base_url):
         agent_wrapper.locator('button[title="智能体配置"]').click()
         logged_in_page.locator("div.absolute.inset-0.z-50").wait_for(state="visible", timeout=10000)
         try:
-            logged_in_page.wait_for_load_state("networkidle", timeout=5000)
+            logged_in_page.wait_for_load_state("domcontentloaded", timeout=5000)
         except Exception:
             pass
         logged_in_page.wait_for_timeout(1000)
@@ -665,7 +665,7 @@ def test_agent_028_no_skill(logged_in_page, base_url, shared_agent):
     agent_name = shared_agent["name"]
 
     ac.goto_agents()
-    logged_in_page.wait_for_load_state("networkidle")
+    logged_in_page.wait_for_load_state("domcontentloaded")
 
     card = ac.wait_for_agent_card(agent_name)
     assert card.count() > 0, f"列表中未找到 '{agent_name}'"
@@ -677,7 +677,7 @@ def test_agent_028_no_skill(logged_in_page, base_url, shared_agent):
         )
     except Exception:
         pass
-    logged_in_page.wait_for_load_state("networkidle")
+    logged_in_page.wait_for_load_state("domcontentloaded")
     if _check_concurrency_limit(logged_in_page):
         pytest.skip("服务器并发上限，无法进入对话页面")
     assert ac.is_on_chat_page(), "不绑定 Skill 的 Agent 也应能进入对话页面"
@@ -698,7 +698,7 @@ def test_agent_029_bind_knowledge(logged_in_page, base_url):
     try:
         # 2. 导航到智能体列表
         ac.goto_agents()
-        logged_in_page.wait_for_load_state("networkidle")
+        logged_in_page.wait_for_load_state("domcontentloaded")
 
         # 3. 找到新建 Agent，打开配置 modal
         card = ac.wait_for_agent_card(agent_name)
@@ -710,7 +710,7 @@ def test_agent_029_bind_knowledge(logged_in_page, base_url):
         agent_wrapper.locator('button[title="智能体配置"]').click()
         logged_in_page.locator("div.absolute.inset-0.z-50").wait_for(state="visible", timeout=10000)
         try:
-            logged_in_page.wait_for_load_state("networkidle", timeout=5000)
+            logged_in_page.wait_for_load_state("domcontentloaded", timeout=5000)
         except Exception:
             pass
         logged_in_page.wait_for_timeout(1000)
@@ -751,7 +751,7 @@ def test_agent_029_bind_knowledge(logged_in_page, base_url):
         restart_btn = logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启")
         restart_btn.wait_for(state="visible", timeout=5000)
         restart_btn.click()
-        logged_in_page.wait_for_load_state("networkidle")
+        logged_in_page.wait_for_load_state("domcontentloaded")
 
         # 8. 重新打开配置，验证知识库已绑定
         card = ac.wait_for_agent_card(agent_name)
@@ -760,7 +760,7 @@ def test_agent_029_bind_knowledge(logged_in_page, base_url):
         agent_wrapper.locator('button[title="智能体配置"]').click()
         logged_in_page.locator("div.absolute.inset-0.z-50").wait_for(state="visible", timeout=10000)
         try:
-            logged_in_page.wait_for_load_state("networkidle", timeout=5000)
+            logged_in_page.wait_for_load_state("domcontentloaded", timeout=5000)
         except Exception:
             pass
         logged_in_page.wait_for_timeout(1000)
@@ -802,7 +802,7 @@ def test_agent_030_select_model(logged_in_page, base_url):
     try:
         # 2. 导航到智能体列表
         ac.goto_agents()
-        logged_in_page.wait_for_load_state("networkidle")
+        logged_in_page.wait_for_load_state("domcontentloaded")
 
         # 3. 打开配置 modal
         card = ac.wait_for_agent_card(agent_name)
@@ -814,7 +814,7 @@ def test_agent_030_select_model(logged_in_page, base_url):
         agent_wrapper.locator('button[title="智能体配置"]').click()
         logged_in_page.locator("div.absolute.inset-0.z-50").wait_for(state="visible", timeout=10000)
         try:
-            logged_in_page.wait_for_load_state("networkidle", timeout=5000)
+            logged_in_page.wait_for_load_state("domcontentloaded", timeout=5000)
         except Exception:
             pass
         logged_in_page.wait_for_timeout(1000)
@@ -867,7 +867,7 @@ def test_agent_030_select_model(logged_in_page, base_url):
             restart_btn = logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启")
             restart_btn.wait_for(state="visible", timeout=5000)
             restart_btn.click()
-            logged_in_page.wait_for_load_state("networkidle")
+            logged_in_page.wait_for_load_state("domcontentloaded")
 
             # 8. 重新打开配置，验证模型已切换
             card = ac.wait_for_agent_card(agent_name)
@@ -876,7 +876,7 @@ def test_agent_030_select_model(logged_in_page, base_url):
             agent_wrapper.locator('button[title="智能体配置"]').click()
             logged_in_page.locator("div.absolute.inset-0.z-50").wait_for(state="visible", timeout=10000)
             try:
-                logged_in_page.wait_for_load_state("networkidle", timeout=5000)
+                logged_in_page.wait_for_load_state("domcontentloaded", timeout=5000)
             except Exception:
                 pass
             logged_in_page.wait_for_timeout(1000)
@@ -955,7 +955,7 @@ def test_agent_032_edit_add_config(logged_in_page, base_url):
 
     # 点击第一个 Agent 进入对话
     ac.click_agent(names[0])
-    logged_in_page.wait_for_load_state("networkidle")
+    logged_in_page.wait_for_load_state("domcontentloaded")
 
     # 对话页面应有配置相关入口
     if ac.is_on_chat_page():
@@ -1023,7 +1023,7 @@ def test_add_then_remove_skill(logged_in_page, base_url):
         modal.get_by_role("button", name="保存").click()
         logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启").wait_for(state="visible", timeout=15000)
         logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启").click()
-        logged_in_page.wait_for_load_state("networkidle")
+        logged_in_page.wait_for_load_state("domcontentloaded")
 
         # 阶段二：验证绑定成功
         modal2, _ = ac.open_agent_config_modal(agent_name)
@@ -1051,7 +1051,7 @@ def test_add_then_remove_skill(logged_in_page, base_url):
         modal.get_by_role("button", name="保存").click()
         logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启").wait_for(state="visible", timeout=15000)
         logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启").click()
-        logged_in_page.wait_for_load_state("networkidle")
+        logged_in_page.wait_for_load_state("domcontentloaded")
 
         # 阶段二：验证解绑成功
         modal2, _ = ac.open_agent_config_modal(agent_name)
@@ -1140,7 +1140,7 @@ def test_add_then_remove_mcp(logged_in_page, base_url):
         modal.get_by_role("button", name="保存").click()
         logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启").wait_for(state="visible", timeout=15000)
         logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启").click()
-        logged_in_page.wait_for_load_state("networkidle")
+        logged_in_page.wait_for_load_state("domcontentloaded")
 
         # 阶段二：验证绑定成功
         modal2, _ = ac.open_agent_config_modal(agent_name)
@@ -1168,7 +1168,7 @@ def test_add_then_remove_mcp(logged_in_page, base_url):
         modal.get_by_role("button", name="保存").click()
         logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启").wait_for(state="visible", timeout=15000)
         logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启").click()
-        logged_in_page.wait_for_load_state("networkidle")
+        logged_in_page.wait_for_load_state("domcontentloaded")
 
         # 阶段二：验证解绑成功
         modal2, _ = ac.open_agent_config_modal(agent_name)
@@ -1257,7 +1257,7 @@ def test_add_then_remove_knowledge(logged_in_page, base_url):
         modal.get_by_role("button", name="保存").click()
         logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启").wait_for(state="visible", timeout=15000)
         logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启").click()
-        logged_in_page.wait_for_load_state("networkidle")
+        logged_in_page.wait_for_load_state("domcontentloaded")
 
         # 阶段二：验证绑定成功
         modal2, _ = ac.open_agent_config_modal(agent_name)
@@ -1292,7 +1292,7 @@ def test_add_then_remove_knowledge(logged_in_page, base_url):
         modal.get_by_role("button", name="保存").click()
         logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启").wait_for(state="visible", timeout=15000)
         logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启").click()
-        logged_in_page.wait_for_load_state("networkidle")
+        logged_in_page.wait_for_load_state("domcontentloaded")
 
         # 阶段二：验证解绑成功
         modal2, _ = ac.open_agent_config_modal(agent_name)
@@ -1381,7 +1381,7 @@ def test_add_then_remove_sites(logged_in_page, base_url):
         modal.get_by_role("button", name="保存").click()
         logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启").wait_for(state="visible", timeout=15000)
         logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启").click()
-        logged_in_page.wait_for_load_state("networkidle")
+        logged_in_page.wait_for_load_state("domcontentloaded")
 
         # 阶段二：验证绑定成功
         modal2, _ = ac.open_agent_config_modal(agent_name)
@@ -1409,7 +1409,7 @@ def test_add_then_remove_sites(logged_in_page, base_url):
         modal.get_by_role("button", name="保存").click()
         logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启").wait_for(state="visible", timeout=15000)
         logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启").click()
-        logged_in_page.wait_for_load_state("networkidle")
+        logged_in_page.wait_for_load_state("domcontentloaded")
 
         # 阶段二：验证解绑成功
         modal2, _ = ac.open_agent_config_modal(agent_name)
@@ -1475,7 +1475,7 @@ def test_edit_description(logged_in_page, base_url):
     modal.get_by_role("button", name="保存").click()
     logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启").wait_for(state="visible", timeout=15000)
     logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启").click()
-    logged_in_page.wait_for_load_state("networkidle")
+    logged_in_page.wait_for_load_state("domcontentloaded")
 
     # === 阶段三：验证描述已修改 ===
     modal2, _ = ac.open_agent_config_modal(agent_name)
@@ -1546,7 +1546,7 @@ def test_edit_prompt(logged_in_page, base_url):
     modal.get_by_role("button", name="保存").click()
     logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启").wait_for(state="visible", timeout=15000)
     logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启").click()
-    logged_in_page.wait_for_load_state("networkidle")
+    logged_in_page.wait_for_load_state("domcontentloaded")
 
     # === 阶段三：验证提示词已修改 ===
     modal2, _ = ac.open_agent_config_modal(agent_name)
@@ -1670,21 +1670,21 @@ def test_refresh_during_reply(logged_in_page, base_url):
     logged_in_page.wait_for_timeout(1000)
     print("AI 正在回复中，执行页面刷新...")
     logged_in_page.reload()
-    logged_in_page.wait_for_load_state("networkidle")
+    logged_in_page.wait_for_load_state("domcontentloaded")
 
     # 5. 如果刷新后不在对话页面，重新进入
     if not ac.is_on_chat_page():
         logged_in_page.goto(chat_url)
-        logged_in_page.wait_for_load_state("networkidle")
+        logged_in_page.wait_for_load_state("domcontentloaded")
         if not ac.is_on_chat_page():
             ac.goto_agents()
             ac.click_agent(agent_name)
-            logged_in_page.wait_for_load_state("networkidle")
+            logged_in_page.wait_for_load_state("domcontentloaded")
 
     assert ac.is_on_chat_page(), "刷新后应能回到对话页面"
 
     # 6. 等待 AI 完成回复（刷新后 AI 应继续或重新完成回复）
-    logged_in_page.wait_for_load_state("networkidle")
+    logged_in_page.wait_for_load_state("domcontentloaded")
 
     # 7. 获取最后一条 AI 回复，检查是否完整（不被打断）
     last_reply = ac.get_last_message()

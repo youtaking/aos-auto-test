@@ -272,7 +272,7 @@ class TestViews:
             loaded = False
             for detail_url in detail_urls:
                 logged_in_page.goto(detail_url)
-                logged_in_page.wait_for_load_state("networkidle")
+                logged_in_page.wait_for_load_state("domcontentloaded")
                 panel = logged_in_page.locator("div.agent-panel-content, main")
                 if panel.count() > 0:
                     loaded = True
@@ -423,7 +423,7 @@ class TestViews:
             accessible = False
             for ext_url in external_urls:
                 logged_in_page.goto(ext_url)
-                logged_in_page.wait_for_load_state("networkidle")
+                logged_in_page.wait_for_load_state("domcontentloaded")
                 # 检查页面是否加载（可能重定向到登录页）
                 body = logged_in_page.locator("body")
                 body_text = body.inner_text() if body.count() > 0 else ""

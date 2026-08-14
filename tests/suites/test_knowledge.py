@@ -226,7 +226,7 @@ def test_kb_004_upload_file(logged_in_page, base_url, request):
             logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}", wait_until="domcontentloaded")
         except Exception:
             pass  # SPA 路由可能中断初始导航
-        logged_in_page.wait_for_load_state("networkidle")
+        logged_in_page.wait_for_load_state("domcontentloaded")
 
         # 验证详情页加载
         assert "返回知识库列表" in logged_in_page.inner_text("body"), \
@@ -317,7 +317,7 @@ def test_kb_007_delete_resource(logged_in_page, base_url, request):
             logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}", wait_until="domcontentloaded")
         except Exception:
             pass  # SPA 路由可能中断初始导航
-        logged_in_page.wait_for_load_state("networkidle")
+        logged_in_page.wait_for_load_state("domcontentloaded")
 
         # 1. 上传文件
         upload_btn = logged_in_page.get_by_role("button", name="上传")
@@ -483,7 +483,7 @@ def test_kb_010_detail_panel(logged_in_page, base_url):
         logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}", wait_until="domcontentloaded")
     except Exception:
         pass  # SPA 路由可能中断初始导航
-    logged_in_page.wait_for_load_state("networkidle")
+    logged_in_page.wait_for_load_state("domcontentloaded")
 
     body_text = logged_in_page.inner_text("body")
 
@@ -532,7 +532,7 @@ def test_kb_011_upload_duplicate_confirm(logged_in_page, base_url, request):
             logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}", wait_until="domcontentloaded")
         except Exception:
             pass  # SPA 路由可能中断初始导航
-        logged_in_page.wait_for_load_state("networkidle")
+        logged_in_page.wait_for_load_state("domcontentloaded")
 
         # 第一次上传
         upload_btn = logged_in_page.get_by_role("button", name="上传")
@@ -610,7 +610,7 @@ def test_kb_012_parse_status_polling(logged_in_page, base_url, request):
             logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}", wait_until="domcontentloaded")
         except Exception:
             pass  # SPA 路由可能中断初始导航
-        logged_in_page.wait_for_load_state("networkidle")
+        logged_in_page.wait_for_load_state("domcontentloaded")
 
         # 上传文件
         upload_btn = logged_in_page.get_by_role("button", name="上传")
@@ -677,7 +677,7 @@ def test_kb_013_reparse_resource(logged_in_page, base_url, request):
             logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}", wait_until="domcontentloaded")
         except Exception:
             pass  # SPA 路由可能中断初始导航
-        logged_in_page.wait_for_load_state("networkidle")
+        logged_in_page.wait_for_load_state("domcontentloaded")
 
         # 上传文件并等待解析完成
         upload_btn = logged_in_page.get_by_role("button", name="上传")
@@ -711,7 +711,7 @@ def test_kb_013_reparse_resource(logged_in_page, base_url, request):
 
         # 刷新页面
         logged_in_page.reload()
-        logged_in_page.wait_for_load_state("networkidle")
+        logged_in_page.wait_for_load_state("domcontentloaded")
 
         file_name = os.path.basename(test_file)
         assert logged_in_page.locator(f"text={file_name}").count() > 0, \
@@ -794,7 +794,7 @@ def test_kb_014_retrieval_test_panel(logged_in_page, base_url):
         logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}", wait_until="domcontentloaded")
     except Exception:
         pass  # SPA 路由可能中断初始导航
-    logged_in_page.wait_for_load_state("networkidle")
+    logged_in_page.wait_for_load_state("domcontentloaded")
 
     # 点击检索测试 Tab
     retrieval_tab = loc.tab_by_name(logged_in_page, "检索测试")
@@ -848,7 +848,7 @@ def test_kb_015_knowledge_graph(logged_in_page, base_url):
         logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}", wait_until="domcontentloaded")
     except Exception:
         pass  # SPA 路由可能中断初始导航
-    logged_in_page.wait_for_load_state("networkidle")
+    logged_in_page.wait_for_load_state("domcontentloaded")
 
     body_text = logged_in_page.inner_text("body")
     assert "返回知识库列表" in body_text, "知识库详情页未加载"
@@ -892,7 +892,7 @@ def test_kb_016_vector_model_management(logged_in_page, base_url):
         logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}", wait_until="domcontentloaded")
     except Exception:
         pass  # SPA 路由可能中断初始导航
-    logged_in_page.wait_for_load_state("networkidle")
+    logged_in_page.wait_for_load_state("domcontentloaded")
 
     body_text = logged_in_page.inner_text("body")
     assert "返回知识库列表" in body_text, "知识库详情页未加载"
@@ -967,7 +967,7 @@ def test_kb_017_ragflow_import(logged_in_page, base_url):
             logged_in_page.goto(
                 f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}"
             )
-            logged_in_page.wait_for_load_state("networkidle")
+            logged_in_page.wait_for_load_state("domcontentloaded")
 
             detail_ragflow = logged_in_page.locator("button").filter(has_text="RAGFlow")
             if detail_ragflow.count() > 0:
@@ -1007,7 +1007,7 @@ def test_kb_018_resource_preview(logged_in_page, base_url, request):
             logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}", wait_until="domcontentloaded")
         except Exception:
             pass  # SPA 路由可能中断初始导航
-        logged_in_page.wait_for_load_state("networkidle")
+        logged_in_page.wait_for_load_state("domcontentloaded")
 
         # 上传文件
         upload_btn = logged_in_page.get_by_role("button", name="上传")
@@ -1015,7 +1015,7 @@ def test_kb_018_resource_preview(logged_in_page, base_url, request):
         with logged_in_page.expect_file_chooser() as fc_info:
             upload_btn.first.click()
         fc_info.value.set_files(test_file)
-        logged_in_page.wait_for_load_state("networkidle")
+        logged_in_page.wait_for_load_state("domcontentloaded")
 
         # 等待解析完成
         for _ in range(12):
@@ -1032,7 +1032,7 @@ def test_kb_018_resource_preview(logged_in_page, base_url, request):
 
         # 刷新页面
         logged_in_page.reload()
-        logged_in_page.wait_for_load_state("networkidle")
+        logged_in_page.wait_for_load_state("domcontentloaded")
 
         file_name = os.path.basename(test_file)
         assert logged_in_page.locator(f"text={file_name}").count() > 0, \
@@ -1110,7 +1110,7 @@ def test_kb_019_toggle_resource_enabled(logged_in_page, base_url, request):
             logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}", wait_until="domcontentloaded")
         except Exception:
             pass  # SPA 路由可能中断初始导航
-        logged_in_page.wait_for_load_state("networkidle")
+        logged_in_page.wait_for_load_state("domcontentloaded")
 
         # 上传文件
         upload_btn = logged_in_page.get_by_role("button", name="上传")
@@ -1118,7 +1118,7 @@ def test_kb_019_toggle_resource_enabled(logged_in_page, base_url, request):
         with logged_in_page.expect_file_chooser() as fc_info:
             upload_btn.first.click()
         fc_info.value.set_files(test_file)
-        logged_in_page.wait_for_load_state("networkidle")
+        logged_in_page.wait_for_load_state("domcontentloaded")
 
         # 查找资源行的 Switch
         switch = logged_in_page.locator("[role='switch']")
@@ -1162,7 +1162,7 @@ def test_kb_020_edit_kb_info(logged_in_page, base_url, request):
             logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}", wait_until="domcontentloaded")
         except Exception:
             pass  # SPA 路由可能中断初始导航
-        logged_in_page.wait_for_load_state("networkidle")
+        logged_in_page.wait_for_load_state("domcontentloaded")
 
         body_text = logged_in_page.inner_text("body")
         assert "返回知识库列表" in body_text, "知识库详情页未加载"

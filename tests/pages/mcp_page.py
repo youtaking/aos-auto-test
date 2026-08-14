@@ -20,7 +20,7 @@ class McpServerPage:
         except Exception:
             # SPA 路由可能中断初始导航（net::ERR_ABORTED），回退等待当前页面稳定
             pass
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
 
     def is_loaded(self) -> bool:
         """页面标题「MCP 服务器」可见"""
@@ -247,7 +247,7 @@ class McpServerPage:
         btn = row.get_by_role("button", name="检测")
         if btn.count() > 0:
             btn.first.click()
-            self.page.wait_for_load_state("networkidle")
+            self.page.wait_for_load_state("domcontentloaded")
 
     def click_edit(self, name: str):
         """点击「编辑」按钮"""

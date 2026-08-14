@@ -20,7 +20,7 @@ class OrgPage:
             self.page.goto(self.url, wait_until="domcontentloaded")
         except Exception:
             pass  # SPA 路由可能中断初始导航
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
         # 等待组织按钮列表渲染完成
         try:
             self.page.locator("div.agent-panel-body button").first.wait_for(
@@ -33,7 +33,7 @@ class OrgPage:
         """通过侧边栏按钮导航"""
         btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="组织")
         btn.first.click()
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded")
 
     def is_loaded(self) -> bool:
         return "/ctrl/agent/organization" in self.page.url and self.page.locator("div.agent-panel-body").count() > 0
