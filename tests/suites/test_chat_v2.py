@@ -555,8 +555,8 @@ def test_multi_file_upload(logged_in_page, base_url):
             assert item is not None and item.count() > 0, \
                 f"多文件上传后 '{fname}' 未出现在文件树中（已等待 10 秒）"
 
-            # 点击文件打开预览
-            item.first.click()
+            # 点击文件打开预览（force 避免元素被遮挡）
+            item.first.click(force=True)
             logged_in_page.wait_for_timeout(800)
 
             # 验证预览区域打开

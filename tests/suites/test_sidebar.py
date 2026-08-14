@@ -134,9 +134,13 @@ def test_workflow_create_and_return(logged_in_page, base_url):
     logged_in_page.on("response", on_create)
 
     logged_in_page.locator("[role='dialog'] button").filter(has_text="创建并编辑").first.click()
-    logged_in_page.wait_for_load_state("networkidle")
 
-    # ── Step 3: 验证跳转到编辑页 ──
+    # ── Step 3: 等待跳转到编辑页（条件等待，最长 10s）──
+    try:
+        logged_in_page.wait_for_url("**/workflow/**/edit**", timeout=10000)
+    except Exception:
+        logged_in_page.wait_for_load_state("networkidle")
+
     assert "/workflow/" in logged_in_page.url and "/edit" in logged_in_page.url, \
         f"创建后未跳转到编辑页: {logged_in_page.url}"
     assert len(create_result) > 0, "未拦截到创建 API 请求"

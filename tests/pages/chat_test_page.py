@@ -21,7 +21,13 @@ class ChatTestPage:
             card.first.scroll_into_view_if_needed()
             self.page.wait_for_timeout(300)
             card.first.click()
-            self.page.wait_for_timeout(2000)
+            # 等待聊天界面渲染完成（textarea + 消息区域或 header 出现）
+            try:
+                self.page.locator("textarea").first.wait_for(
+                    state="visible", timeout=8000
+                )
+            except Exception:
+                self.page.wait_for_timeout(3000)
 
     def is_chat_loaded(self) -> bool:
         """聊天界面是否加载完成（URL 不变，通过 textarea 判断）"""
@@ -30,37 +36,75 @@ class ChatTestPage:
     # === 会话管理 ===
 
     def create_new_session(self):
-        """点击 + 新会话"""
+        """点击 + 新会话（支持可见文本按钮和 popover 内的图标按钮）"""
+        # 优先：直接可见的"新会话"文本按钮
         btn = self.page.locator("button").filter(has_text="新会话")
-        if btn.count() > 0:
+        if btn.count() > 0 and btn.first.is_visible():
             btn.first.click()
             self.page.wait_for_timeout(1500)
+            return
+        # 回退：先打开 popover，再点 Plus 图标按钮（title="新会话"）
+        trigger = self.page.locator(".chat-header-card button[data-slot='popover-trigger']")
+        if trigger.count() > 0:
+            trigger.first.click()
+            self.page.wait_for_timeout(800)
+            # Popover 内的新建会话按钮（Plus 图标，title 含 "新会话" 或 "New Session"）
+            new_btn = self.page.locator(
+                "[data-slot='popover-content'] button[title*='新会话'], "
+                "[data-slot='popover-content'] button[title*='New Session'], "
+                "[role='dialog'] button[title*='新会话'], "
+                "[role='dialog'] button[title*='New Session']"
+            )
+            if new_btn.count() > 0:
+                new_btn.first.click()
+                self.page.wait_for_timeout(1500)
+                return
+        # 最终回退：固定等待
+        self.page.wait_for_timeout(1500)
 
     def get_session_header_title(self) -> str:
-        """获取当前会话标题"""
+        """获取当前会话标题（等待非空文本渲染）"""
         header = self.page.locator(".chat-header-card")
-        if header.count() > 0:
-            return header.first.inner_text().strip()
-        return ""
+        if header.count() == 0:
+            return ""
+        # 等待标题文本出现（最多 5s）
+        try:
+            self.page.wait_for_function(
+                """() => {
+                    const h = document.querySelector('.chat-header-card');
+                    return h && h.innerText.trim().length > 0;
+                }""",
+                timeout=5000,
+            )
+        except Exception:
+            pass
+        return header.first.inner_text().strip()
 
     def open_session_dialog(self):
         """点击会话头部打开会话列表对话框（Radix Popover）"""
         trigger = self.page.locator(".chat-header-card button[data-slot='popover-trigger']")
         if trigger.count() > 0:
             trigger.first.click()
-            self.page.wait_for_timeout(1500)
         else:
             # 回退：点击整个 header card
             header = self.page.locator(".chat-header-card")
             if header.count() > 0:
                 header.first.click()
-                self.page.wait_for_timeout(1500)
+        # 条件等待：popover 内容出现（Radix Portal 渲染在 body 下）
+        try:
+            self.page.locator(
+                "[data-slot='popover-content'], [role='dialog']"
+            ).first.wait_for(state="visible", timeout=5000)
+        except Exception:
+            self.page.wait_for_timeout(1500)
 
     def is_session_dialog_open(self) -> bool:
-        return self.page.locator("[role='dialog']").count() > 0
+        return self.page.locator(
+            "[role='dialog'], [data-slot='popover-content']"
+        ).count() > 0
 
     def close_session_dialog(self):
-        dialog = self.page.locator("[role='dialog']")
+        dialog = self.page.locator("[role='dialog'], [data-slot='popover-content']")
         if dialog.count() > 0:
             close_btn = dialog.get_by_role("button", name="Close").or_(
                 dialog.get_by_role("button", name="关闭")
@@ -90,27 +134,45 @@ class ChatTestPage:
         return titles
 
     def get_session_titles_via_client(self) -> list[str]:
-        """通过 React client 对象获取会话标题列表（WebSocket JSON-RPC）"""
+        """通过 React fiber 获取会话标题列表。
+        优先尝试 client.listSessions（旧协议），回退到 ChatHeader sessions props（YJS 协议）。"""
         result = self.page.evaluate("""() => {
             const header = document.querySelector('.chat-header-card');
             if (!header) return [];
             const fiberKey = Object.keys(header).find(k => k.startsWith('__reactFiber'));
             if (!fiberKey) return [];
             let fiber = header[fiberKey];
+
+            // 方式 1：查找 client.listSessions（旧 ACP 协议）
             let client = null;
+            let sessions_prop = null;
             for (let i = 0; i < 30 && fiber; i++) {
                 const props = fiber.memoizedProps || {};
                 if (props.client && typeof props.client.listSessions === 'function') {
                     client = props.client;
                     break;
                 }
+                // 方式 2：YJS 版本 — sessions 作为 props 注入
+                if (Array.isArray(props.sessions) && props.sessions.length > 0) {
+                    sessions_prop = props.sessions;
+                }
                 fiber = fiber.return;
             }
-            if (!client) return [];
-            return client.listSessions().then(resp => {
-                const sessions = Array.isArray(resp?.sessions) ? resp.sessions : [];
-                return sessions.map(s => s.title || '').filter(t => t.length > 0);
-            }).catch(() => []);
+
+            if (client) {
+                return client.listSessions().then(resp => {
+                    const sessions = Array.isArray(resp?.sessions) ? resp.sessions : [];
+                    return sessions.map(s => s.title || '').filter(t => t.length > 0);
+                }).catch(() => []);
+            }
+
+            // 回退：从 sessions props 提取
+            if (sessions_prop) {
+                return sessions_prop
+                    .map(s => (s.title || '').trim())
+                    .filter(t => t.length > 0);
+            }
+            return [];
         }""")
         return result if isinstance(result, list) else []
 

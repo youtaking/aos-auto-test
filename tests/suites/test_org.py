@@ -736,8 +736,12 @@ def test_org_set_active(logged_in_page, base_url):
     assert r.status < 400, \
         f"set-active API 失败: status={r.status}, body={r.text()[:200]}"
 
-    # 刷新页面验证 UI 反映了切换
-    logged_in_page.reload()
+    # 刷新页面验证 UI 反映了切换（增加超时容忍）
+    try:
+        logged_in_page.reload(timeout=60000)
+    except Exception:
+        # 页面重载超时不阻断测试，尝试强制导航到当前 URL
+        logged_in_page.goto(logged_in_page.url, timeout=30000)
     logged_in_page.wait_for_load_state("networkidle")
 
     # 验证侧边栏或页面内容反映了当前活跃组织

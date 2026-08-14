@@ -144,7 +144,9 @@ class ChatPage:
             return self.page.locator("[role='dialog']").count() > 0
 
     def is_session_dialog_open(self) -> bool:
-        return self.page.locator("[role='dialog']").count() > 0
+        return self.page.locator(
+            "[role='dialog'], [data-slot='popover-content']"
+        ).count() > 0
 
     def get_session_titles(self) -> list[str]:
         """获取会话列表中的标题"""

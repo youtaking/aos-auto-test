@@ -171,9 +171,13 @@ def test_agent_delete(logged_in_page, base_url, request):
     # 注册清理（安全网：若测试在显式删除前失败）
     register_cleanup(request, lambda n=agent_name: ac.delete_agent_api(n))
 
-    # 2. 导航到管理页，验证新智能体出现在列表中
+    # 2. 导航到管理页，验证新智能体出现在列表中（带重试，API 创建可能有延迟）
     agent_page.goto()
-    logged_in_page.wait_for_timeout(1000)
+    for _retry in range(5):
+        if agent_page.has_agent(agent_name):
+            break
+        logged_in_page.wait_for_timeout(1500)
+        agent_page.goto()  # 刷新重试
     assert agent_page.has_agent(agent_name), \
         f"创建后智能体 '{agent_name}' 未出现在列表中"
 

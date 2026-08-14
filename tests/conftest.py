@@ -32,14 +32,14 @@ def test_config():
 
 @pytest.fixture(scope="session")
 def base_url(request, test_config):
-    """被测应用 URL：优先 CLI 参数 > 环境变量 > 配置文件"""
+    """被测应用 URL：优先 CLI 参数 > 环境变量 > 配置文件（统一去除尾斜杠，防止 URL 拼接出双斜杠）"""
     cli_url = request.config.getoption("--base-url")
     if cli_url:
-        return cli_url
+        return cli_url.rstrip("/")
     env_url = os.environ.get("FENIX_URL")
     if env_url:
-        return env_url
-    return test_config["fenixagent"]["url"]
+        return env_url.rstrip("/")
+    return test_config["fenixagent"]["url"].rstrip("/")
 
 
 @pytest.fixture(scope="session")

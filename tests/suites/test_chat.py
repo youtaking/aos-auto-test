@@ -41,10 +41,17 @@ def test_chat_home_loads(logged_in_page, base_url):
     assert has_textarea, \
         f"点击 agent '{agent_name}' 后未出现聊天输入框（URL: {logged_in_page.url}）"
 
-    # 验证对话页面有消息展示区域
-    has_message_area = logged_in_page.locator(
-        "div[role='log'], div[role='log'] > div, div.prose"
-    ).count() > 0
+    # 验证对话页面有消息展示区域（等待 Conversation 组件渲染）
+    try:
+        logged_in_page.locator("div[role='log']").first.wait_for(
+            state="attached", timeout=8000
+        )
+        has_message_area = True
+    except Exception:
+        # 回退：检查 prose 或其他消息容器
+        has_message_area = logged_in_page.locator(
+            "div[role='log'], div[role='log'] > div, div.prose"
+        ).count() > 0
     assert has_message_area, "对话页面缺少消息展示区域"
 
     # 检查无控制台错误
