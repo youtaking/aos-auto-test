@@ -119,23 +119,44 @@ def test_workflow_create_and_return(logged_in_page, base_url):
 
     logged_in_page.locator("#wf-name").fill(wf_name)
     logged_in_page.locator("#wf-desc").fill("自动化测试创建的工作流")
-    logged_in_page.wait_for_timeout(500)
 
-    # 拦截创建 API 响应
-    create_result = []
+    # 等待 React state 更新 → "创建并编辑"按钮变为可用
+    create_btn = dialog.locator("button").filter(has_text="创建并编辑")
+    try:
+        create_btn.first.wait_for(state="visible", timeout=3000)
+        # 等按钮 enabled（fill 后 React 异步更新 createName state）
+        logged_in_page.wait_for_function(
+            """() => {
+                const btns = document.querySelectorAll('[role="dialog"] button');
+                for (const b of btns) {
+                    if (b.textContent.includes('创建并编辑') && !b.disabled) return true;
+                }
+                return false;
+            }""",
+            timeout=3000,
+        )
+    except Exception:
+        pass  # 兜底：即使超时也尝试点击
 
-    def on_create(r):
-        if "workflow-defs" in r.url and r.request.method == "POST":
-            try:
-                create_result.append({"status": r.status, "body": r.json()})
-            except Exception:
-                create_result.append({"status": r.status})
+    # ── Step 3: 用 expect_response 精确拦截创建 API ──
+    with logged_in_page.expect_response(
+        lambda r: "workflow-defs" in r.url and r.request.method == "POST",
+        timeout=15000,
+    ) as resp_info:
+        create_btn.first.click()
 
-    logged_in_page.on("response", on_create)
+    create_resp = resp_info.value
+    assert create_resp.status < 400, f"创建 API 失败: HTTP {create_resp.status}"
 
-    logged_in_page.locator("[role='dialog'] button").filter(has_text="创建并编辑").first.click()
+    # 提取工作流 ID
+    wf_id = None
+    try:
+        body = create_resp.json()
+        wf_id = body.get("data", {}).get("id") or body.get("id")
+    except Exception:
+        pass
 
-    # ── Step 3: 等待跳转到编辑页（条件等待，最长 10s）──
+    # 等待跳转到编辑页
     try:
         logged_in_page.wait_for_url("**/workflow/**/edit**", timeout=10000)
     except Exception:
@@ -143,15 +164,36 @@ def test_workflow_create_and_return(logged_in_page, base_url):
 
     assert "/workflow/" in logged_in_page.url and "/edit" in logged_in_page.url, \
         f"创建后未跳转到编辑页: {logged_in_page.url}"
-    assert len(create_result) > 0, "未拦截到创建 API 请求"
-    assert create_result[0]["status"] < 400, \
-        f"创建 API 失败: HTTP {create_result[0]['status']}"
 
-    wf_id = create_result[0].get("body", {}).get("data", {}).get("id")
+    # 兜底提取 wf_id：从 URL 路径解析
+    if not wf_id:
+        import re
+        m = re.search(r"/workflow/([a-f0-9-]+)/edit", logged_in_page.url)
+        if m:
+            wf_id = m.group(1)
 
-    # ── Step 4: 点击"工作流"返回按钮回到列表 ──
+    # 验证编辑页核心元素已渲染（面包屑 + 画布）
+    try:
+        logged_in_page.locator("a").filter(has_text="工作流").first.wait_for(
+            state="visible", timeout=8000
+        )
+    except Exception:
+        pass  # 面包屑加载慢不算致命错误
+
+    # ── Step 4: 点击面包屑"工作流"返回按钮回到列表 ──
+    # 面包屑是 <Link to="/agent/workflow"> 渲染的 <a>，文本为 "工作流"
     back_link = logged_in_page.locator("a").filter(has_text="工作流")
-    assert back_link.count() > 0, "编辑页未找到返回'工作流'链接"
+    try:
+        back_link.first.wait_for(state="visible", timeout=8000)
+    except Exception:
+        # 兜底：尝试通过 ArrowLeft 图标 + 文本匹配
+        back_link = logged_in_page.locator("a:has(svg)").filter(has_text="工作流")
+        try:
+            back_link.first.wait_for(state="visible", timeout=3000)
+        except Exception:
+            pass
+    assert back_link.count() > 0, \
+        f"编辑页未找到返回'工作流'链接（URL: {logged_in_page.url}）"
     back_link.first.click()
     logged_in_page.wait_for_timeout(800)
 

@@ -856,13 +856,13 @@ def test_model_009c_edit_model_other_fields(logged_in_page, base_url, request):
     mc.click_expand_advanced()
 
     # 思考模式持久化验证（系统 bug：当前未持久化）
-    assert mc.is_thinking_mode_checked(), "思考模式未持久化（系统 bug）"
+    assert mc.is_thinking_mode_checked(), "思考模式未持久化"
 
     # 思考预算持久化验证（需先开启思考模式才可见）
     if mc.has_thinking_budget_input():
         saved_budget = mc.get_thinking_budget()
         assert saved_budget == "1024", \
-            f"思考预算未持久化: {saved_budget}（系统 bug）"
+            f"思考预算未持久化: {saved_budget}"
 
     # 费用持久化验证
     saved_input_cost = mc.get_input_cost()
@@ -870,7 +870,7 @@ def test_model_009c_edit_model_other_fields(logged_in_page, base_url, request):
     assert saved_input_cost == "0.5", \
         f"输入费用未持久化: {saved_input_cost}"
     assert saved_output_cost == "1.5", \
-        f"输出费用未持久化: {saved_output_cost}（系统 bug）"
+        f"输出费用未持久化: {saved_output_cost}"
 
     mc.close_dialog()
 
@@ -950,37 +950,58 @@ def test_model_011_test_single_model(logged_in_page, base_url, request):
     mc = ModelConfigPage(logged_in_page, base_url)
     mc.goto()
 
-    # 找到有模型的 Provider
-    names = mc.get_provider_names()
-    provider_with_models = None
-    model_name = None
-    for name in names:
-        model_count = mc.get_model_count_for_provider(name)
-        if model_count > 0:
-            provider_with_models = name
-            model_names = mc.get_model_names_for_provider(name)
-            if model_names:
-                model_name = model_names[0]
-            break
+    # 通过 API 获取 Provider 列表，筛选 baseURL 为真实地址的（排除测试用的假 URL）
+    providers = _get_providers_via_api(logged_in_page, base_url)
+    real_provider = None
+    real_model_name = None
+    for p in providers:
+        p_base_url = p.get("baseURL", "") or ""
+        # 跳过假 URL 的 Provider
+        if "placeholder" in p_base_url or "test-e2e" in p_base_url or not p_base_url:
+            continue
+        # 通过详情接口获取模型（列表接口不返回 models）
+        resource_key = p.get("resourceKey", "")
+        if not resource_key:
+            continue
+        detail_resp = logged_in_page.request.get(
+            f"{base_url}/web/config/providers?name={resource_key}"
+        )
+        if detail_resp.status != 200:
+            continue
+        models = detail_resp.json().get("data", {}).get("models", [])
+        if models:
+            real_model_name = models[0].get("id", "") or models[0].get("modelId", "") or models[0].get("name", "")
+            if real_model_name:
+                provider_id = p.get("id", "")
+                if mc.has_provider(provider_id):
+                    real_provider = provider_id
+                    break
 
-    if not provider_with_models or not model_name:
-        pytest.skip("没有可用的 Provider 或模型")
+    if not real_provider or not real_model_name:
+        pytest.skip("没有配置真实 baseURL 的 Provider 或模型")
 
     # 拦截 API
     api_responses = mc.intercept_api_responses("/web/config/providers")
 
     # 点击模型级别的「测试」按钮
-    clicked = mc.click_model_test(provider_with_models, model_name)
+    clicked = mc.click_model_test(real_provider, real_model_name)
     if not clicked:
         pytest.skip("未找到模型级别的测试按钮")
 
-    # 等待测试结果出现（"测试通过" 约 2-3 秒后出现，5 秒后消失）
-    logged_in_page.wait_for_timeout(2500)
+    # 轮询等待测试结果（通知条仅显示 2 秒，需高频捕获）
+    test_result = None
+    for _poll in range(30):  # 最多 15 秒
+        logged_in_page.wait_for_timeout(500)
+        card_text = mc.get_provider_card_text(real_provider)
+        if "测试通过" in card_text:
+            test_result = "pass"
+            break
+        if "测试失败" in card_text:
+            test_result = "fail"
+            break
 
-    # 严格检查：必须出现"测试通过"
-    card_text = mc.get_provider_card_text(provider_with_models)
-    assert "测试通过" in card_text, \
-        f"模型测试未通过，卡片文本: {card_text[:300]}"
+    assert test_result == "pass", \
+        f"模型测试结果: {test_result}，卡片文本: {card_text[:300]}"
 
 
 @allure.epic("模型配置")

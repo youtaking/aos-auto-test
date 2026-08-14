@@ -14,28 +14,46 @@ class ChatTestPage:
 
     def goto_agent_chat(self, agent_name: str = "通用助手"):
         """进入指定 Agent 的对话页（带重试）"""
-        self.page.goto(f"{self.base_url}/ctrl/agent/home")
+        try:
+            self.page.goto(f"{self.base_url}/ctrl/agent/home", wait_until="domcontentloaded")
+        except Exception:
+            pass  # SPA 路由可能中断初始导航
         self.page.wait_for_load_state("networkidle")
         card = self.page.locator("button.agent-sidebar-agent-card").filter(has_text=agent_name)
         if card.count() == 0:
             return
         card.first.scroll_into_view_if_needed()
         self.page.wait_for_timeout(300)
+        # 点击 agent 卡片，期望导航到 chat 页
         card.first.click()
-        # 等待聊天界面渲染（textarea 出现），失败则重试一次
+        # 等待 URL 变化（离开 home 页）+ textarea 出现
         for _attempt in range(2):
             try:
+                # 先等 URL 变化（最长 5 秒）
+                self.page.wait_for_url("**/chat/**", timeout=5000)
+                # 再等 textarea 出现（WebSocket 连接需要时间，给 20 秒）
                 self.page.locator("textarea").first.wait_for(
-                    state="visible", timeout=8000
+                    state="visible", timeout=20000
                 )
                 return  # 成功
             except Exception:
                 if _attempt == 0:
-                    # 第一次失败：可能 SPA 导航被中断，重新点击
+                    # 第一次失败：重新点击
                     card = self.page.locator("button.agent-sidebar-agent-card").filter(has_text=agent_name)
                     if card.count() > 0:
                         card.first.click()
                     self.page.wait_for_timeout(1000)
+                else:
+                    # 第二次也失败：检查是否卡在 connecting 状态
+                    connecting = self.page.locator(".agent-welcome-empty, [class*='connecting']")
+                    if connecting.count() > 0:
+                        try:
+                            self.page.locator("textarea").first.wait_for(
+                                state="visible", timeout=10000
+                            )
+                            return
+                        except Exception:
+                            pass
         # 最终回退
         self.page.wait_for_timeout(2000)
 
@@ -43,189 +61,210 @@ class ChatTestPage:
         """聊天界面是否加载完成（URL 不变，通过 textarea 判断）"""
         return self.page.locator("textarea").count() > 0
 
-    # === 会话管理 ===
+    # === 会话管理 ===（适配 SessionSidebar，替代旧 ChatHeader Popover）
+
+    # --- 侧边栏定位辅助 ---
+
+    def _get_sidebar(self):
+        """获取 SessionSidebar 根元素"""
+        return self.page.locator(
+            "div.flex.min-h-0.flex-col.overflow-hidden.rounded-xl"
+        ).first
+
+    def _get_session_nav(self):
+        """获取会话列表 nav 元素（SidebarSessionList 渲染的 <nav>）"""
+        return self.page.locator("nav[aria-label]").filter(
+            has=self.page.locator("span.truncate")
+        )
+
+    def _get_new_session_button(self):
+        """获取"新会话"按钮（Plus 图标，title/aria-label='新会话'）"""
+        return self.page.locator(
+            "button[title='新会话'], button[aria-label='新会话']"
+        )
 
     def create_new_session(self):
-        """点击 + 新会话（支持可见文本按钮和 popover 内的图标按钮）"""
-        # 优先：直接可见的"新会话"文本按钮
-        btn = self.page.locator("button").filter(has_text="新会话")
-        if btn.count() > 0 and btn.first.is_visible():
-            btn.first.click()
+        """点击侧边栏 + 按钮新建会话"""
+        new_btn = self._get_new_session_button()
+        if new_btn.count() > 0 and new_btn.first.is_visible():
+            new_btn.first.click()
             self.page.wait_for_timeout(1500)
-            return
-        # 回退：先打开 popover，再点 Plus 图标按钮（title="新会话"）
-        trigger = self.page.locator(".chat-header-card button[data-slot='popover-trigger']")
-        if trigger.count() > 0:
-            trigger.first.click()
-            self.page.wait_for_timeout(800)
-            # Popover 内的新建会话按钮（Plus 图标，title 含 "新会话" 或 "New Session"）
-            new_btn = self.page.locator(
-                "[data-slot='popover-content'] button[title*='新会话'], "
-                "[data-slot='popover-content'] button[title*='New Session'], "
-                "[role='dialog'] button[title*='新会话'], "
-                "[role='dialog'] button[title*='New Session']"
-            )
-            if new_btn.count() > 0:
-                new_btn.first.click()
-                self.page.wait_for_timeout(1500)
-                return
-        # 最终回退：固定等待
-        self.page.wait_for_timeout(1500)
+        else:
+            self.page.wait_for_timeout(1000)
 
     def get_session_header_title(self) -> str:
-        """获取当前会话标题（等待非空文本渲染）"""
-        header = self.page.locator(".chat-header-card")
-        if header.count() == 0:
-            return ""
-        # 等待标题文本出现（最多 5s）
-        try:
-            self.page.wait_for_function(
-                """() => {
-                    const h = document.querySelector('.chat-header-card');
-                    return h && h.innerText.trim().length > 0;
-                }""",
-                timeout=5000,
-            )
-        except Exception:
-            pass
-        return header.first.inner_text().strip()
+        """获取当前活跃会话标题（侧边栏中 bg-brand/8 高亮的会话）"""
+        # 精确匹配：bg-brand/8 表示活跃会话（用属性子串选择器避免 CSS 转义问题）
+        active = self.page.locator("div[class*='bg-brand/8'] span.truncate")
+        if active.count() > 0:
+            title = active.first.inner_text().strip()
+            if title:
+                return title
+        # 回退：nav 中第一个会话按钮的 span 文本
+        nav = self._get_session_nav()
+        if nav.count() > 0:
+            first_span = nav.locator("button span.truncate").first
+            if first_span.count() > 0:
+                return first_span.inner_text().strip()
+        return ""
 
     def open_session_dialog(self):
-        """点击会话头部打开会话列表对话框（Radix Popover）"""
-        trigger = self.page.locator(".chat-header-card button[data-slot='popover-trigger']")
-        if trigger.count() > 0:
-            trigger.first.click()
-        else:
-            # 回退：点击整个 header card
-            header = self.page.locator(".chat-header-card")
-            if header.count() > 0:
-                header.first.click()
-        # 条件等待：popover 内容出现（Radix Portal 渲染在 body 下）
+        """等待侧边栏会话列表可见（新 UI 侧边栏常驻，无需点击打开）"""
         try:
-            self.page.locator(
-                "[data-slot='popover-content'], [role='dialog']"
-            ).first.wait_for(state="visible", timeout=5000)
+            self.page.locator("nav[aria-label] button span.truncate").first.wait_for(
+                state="visible", timeout=5000
+            )
         except Exception:
-            self.page.wait_for_timeout(1500)
+            self.page.wait_for_timeout(1000)
 
     def is_session_dialog_open(self) -> bool:
-        return self.page.locator(
-            "[role='dialog'], [data-slot='popover-content']"
-        ).count() > 0
+        """侧边栏会话列表是否可见（新 UI 始终可见）"""
+        return self.page.locator("nav[aria-label] button span.truncate").count() > 0
 
     def close_session_dialog(self):
-        dialog = self.page.locator("[role='dialog'], [data-slot='popover-content']")
-        if dialog.count() > 0:
-            close_btn = dialog.get_by_role("button", name="Close").or_(
-                dialog.get_by_role("button", name="关闭")
-            )
-            if close_btn.count() > 0:
-                close_btn.first.click()
-                self.page.wait_for_timeout(500)
-            else:
-                self.page.keyboard.press("Escape")
-                self.page.wait_for_timeout(300)
+        """关闭会话对话框（新 UI 侧边栏常驻，no-op）"""
+        pass
 
     def get_session_titles(self) -> list[str]:
-        """获取会话列表中的所有标题（排除工具栏和操作按钮）"""
-        dialog = self.page.locator("[role='dialog']")
-        if dialog.count() == 0:
+        """获取侧边栏会话列表中的所有标题（读取 DOM textContent，不受 CSS truncate 影响）"""
+        nav = self._get_session_nav()
+        if nav.count() == 0:
             self.open_session_dialog()
-            dialog = self.page.locator("[role='dialog']")
-        # 排除工具栏按钮和 hover 操作按钮（重命名/删除）
-        exclude = {"刷新会话列表", "新会话", "钉住会话面板", "Close",
-                   "重命名", "删除", "关闭", "搜索会话"}
+            nav = self._get_session_nav()
         titles = []
-        btns = dialog.locator("button[title]")
-        for i in range(btns.count()):
-            title = btns.nth(i).get_attribute("title") or ""
-            if title and title not in exclude and btns.nth(i).is_visible():
-                titles.append(title)
+        spans = nav.locator("button span.truncate")
+        for i in range(spans.count()):
+            try:
+                title = spans.nth(i).inner_text(timeout=2000).strip()
+                if title:
+                    titles.append(title)
+            except Exception:
+                pass  # 跳过不可见或已卸载的元素（ScrollArea 虚拟渲染）
         return titles
+
+    def search_sessions(self, keyword: str):
+        """在侧边栏搜索框中输入关键词过滤会话"""
+        search_input = self.page.locator(
+            "input[aria-label*='搜索'], input[placeholder*='搜索']"
+        )
+        if search_input.count() > 0:
+            search_input.first.fill(keyword)
+            self.page.wait_for_timeout(500)
+
+    def get_filtered_session_titles(self) -> list[str]:
+        """获取搜索过滤后的会话标题（与 get_session_titles 相同，过滤由前端完成）"""
+        return self.get_session_titles()
+
+    def click_session(self, title: str):
+        """点击侧边栏中指定标题的会话（优先精确匹配，回退前缀匹配）"""
+        nav = self._get_session_nav()
+        # 精确匹配（DOM textContent 包含完整标题，即使视觉被 truncate 截断）
+        btn = nav.locator("button").filter(has_text=title)
+        if btn.count() == 0:
+            # 回退：取标题前 6 字符做前缀匹配
+            prefix = title[:6] if len(title) >= 6 else title
+            btn = nav.locator("button").filter(has_text=prefix)
+        if btn.count() > 0:
+            btn.first.click()
+            self.page.wait_for_timeout(2000)
+
+    def has_session_time_sections(self) -> bool:
+        """侧边栏会话列表是否有时间分区标签（今天/昨天/更早）"""
+        nav = self._get_session_nav()
+        if nav.count() == 0:
+            return False
+        # 时间分区标签：text-[10px] uppercase 样式的 span
+        labels = nav.locator("span.uppercase")
+        for i in range(labels.count()):
+            text = labels.nth(i).inner_text().strip()
+            if text in ("今天", "昨天", "更早", "TODAY", "YESTERDAY", "EARLIER"):
+                return True
+        # 回退：检查 nav 全文
+        text = nav.first.inner_text()
+        return any(s in text for s in ["今天", "昨天", "更早"])
 
     def get_session_titles_via_client(self) -> list[str]:
         """通过 React fiber 获取会话标题列表。
-        优先尝试 client.listSessions（旧协议），回退到 ChatHeader sessions props（YJS 协议）。"""
+        从 SessionSidebar 的 sessions prop 或 chatState.sessions 获取。"""
         result = self.page.evaluate("""() => {
-            const header = document.querySelector('.chat-header-card');
-            if (!header) return [];
-            const fiberKey = Object.keys(header).find(k => k.startsWith('__reactFiber'));
+            const sidebar = document.querySelector('div.flex.min-h-0.flex-col.overflow-hidden.rounded-xl');
+            const target = sidebar || document.querySelector('nav[aria-label]');
+            if (!target) return [];
+            const fiberKey = Object.keys(target).find(k => k.startsWith('__reactFiber'));
             if (!fiberKey) return [];
-            let fiber = header[fiberKey];
+            let fiber = target[fiberKey];
 
-            // 方式 1：查找 client.listSessions（旧 ACP 协议）
-            let client = null;
-            let sessions_prop = null;
-            for (let i = 0; i < 30 && fiber; i++) {
+            for (let i = 0; i < 40 && fiber; i++) {
                 const props = fiber.memoizedProps || {};
-                if (props.client && typeof props.client.listSessions === 'function') {
-                    client = props.client;
-                    break;
-                }
-                // 方式 2：YJS 版本 — sessions 作为 props 注入
                 if (Array.isArray(props.sessions) && props.sessions.length > 0) {
-                    sessions_prop = props.sessions;
+                    return props.sessions
+                        .map(s => (s.title || '').trim())
+                        .filter(t => t.length > 0);
                 }
                 fiber = fiber.return;
-            }
-
-            if (client) {
-                return client.listSessions().then(resp => {
-                    const sessions = Array.isArray(resp?.sessions) ? resp.sessions : [];
-                    return sessions.map(s => s.title || '').filter(t => t.length > 0);
-                }).catch(() => []);
-            }
-
-            // 回退：从 sessions props 提取
-            if (sessions_prop) {
-                return sessions_prop
-                    .map(s => (s.title || '').trim())
-                    .filter(t => t.length > 0);
             }
             return [];
         }""")
         return result if isinstance(result, list) else []
 
-    def search_sessions(self, keyword: str):
-        """搜索会话"""
-        dialog = self.page.locator("[role='dialog']")
-        inp = dialog.locator("input[placeholder*='搜索']")
-        if inp.count() > 0:
-            inp.first.fill(keyword)
-            self.page.wait_for_timeout(500)
+    def delete_session_by_title(self, title: str) -> bool:
+        """通过标题删除会话。
+        使用 WebSocket JSON-RPC (delete_session action)。
+        先创建新会话使目标会话变为非活跃状态，再通过 onDeleteSession 回调删除。"""
+        # 先创建新会话，使目标会话变为非活跃
+        self.create_new_session()
+        self.page.wait_for_timeout(1000)
 
-    def get_filtered_session_titles(self) -> list[str]:
-        """获取搜索过滤后的会话标题"""
-        dialog = self.page.locator("[role='dialog']")
-        exclude = {"刷新会话列表", "新会话", "钉住会话面板", "Close",
-                   "重命名", "删除", "关闭", "搜索会话"}
-        titles = []
-        btns = dialog.locator("button[title]")
-        for i in range(btns.count()):
-            btn = btns.nth(i)
-            if btn.is_visible():
-                title = btn.get_attribute("title") or ""
-                if title and title not in exclude:
-                    titles.append(title)
-        return titles
+        # 通过 React fiber 找到 onDeleteSession 回调和 sessions 数组
+        result = self.page.evaluate("""(targetTitle) => {
+            const sidebar = document.querySelector('div.flex.min-h-0.flex-col.overflow-hidden.rounded-xl');
+            const target = sidebar || document.querySelector('nav[aria-label]');
+            if (!target) return {error: 'no sidebar found'};
 
-    def click_session(self, title: str):
-        """点击某个会话（仅匹配可见的会话按钮）"""
-        dialog = self.page.locator("[role='dialog']")
-        # 避免 CSS 选择器中直接使用标题文本（可能包含 XSS 等特殊字符）
-        # 改用 filter(has_text) 匹配
-        btns = dialog.locator("button[title]").filter(has_text=title)
-        if btns.count() > 0:
-            btns.first.click()
-            self.page.wait_for_timeout(2000)
+            const fiberKey = Object.keys(target).find(k => k.startsWith('__reactFiber'));
+            if (!fiberKey) return {error: 'no fiber key'};
 
-    def has_session_time_sections(self) -> bool:
-        """会话列表是否有时间分区（今天/昨天/更早）"""
-        dialog = self.page.locator("[role='dialog']")
-        if dialog.count() == 0:
-            return False
-        text = dialog.first.inner_text()
-        return any(section in text for section in ["今天", "昨天", "更早", "本周", "上周"])
+            let fiber = target[fiberKey];
+            let onDeleteSession = null;
+            let sessions = null;
+            for (let i = 0; i < 40 && fiber; i++) {
+                const props = fiber.memoizedProps || {};
+                if (typeof props.onDeleteSession === 'function') {
+                    onDeleteSession = props.onDeleteSession;
+                }
+                if (Array.isArray(props.sessions) && props.sessions.length > 0) {
+                    sessions = props.sessions;
+                }
+                if (onDeleteSession && sessions) break;
+                fiber = fiber.return;
+            }
+
+            if (!onDeleteSession) return {error: 'onDeleteSession callback not found'};
+            if (!sessions || sessions.length === 0) return {error: 'sessions array not found or empty'};
+
+            // 找到匹配的会话
+            let match = sessions.find(s => s.title && s.title.includes(targetTitle));
+            if (!match) {
+                const prefix = targetTitle.substring(0, 8);
+                match = sessions.find(s => s.title && s.title.includes(prefix));
+            }
+            if (!match) return {error: 'session not found', titles: sessions.map(s => s.title), target: targetTitle};
+
+            // 调用删除回调
+            try {
+                onDeleteSession(match.sessionId);
+                return {success: true, sessionId: match.sessionId, title: match.title};
+            } catch (err) {
+                return {error: 'delete callback failed: ' + err.message, sessionId: match.sessionId};
+            }
+        }""", title)
+
+        if isinstance(result, dict) and result.get("success"):
+            self.page.wait_for_timeout(1500)
+            return True
+        if result:
+            print(f"\n[delete_session_by_title] result: {result}")
+        return False
 
     # === 消息发送 ===
 
@@ -415,71 +454,3 @@ class ChatTestPage:
     def refresh_page(self):
         self.page.reload()
         self.page.wait_for_load_state("networkidle")
-
-    # === 删除会话 ===
-
-    def delete_session_by_title(self, title: str) -> bool:
-        """通过标题删除会话，返回是否成功。
-        会话删除使用 WebSocket JSON-RPC (session/delete)。
-        先创建新会话使目标会话变为非活跃状态，再通过 client.deleteSession 删除。"""
-        # 先创建新会话，使目标会话变为非活跃
-        self.create_new_session()
-        self.page.wait_for_timeout(1000)
-
-        # 通过 React fiber 找到 client 对象并删除会话
-        result = self.page.evaluate("""(targetTitle) => {
-            // 1. 从 chat-header-card 找到 client
-            const header = document.querySelector('.chat-header-card');
-            if (!header) return {error: 'no chat-header-card'};
-
-            const fiberKey = Object.keys(header).find(k => k.startsWith('__reactFiber'));
-            if (!fiberKey) return {error: 'no fiber key'};
-
-            let fiber = header[fiberKey];
-            let client = null;
-            for (let i = 0; i < 30 && fiber; i++) {
-                const props = fiber.memoizedProps || {};
-                if (props.client && typeof props.client.deleteSession === 'function') {
-                    client = props.client;
-                    break;
-                }
-                fiber = fiber.return;
-            }
-            if (!client) return {error: 'client not found'};
-
-            // 2. 获取会话列表
-            return client.listSessions().then(resp => {
-                const sessions = Array.isArray(resp?.sessions) ? resp.sessions : [];
-                // 3. 按标题匹配
-                let match = sessions.find(s => s.title && s.title.includes(targetTitle));
-                if (!match) {
-                    match = sessions.find(s => s.title && targetTitle.substring(0, 6) && s.title.includes(targetTitle.substring(0, 6)));
-                }
-                if (!match) return {error: 'session not found', titles: sessions.map(s => s.title), target: targetTitle};
-
-                // 4. 调用 deleteSession
-                return client.deleteSession({sessionId: match.sessionId}).then(deleteResult => {
-                    return {success: true, sessionId: match.sessionId, title: match.title, deleteResult: JSON.stringify(deleteResult).substring(0, 200)};
-                }).catch(err => {
-                    return {error: 'delete failed: ' + err.message, sessionId: match.sessionId};
-                });
-            }).catch(err => {
-                return {error: 'listSessions failed: ' + err.message};
-            });
-        }""", title)
-
-        if isinstance(result, dict) and result.get("success"):
-            delete_result = result.get("deleteResult", "")
-            # Check if the JSON-RPC response contains an error
-            if "error" in delete_result and "Method not found" in delete_result:
-                print(f"\n[delete_session_by_title] Server does not support session/delete: {delete_result}")
-                return False
-            if '"error"' in delete_result:
-                print(f"\n[delete_session_by_title] Server error: {delete_result}")
-                return False
-            self.page.wait_for_timeout(1500)
-            return True
-        # Debug: print failure reason
-        if result:
-            print(f"\n[delete_session_by_title] result: {result}")
-        return False

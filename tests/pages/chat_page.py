@@ -65,10 +65,10 @@ class ChatPage:
             card.first.scroll_into_view_if_needed()
             self.page.wait_for_timeout(300)
             card.first.click()
-            # 等待聊天输入框出现（而非固定等待）
+            # 等待聊天输入框出现（WebSocket 连接需要时间，给 20 秒）
             try:
                 self.page.locator("textarea").first.wait_for(
-                    state="visible", timeout=5000
+                    state="visible", timeout=20000
                 )
             except Exception:
                 self.page.wait_for_timeout(2000)
@@ -123,43 +123,43 @@ class ChatPage:
             self.open_session_dialog()
 
     def open_session_dialog(self) -> bool:
-        """点击会话头部打开会话列表对话框，返回是否成功打开"""
-        trigger = self.page.locator(".chat-header-card button[data-slot='popover-trigger']")
-        if trigger.count() > 0:
-            trigger.first.click()
-        else:
-            header = self.page.locator(".chat-header-card")
-            if header.count() > 0:
-                header.first.click()
-            else:
-                return False
-        # 等待弹窗出现（而非固定等待）
+        """等待侧边栏会话列表可见（新 UI 侧边栏常驻，无需点击打开）"""
         try:
-            self.page.locator("[role='dialog']").first.wait_for(
+            self.page.locator("nav[aria-label] button span.truncate").first.wait_for(
                 state="visible", timeout=5000
             )
             return True
         except Exception:
             self.page.wait_for_timeout(1000)
-            return self.page.locator("[role='dialog']").count() > 0
+            return self.page.locator("nav[aria-label] button span.truncate").count() > 0
 
     def is_session_dialog_open(self) -> bool:
-        return self.page.locator(
-            "[role='dialog'], [data-slot='popover-content']"
-        ).count() > 0
+        """侧边栏会话列表是否可见"""
+        return self.page.locator("nav[aria-label] button span.truncate").count() > 0
 
     def get_session_titles(self) -> list[str]:
-        """获取会话列表中的标题"""
-        dialog = self.page.locator("[role='dialog']")
-        if dialog.count() == 0:
+        """获取侧边栏会话列表中的标题（DOM textContent，不受 CSS truncate 影响）"""
+        nav = self.page.locator("nav[aria-label]").filter(
+            has=self.page.locator("span.truncate")
+        )
+        if nav.count() == 0:
             return []
-        items = dialog.locator("button, [role='option'], a").all()
-        return [t.inner_text().strip() for t in items if t.inner_text().strip()]
+        titles = []
+        spans = nav.locator("button span.truncate")
+        for i in range(spans.count()):
+            try:
+                title = spans.nth(i).inner_text(timeout=2000).strip()
+                if title:
+                    titles.append(title)
+            except Exception:
+                pass  # ScrollArea 虚拟渲染，跳过不可见的
+        return titles
 
     def get_session_count(self) -> int:
         """获取会话实例数量"""
-        dialog = self.page.locator("[role='dialog']")
-        if dialog.count() == 0:
+        nav = self.page.locator("nav[aria-label]").filter(
+            has=self.page.locator("span.truncate")
+        )
+        if nav.count() == 0:
             return 0
-        items = dialog.locator("button[title]").all()
-        return len(items) if items else 0
+        return nav.locator("button span.truncate").count()

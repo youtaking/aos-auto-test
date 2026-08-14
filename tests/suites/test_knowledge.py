@@ -13,6 +13,20 @@ from tests.pages.knowledge_page import KnowledgePage
 from tests.pages import locators as loc
 from tests.conftest import register_cleanup
 
+
+def _safe_remove(path: str):
+    """安全删除临时文件（处理 Windows 文件锁）"""
+    if not os.path.exists(path):
+        return
+    try:
+        os.remove(path)
+    except PermissionError:
+        time.sleep(1)
+        try:
+            os.remove(path)
+        except PermissionError:
+            pass
+
 _PREFIX = f"e2e-{uuid.uuid4().hex[:6]}"
 
 
@@ -233,11 +247,14 @@ def test_kb_004_upload_file(logged_in_page, base_url, request):
         file_chooser = fc_info.value
         file_chooser.set_files(test_file)
 
-        # 等待上传完成
-        logged_in_page.wait_for_load_state("networkidle")
+        # 等待上传完成（轮询等文件名出现在页面，最长 15 秒）
+        file_name = os.path.basename(test_file)
+        for _wait in range(15):
+            if logged_in_page.locator(f"text={file_name}").count() > 0:
+                break
+            logged_in_page.wait_for_timeout(1000)
 
         # 验证 1：文件名出现在页面中
-        file_name = os.path.basename(test_file)
         assert logged_in_page.locator(f"text={file_name}").count() > 0, \
             f"上传后文件名 {file_name} 未出现在页面中"
 
@@ -261,9 +278,17 @@ def test_kb_004_upload_file(logged_in_page, base_url, request):
         assert found, f"文件 {file_name} 未出现在 API 资源列表中"
 
     finally:
-        # 清理临时文件
+        # 清理临时文件（Windows 文件锁，Playwright 可能仍持有句柄）
         if os.path.exists(test_file):
-            os.remove(test_file)
+            try:
+                _safe_remove(test_file)
+            except PermissionError:
+                import time
+                time.sleep(1)
+                try:
+                    _safe_remove(test_file)
+                except PermissionError:
+                    pass  # 留给系统清理
         # 清理知识库
         _delete_kb_api(logged_in_page, base_url, kb_id)
 
@@ -300,22 +325,30 @@ def test_kb_007_delete_resource(logged_in_page, base_url, request):
         with logged_in_page.expect_file_chooser() as fc_info:
             upload_btn.first.click()
         fc_info.value.set_files(test_file)
-        logged_in_page.wait_for_load_state("networkidle")
 
+        # 轮询等待文件名出现（上传+解析需要时间）
         file_name = os.path.basename(test_file)
+        for _wait in range(15):
+            if logged_in_page.locator(f"text={file_name}").count() > 0:
+                break
+            logged_in_page.wait_for_timeout(1000)
+
         assert logged_in_page.locator(f"text={file_name}").count() > 0, \
             f"上传后文件名 {file_name} 未出现"
 
-        # 2. 点击删除按钮（trash icon in resource row）
-        file_row_btn = logged_in_page.locator("button").filter(has_text=file_name)
-        assert file_row_btn.count() > 0, "文件行不存在"
-        # 找到该行中的删除图标按钮（lucide-trash2）
-        delete_icon = file_row_btn.first.locator(
-            "xpath=ancestor::*[5]//svg[contains(@class,'lucide-trash')]"
-        ).locator("xpath=ancestor::button")
+        # 2. 点击删除按钮（在包含文件名的行中找 title="删除" 的按钮）
+        file_row = logged_in_page.locator("div.group").filter(has_text=file_name)
+        assert file_row.count() > 0, f"文件行不存在（文件名: {file_name}）"
+        delete_icon = file_row.first.locator('button[title="删除"]')
 
         if delete_icon.count() == 0:
-            # 备选：通过 title="删除" 定位
+            # 备选：通过 Trash2 SVG 图标定位
+            delete_icon = file_row.first.locator(
+                "svg.lucide-trash2, svg[class*='trash']"
+            ).locator("xpath=ancestor::button")
+
+        if delete_icon.count() == 0:
+            # 最后备选：页面中最后一个 title="删除" 的按钮
             delete_icon = logged_in_page.locator('button[title="删除"]').last
 
         assert delete_icon.count() > 0, "删除按钮不存在"
@@ -346,7 +379,15 @@ def test_kb_007_delete_resource(logged_in_page, base_url, request):
 
     finally:
         if os.path.exists(test_file):
-            os.remove(test_file)
+            try:
+                _safe_remove(test_file)
+            except PermissionError:
+                import time
+                time.sleep(1)
+                try:
+                    _safe_remove(test_file)
+                except PermissionError:
+                    pass
         _delete_kb_api(logged_in_page, base_url, kb_id)
 
 
@@ -499,9 +540,14 @@ def test_kb_011_upload_duplicate_confirm(logged_in_page, base_url, request):
         with logged_in_page.expect_file_chooser() as fc_info:
             upload_btn.first.click()
         fc_info.value.set_files(test_file)
-        logged_in_page.wait_for_load_state("networkidle")
 
+        # 轮询等待文件名出现（上传+解析需要时间）
         file_name = os.path.basename(test_file)
+        for _wait in range(15):
+            if logged_in_page.locator(f"text={file_name}").count() > 0:
+                break
+            logged_in_page.wait_for_timeout(1000)
+
         assert logged_in_page.locator(f"text={file_name}").count() > 0, \
             f"第一次上传后文件名 {file_name} 未出现"
 
@@ -539,7 +585,7 @@ def test_kb_011_upload_duplicate_confirm(logged_in_page, base_url, request):
 
     finally:
         if os.path.exists(test_file):
-            os.remove(test_file)
+            _safe_remove(test_file)
         _delete_kb_api(logged_in_page, base_url, kb_id)
 
 
@@ -572,7 +618,16 @@ def test_kb_012_parse_status_polling(logged_in_page, base_url, request):
         with logged_in_page.expect_file_chooser() as fc_info:
             upload_btn.first.click()
         fc_info.value.set_files(test_file)
-        logged_in_page.wait_for_load_state("networkidle")
+
+        # 轮询等待文件名出现
+        file_name = os.path.basename(test_file)
+        for _wait in range(15):
+            if logged_in_page.locator(f"text={file_name}").count() > 0:
+                break
+            logged_in_page.wait_for_timeout(1000)
+
+        assert logged_in_page.locator(f"text={file_name}").count() > 0, \
+            f"上传后文件名 {file_name} 未出现"
 
         # 通过 API 轮询解析状态（最多 60 秒）
         final_status = None
@@ -583,8 +638,8 @@ def test_kb_012_parse_status_polling(logged_in_page, base_url, request):
             assert resp.status == 200, "获取资源列表失败"
             resources = resp.json().get("data", [])
             if resources:
-                status = resources[0].get("status", "")
-                if status in ("completed", "success", "done", "indexed"):
+                status = resources[0].get("status", "") or resources[0].get("parseStatus", "")
+                if status in ("completed", "success", "done", "indexed", "ready"):
                     final_status = status
                     break
                 if status in ("failed", "error"):
@@ -592,12 +647,12 @@ def test_kb_012_parse_status_polling(logged_in_page, base_url, request):
                     break
             time.sleep(5)
 
-        assert final_status in ("completed", "success", "done", "indexed"), \
+        assert final_status in ("completed", "success", "done", "indexed", "ready"), \
             f"60 秒内解析未完成，最终状态: {final_status}"
 
     finally:
         if os.path.exists(test_file):
-            os.remove(test_file)
+            _safe_remove(test_file)
         _delete_kb_api(logged_in_page, base_url, kb_id)
 
 
@@ -630,7 +685,16 @@ def test_kb_013_reparse_resource(logged_in_page, base_url, request):
         with logged_in_page.expect_file_chooser() as fc_info:
             upload_btn.first.click()
         fc_info.value.set_files(test_file)
-        logged_in_page.wait_for_load_state("networkidle")
+
+        # 轮询等待文件名出现
+        file_name = os.path.basename(test_file)
+        for _wait in range(15):
+            if logged_in_page.locator(f"text={file_name}").count() > 0:
+                break
+            logged_in_page.wait_for_timeout(1000)
+
+        assert logged_in_page.locator(f"text={file_name}").count() > 0, \
+            f"上传后文件名 {file_name} 未出现"
 
         # 等待解析完成
         for _ in range(12):
@@ -639,8 +703,8 @@ def test_kb_013_reparse_resource(logged_in_page, base_url, request):
             )
             if resp.status == 200:
                 resources = resp.json().get("data", [])
-                if resources and resources[0].get("status") in (
-                    "completed", "success", "done", "indexed"
+                if resources and (resources[0].get("status") or resources[0].get("parseStatus")) in (
+                    "completed", "success", "done", "indexed", "ready"
                 ):
                     break
             time.sleep(5)
@@ -679,10 +743,13 @@ def test_kb_013_reparse_resource(logged_in_page, base_url, request):
                         name="对话框信息",
                         attachment_type=allure.attachment_type.TEXT,
                     )
-                confirm = loc.confirm_button(alert_dialog)
+                # 确认按钮文本为 "开始解析"（非标准的确认/确定）
+                confirm = alert_dialog.get_by_role("button", name="开始解析").or_(
+                    loc.confirm_button(alert_dialog)
+                )
                 if confirm.count() > 0:
                     confirm.first.click()
-                    logged_in_page.wait_for_timeout(800)
+                    logged_in_page.wait_for_timeout(2000)
 
             # 验证重新解析请求已发送
             assert len(reparse_called) > 0, "未检测到重新解析 API 请求"
@@ -695,7 +762,7 @@ def test_kb_013_reparse_resource(logged_in_page, base_url, request):
 
     finally:
         if os.path.exists(test_file):
-            os.remove(test_file)
+            _safe_remove(test_file)
         _delete_kb_api(logged_in_page, base_url, kb_id)
 
 
@@ -1018,7 +1085,7 @@ def test_kb_018_resource_preview(logged_in_page, base_url, request):
 
     finally:
         if os.path.exists(test_file):
-            os.remove(test_file)
+            _safe_remove(test_file)
         _delete_kb_api(logged_in_page, base_url, kb_id)
 
 
@@ -1074,7 +1141,7 @@ def test_kb_019_toggle_resource_enabled(logged_in_page, base_url, request):
             )
     finally:
         if os.path.exists(test_file):
-            os.remove(test_file)
+            _safe_remove(test_file)
         _delete_kb_api(logged_in_page, base_url, kb_id)
 
 
@@ -1108,17 +1175,29 @@ def test_kb_020_edit_kb_info(logged_in_page, base_url, request):
             dialog = logged_in_page.locator("[role=dialog]")
             if dialog.count() > 0 and dialog.first.is_visible():
                 new_name = f"{kb_name}-edited"
+                # 名称输入框：优先 placeholder 匹配，备选 dialog 中第一个 input
                 name_input = dialog.locator(
-                    "input[placeholder*='名称'], input[placeholder*='知识库名称']"
+                    "input[placeholder*='名称'], input[placeholder*='知识库名称'], "
+                    "input[placeholder*='例如']"
                 )
+                if name_input.count() == 0:
+                    # 备选：dialog 中第一个 input（编辑弹窗只有名称+描述两个字段）
+                    name_input = dialog.locator("input")
                 if name_input.count() > 0:
+                    name_input.first.click()
                     name_input.first.fill("")
                     name_input.first.fill(new_name)
 
                 save_btn = loc.save_or_submit_button(dialog)
                 if save_btn.count() > 0:
                     save_btn.first.click()
-                    logged_in_page.wait_for_timeout(800)
+                    logged_in_page.wait_for_timeout(2000)
+                else:
+                    # 备选：dialog 中最后一个 button（可能是提交按钮）
+                    all_btns = dialog.locator("button")
+                    if all_btns.count() > 0:
+                        all_btns.last.click()
+                        logged_in_page.wait_for_timeout(2000)
 
                 # API 验证
                 detail = _get_kb_detail_api(logged_in_page, base_url, kb_id)

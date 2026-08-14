@@ -143,8 +143,8 @@ def test_chat_delete_session(logged_in_page, base_url):
 
         # 4. 删除该会话（通过 client.deleteSession WebSocket JSON-RPC）
         deleted = chat.delete_session_by_title(target_title)
-        if not deleted:
-            pytest.skip(f"服务器不支持会话删除（session/delete Method not found）或无法删除 '{target_title}'")
+        assert deleted, \
+            f"会话删除失败：服务器不支持 session/delete 或无法删除 '{target_title}'"
 
         logged_in_page.wait_for_timeout(2000)
 

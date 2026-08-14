@@ -148,13 +148,16 @@ class TestWorkflow:
             logged_in_page.wait_for_load_state("domcontentloaded")
             assert "/workflow/" in logged_in_page.url, \
                 f"未跳转到编辑页: {logged_in_page.url}"
+            # 等待 ReactFlow 画布渲染（异步加载，需要时间）
+            canvas = logged_in_page.locator(".react-flow")
+            try:
+                canvas.first.wait_for(state="visible", timeout=15000)
+            except Exception:
+                pass
             # ReactFlow 画布或空画布容器
-            canvas = logged_in_page.locator(
-                ".react-flow, svg"
-            )
             panel = logged_in_page.locator("div.agent-panel-content, main")
             assert canvas.count() > 0 or panel.count() > 0, \
-                "编辑器画布未加载"
+                f"编辑器画布未加载（URL: {logged_in_page.url}）"
         finally:
             if created:
                 _delete_workflow_api(logged_in_page, base_url, wf_id)
@@ -207,6 +210,15 @@ class TestWorkflow:
             except Exception:
                 pass  # SPA 路由可能中断初始导航
             logged_in_page.wait_for_load_state("domcontentloaded")
+            # 等待编辑器 React 组件加载
+            try:
+                logged_in_page.locator(".react-flow, button").filter(
+                    has_text="保存"
+                ).or_(logged_in_page.locator(".react-flow")).first.wait_for(
+                    state="visible", timeout=15000
+                )
+            except Exception:
+                logged_in_page.wait_for_timeout(3000)
             # 查找保存/草稿按钮
             save_btn = logged_in_page.get_by_role("button", name="保存").or_(
                 logged_in_page.get_by_role("button", name="保存草稿")
@@ -233,6 +245,13 @@ class TestWorkflow:
             except Exception:
                 pass  # SPA 路由可能中断初始导航
             logged_in_page.wait_for_load_state("domcontentloaded")
+            # 等待编辑器 React 组件加载
+            try:
+                logged_in_page.locator(".react-flow").first.wait_for(
+                    state="visible", timeout=15000
+                )
+            except Exception:
+                logged_in_page.wait_for_timeout(3000)
             publish_btn = logged_in_page.get_by_role("button", name="发布")
             save_btn = logged_in_page.get_by_role("button", name="保存")
             # 发布按钮或保存按钮应存在
@@ -373,6 +392,13 @@ class TestWorkflow:
             logged_in_page.wait_for_load_state("domcontentloaded")
             assert "/workflow/" in logged_in_page.url and "/edit" in logged_in_page.url, \
                 f"未进入编辑器: {logged_in_page.url}"
+            # 等待 ReactFlow 画布加载
+            try:
+                logged_in_page.locator(".react-flow").first.wait_for(
+                    state="visible", timeout=15000
+                )
+            except Exception:
+                logged_in_page.wait_for_timeout(3000)
             # ReactFlow 画布加载验证
             react_flow = logged_in_page.locator(
                 ".react-flow"
