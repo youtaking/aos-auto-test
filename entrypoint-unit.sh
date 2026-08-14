@@ -44,13 +44,16 @@ for pkg_dir in "$FENIX_ROOT/packages"/*/; do
     # 方式2：将所有 workspace 包加到根 package.json 的 dependencies，
     # 强制 bun 安装并 hoist 所有依赖（解决 pino 等包没被 hoist 的问题）
     if [ -n "$pkg_json_name" ] && [ "$pkg_json_name" != "undefined" ]; then
+      cd "$WORKSPACE_ROOT"
       bun -e "
 const fs = require('fs');
-const pkg = JSON.parse(fs.readFileSync('$WORKSPACE_ROOT/package.json', 'utf8'));
+const pkg = JSON.parse(fs.readFileSync('./package.json', 'utf8'));
 if (!pkg.dependencies) pkg.dependencies = {};
 pkg.dependencies['$pkg_json_name'] = 'workspace:*';
-fs.writeFileSync('$WORKSPACE_ROOT/package.json', JSON.stringify(pkg, null, 2));
-" 2>/dev/null || echo "    WARNING: Failed to add $pkg_json_name to root dependencies"
+fs.writeFileSync('./package.json', JSON.stringify(pkg, null, 2));
+console.log('Added $pkg_json_name to root dependencies');
+" || echo "    WARNING: Failed to add $pkg_json_name to root dependencies"
+      cd - > /dev/null
     fi
   fi
 done
@@ -130,6 +133,14 @@ if [ "$NEED_INSTALL" = "true" ]; then
       echo "      $dir_name → $json_name ($is_link)"
     fi
   done
+
+  # 诊断：显示 root package.json 中的 workspace:* 依赖
+  echo "    Root workspace:* deps:"
+  bun -e "
+const pkg = require('./package.json');
+const deps = pkg.dependencies || {};
+Object.entries(deps).filter(([k,v]) => v === 'workspace:*').forEach(([k,v]) => console.log('      ' + k + ' -> ' + v));
+" 2>/dev/null || echo "      (failed to read)"
 
   set +e
   bun install --no-save 2>&1 | tail -20
