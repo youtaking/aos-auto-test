@@ -212,7 +212,8 @@ async def _execute_tests(
                         report = json.load(f)
                     for test in report.get("tests", []):
                         nodeid = test.get("nodeid", "")
-                        func_name = nodeid.split("::")[-1] if "::" in nodeid else ""
+                        parts = nodeid.split("::")
+                        func_name = "::".join(parts[1:]) if len(parts) > 1 else ""
                         call_info = test.get("call", {})
                         duration_ms = int(call_info.get("duration", 0) * 1000)
                         longrepr = str(call_info.get("longrepr", "")) if call_info.get("longrepr") else None
