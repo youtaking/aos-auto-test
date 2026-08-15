@@ -552,19 +552,36 @@ async def delete_pipeline(
     pipeline_id: int,
     db: AsyncSession = Depends(get_async_session),
 ):
-    """删除单条 PR Pipeline 记录（级联删除关联的单元测试结果）"""
+    """删除单条 PR Pipeline 记录（级联删除运行记录、测试结果、单元测试结果）"""
     pipeline = await db.get(PRPipeline, pipeline_id)
     if not pipeline:
         return ApiResponse(success=False, error=f"Pipeline #{pipeline_id} 不存在")
     if _is_truly_active(pipeline):
         return ApiResponse(success=False, error="运行中的 Pipeline 不能删除，请先取消")
-    # 删除关联的 unit_test_results 和 unit_test_runs
+    # 1. 删除关联的 unit_test_results 和 unit_test_runs
     ut_results = await db.execute(select(UnitTestResult).where(UnitTestResult.pipeline_id == pipeline_id))
     for r in ut_results.scalars().all():
         await db.delete(r)
     ut_runs = await db.execute(select(UnitTestRun).where(UnitTestRun.pipeline_id == pipeline_id))
     for r in ut_runs.scalars().all():
         await db.delete(r)
+    # 2. 删除关联的 test_run 及其 test_results
+    if pipeline.run_id:
+        test_results = await db.execute(select(TestResult).where(TestResult.run_id == pipeline.run_id))
+        for r in test_results.scalars().all():
+            await db.delete(r)
+        run = await db.get(TestRun, pipeline.run_id)
+        if run:
+            await db.delete(run)
+    else:
+        # 也可能通过 test_runs.pipeline_id 反向关联
+        runs = await db.execute(select(TestRun).where(TestRun.pipeline_id == pipeline_id))
+        for run in runs.scalars().all():
+            test_results = await db.execute(select(TestResult).where(TestResult.run_id == run.id))
+            for r in test_results.scalars().all():
+                await db.delete(r)
+            await db.delete(run)
+    # 3. 删除 pipeline
     await db.delete(pipeline)
     await db.commit()
     return ApiResponse(data={"deleted": pipeline_id})
@@ -590,13 +607,29 @@ async def batch_delete_pipelines(
 
     deleted_ids = []
     for pipeline in pipelines:
-        # 删除关联的 unit_test_results 和 unit_test_runs
+        # 1. 删除关联的 unit_test_results 和 unit_test_runs
         ut_results = await db.execute(select(UnitTestResult).where(UnitTestResult.pipeline_id == pipeline.id))
         for r in ut_results.scalars().all():
             await db.delete(r)
         ut_runs = await db.execute(select(UnitTestRun).where(UnitTestRun.pipeline_id == pipeline.id))
         for r in ut_runs.scalars().all():
             await db.delete(r)
+        # 2. 删除关联的 test_run 及其 test_results
+        if pipeline.run_id:
+            test_results = await db.execute(select(TestResult).where(TestResult.run_id == pipeline.run_id))
+            for r in test_results.scalars().all():
+                await db.delete(r)
+            run = await db.get(TestRun, pipeline.run_id)
+            if run:
+                await db.delete(run)
+        else:
+            runs = await db.execute(select(TestRun).where(TestRun.pipeline_id == pipeline.id))
+            for run in runs.scalars().all():
+                test_results = await db.execute(select(TestResult).where(TestResult.run_id == run.id))
+                for r in test_results.scalars().all():
+                    await db.delete(r)
+                await db.delete(run)
+        # 3. 删除 pipeline
         await db.delete(pipeline)
         deleted_ids.append(pipeline.id)
 
