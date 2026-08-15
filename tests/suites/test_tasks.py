@@ -538,6 +538,10 @@ def test_chat_tasks_panel(logged_in_page, base_url):
     except Exception:
         pass  # SPA 路由可能中断初始导航
     logged_in_page.wait_for_load_state("domcontentloaded")
+    try:
+        logged_in_page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+    except Exception:
+        pass
 
     # 选择一个 Agent
     agent_card = logged_in_page.locator("button.agent-sidebar-agent-card")

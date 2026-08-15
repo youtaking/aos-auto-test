@@ -271,6 +271,10 @@ def test_skill_delete_via_ui(logged_in_page, base_url):
     except Exception:
         pass  # SPA 路由可能中断初始导航
     logged_in_page.wait_for_load_state("domcontentloaded")
+    try:
+        logged_in_page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+    except Exception:
+        pass
 
     # ── Step 4: 找到测试技能卡片的删除按钮 ──
     # 用技能名定位文本元素，向上找到最近的 .group 父容器（即技能卡片）
@@ -631,6 +635,10 @@ def test_skill_upload_conflict_handling(logged_in_page, base_url):
         except Exception:
             pass  # SPA 路由可能中断初始导航
         logged_in_page.wait_for_load_state("domcontentloaded")
+        try:
+            logged_in_page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+        except Exception:
+            pass
 
         # 创建同名临时目录（UI 上传需要目录，含 SKILL.md）
         test_dir = os.path.join(tempfile.gettempdir(), conflict_skill_name)

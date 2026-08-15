@@ -11,24 +11,44 @@ class TasksPage:
         self.base_url = base_url
         self.url = f"{base_url}/ctrl/agent/tasks"
 
+    # 页面就绪标识：搜索输入框或定时任务按钮
+    _READY_SELECTOR = "input[placeholder*='搜索任务'], button:has-text('定时任务')"
+
     def goto(self):
+        for _attempt in range(2):
+            try:
+                self.page.goto(self.url, wait_until="domcontentloaded")
+            except Exception:
+                pass
+            self.page.wait_for_load_state("domcontentloaded")
+            try:
+                self.page.locator(self._READY_SELECTOR).first.wait_for(state="attached", timeout=15000)
+            except Exception:
+                pass
+            if self.is_loaded():
+                break
+            self.page.wait_for_timeout(3000)
+        # 降级：侧边栏 SPA 导航
+        if not self.is_loaded():
+            nav_btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="定时任务")
+            if nav_btn.count() > 0:
+                nav_btn.first.click()
+                try:
+                    self.page.locator(self._READY_SELECTOR).first.wait_for(state="attached", timeout=15000)
+                except Exception:
+                    pass
+        # 等待工作台 Tab 渲染完成
         try:
-            self.page.goto(self.url, wait_until="domcontentloaded")
-        except Exception:
-            pass  # SPA 路由可能中断初始导航
-        self.page.wait_for_load_state("domcontentloaded")
-        # 等待工作台 Tab 渲染完成（而非仅等 networkidle）
-        try:
-            self.page.locator("div.agent-panel-content button").filter(
+            self.page.locator("button").filter(
                 has_text="定时任务"
             ).first.wait_for(state="visible", timeout=5000)
         except Exception:
             pass
 
     def is_loaded(self) -> bool:
-        """页面加载完成：URL 正确 + 面板内容可见"""
+        """页面加载完成：URL 正确 + 页面特有元素可见"""
         return "/ctrl/agent/tasks" in self.page.url and \
-            self.page.locator("div.agent-panel-content").count() > 0
+            self.page.locator(self._READY_SELECTOR).count() > 0
 
     # === 工作台 Tab ===
 

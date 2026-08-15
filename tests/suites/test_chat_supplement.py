@@ -146,11 +146,14 @@ def test_chat_delete_session(logged_in_page, base_url):
         assert deleted, \
             f"会话删除失败：服务器不支持 session/delete 或无法删除 '{target_title}'"
 
-        logged_in_page.wait_for_timeout(2000)
-
-        # 5. 通过 client API 验证删除
-        titles_after = chat.get_session_titles_via_client()
-        count_after = sum(1 for t in titles_after if session_marker[:8] in t)
+        # 5. 通过 client API 验证删除（轮询等待 YjsWs 同步）
+        count_after = count_before
+        for _retry in range(10):
+            logged_in_page.wait_for_timeout(500)
+            titles_after = chat.get_session_titles_via_client()
+            count_after = sum(1 for t in titles_after if session_marker[:8] in t)
+            if count_after < count_before:
+                break
         assert count_after < count_before, (
             f"删除后会话数量未减少: 删除前 {count_before}, 删除后 {count_after}"
         )

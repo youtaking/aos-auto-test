@@ -11,16 +11,27 @@ class WorkflowPage:
         self.base_url = base_url
         self.url = f"{base_url}/ctrl/agent/workflow"
 
+    # 页面就绪标识：搜索输入框
+    _READY_SELECTOR = "input[placeholder*='搜索工作流']"
+
     def goto(self):
-        try:
-            self.page.goto(self.url, wait_until="domcontentloaded")
-        except Exception:
-            pass  # SPA 路由可能中断初始导航
-        self.page.wait_for_load_state("domcontentloaded")
+        for _attempt in range(2):
+            try:
+                self.page.goto(self.url, wait_until="domcontentloaded")
+            except Exception:
+                pass  # SPA 路由可能中断初始导航
+            self.page.wait_for_load_state("domcontentloaded")
+            try:
+                self.page.locator(self._READY_SELECTOR).first.wait_for(state="attached", timeout=15000)
+            except Exception:
+                pass
+            if self.is_loaded():
+                break
+            self.page.wait_for_timeout(3000)
 
     def is_loaded(self) -> bool:
         return "/ctrl/agent/workflow" in self.page.url and \
-            self.page.locator("div.agent-panel-content").count() > 0
+            self.page.locator(self._READY_SELECTOR).count() > 0
 
     def search(self, keyword: str):
         """搜索工作流"""
@@ -56,16 +67,36 @@ class MemoryPage:
         self.base_url = base_url
         self.url = f"{base_url}/ctrl/agent/memories"
 
+    # 页面就绪标识：Tab 或"未配置"提示
+    _READY_SELECTORS = "[role='tab'], :text('未配置'), :text('Hindsight')"
+
     def goto(self):
-        try:
-            self.page.goto(self.url, wait_until="domcontentloaded")
-        except Exception:
-            pass  # SPA 路由可能中断初始导航
-        self.page.wait_for_load_state("domcontentloaded")
+        for _attempt in range(2):
+            try:
+                self.page.goto(self.url, wait_until="domcontentloaded")
+            except Exception:
+                pass
+            self.page.wait_for_load_state("domcontentloaded")
+            try:
+                self.page.locator(self._READY_SELECTORS).first.wait_for(state="attached", timeout=15000)
+            except Exception:
+                pass
+            if self.is_loaded():
+                break
+            self.page.wait_for_timeout(3000)
+        # 降级：侧边栏 SPA 导航
+        if not self.is_loaded():
+            nav_btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="记忆")
+            if nav_btn.count() > 0:
+                nav_btn.first.click()
+                try:
+                    self.page.locator(self._READY_SELECTORS).first.wait_for(state="attached", timeout=15000)
+                except Exception:
+                    pass
 
     def is_loaded(self) -> bool:
         return "/ctrl/agent/memor" in self.page.url and \
-            self.page.locator("div.agent-panel-content").count() > 0
+            self.page.locator(self._READY_SELECTORS).count() > 0
 
     def get_tab_names(self) -> list[str]:
         """获取分类 Tab 名称列表"""
@@ -102,16 +133,36 @@ class KnowledgeBasePage:
         self.base_url = base_url
         self.url = f"{base_url}/ctrl/agent/knowledge-bases"
 
+    # 页面就绪标识：搜索输入框
+    _READY_SELECTOR = "input[placeholder*='搜索知识库']"
+
     def goto(self):
-        try:
-            self.page.goto(self.url, wait_until="domcontentloaded")
-        except Exception:
-            pass  # SPA 路由可能中断初始导航
-        self.page.wait_for_load_state("domcontentloaded")
+        for _attempt in range(2):
+            try:
+                self.page.goto(self.url, wait_until="domcontentloaded")
+            except Exception:
+                pass
+            self.page.wait_for_load_state("domcontentloaded")
+            try:
+                self.page.locator(self._READY_SELECTOR).first.wait_for(state="attached", timeout=15000)
+            except Exception:
+                pass
+            if self.is_loaded():
+                break
+            self.page.wait_for_timeout(3000)
+        # 降级：侧边栏 SPA 导航
+        if not self.is_loaded():
+            nav_btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="知识库")
+            if nav_btn.count() > 0:
+                nav_btn.first.click()
+                try:
+                    self.page.locator(self._READY_SELECTOR).first.wait_for(state="attached", timeout=15000)
+                except Exception:
+                    pass
 
     def is_loaded(self) -> bool:
         return "/ctrl/agent/knowledge" in self.page.url and \
-            self.page.locator("div.agent-panel-content").count() > 0
+            self.page.locator(self._READY_SELECTOR).count() > 0
 
     def search(self, keyword: str):
         inp = self.page.locator("input[placeholder*='搜索知识库']")
@@ -145,16 +196,27 @@ class TasksPage:
         self.base_url = base_url
         self.url = f"{base_url}/ctrl/agent/tasks"
 
+    # 页面就绪标识：搜索输入框或定时任务按钮
+    _READY_SELECTOR = "input[placeholder*='搜索任务'], button:has-text('定时任务')"
+
     def goto(self):
-        try:
-            self.page.goto(self.url, wait_until="domcontentloaded")
-        except Exception:
-            pass  # SPA 路由可能中断初始导航
-        self.page.wait_for_load_state("domcontentloaded")
+        for _attempt in range(2):
+            try:
+                self.page.goto(self.url, wait_until="domcontentloaded")
+            except Exception:
+                pass  # SPA 路由可能中断初始导航
+            self.page.wait_for_load_state("domcontentloaded")
+            try:
+                self.page.locator(self._READY_SELECTOR).first.wait_for(state="attached", timeout=15000)
+            except Exception:
+                pass
+            if self.is_loaded():
+                break
+            self.page.wait_for_timeout(3000)
 
     def is_loaded(self) -> bool:
         return "/ctrl/agent/tasks" in self.page.url and \
-            self.page.locator("div.agent-panel-content").count() > 0
+            self.page.locator(self._READY_SELECTOR).count() > 0
 
     def get_tab_names(self) -> list[str]:
         tabs = self.page.locator("[role='tab']")
@@ -193,16 +255,36 @@ class OrganizationPage:
         self.base_url = base_url
         self.url = f"{base_url}/ctrl/agent/organizations"
 
+    # 页面就绪标识：h2 标题
+    _READY_SELECTOR = "h2"
+
     def goto(self):
-        try:
-            self.page.goto(self.url, wait_until="domcontentloaded")
-        except Exception:
-            pass  # SPA 路由可能中断初始导航
-        self.page.wait_for_load_state("domcontentloaded")
+        for _attempt in range(2):
+            try:
+                self.page.goto(self.url, wait_until="domcontentloaded")
+            except Exception:
+                pass
+            self.page.wait_for_load_state("domcontentloaded")
+            try:
+                self.page.locator(self._READY_SELECTOR).first.wait_for(state="attached", timeout=15000)
+            except Exception:
+                pass
+            if self.is_loaded():
+                break
+            self.page.wait_for_timeout(3000)
+        # 降级：侧边栏 SPA 导航
+        if not self.is_loaded():
+            nav_btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="组织")
+            if nav_btn.count() > 0:
+                nav_btn.first.click()
+                try:
+                    self.page.locator(self._READY_SELECTOR).first.wait_for(state="attached", timeout=15000)
+                except Exception:
+                    pass
 
     def is_loaded(self) -> bool:
         return "/ctrl/agent/organization" in self.page.url and \
-            self.page.locator("div.agent-panel-content").count() > 0
+            self.page.locator(self._READY_SELECTOR).count() > 0
 
     def get_org_name(self) -> str:
         """获取当前组织名称"""
@@ -231,16 +313,36 @@ class ApiKeyPage:
         self.base_url = base_url
         self.url = f"{base_url}/ctrl/agent/apikeys"
 
+    # 页面就绪标识：搜索输入框
+    _READY_SELECTOR = "input[placeholder*='搜索密钥']"
+
     def goto(self):
-        try:
-            self.page.goto(self.url, wait_until="domcontentloaded")
-        except Exception:
-            pass  # SPA 路由可能中断初始导航
-        self.page.wait_for_load_state("domcontentloaded")
+        for _attempt in range(2):
+            try:
+                self.page.goto(self.url, wait_until="domcontentloaded")
+            except Exception:
+                pass
+            self.page.wait_for_load_state("domcontentloaded")
+            try:
+                self.page.locator(self._READY_SELECTOR).first.wait_for(state="attached", timeout=15000)
+            except Exception:
+                pass
+            if self.is_loaded():
+                break
+            self.page.wait_for_timeout(3000)
+        # 降级：侧边栏 SPA 导航
+        if not self.is_loaded():
+            nav_btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="API Key")
+            if nav_btn.count() > 0:
+                nav_btn.first.click()
+                try:
+                    self.page.locator(self._READY_SELECTOR).first.wait_for(state="attached", timeout=15000)
+                except Exception:
+                    pass
 
     def is_loaded(self) -> bool:
         return "/ctrl/agent/apikeys" in self.page.url and \
-            self.page.locator("div.agent-panel-content").count() > 0
+            self.page.locator(self._READY_SELECTOR).count() > 0
 
     def search(self, keyword: str):
         inp = self.page.locator("input[placeholder*='搜索密钥']")

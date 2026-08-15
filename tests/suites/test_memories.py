@@ -95,8 +95,10 @@ def test_memories_search_filter(logged_in_page, base_url):
 @allure.epic("记忆")
 @pytest.mark.order(460)
 @pytest.mark.p2
-def test_memories_graph_visualization(logged_in_page, base_url):
+def test_memories_graph_visualization(logged_in_page, base_url, env_check):
     """TC-MEM-008: 2D/3D 图谱可视化 — 记忆图谱可视化展示"""
+    if not env_check.get("hindsight_enabled", False):
+        pytest.skip("Hindsight 服务未启用，图谱可视化测试跳过")
     mem = MemoryPage(logged_in_page, base_url)
     mem.goto()
     assert mem.is_loaded(), "记忆页面未加载"
@@ -123,8 +125,10 @@ def test_memories_graph_visualization(logged_in_page, base_url):
 @allure.epic("记忆")
 @pytest.mark.order(461)
 @pytest.mark.p1
-def test_memories_detail_modal(logged_in_page, base_url):
+def test_memories_detail_modal(logged_in_page, base_url, env_check):
     """TC-MEM-009: 记忆详情 — 点击记忆项查看详情"""
+    if not env_check.get("hindsight_enabled", False):
+        pytest.skip("Hindsight 服务未启用，记忆详情测试跳过")
     mem = MemoryPage(logged_in_page, base_url)
     mem.goto()
     assert mem.is_loaded(), "记忆页面未加载"

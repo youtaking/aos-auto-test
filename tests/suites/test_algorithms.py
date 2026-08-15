@@ -12,7 +12,18 @@ def test_algorithms_page_loads(logged_in_page, base_url):
     """TC-ALGO-001: 算法库页面加载 | ✅ 人工评审通过 |"""
     algo = AlgorithmsPage(logged_in_page, base_url)
     algo.goto()
-    assert algo.is_loaded(), "算法库页面未加载"
+    if not algo.is_loaded():
+        url = logged_in_page.url
+        panel_body = logged_in_page.locator("div.agent-panel-body").count()
+        panel_content = logged_in_page.locator("div.agent-panel-content").count()
+        body_text = logged_in_page.locator("body").inner_text()[:300]
+        assert False, (
+            f"算法库页面未加载\n"
+            f"  URL: {url}\n"
+            f"  agent-panel-body: {panel_body}\n"
+            f"  agent-panel-content: {panel_content}\n"
+            f"  body text: {body_text}"
+        )
 
 
 @allure.epic("算法库")

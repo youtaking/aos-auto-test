@@ -44,7 +44,19 @@ def test_mcp_list_data_loads(logged_in_page, base_url):
     mcp.goto()
 
     # 验证页面标题可见
-    assert mcp.is_loaded(), "MCP 服务器管理页面未加载"
+    if not mcp.is_loaded():
+        # 诊断信息
+        url = logged_in_page.url
+        panel_body = logged_in_page.locator("div.agent-panel-body").count()
+        panel_content = logged_in_page.locator("div.agent-panel-content").count()
+        body_text = logged_in_page.locator("body").inner_text()[:300]
+        assert False, (
+            f"MCP 服务器管理页面未加载\n"
+            f"  URL: {url}\n"
+            f"  agent-panel-body: {panel_body}\n"
+            f"  agent-panel-content: {panel_content}\n"
+            f"  body text: {body_text}"
+        )
 
     # 验证搜索框存在
     search_input = logged_in_page.locator("input[placeholder='搜索 MCP 服务器...']")
@@ -983,7 +995,10 @@ def test_mcp_api_auth(logged_in_page, base_url, browser_instance):
 
     # 1. 已认证：拦截内部 MCP API，验证返回 200
     api_responses = mcp.setup_api_interceptor("/web/config/mcp")
-    logged_in_page.reload()
+    try:
+        logged_in_page.reload(wait_until="domcontentloaded")
+    except Exception:
+        pass
     logged_in_page.wait_for_load_state("domcontentloaded")
 
     list_resps = [r for r in api_responses if r["method"] == "GET" and r["status"] < 400]

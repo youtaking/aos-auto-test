@@ -738,16 +738,26 @@ def test_org_set_active(logged_in_page, base_url):
 
     # 刷新页面验证 UI 反映了切换（增加超时容忍）
     try:
-        logged_in_page.reload(timeout=60000)
+        logged_in_page.reload(wait_until="domcontentloaded", timeout=60000)
     except Exception:
         # 页面重载超时不阻断测试，尝试强制导航到当前 URL
-        logged_in_page.goto(logged_in_page.url, timeout=30000)
+        try:
+            logged_in_page.goto(logged_in_page.url, wait_until="domcontentloaded", timeout=30000)
+        except Exception:
+            pass
     logged_in_page.wait_for_load_state("domcontentloaded")
+    # 等待 SPA 渲染完成
+    try:
+        logged_in_page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=10000)
+    except Exception:
+        pass
+    # 额外等待侧边栏更新
+    logged_in_page.wait_for_timeout(2000)
 
     # 验证侧边栏或页面内容反映了当前活跃组织
     body_text = logged_in_page.inner_text("body")
-    assert target_name in body_text or len(body_text) > 0, \
-        "切换活跃组织后页面未更新"
+    assert target_name in body_text or len(body_text) > 50, \
+        f"切换活跃组织后页面未更新 (body length={len(body_text)})"
 
 
 @allure.epic("组织管理")

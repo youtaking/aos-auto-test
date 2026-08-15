@@ -15,20 +15,34 @@ class ModelConfigPage:
     # ==================== 页面加载 ====================
 
     def goto(self):
-        try:
-            self.page.goto(self.url, wait_until="domcontentloaded")
-        except Exception:
-            pass  # SPA 路由可能中断初始导航
-        self.page.wait_for_load_state("domcontentloaded")
+        for _attempt in range(2):
+            try:
+                self.page.goto(self.url, wait_until="domcontentloaded")
+            except Exception:
+                pass  # SPA 路由可能中断初始导航
+            self.page.wait_for_load_state("domcontentloaded")
+            try:
+                self.page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+            except Exception:
+                pass
+            # React.lazy 加载 _panel layout 需要额外时间
+            if self.page.locator("div.agent-panel-content").count() > 0:
+                break
+            self.page.wait_for_timeout(3000)
+        # 降级：侧边栏 SPA 导航
+        if self.page.locator("div.agent-panel-content").count() == 0:
+            nav_btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="模型库")
+            if nav_btn.count() > 0:
+                nav_btn.first.click()
+                try:
+                    self.page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+                except Exception:
+                    pass
 
     def is_loaded(self) -> bool:
-        """页面标题「模型库」可见"""
-        return (
-            self.page.locator("div.agent-panel-body")
-            .locator("text=模型库")
-            .count()
-            > 0
-        )
+        """页面已加载"""
+        return "/ctrl/agent/models" in self.page.url and \
+            self.page.locator("div.agent-panel-content").count() > 0
 
     def get_page_title(self) -> str:
         body = self.page.locator("div.agent-panel-body")
@@ -122,7 +136,9 @@ class ModelConfigPage:
     # ==================== 新建 Provider 弹窗 ====================
 
     def click_add_provider(self):
-        self.page.get_by_role("button", name="新建服务商").click()
+        btn = self.page.get_by_role("button", name="新建服务商")
+        btn.wait_for(state="visible", timeout=10000)
+        btn.click()
         self.page.wait_for_timeout(1000)
 
     def has_add_provider_button(self) -> bool:

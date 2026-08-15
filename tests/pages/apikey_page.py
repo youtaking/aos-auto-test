@@ -13,20 +13,44 @@ class ApiKeyPage:
 
     # ==================== 导航 ====================
 
+    # 页面就绪标识：搜索输入框
+    _READY_SELECTOR = "input[placeholder*='搜索密钥']"
+
     def goto(self):
-        try:
-            self.page.goto(self.url, wait_until="domcontentloaded")
-        except Exception:
-            pass  # SPA 路由可能中断初始导航
-        self.page.wait_for_load_state("domcontentloaded")
+        for _attempt in range(2):
+            try:
+                self.page.goto(self.url, wait_until="domcontentloaded")
+            except Exception:
+                pass
+            self.page.wait_for_load_state("domcontentloaded")
+            try:
+                self.page.locator(self._READY_SELECTOR).first.wait_for(state="attached", timeout=15000)
+            except Exception:
+                pass
+            if self.is_loaded():
+                break
+            self.page.wait_for_timeout(3000)
+        # 降级：侧边栏 SPA 导航
+        if not self.is_loaded():
+            nav_btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="API Key")
+            if nav_btn.count() > 0:
+                nav_btn.first.click()
+                try:
+                    self.page.locator(self._READY_SELECTOR).first.wait_for(state="attached", timeout=15000)
+                except Exception:
+                    pass
 
     def goto_via_sidebar(self):
         btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="API Key")
         btn.first.click()
+        try:
+            self.page.locator(self._READY_SELECTOR).first.wait_for(state="attached", timeout=15000)
+        except Exception:
+            pass
         self.page.wait_for_load_state("domcontentloaded")
 
     def is_loaded(self) -> bool:
-        return "/ctrl/agent/apikeys" in self.page.url and self.page.get_by_role("button", name="吊销").count() > 0
+        return "/ctrl/agent/apikeys" in self.page.url and self.page.locator(self._READY_SELECTOR).count() > 0
 
     def _body(self):
         """获取 API Key 主内容区"""

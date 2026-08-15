@@ -172,8 +172,8 @@ def test_markdown_table_rendering(logged_in_page, base_url):
         "请严格按此格式输出。"
     )
 
-    # 轮询等待表格出现
-    for _ in range(10):
+    # 轮询等待表格出现（LLM 响应可能较慢，最多等 30 秒）
+    for _ in range(30):
         if chat.has_table():
             break
         logged_in_page.wait_for_timeout(1000)
@@ -355,8 +355,16 @@ def test_session_persistence_refresh(logged_in_page, base_url):
     except Exception:
         pass  # SPA 路由可能中断初始导航
     logged_in_page.wait_for_load_state("domcontentloaded")
+    try:
+        logged_in_page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+    except Exception:
+        pass
     logged_in_page.goto(session_url, wait_until="domcontentloaded")
     logged_in_page.wait_for_load_state("domcontentloaded")
+    try:
+        logged_in_page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+    except Exception:
+        pass
 
     # 6. 如果消息未出现，做一次 reload
     log_check = logged_in_page.locator("div[role='log']")

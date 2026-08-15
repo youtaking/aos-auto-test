@@ -11,16 +11,27 @@ class ViewsPage:
         self.base_url = base_url
         self.url = f"{base_url}/ctrl/agent/views"
 
+    # 页面就绪标识：搜索输入框
+    _READY_SELECTOR = "input[placeholder='输入视图名称']"
+
     def goto(self):
-        try:
-            self.page.goto(self.url, wait_until="domcontentloaded")
-        except Exception:
-            pass  # SPA 路由可能中断初始导航
-        self.page.wait_for_load_state("domcontentloaded")
+        for _attempt in range(2):
+            try:
+                self.page.goto(self.url, wait_until="domcontentloaded")
+            except Exception:
+                pass  # SPA 路由可能中断初始导航
+            self.page.wait_for_load_state("domcontentloaded")
+            try:
+                self.page.locator(self._READY_SELECTOR).first.wait_for(state="attached", timeout=15000)
+            except Exception:
+                pass
+            if self.is_loaded():
+                break
+            self.page.wait_for_timeout(3000)
 
     def is_loaded(self) -> bool:
         return "/ctrl/agent/views" in self.page.url and \
-            self.page.locator("div.agent-panel-content").count() > 0
+            self.page.locator(self._READY_SELECTOR).count() > 0
 
     def search(self, keyword: str):
         """搜索视图"""

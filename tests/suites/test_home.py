@@ -14,6 +14,10 @@ def test_home_page_loads(logged_in_page, base_url):
     except Exception:
         pass  # SPA 路由可能中断初始导航
     logged_in_page.wait_for_load_state("domcontentloaded")
+    try:
+        logged_in_page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+    except Exception:
+        pass
 
     textarea = logged_in_page.locator(
         "textarea[placeholder='描述你想要的 Agent 能力...']"
@@ -32,6 +36,10 @@ def test_home_quick_create_template(logged_in_page, base_url):
     except Exception:
         pass  # SPA 路由可能中断初始导航
     logged_in_page.wait_for_load_state("domcontentloaded")
+    try:
+        logged_in_page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+    except Exception:
+        pass
 
     # 获取所有模板药丸
     pills = logged_in_page.locator("button.agent-home-template-pill")
@@ -116,6 +124,10 @@ def test_home_description_input(logged_in_page, base_url):
     except Exception:
         pass  # SPA 路由可能中断初始导航
     logged_in_page.wait_for_load_state("domcontentloaded")
+    try:
+        logged_in_page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+    except Exception:
+        pass
 
     textarea = logged_in_page.locator(
         "textarea[placeholder='描述你想要的 Agent 能力...']"

@@ -107,6 +107,32 @@ def logged_in_page(page, base_url, test_config, step_delay):
     return page
 
 
+@pytest.fixture(scope="session")
+def env_check(logged_in_page, base_url):
+    """检查测试环境依赖的服务/数据是否可用，供测试用例按需 skip"""
+    checks = {}
+    # 1. 检查 embedding 模型（知识库依赖）
+    try:
+        resp = logged_in_page.request.get(f"{base_url}/web/knowledgeBases/form-options")
+        if resp.status == 200:
+            data = resp.json().get("data", {})
+            checks["has_embedding_models"] = len(data.get("embeddingModels", [])) > 0
+        else:
+            checks["has_embedding_models"] = False
+    except Exception:
+        checks["has_embedding_models"] = False
+    # 2. 检查 Hindsight 服务（记忆模块依赖）
+    try:
+        resp = logged_in_page.request.get(f"{base_url}/web/hindsight/status")
+        if resp.status == 200:
+            checks["hindsight_enabled"] = resp.json().get("data", {}).get("enabled", False)
+        else:
+            checks["hindsight_enabled"] = False
+    except Exception:
+        checks["hindsight_enabled"] = False
+    return checks
+
+
 @pytest.fixture
 def login_page(page, base_url):
     """LoginPage 实例（用于登录模块自身的测试）"""

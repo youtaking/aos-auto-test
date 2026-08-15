@@ -380,7 +380,11 @@ def test_auth_011_refresh_keeps_login(logged_in_page, base_url):
     assert "/ctrl/login" not in logged_in_page.url, "应先确保已登录"
 
     # 刷新页面
-    logged_in_page.reload()
+    try:
+        logged_in_page.reload(wait_until="domcontentloaded")
+    except Exception:
+        pass
+    logged_in_page.wait_for_load_state("domcontentloaded")
     logged_in_page.wait_for_timeout(800)
 
     # 1. 刷新后仍保持登录
