@@ -1,9 +1,9 @@
 import { useEffect, useState, useRef } from "react";
-import { listPipelines } from "../api/pipelines";
+import { listPipelines, deletePipeline, batchDeletePipelines } from "../api/pipelines";
 import type { Pipeline } from "../api/types";
 import PipelineDetail from "../components/PipelineDetail";
 import CIConfigModal from "../components/CIConfigModal";
-import { Settings, RefreshCw, ChevronLeft, ChevronRight } from "lucide-react";
+import { Settings, RefreshCw, ChevronLeft, ChevronRight, Trash2 } from "lucide-react";
 
 const statusIcons: Record<string, string> = {
   building: "🔨", deploying: "🚀", running: "🔄",
@@ -16,6 +16,8 @@ const statusLabels: Record<string, string> = {
 };
 
 const PAGE_SIZE = 20;
+
+const activeStatuses = new Set(["building", "deploying", "running"]);
 
 const statusFilters = [
   { key: "", label: "全部" },
@@ -40,12 +42,14 @@ export default function PRPipeline() {
   const [total, setTotal] = useState(0);
   const [statusFilter, setStatusFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
+  const [checkedIds, setCheckedIds] = useState<Set<number>>(new Set());
+  const [deleting, setDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<{ ids: number[]; label: string } | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
   const load = async (p?: number, sf?: string) => {
     const curPage = p ?? page;
     const curStatus = sf ?? statusFilter;
-    // "running" 筛选包含多个状态
     const statusParam = curStatus === "running"
       ? "building,deploying,running"
       : curStatus || undefined;
@@ -70,7 +74,6 @@ export default function PRPipeline() {
 
   useEffect(() => { load(1, ""); }, []);
 
-  // 全局 WebSocket 监听
   useEffect(() => {
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
     const ws = new WebSocket(`${proto}//${window.location.host}/ws/global`);
@@ -88,6 +91,7 @@ export default function PRPipeline() {
     setStatusFilter(sf);
     setPage(1);
     setSelected(null);
+    setCheckedIds(new Set());
     load(1, sf);
   };
 
@@ -102,6 +106,55 @@ export default function PRPipeline() {
     return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
   };
 
+  const toggleCheck = (e: React.MouseEvent, id: number) => {
+    e.stopPropagation();
+    setCheckedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleCheckAll = () => {
+    const deletableIds = filteredPipelines.filter((p) => !activeStatuses.has(p.status)).map((p) => p.id);
+    if (checkedIds.size === deletableIds.length && deletableIds.length > 0) {
+      setCheckedIds(new Set());
+    } else {
+      setCheckedIds(new Set(deletableIds));
+    }
+  };
+
+  const requestDelete = (e: React.MouseEvent, ids: number[], label: string) => {
+    e.stopPropagation();
+    setConfirmDelete({ ids, label });
+  };
+
+  const handleDelete = async (ids: number[]) => {
+    setDeleting(true);
+    try {
+      if (ids.length === 1) {
+        await deletePipeline(ids[0]);
+      } else {
+        await batchDeletePipelines(ids);
+      }
+      setCheckedIds(new Set());
+      load();
+    } catch (e) {
+      console.error("删除失败:", e);
+      alert(`删除失败: ${e instanceof Error ? e.message : "未知错误"}`);
+    } finally {
+      setDeleting(false);
+      setConfirmDelete(null);
+    }
+  };
+
+  const filteredPipelines = typeFilter
+    ? pipelines.filter(p => typeFilter === "staging" ? p.branch === "staging" : p.branch !== "staging")
+    : pipelines;
+
+  const deletableInPage = filteredPipelines.filter((p) => !activeStatuses.has(p.status));
+  const allDeletableChecked = deletableInPage.length > 0 && checkedIds.size === deletableInPage.length;
   const totalPages = Math.ceil(total / PAGE_SIZE);
 
   return (
@@ -109,6 +162,15 @@ export default function PRPipeline() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">PR Pipeline</h1>
         <div className="flex gap-2">
+          {checkedIds.size > 0 && (
+            <button
+              onClick={(e) => requestDelete(e, Array.from(checkedIds), `选中的 ${checkedIds.size} 条记录`)}
+              disabled={deleting}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
+            >
+              <Trash2 className="w-4 h-4" /> 删除选中 ({checkedIds.size})
+            </button>
+          )}
           <button onClick={() => setShowConfig(true)} className="flex items-center gap-1.5 px-3 py-1.5 text-sm border rounded-lg hover:bg-gray-50">
             <Settings className="w-4 h-4" /> CI 配置
           </button>
@@ -118,7 +180,6 @@ export default function PRPipeline() {
         </div>
       </div>
 
-      {/* Pipeline 详情（展开） */}
       {selected && (
         <PipelineDetail
           pipeline={selected}
@@ -126,7 +187,6 @@ export default function PRPipeline() {
         />
       )}
 
-      {/* 状态筛选 + 类型筛选 */}
       <div className="flex items-center gap-1 flex-wrap">
         {statusFilters.map((f) => (
           <button
@@ -159,85 +219,114 @@ export default function PRPipeline() {
         <span className="ml-auto text-sm text-gray-400">共 {total} 条</span>
       </div>
 
-      {/* Pipeline 列表 */}
       {(() => {
-        const filteredPipelines = typeFilter
-          ? pipelines.filter(p => typeFilter === "staging" ? p.branch === "staging" : p.branch !== "staging")
-          : pipelines;
         return (
         <div className="bg-white rounded-xl shadow-sm overflow-hidden">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-gray-50 border-b text-left">
+                <th className="px-4 py-3 w-10">
+                  <input
+                    type="checkbox"
+                    checked={allDeletableChecked}
+                    onChange={toggleCheckAll}
+                    className="rounded border-gray-300"
+                  />
+                </th>
                 <th className="px-4 py-3">PR</th>
                 <th className="px-4 py-3">Commit</th>
                 <th className="px-4 py-3">分支</th>
                 <th className="px-4 py-3">状态</th>
                 <th className="px-4 py-3">测试</th>
                 <th className="px-4 py-3">耗时</th>
+                <th className="px-4 py-3 w-16 text-center">操作</th>
               </tr>
             </thead>
             <tbody>
-              {filteredPipelines.map((p) => (
-              <tr
-                key={p.id}
-                onClick={() => setSelected(selected?.id === p.id ? null : p)}
-                className={`border-b cursor-pointer hover:bg-blue-50 transition-colors ${
-                  selected?.id === p.id ? "bg-blue-50" : ""
-                }`}
-              >
-                <td className="px-4 py-3">
-                  {p.branch === "staging" ? (
-                    <div>
-                      <div className="font-medium text-purple-600">Staging</div>
-                      <div className="text-xs text-gray-500 truncate max-w-[200px]">{p.pr_title}</div>
-                    </div>
-                  ) : (
-                    <div>
-                      <div className="font-medium">#{p.pr_id}</div>
-                      <div className="text-xs text-gray-500 truncate max-w-[200px]">{p.pr_title}</div>
-                    </div>
-                  )}
-                </td>
-                <td className="px-4 py-3">
-                  <code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded">{p.commit_sha.slice(0, 8)}</code>
-                </td>
-                <td className="px-4 py-3">
-                  <span className={`text-xs px-1.5 py-0.5 rounded ${
-                    p.branch === "staging" ? "bg-purple-100 text-purple-700" : "text-gray-600"
-                  }`}>
-                    {p.branch}
-                  </span>
-                </td>
-                <td className="px-4 py-3">
-                  <span className="inline-flex items-center gap-1">
-                    {statusIcons[p.status]} {statusLabels[p.status]}
-                  </span>
-                </td>
-                <td className="px-4 py-3">
-                  {p.test_total > 0 ? (
-                    <span className="text-xs">
-                      {p.test_passed}✅ {p.test_failed}❌ {p.test_skipped}⏭️
+              {filteredPipelines.map((p) => {
+                const canDelete = !activeStatuses.has(p.status);
+                return (
+                <tr
+                  key={p.id}
+                  onClick={() => setSelected(selected?.id === p.id ? null : p)}
+                  className={`border-b cursor-pointer hover:bg-blue-50 transition-colors ${
+                    selected?.id === p.id ? "bg-blue-50" : ""
+                  } ${checkedIds.has(p.id) ? "bg-red-50" : ""}`}
+                >
+                  <td className="px-4 py-3">
+                    <input
+                      type="checkbox"
+                      checked={checkedIds.has(p.id)}
+                      disabled={!canDelete}
+                      onChange={() => {}}
+                      onClick={(e) => toggleCheck(e, p.id)}
+                      className="rounded border-gray-300"
+                    />
+                  </td>
+                  <td className="px-4 py-3">
+                    {p.branch === "staging" ? (
+                      <div>
+                        <div className="font-medium text-purple-600">Staging</div>
+                        <div className="text-xs text-gray-500 truncate max-w-[200px]">{p.pr_title}</div>
+                      </div>
+                    ) : (
+                      <div>
+                        <div className="font-medium">#{p.pr_id}</div>
+                        <div className="text-xs text-gray-500 truncate max-w-[200px]">{p.pr_title}</div>
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    <code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded">{p.commit_sha.slice(0, 8)}</code>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={`text-xs px-1.5 py-0.5 rounded ${
+                      p.branch === "staging" ? "bg-purple-100 text-purple-700" : "text-gray-600"
+                    }`}>
+                      {p.branch}
                     </span>
-                  ) : "-"}
-                </td>
-                <td className="px-4 py-3 text-gray-500">{calcDuration(p)}</td>
-              </tr>
-            ))}
-            {filteredPipelines.length === 0 && (
-              <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-gray-400">
-                  暂无 Pipeline 记录
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className="inline-flex items-center gap-1">
+                      {statusIcons[p.status]} {statusLabels[p.status]}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    {p.test_total > 0 ? (
+                      <span className="text-xs">
+                        {p.test_passed}✅ {p.test_failed}❌ {p.test_skipped}⏭️
+                      </span>
+                    ) : "-"}
+                  </td>
+                  <td className="px-4 py-3 text-gray-500">{calcDuration(p)}</td>
+                  <td className="px-4 py-3 text-center">
+                    {canDelete && (
+                      <button
+                        onClick={(e) => requestDelete(e, [p.id], `Pipeline #${p.id}`)}
+                        disabled={deleting}
+                        className="text-gray-400 hover:text-red-600 transition-colors disabled:opacity-50"
+                        title="删除"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </td>
+                </tr>
+                );
+              })}
+              {filteredPipelines.length === 0 && (
+                <tr>
+                  <td colSpan={8} className="px-4 py-8 text-center text-gray-400">
+                    暂无 Pipeline 记录
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
         );
       })()}
 
-      {/* 分页 */}
       {totalPages > 1 && (
         <div className="flex items-center justify-center gap-2">
           <button
@@ -269,6 +358,34 @@ export default function PRPipeline() {
       )}
 
       {showConfig && <CIConfigModal onClose={() => { setShowConfig(false); load(); }} />}
+
+      {/* 确认删除弹窗 */}
+      {confirmDelete && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full mx-4">
+            <h3 className="text-lg font-semibold text-gray-900">确认删除</h3>
+            <p className="mt-2 text-sm text-gray-600">
+              确定要删除{confirmDelete.label}吗？删除后数据无法恢复。
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={() => setConfirmDelete(null)}
+                disabled={deleting}
+                className="px-4 py-2 text-sm rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50"
+              >
+                取消
+              </button>
+              <button
+                onClick={() => handleDelete(confirmDelete.ids)}
+                disabled={deleting}
+                className="px-4 py-2 text-sm rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {deleting ? "删除中..." : "确认删除"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

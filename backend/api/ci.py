@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from backend.db.config import get_async_session, async_session
-from backend.db.models import PRPipeline, CIConfig, TestRun, TestResult, TestCollection, TestCase
+from backend.db.models import PRPipeline, CIConfig, TestRun, TestResult, TestCollection, TestCase, UnitTestRun, UnitTestResult
 from backend.schemas.ci import (
     CreatePipelineRequest, UpdatePipelineStatusRequest,
     PipelineResponse, CIConfigResponse, CIConfigUpdate,
@@ -531,3 +531,64 @@ async def resolve_unit_tests(
         files.append(relative)
 
     return ApiResponse(data={"files": sorted(files)})
+
+
+# === 删除 Pipeline 记录 ===
+
+@router.delete("/pipelines/{pipeline_id}")
+async def delete_pipeline(
+    pipeline_id: int,
+    db: AsyncSession = Depends(get_async_session),
+):
+    """删除单条 PR Pipeline 记录"""
+    pipeline = await db.get(PRPipeline, pipeline_id)
+    if not pipeline:
+        return ApiResponse(success=False, error=f"Pipeline #{pipeline_id} 不存在")
+    if pipeline.status in ("building", "deploying", "running"):
+        return ApiResponse(success=False, error="运行中的 Pipeline 不能删除，请先取消")
+    # 置空引用此 pipeline 的 unit_test_results 和 unit_test_runs
+    ut_results = await db.execute(select(UnitTestResult).where(UnitTestResult.pipeline_id == pipeline_id))
+    for r in ut_results.scalars().all():
+        r.pipeline_id = None
+    ut_runs = await db.execute(select(UnitTestRun).where(UnitTestRun.pipeline_id == pipeline_id))
+    for r in ut_runs.scalars().all():
+        r.pipeline_id = None
+    await db.delete(pipeline)
+    await db.commit()
+    return ApiResponse(data={"deleted": pipeline_id})
+
+
+@router.post("/pipelines/batch-delete")
+async def batch_delete_pipelines(
+    body: dict,
+    db: AsyncSession = Depends(get_async_session),
+):
+    """批量删除 PR Pipeline 记录"""
+    pipeline_ids = body.get("pipeline_ids", [])
+    if not pipeline_ids:
+        return ApiResponse(success=False, error="未指定要删除的 Pipeline")
+
+    result = await db.execute(select(PRPipeline).where(PRPipeline.id.in_(pipeline_ids)))
+    pipelines = result.scalars().all()
+
+    active_statuses = {"building", "deploying", "running"}
+    active = [p for p in pipelines if p.status in active_statuses]
+    if active:
+        active_ids = [p.id for p in active]
+        return ApiResponse(success=False, error=f"运行中的 Pipeline 不能删除: {active_ids}")
+
+    deleted_ids = []
+    for pipeline in pipelines:
+        # 置空引用此 pipeline 的 unit_test_results 和 unit_test_runs
+        ut_results = await db.execute(select(UnitTestResult).where(UnitTestResult.pipeline_id == pipeline.id))
+        for r in ut_results.scalars().all():
+            r.pipeline_id = None
+        ut_runs = await db.execute(select(UnitTestRun).where(UnitTestRun.pipeline_id == pipeline.id))
+        for r in ut_runs.scalars().all():
+            r.pipeline_id = None
+        await db.delete(pipeline)
+        deleted_ids.append(pipeline.id)
+
+    await db.commit()
+    return ApiResponse(data={"deleted": deleted_ids, "count": len(deleted_ids)})
+

@@ -1,4 +1,4 @@
-import { get } from "./client";
+import { get, post, del } from "./client";
 import type { Pipeline } from "./types";
 
 interface PipelineListResult {
@@ -19,3 +19,8 @@ export const listPipelines = (params?: { status?: string; page?: number; page_si
 export const getPipeline = (id: number) => get<Pipeline>(`/pipelines/${id}`);
 
 export const getPipelineLogs = (id: number) => get<PipelineLogsResult>(`/pipelines/${id}/logs`);
+
+export const deletePipeline = (id: number) => del<{ deleted: number }>(`/pipelines/${id}`);
+
+export const batchDeletePipelines = (pipelineIds: number[]) =>
+  post<{ deleted: number[]; count: number }>("/pipelines/batch-delete", { pipeline_ids: pipelineIds });
