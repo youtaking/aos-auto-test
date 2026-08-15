@@ -535,6 +535,18 @@ async def resolve_unit_tests(
 
 # === 删除 Pipeline 记录 ===
 
+def _is_truly_active(pipeline) -> bool:
+    """判断 Pipeline 是否真正在运行（状态为活跃 且 最近1小时内有更新）"""
+    if pipeline.status not in ("building", "deploying", "running"):
+        return False
+    if pipeline.updated_at:
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        updated = pipeline.updated_at.replace(tzinfo=timezone.utc) if pipeline.updated_at.tzinfo is None else pipeline.updated_at
+        return (now - updated).total_seconds() < 3600
+    return False
+
+
 @router.delete("/pipelines/{pipeline_id}")
 async def delete_pipeline(
     pipeline_id: int,
@@ -544,7 +556,7 @@ async def delete_pipeline(
     pipeline = await db.get(PRPipeline, pipeline_id)
     if not pipeline:
         return ApiResponse(success=False, error=f"Pipeline #{pipeline_id} 不存在")
-    if pipeline.status in ("building", "deploying", "running"):
+    if _is_truly_active(pipeline):
         return ApiResponse(success=False, error="运行中的 Pipeline 不能删除，请先取消")
     # 置空引用此 pipeline 的 unit_test_results 和 unit_test_runs
     ut_results = await db.execute(select(UnitTestResult).where(UnitTestResult.pipeline_id == pipeline_id))
@@ -571,8 +583,7 @@ async def batch_delete_pipelines(
     result = await db.execute(select(PRPipeline).where(PRPipeline.id.in_(pipeline_ids)))
     pipelines = result.scalars().all()
 
-    active_statuses = {"building", "deploying", "running"}
-    active = [p for p in pipelines if p.status in active_statuses]
+    active = [p for p in pipelines if _is_truly_active(p)]
     if active:
         active_ids = [p.id for p in active]
         return ApiResponse(success=False, error=f"运行中的 Pipeline 不能删除: {active_ids}")

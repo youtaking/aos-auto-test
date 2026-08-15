@@ -117,11 +117,11 @@ export default function PRPipeline() {
   };
 
   const toggleCheckAll = () => {
-    const deletableIds = filteredPipelines.filter((p) => !activeStatuses.has(p.status)).map((p) => p.id);
-    if (checkedIds.size === deletableIds.length && deletableIds.length > 0) {
+    const allIds = filteredPipelines.map((p) => p.id);
+    if (checkedIds.size === allIds.length && allIds.length > 0) {
       setCheckedIds(new Set());
     } else {
-      setCheckedIds(new Set(deletableIds));
+      setCheckedIds(new Set(allIds));
     }
   };
 
@@ -153,8 +153,8 @@ export default function PRPipeline() {
     ? pipelines.filter(p => typeFilter === "staging" ? p.branch === "staging" : p.branch !== "staging")
     : pipelines;
 
-  const deletableInPage = filteredPipelines.filter((p) => !activeStatuses.has(p.status));
-  const allDeletableChecked = deletableInPage.length > 0 && checkedIds.size === deletableInPage.length;
+  const allInPage = filteredPipelines.map((p) => p.id);
+  const allDeletableChecked = allInPage.length > 0 && checkedIds.size === allInPage.length;
   const totalPages = Math.ceil(total / PAGE_SIZE);
 
   return (
@@ -244,7 +244,6 @@ export default function PRPipeline() {
             </thead>
             <tbody>
               {filteredPipelines.map((p) => {
-                const canDelete = !activeStatuses.has(p.status);
                 return (
                 <tr
                   key={p.id}
@@ -257,7 +256,6 @@ export default function PRPipeline() {
                     <input
                       type="checkbox"
                       checked={checkedIds.has(p.id)}
-                      disabled={!canDelete}
                       onChange={() => {}}
                       onClick={(e) => toggleCheck(e, p.id)}
                       className="rounded border-gray-300"
@@ -300,7 +298,6 @@ export default function PRPipeline() {
                   </td>
                   <td className="px-4 py-3 text-gray-500">{calcDuration(p)}</td>
                   <td className="px-4 py-3 text-center">
-                    {canDelete && (
                       <button
                         onClick={(e) => requestDelete(e, [p.id], `Pipeline #${p.id}`)}
                         disabled={deleting}
@@ -309,7 +306,6 @@ export default function PRPipeline() {
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
-                    )}
                   </td>
                 </tr>
                 );
