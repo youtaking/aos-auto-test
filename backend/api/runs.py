@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, BackgroundTasks
 from fastapi.responses import FileResponse, RedirectResponse, PlainTextResponse
 import yaml
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, text
 from backend.db.config import get_async_session, async_session
 from backend.db.models import TestRun, TestResult, TestCase, TestSuite, Project, AuthConfig, TestCollection, PRPipeline
 from backend.schemas.run import RunResponse, RunReport, ResultResponse
@@ -384,10 +384,12 @@ async def delete_run(run_id: int, db: AsyncSession = Depends(get_async_session))
     run = await db.get(TestRun, run_id)
     if not run:
         return ApiResponse(success=False, error="运行记录不存在")
-    # 先置空 pr_pipelines 中引用此 run 的记录
+    # 置空 pr_pipelines 中引用此 run 的记录
     pipelines = await db.execute(select(PRPipeline).where(PRPipeline.run_id == run_id))
     for p in pipelines.scalars().all():
         p.run_id = None
+    # 删除 ai_analysis_reports
+    await db.execute(text("DELETE FROM ai_analysis_reports WHERE run_id = :rid"), {"rid": run_id})
     # 删除测试结果
     results = await db.execute(select(TestResult).where(TestResult.run_id == run_id))
     for r in results.scalars().all():
@@ -895,10 +897,12 @@ async def batch_delete_runs(
 
     deleted_ids = []
     for run in runs:
-        # 先置空 pr_pipelines 中引用此 run 的记录
+        # 置空 pr_pipelines 中引用此 run 的记录
         pipelines = await db.execute(select(PRPipeline).where(PRPipeline.run_id == run.id))
         for p in pipelines.scalars().all():
             p.run_id = None
+        # 删除 ai_analysis_reports
+        await db.execute(text("DELETE FROM ai_analysis_reports WHERE run_id = :rid"), {"rid": run.id})
         await db.delete(run)
         deleted_ids.append(run.id)
 
