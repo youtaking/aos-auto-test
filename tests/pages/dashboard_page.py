@@ -10,11 +10,19 @@ class DashboardPage:
         self.url = f"{base_url}/ctrl/agent/dashboard"
 
     def goto(self):
-        try:
-            self.page.goto(self.url, wait_until="domcontentloaded")
-        except Exception:
-            pass  # SPA 路由可能中断初始导航
-        self.page.wait_for_load_state("domcontentloaded")
+        for _attempt in range(2):
+            try:
+                self.page.goto(self.url, wait_until="domcontentloaded")
+            except Exception:
+                pass  # SPA 路由可能中断初始导航
+            self.page.wait_for_load_state("domcontentloaded")
+            try:
+                self.page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+            except Exception:
+                pass
+            if self.page.locator("div.agent-panel-content").count() > 0:
+                break
+            self.page.wait_for_timeout(3000)
 
     def is_loaded(self) -> bool:
         return (

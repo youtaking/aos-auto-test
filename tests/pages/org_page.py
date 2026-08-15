@@ -16,12 +16,29 @@ class OrgPage:
 
     def goto(self):
         """通过侧边栏导航到组织管理页面"""
-        try:
-            self.page.goto(self.url, wait_until="domcontentloaded")
-        except Exception:
-            pass  # SPA 路由可能中断初始导航
-        self.page.wait_for_load_state("domcontentloaded")
-        # 等待组织按钮列表渲染完成
+        for _attempt in range(2):
+            try:
+                self.page.goto(self.url, wait_until="domcontentloaded")
+            except Exception:
+                pass  # SPA 路由可能中断初始导航
+            self.page.wait_for_load_state("domcontentloaded")
+            # 等待 React 渲染 + 组织按钮列表渲染完成
+            try:
+                self.page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+            except Exception:
+                pass
+            if self.page.locator("div.agent-panel-content").count() > 0:
+                break
+            self.page.wait_for_timeout(3000)
+        # 降级：侧边栏 SPA 导航
+        if self.page.locator("div.agent-panel-content").count() == 0:
+            nav_btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="组织")
+            if nav_btn.count() > 0:
+                nav_btn.first.click()
+                try:
+                    self.page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+                except Exception:
+                    pass
         try:
             self.page.locator("div.agent-panel-body button").first.wait_for(
                 state="visible", timeout=5000

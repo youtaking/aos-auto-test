@@ -19,6 +19,10 @@ class ChatTestPage:
         except Exception:
             pass  # SPA 路由可能中断初始导航
         self.page.wait_for_load_state("domcontentloaded")
+        try:
+            self.page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+        except Exception:
+            pass
         card = self.page.locator("button.agent-sidebar-agent-card").filter(has_text=agent_name)
         if card.count() == 0:
             return
@@ -308,11 +312,18 @@ class ChatTestPage:
         return False
 
     def click_send_button_during_streaming(self):
-        """在流式响应期间点击发送/停止按钮"""
-        textarea_parent = self.page.locator("textarea").locator("xpath=../../..")
+        """在流式响应期间点击停止生成按钮"""
+        # 优先用图标精确匹配停止按钮（Square 图标）
+        stop_btn = self.page.locator("button:has(svg.lucide-square)")
+        if stop_btn.count() > 0:
+            stop_btn.first.click()
+            self.page.wait_for_timeout(2000)
+            return
+        # fallback：从 textarea 向上找编辑区容器，取其中的按钮
+        textarea_parent = self.page.locator("textarea").locator("xpath=../..")
         btns = textarea_parent.locator("button")
-        if btns.count() >= 3:
-            btns.nth(2).click()
+        if btns.count() > 0:
+            btns.first.click()
             self.page.wait_for_timeout(2000)
 
     def try_send_empty(self):
@@ -452,5 +463,8 @@ class ChatTestPage:
     # === 刷新 ===
 
     def refresh_page(self):
-        self.page.reload()
+        try:
+            self.page.reload(wait_until="domcontentloaded")
+        except Exception:
+            pass
         self.page.wait_for_load_state("domcontentloaded")

@@ -10,11 +10,33 @@ class AgentPage:
         self.url = f"{base_url}/ctrl/agent/agents"
 
     def goto(self):
-        try:
-            self.page.goto(self.url, wait_until="domcontentloaded")
-        except Exception:
-            pass  # SPA 路由可能中断初始导航
-        self.page.wait_for_load_state("domcontentloaded")
+        for _attempt in range(2):
+            try:
+                self.page.goto(self.url, wait_until="domcontentloaded")
+            except Exception:
+                pass  # SPA 路由可能中断初始导航
+            self.page.wait_for_load_state("domcontentloaded")
+            # 等待 React 渲染完成
+            try:
+                self.page.locator("h1, h2").filter(has_text="智能体管理").first.wait_for(
+                    state="visible", timeout=8000
+                )
+                break  # 页面加载成功
+            except Exception:
+                pass
+            # React.lazy 加载 _panel layout 需要额外时间
+            if self.page.locator("div.agent-panel-content").count() > 0:
+                break
+            self.page.wait_for_timeout(3000)
+        # 降级：侧边栏 SPA 导航
+        if self.page.locator("div.agent-panel-content").count() == 0:
+            nav_btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="智能体管理")
+            if nav_btn.count() > 0:
+                nav_btn.first.click()
+                try:
+                    self.page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+                except Exception:
+                    pass
 
     def is_loaded(self) -> bool:
         """页面标题「智能体管理」可见"""

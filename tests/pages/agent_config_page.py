@@ -15,19 +15,50 @@ class AgentConfigPage:
     # ==================== 导航 ====================
 
     def goto_agents(self):
-        # 使用 /ctrl/agent/home（与 chat 测试一致），侧边栏更可靠
-        self.page.goto(self.create_url)
-        self.page.wait_for_load_state("domcontentloaded")
+        # SPA 导航优先（sidebar 测试已验证可靠），避免全页面刷新后 router 初始化问题
+        nav_btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="智能体管理")
+        if nav_btn.count() > 0:
+            nav_btn.first.click()
+            try:
+                self.page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+            except Exception:
+                pass
+            if "/ctrl/agent/agents" in self.page.url and self.page.locator("div.agent-panel-content").count() > 0:
+                return
+        # 降级：全页面刷新（SPA 导航失败时）
+        for _attempt in range(2):
+            try:
+                self.page.goto(self.agents_url, wait_until="domcontentloaded")
+            except Exception:
+                pass
+            self.page.wait_for_load_state("domcontentloaded")
+            try:
+                self.page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+            except Exception:
+                pass
+            if "/ctrl/agent/agents" in self.page.url and self.page.locator("div.agent-panel-content").count() > 0:
+                break
+            self.page.wait_for_timeout(3000)
 
     def goto_create(self):
         """导航到新建智能体页面（直接 URL 导航，不依赖侧边栏按钮）"""
         if "/ctrl/agent/home" in self.page.url:
             # 已在创建页面，先导航离开再回来确保 SPA 状态重置
-            self.page.goto(self.agents_url)
+            try:
+                self.page.goto(self.agents_url, wait_until="domcontentloaded")
+            except Exception:
+                pass
             self.page.wait_for_load_state("domcontentloaded")
         # 直接 URL 导航到创建页面（比侧边栏按钮更可靠，尤其在删除 agent 后的 chat 页面）
-        self.page.goto(self.create_url)
+        try:
+            self.page.goto(self.create_url, wait_until="domcontentloaded")
+        except Exception:
+            pass
         self.page.wait_for_load_state("domcontentloaded")
+        try:
+            self.page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+        except Exception:
+            pass
         # 等待 textarea 和模版卡片出现（SPA 动态渲染）
         try:
             self.page.locator("textarea").first.wait_for(
@@ -35,6 +66,15 @@ class AgentConfigPage:
             )
         except Exception:
             pass
+        # 降级：侧边栏 SPA 导航
+        if self.page.locator("textarea").count() == 0:
+            nav_btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="新建智能体")
+            if nav_btn.count() > 0:
+                nav_btn.first.click()
+                try:
+                    self.page.locator("textarea").first.wait_for(state="visible", timeout=10000)
+                except Exception:
+                    pass
         try:
             self.page.locator("button.agent-home-template-pill").first.wait_for(
                 state="visible", timeout=5000

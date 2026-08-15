@@ -146,6 +146,10 @@ class TestWorkflow:
             except Exception:
                 pass  # SPA 路由可能中断初始导航
             logged_in_page.wait_for_load_state("domcontentloaded")
+            try:
+                logged_in_page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+            except Exception:
+                pass
             assert "/workflow/" in logged_in_page.url, \
                 f"未跳转到编辑页: {logged_in_page.url}"
             # 等待 ReactFlow 画布渲染（异步加载，需要时间）
@@ -177,6 +181,10 @@ class TestWorkflow:
             except Exception:
                 pass  # SPA 路由可能中断初始导航
             logged_in_page.wait_for_load_state("domcontentloaded")
+            try:
+                logged_in_page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+            except Exception:
+                pass
             # 查找添加节点按钮或节点面板
             add_btn = logged_in_page.get_by_role("button", name="添加节点").or_(
                 loc.button_by_name_or_title(logged_in_page, "添加")
@@ -210,6 +218,10 @@ class TestWorkflow:
             except Exception:
                 pass  # SPA 路由可能中断初始导航
             logged_in_page.wait_for_load_state("domcontentloaded")
+            try:
+                logged_in_page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+            except Exception:
+                pass
             # 等待编辑器 React 组件加载
             try:
                 logged_in_page.locator(".react-flow, button").filter(
@@ -245,6 +257,10 @@ class TestWorkflow:
             except Exception:
                 pass  # SPA 路由可能中断初始导航
             logged_in_page.wait_for_load_state("domcontentloaded")
+            try:
+                logged_in_page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+            except Exception:
+                pass
             # 等待编辑器 React 组件加载
             try:
                 logged_in_page.locator(".react-flow").first.wait_for(
@@ -283,6 +299,10 @@ class TestWorkflow:
             except Exception:
                 pass  # SPA 路由可能中断初始导航
             logged_in_page.wait_for_load_state("domcontentloaded")
+            try:
+                logged_in_page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+            except Exception:
+                pass
             version_link = logged_in_page.get_by_role("link", name="版本").or_(
                 logged_in_page.locator("button").filter(has_text="版本")
             )
@@ -322,6 +342,10 @@ class TestWorkflow:
                 except Exception:
                     pass  # SPA 路由可能中断初始导航
                 logged_in_page.wait_for_load_state("domcontentloaded")
+            try:
+                logged_in_page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+            except Exception:
+                pass
                 run_btn = loc.run_or_execute_button(logged_in_page)
                 assert run_btn.count() > 0, "无运行或执行按钮"
         finally:
@@ -366,6 +390,10 @@ class TestWorkflow:
             except Exception:
                 pass  # SPA 路由可能中断初始导航
             logged_in_page.wait_for_load_state("domcontentloaded")
+            try:
+                logged_in_page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+            except Exception:
+                pass
             trigger_ui = loc.button_by_name_or_title(logged_in_page, "触发器").or_(
                 logged_in_page.locator('[role="tab"]').filter(has_text="触发器")
             )
@@ -390,6 +418,10 @@ class TestWorkflow:
             except Exception:
                 pass  # SPA 路由可能中断初始导航
             logged_in_page.wait_for_load_state("domcontentloaded")
+            try:
+                logged_in_page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+            except Exception:
+                pass
             assert "/workflow/" in logged_in_page.url and "/edit" in logged_in_page.url, \
                 f"未进入编辑器: {logged_in_page.url}"
             # 等待 ReactFlow 画布加载
@@ -447,6 +479,10 @@ class TestWorkflow:
             except Exception:
                 pass  # SPA 路由可能中断初始导航
             logged_in_page.wait_for_load_state("domcontentloaded")
+            try:
+                logged_in_page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+            except Exception:
+                pass
             # SSE 或 WebSocket 连接应至少有一个
             has_realtime = len(sse_connections) > 0 or len(ws_connections) > 0
             if not has_realtime:
@@ -482,6 +518,10 @@ class TestWorkflow:
             except Exception:
                 pass  # SPA 路由可能中断初始导航
             logged_in_page.wait_for_load_state("domcontentloaded")
+            try:
+                logged_in_page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+            except Exception:
+                pass
         else:
             run_link.first.click()
             logged_in_page.wait_for_timeout(800)
@@ -586,6 +626,10 @@ class TestWorkflow:
             except Exception:
                 pass  # SPA 路由可能中断初始导航
             logged_in_page.wait_for_load_state("domcontentloaded")
+            try:
+                logged_in_page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+            except Exception:
+                pass
 
             run_btn = loc.run_or_execute_button(logged_in_page)
             if run_btn.count() == 0:
@@ -625,6 +669,10 @@ class TestWorkflow:
             except Exception:
                 pass  # SPA 路由可能中断初始导航
             logged_in_page.wait_for_load_state("domcontentloaded")
+            try:
+                logged_in_page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+            except Exception:
+                pass
 
             yaml_btn = logged_in_page.locator("button").filter(has_text="YAML")
             if yaml_btn.count() == 0:

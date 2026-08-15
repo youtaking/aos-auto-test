@@ -15,16 +15,34 @@ class McpServerPage:
     # === 导航 ===
 
     def goto(self):
-        try:
-            self.page.goto(self.url, wait_until="domcontentloaded")
-        except Exception:
-            # SPA 路由可能中断初始导航（net::ERR_ABORTED），回退等待当前页面稳定
-            pass
-        self.page.wait_for_load_state("domcontentloaded")
+        # SPA 导航优先（sidebar 测试已验证可靠），避免全页面刷新后 router 初始化问题
+        nav_btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="MCP")
+        if nav_btn.count() > 0:
+            nav_btn.first.click()
+            try:
+                self.page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+            except Exception:
+                pass
+            if self.is_loaded():
+                return
+        # 降级：全页面刷新（SPA 导航失败时）
+        for _attempt in range(2):
+            try:
+                self.page.goto(self.url, wait_until="domcontentloaded")
+            except Exception:
+                pass
+            self.page.wait_for_load_state("domcontentloaded")
+            try:
+                self.page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+            except Exception:
+                pass
+            if self.is_loaded():
+                break
+            self.page.wait_for_timeout(3000)
 
     def is_loaded(self) -> bool:
-        """页面标题「MCP 服务器」可见"""
-        return "/ctrl/agent/mcp" in self.page.url and self.page.locator("div.agent-panel-body").count() > 0
+        """MCP 页面内容已加载"""
+        return "/ctrl/agent/mcp" in self.page.url and self.page.locator("div.agent-panel-content").count() > 0
 
     # === 搜索 ===
 

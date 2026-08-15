@@ -12,11 +12,28 @@ class SitesListPage:
         self.url = f"{base_url}/ctrl/agent/sites"
 
     def goto(self):
-        try:
-            self.page.goto(self.url, wait_until="domcontentloaded")
-        except Exception:
-            pass  # SPA 路由可能中断初始导航
-        self.page.wait_for_load_state("domcontentloaded")
+        for _attempt in range(2):
+            try:
+                self.page.goto(self.url, wait_until="domcontentloaded")
+            except Exception:
+                pass
+            self.page.wait_for_load_state("domcontentloaded")
+            try:
+                self.page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+            except Exception:
+                pass
+            if self.page.locator("div.agent-panel-content").count() > 0:
+                break
+            self.page.wait_for_timeout(3000)
+        # 降级：侧边栏 SPA 导航
+        if self.page.locator("div.agent-panel-content").count() == 0:
+            nav_btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="AOS应用部署")
+            if nav_btn.count() > 0:
+                nav_btn.first.click()
+                try:
+                    self.page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+                except Exception:
+                    pass
 
     def is_loaded(self) -> bool:
         return "/ctrl/agent/sites" in self.page.url and self.page.locator("div.agent-panel-content").count() > 0
@@ -289,18 +306,42 @@ class SiteBuilderChatPage:
     def goto_builder_chat(self):
         """进入建站助手对话页"""
         # 先到首页
-        self.page.goto(f"{self.base_url}/ctrl/agent/home")
+        try:
+            self.page.goto(f"{self.base_url}/ctrl/agent/home", wait_until="domcontentloaded")
+        except Exception:
+            pass  # SPA 路由可能中断初始导航
         self.page.wait_for_load_state("domcontentloaded")
+        try:
+            self.page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+        except Exception:
+            pass
 
-        # 滚动侧边栏找到建站助手
+        # 滚动侧边栏找到建站助手（带重试，侧边栏可能懒加载）
         builder_card = self.page.locator("button.agent-sidebar-agent-card").filter(
             has_text="建站助手"
         )
-        if builder_card.count() > 0:
-            builder_card.first.scroll_into_view_if_needed()
-            self.page.wait_for_timeout(300)
-            builder_card.first.click()
-            self.page.wait_for_timeout(1000)
+        for _attempt in range(3):
+            if builder_card.count() > 0:
+                builder_card.first.scroll_into_view_if_needed()
+                self.page.wait_for_timeout(300)
+                builder_card.first.click()
+                # 等待聊天输入框出现（WebSocket 连接需要时间）
+                try:
+                    self.page.locator("textarea").first.wait_for(
+                        state="visible", timeout=20000
+                    )
+                except Exception:
+                    self.page.wait_for_timeout(2000)
+                return
+            # 侧边栏可能懒加载，滚动触发加载
+            sidebar = self.page.locator("div.agent-sidebar-tree")
+            if sidebar.count() > 0:
+                sidebar.first.evaluate("el => el.scrollTop = el.scrollHeight")
+                self.page.wait_for_timeout(800)
+                sidebar.first.evaluate("el => el.scrollTop = 0")
+                self.page.wait_for_timeout(500)
+            else:
+                self.page.wait_for_timeout(1000)
 
     def is_chat_loaded(self) -> bool:
         """对话页是否加载"""

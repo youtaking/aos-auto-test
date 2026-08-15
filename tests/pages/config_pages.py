@@ -11,15 +11,36 @@ class ModelsPage:
         self.base_url = base_url
         self.url = f"{base_url}/ctrl/agent/models"
 
+    # 页面就绪标识：搜索输入框
+    _READY_SELECTOR = "input[placeholder*='搜索服务商']"
+
     def goto(self):
-        try:
-            self.page.goto(self.url, wait_until="domcontentloaded")
-        except Exception:
-            pass  # SPA 路由可能中断初始导航（net::ERR_ABORTED）
-        self.page.wait_for_load_state("domcontentloaded")
+        for _attempt in range(2):
+            try:
+                self.page.goto(self.url, wait_until="domcontentloaded")
+            except Exception:
+                pass  # SPA 路由可能中断初始导航（net::ERR_ABORTED）
+            self.page.wait_for_load_state("domcontentloaded")
+            try:
+                self.page.locator(self._READY_SELECTOR).first.wait_for(state="attached", timeout=15000)
+            except Exception:
+                pass
+            if self.is_loaded():
+                break
+            self.page.wait_for_timeout(3000)
+        # 降级：侧边栏 SPA 导航
+        if not self.is_loaded():
+            nav_btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="模型库")
+            if nav_btn.count() > 0:
+                nav_btn.first.click()
+                try:
+                    self.page.locator(self._READY_SELECTOR).first.wait_for(state="attached", timeout=15000)
+                except Exception:
+                    pass
 
     def is_loaded(self) -> bool:
-        return self.page.locator("h1, h2").filter(has_text="模型库").count() > 0
+        return "/ctrl/agent/models" in self.page.url and \
+            self.page.locator(self._READY_SELECTOR).count() > 0
 
     def has_model_list(self) -> bool:
         """是否有模型列表内容"""
@@ -53,19 +74,46 @@ class SkillsPage:
         self.base_url = base_url
         self.url = f"{base_url}/ctrl/agent/skills"
 
+    # 页面就绪标识：搜索输入框
+    _READY_SELECTOR = "input[placeholder*='搜索技能']"
+
     def goto(self):
-        try:
-            self.page.goto(self.url, wait_until="domcontentloaded")
-        except Exception:
-            pass  # SPA 路由可能中断初始导航（net::ERR_ABORTED）
-        self.page.wait_for_load_state("domcontentloaded")
+        # SPA 导航优先（sidebar 测试已验证可靠），避免全页面刷新后 router 初始化问题
+        nav_btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="技能库")
+        if nav_btn.count() > 0:
+            nav_btn.first.click()
+            try:
+                self.page.locator(self._READY_SELECTOR).first.wait_for(state="attached", timeout=15000)
+            except Exception:
+                pass
+            if self.is_loaded():
+                return
+        # 降级：全页面刷新（SPA 导航失败时）
+        for _attempt in range(2):
+            try:
+                self.page.goto(self.url, wait_until="domcontentloaded")
+            except Exception:
+                pass
+            self.page.wait_for_load_state("domcontentloaded")
+            try:
+                self.page.locator(self._READY_SELECTOR).first.wait_for(state="attached", timeout=15000)
+            except Exception:
+                pass
+            if self.is_loaded():
+                break
+            self.page.wait_for_timeout(3000)
 
     def is_loaded(self) -> bool:
-        return self.page.locator("h1, h2").filter(has_text="技能管理").count() > 0
+        return "/ctrl/agent/skills" in self.page.url and \
+            self.page.locator(self._READY_SELECTOR).count() > 0
 
     def get_skill_count(self) -> int:
-        """获取技能列表项数量（通过删除按钮数量判断）"""
-        return self.page.locator("button").filter(has_text="删除").count()
+        """获取技能列表项数量（通过技能卡片容器计数）"""
+        cards = self.page.locator("div.group.relative")
+        if cards.count() > 0:
+            return cards.count()
+        # fallback：搜索框存在说明页面已加载，用 API 返回数量
+        return 0
 
     def get_skill_names(self) -> list[str]:
         """获取技能名称列表（从 API 拦截）"""
@@ -82,7 +130,10 @@ class SkillsPage:
                     pass
 
         self.page.on("response", on_resp)
-        self.page.reload()
+        try:
+            self.page.reload(wait_until="domcontentloaded")
+        except Exception:
+            pass
         self.page.wait_for_load_state("domcontentloaded")
         return skills_data
 
@@ -100,7 +151,10 @@ class SkillsPage:
 
     def get_visible_skill_cards(self) -> int:
         """获取当前可见的技能卡片数量（搜索过滤后）"""
-        return self.page.locator("button").filter(has_text="删除").count()
+        cards = self.page.locator("div.group.relative")
+        if cards.count() > 0:
+            return cards.count()
+        return 0
 
     def has_upload_button(self) -> bool:
         return self.page.locator("button").filter(has_text="上传技能").count() > 0
@@ -122,15 +176,36 @@ class McpPage:
         self.base_url = base_url
         self.url = f"{base_url}/ctrl/agent/mcp"
 
+    # 页面就绪标识：搜索输入框
+    _READY_SELECTOR = "input[placeholder*='搜索 MCP'], input[placeholder*='搜索MCP']"
+
     def goto(self):
-        try:
-            self.page.goto(self.url, wait_until="domcontentloaded")
-        except Exception:
-            pass  # SPA 路由可能中断初始导航（net::ERR_ABORTED）
-        self.page.wait_for_load_state("domcontentloaded")
+        for _attempt in range(2):
+            try:
+                self.page.goto(self.url, wait_until="domcontentloaded")
+            except Exception:
+                pass  # SPA 路由可能中断初始导航（net::ERR_ABORTED）
+            self.page.wait_for_load_state("domcontentloaded")
+            try:
+                self.page.locator(self._READY_SELECTOR).first.wait_for(state="attached", timeout=15000)
+            except Exception:
+                pass
+            if self.is_loaded():
+                break
+            self.page.wait_for_timeout(3000)
+        # 降级：侧边栏 SPA 导航
+        if not self.is_loaded():
+            nav_btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="MCP")
+            if nav_btn.count() > 0:
+                nav_btn.first.click()
+                try:
+                    self.page.locator(self._READY_SELECTOR).first.wait_for(state="attached", timeout=15000)
+                except Exception:
+                    pass
 
     def is_loaded(self) -> bool:
-        return self.page.locator("h1, h2").filter(has_text="MCP").count() > 0
+        return "/ctrl/agent/mcp" in self.page.url and \
+            self.page.locator(self._READY_SELECTOR).count() > 0
 
     def search(self, keyword: str):
         inp = self.page.locator("input[placeholder*='搜索 MCP'], input[placeholder*='搜索MCP']")
@@ -161,15 +236,36 @@ class SitesPage:
         self.base_url = base_url
         self.url = f"{base_url}/ctrl/agent/sites"
 
+    # 页面就绪标识：搜索输入框
+    _READY_SELECTOR = "input[placeholder*='搜索 app'], input[placeholder*='搜索app']"
+
     def goto(self):
-        try:
-            self.page.goto(self.url, wait_until="domcontentloaded")
-        except Exception:
-            pass  # SPA 路由可能中断初始导航（net::ERR_ABORTED）
-        self.page.wait_for_load_state("domcontentloaded")
+        for _attempt in range(2):
+            try:
+                self.page.goto(self.url, wait_until="domcontentloaded")
+            except Exception:
+                pass  # SPA 路由可能中断初始导航（net::ERR_ABORTED）
+            self.page.wait_for_load_state("domcontentloaded")
+            try:
+                self.page.locator(self._READY_SELECTOR).first.wait_for(state="attached", timeout=15000)
+            except Exception:
+                pass
+            if self.is_loaded():
+                break
+            self.page.wait_for_timeout(3000)
+        # 降级：侧边栏 SPA 导航
+        if not self.is_loaded():
+            nav_btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="AOS应用部署")
+            if nav_btn.count() > 0:
+                nav_btn.first.click()
+                try:
+                    self.page.locator(self._READY_SELECTOR).first.wait_for(state="attached", timeout=15000)
+                except Exception:
+                    pass
 
     def is_loaded(self) -> bool:
-        return self.page.locator("h1, h2").filter(has_text="Agent Sites").count() > 0
+        return "/ctrl/agent/sites" in self.page.url and \
+            self.page.locator(self._READY_SELECTOR).count() > 0
 
     def get_filter_tabs(self) -> list[str]:
         """获取筛选 Tab 列表"""

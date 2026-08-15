@@ -43,6 +43,11 @@ def _create_provider_via_api(page, base_url, provider_id, name, protocol="openai
 
     if _req and resp.status == 200:
         register_cleanup(_req, lambda: _delete_provider_via_api(page, base_url, provider_id))
+    elif resp.status != 200:
+        import logging
+        logging.getLogger("test_model_config").warning(
+            f"Provider 创建失败: status={resp.status}, body={resp.text()[:200]}"
+        )
 
     return resp
 
@@ -153,14 +158,32 @@ def test_model_002_add_openai_provider(logged_in_page, base_url, request):
 
     # 弹窗应关闭
     logged_in_page.wait_for_timeout(800)
-    assert not mc.is_dialog_open(), "保存后弹窗未关闭"
+    dialog_still_open = mc.is_dialog_open()
+    if dialog_still_open:
+        # 弹窗未关闭可能有表单校验错误
+        validation = mc.get_form_validation_text()
+        mc.close_dialog()
+        assert False, f"保存后弹窗未关闭，可能有校验错误: '{validation}'"
 
     # 刷新页面验证
     mc.goto()
 
     # 3. Provider 创建成功 — 列表中出现新 Provider
-    assert mc.has_provider(_TEST_PROVIDER_ID), \
-        f"Provider '{_TEST_PROVIDER_ID}' 未出现在列表中"
+    provider_found = mc.has_provider(_TEST_PROVIDER_ID)
+    if not provider_found:
+        # 诊断：检查 API 调用结果和当前列表内容
+        put_calls = [r for r in api_responses if r["method"] == "PUT"]
+        api_info = ""
+        if put_calls:
+            api_info = f"PUT status={put_calls[0]['status']}, body={json.dumps(put_calls[0].get('body', {}), ensure_ascii=False)[:200]}"
+        else:
+            api_info = "无 PUT 请求"
+        current_names = mc.get_provider_names()
+        assert False, (
+            f"Provider '{_TEST_PROVIDER_ID}' 未出现在列表中\n"
+            f"  API: {api_info}\n"
+            f"  当前 providers: {current_names[:5]}"
+        )
     new_count = mc.get_provider_count()
     assert new_count == initial_count + 1, \
         f"Provider 数量未增加: {new_count} vs {initial_count + 1}"
@@ -259,12 +282,19 @@ def test_model_004_api_key_empty_allowed(logged_in_page, base_url, request):
     logged_in_page.wait_for_timeout(800)
 
     # 弹窗应关闭（不被拦截）
-    assert not mc.is_dialog_open(), "不填 API Key 时弹窗应正常关闭"
+    if mc.is_dialog_open():
+        validation = mc.get_form_validation_text()
+        mc.close_dialog()
+        assert False, f"不填 API Key 时弹窗未关闭，可能有校验错误: '{validation}'"
 
     # 刷新验证 Provider 已创建
     mc.goto()
-    assert mc.has_provider(provider_id), \
-        f"不填 API Key 的 Provider '{provider_id}' 未出现在列表中"
+    if not mc.has_provider(provider_id):
+        current_names = mc.get_provider_names()
+        assert False, (
+            f"不填 API Key 的 Provider '{provider_id}' 未出现在列表中\n"
+            f"  当前 providers: {current_names[:5]}"
+        )
     assert mc.get_provider_count() == initial_count + 1, \
         "Provider 数量未增加"
 

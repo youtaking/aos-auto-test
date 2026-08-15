@@ -10,7 +10,18 @@ def test_vertical_models_page_loads(logged_in_page, base_url):
     """垂直模型库页面能正常加载 | ✅ 人工评审通过 |"""
     vm = VerticalModelsPage(logged_in_page, base_url)
     vm.goto()
-    assert vm.is_loaded(), "垂直模型库页面未加载"
+    if not vm.is_loaded():
+        url = logged_in_page.url
+        panel_body = logged_in_page.locator("div.agent-panel-body").count()
+        panel_content = logged_in_page.locator("div.agent-panel-content").count()
+        body_text = logged_in_page.locator("body").inner_text()[:300]
+        assert False, (
+            f"垂直模型库页面未加载\n"
+            f"  URL: {url}\n"
+            f"  agent-panel-body: {panel_body}\n"
+            f"  agent-panel-content: {panel_content}\n"
+            f"  body text: {body_text}"
+        )
 
 
 @pytest.mark.order(101)

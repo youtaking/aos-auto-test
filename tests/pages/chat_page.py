@@ -10,8 +10,15 @@ class ChatPage:
 
     def goto_home(self):
         """进入首页（对话创建页）"""
-        self.page.goto(f"{self.base_url}/ctrl/agent/home")
+        try:
+            self.page.goto(f"{self.base_url}/ctrl/agent/home", wait_until="domcontentloaded")
+        except Exception:
+            pass
         self.page.wait_for_load_state("domcontentloaded")
+        try:
+            self.page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+        except Exception:
+            pass
 
     def is_home_loaded(self) -> bool:
         """首页是否加载完成"""

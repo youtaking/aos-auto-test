@@ -30,12 +30,34 @@ def _safe_remove(path: str):
 _PREFIX = f"e2e-{uuid.uuid4().hex[:6]}"
 
 
+@pytest.fixture(autouse=True)
+def _check_embedding_models(env_check):
+    """知识库测试依赖 embedding 模型，环境未配置时全部跳过"""
+    if not env_check.get("has_embedding_models", False):
+        pytest.skip("测试环境无可用的 embedding 模型，知识库测试全部跳过")
+
+
 def _create_kb_api(page, base_url, name, desc=""):
-    return page.request.post(
+    resp = page.request.post(
         f"{base_url}/web/knowledgeBases",
         data=json.dumps({"name": name, "description": desc}),
         headers={"Content-Type": "application/json"},
     )
+    return resp
+
+
+def _assert_kb_created(resp):
+    """断言知识库创建成功，失败时附带响应体便于诊断"""
+    if resp.status != 200:
+        body_text = ""
+        try:
+            body_text = json.dumps(resp.json(), ensure_ascii=False)[:300]
+        except Exception:
+            try:
+                body_text = resp.text()[:300]
+            except Exception:
+                pass
+        assert False, f"创建测试知识库失败: status={resp.status}, body={body_text}"
 
 
 def _delete_kb_api(page, base_url, kb_id):
@@ -227,6 +249,10 @@ def test_kb_004_upload_file(logged_in_page, base_url, request):
         except Exception:
             pass  # SPA 路由可能中断初始导航
         logged_in_page.wait_for_load_state("domcontentloaded")
+        try:
+            logged_in_page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+        except Exception:
+            pass
 
         # 验证详情页加载
         assert "返回知识库列表" in logged_in_page.inner_text("body"), \
@@ -318,6 +344,10 @@ def test_kb_007_delete_resource(logged_in_page, base_url, request):
         except Exception:
             pass  # SPA 路由可能中断初始导航
         logged_in_page.wait_for_load_state("domcontentloaded")
+        try:
+            logged_in_page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+        except Exception:
+            pass
 
         # 1. 上传文件
         upload_btn = logged_in_page.get_by_role("button", name="上传")
@@ -484,6 +514,10 @@ def test_kb_010_detail_panel(logged_in_page, base_url):
     except Exception:
         pass  # SPA 路由可能中断初始导航
     logged_in_page.wait_for_load_state("domcontentloaded")
+    try:
+        logged_in_page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+    except Exception:
+        pass
 
     body_text = logged_in_page.inner_text("body")
 
@@ -533,6 +567,10 @@ def test_kb_011_upload_duplicate_confirm(logged_in_page, base_url, request):
         except Exception:
             pass  # SPA 路由可能中断初始导航
         logged_in_page.wait_for_load_state("domcontentloaded")
+        try:
+            logged_in_page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+        except Exception:
+            pass
 
         # 第一次上传
         upload_btn = logged_in_page.get_by_role("button", name="上传")
@@ -596,8 +634,7 @@ def test_kb_012_parse_status_polling(logged_in_page, base_url, request):
     """TC-KB-012: 资源解析状态轮询 — 上传文件后解析状态从 pending 变为 completed"""
     kb_name = f"parse-{_PREFIX}"
     create_resp = _create_kb_api(logged_in_page, base_url, kb_name)
-    assert create_resp.status == 200, \
-        f"创建测试知识库失败: status={create_resp.status}"
+    _assert_kb_created(create_resp)
     kb_id = create_resp.json()["data"]["id"]
     register_cleanup(request, lambda kid=kb_id: _delete_kb_api(logged_in_page, base_url, kid))
 
@@ -611,6 +648,10 @@ def test_kb_012_parse_status_polling(logged_in_page, base_url, request):
         except Exception:
             pass  # SPA 路由可能中断初始导航
         logged_in_page.wait_for_load_state("domcontentloaded")
+        try:
+            logged_in_page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+        except Exception:
+            pass
 
         # 上传文件
         upload_btn = logged_in_page.get_by_role("button", name="上传")
@@ -663,8 +704,7 @@ def test_kb_013_reparse_resource(logged_in_page, base_url, request):
     """TC-KB-013: 重新解析资源 — 点击重新解析，可选删除旧分块"""
     kb_name = f"reparse-{_PREFIX}"
     create_resp = _create_kb_api(logged_in_page, base_url, kb_name)
-    assert create_resp.status == 200, \
-        f"创建测试知识库失败: status={create_resp.status}"
+    _assert_kb_created(create_resp)
     kb_id = create_resp.json()["data"]["id"]
     register_cleanup(request, lambda kid=kb_id: _delete_kb_api(logged_in_page, base_url, kid))
 
@@ -678,6 +718,10 @@ def test_kb_013_reparse_resource(logged_in_page, base_url, request):
         except Exception:
             pass  # SPA 路由可能中断初始导航
         logged_in_page.wait_for_load_state("domcontentloaded")
+        try:
+            logged_in_page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+        except Exception:
+            pass
 
         # 上传文件并等待解析完成
         upload_btn = logged_in_page.get_by_role("button", name="上传")
@@ -710,8 +754,15 @@ def test_kb_013_reparse_resource(logged_in_page, base_url, request):
             time.sleep(5)
 
         # 刷新页面
-        logged_in_page.reload()
+        try:
+            logged_in_page.reload(wait_until="domcontentloaded")
+        except Exception:
+            pass
         logged_in_page.wait_for_load_state("domcontentloaded")
+        try:
+            logged_in_page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+        except Exception:
+            pass
 
         file_name = os.path.basename(test_file)
         assert logged_in_page.locator(f"text={file_name}").count() > 0, \
@@ -795,6 +846,10 @@ def test_kb_014_retrieval_test_panel(logged_in_page, base_url):
     except Exception:
         pass  # SPA 路由可能中断初始导航
     logged_in_page.wait_for_load_state("domcontentloaded")
+    try:
+        logged_in_page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+    except Exception:
+        pass
 
     # 点击检索测试 Tab
     retrieval_tab = loc.tab_by_name(logged_in_page, "检索测试")
@@ -849,6 +904,10 @@ def test_kb_015_knowledge_graph(logged_in_page, base_url):
     except Exception:
         pass  # SPA 路由可能中断初始导航
     logged_in_page.wait_for_load_state("domcontentloaded")
+    try:
+        logged_in_page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+    except Exception:
+        pass
 
     body_text = logged_in_page.inner_text("body")
     assert "返回知识库列表" in body_text, "知识库详情页未加载"
@@ -893,6 +952,10 @@ def test_kb_016_vector_model_management(logged_in_page, base_url):
     except Exception:
         pass  # SPA 路由可能中断初始导航
     logged_in_page.wait_for_load_state("domcontentloaded")
+    try:
+        logged_in_page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+    except Exception:
+        pass
 
     body_text = logged_in_page.inner_text("body")
     assert "返回知识库列表" in body_text, "知识库详情页未加载"
@@ -968,6 +1031,10 @@ def test_kb_017_ragflow_import(logged_in_page, base_url):
                 f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}"
             )
             logged_in_page.wait_for_load_state("domcontentloaded")
+        try:
+            logged_in_page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+        except Exception:
+            pass
 
             detail_ragflow = logged_in_page.locator("button").filter(has_text="RAGFlow")
             if detail_ragflow.count() > 0:
@@ -992,8 +1059,7 @@ def test_kb_018_resource_preview(logged_in_page, base_url, request):
     """TC-KB-018: 资源预览 — 点击资源预览，展示文件内容"""
     kb_name = f"preview-{_PREFIX}"
     create_resp = _create_kb_api(logged_in_page, base_url, kb_name)
-    assert create_resp.status == 200, \
-        f"创建测试知识库失败: status={create_resp.status}"
+    _assert_kb_created(create_resp)
     kb_id = create_resp.json()["data"]["id"]
     register_cleanup(request, lambda kid=kb_id: _delete_kb_api(logged_in_page, base_url, kid))
 
@@ -1008,6 +1074,10 @@ def test_kb_018_resource_preview(logged_in_page, base_url, request):
         except Exception:
             pass  # SPA 路由可能中断初始导航
         logged_in_page.wait_for_load_state("domcontentloaded")
+        try:
+            logged_in_page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+        except Exception:
+            pass
 
         # 上传文件
         upload_btn = logged_in_page.get_by_role("button", name="上传")
@@ -1016,6 +1086,10 @@ def test_kb_018_resource_preview(logged_in_page, base_url, request):
             upload_btn.first.click()
         fc_info.value.set_files(test_file)
         logged_in_page.wait_for_load_state("domcontentloaded")
+        try:
+            logged_in_page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+        except Exception:
+            pass
 
         # 等待解析完成
         for _ in range(12):
@@ -1031,8 +1105,15 @@ def test_kb_018_resource_preview(logged_in_page, base_url, request):
             time.sleep(5)
 
         # 刷新页面
-        logged_in_page.reload()
+        try:
+            logged_in_page.reload(wait_until="domcontentloaded")
+        except Exception:
+            pass
         logged_in_page.wait_for_load_state("domcontentloaded")
+        try:
+            logged_in_page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+        except Exception:
+            pass
 
         file_name = os.path.basename(test_file)
         assert logged_in_page.locator(f"text={file_name}").count() > 0, \
@@ -1096,8 +1177,7 @@ def test_kb_019_toggle_resource_enabled(logged_in_page, base_url, request):
     """TC-KB-019: 资源启用/禁用 Switch — 切换资源的启用/禁用状态"""
     kb_name = f"toggle-{_PREFIX}"
     create_resp = _create_kb_api(logged_in_page, base_url, kb_name)
-    assert create_resp.status == 200, \
-        f"创建测试知识库失败: status={create_resp.status}"
+    _assert_kb_created(create_resp)
     kb_id = create_resp.json()["data"]["id"]
     register_cleanup(request, lambda kid=kb_id: _delete_kb_api(logged_in_page, base_url, kid))
 
@@ -1111,6 +1191,10 @@ def test_kb_019_toggle_resource_enabled(logged_in_page, base_url, request):
         except Exception:
             pass  # SPA 路由可能中断初始导航
         logged_in_page.wait_for_load_state("domcontentloaded")
+        try:
+            logged_in_page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+        except Exception:
+            pass
 
         # 上传文件
         upload_btn = logged_in_page.get_by_role("button", name="上传")
@@ -1119,6 +1203,10 @@ def test_kb_019_toggle_resource_enabled(logged_in_page, base_url, request):
             upload_btn.first.click()
         fc_info.value.set_files(test_file)
         logged_in_page.wait_for_load_state("domcontentloaded")
+        try:
+            logged_in_page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+        except Exception:
+            pass
 
         # 查找资源行的 Switch
         switch = logged_in_page.locator("[role='switch']")
@@ -1152,8 +1240,7 @@ def test_kb_020_edit_kb_info(logged_in_page, base_url, request):
     """TC-KB-020: 知识库编辑（修改名称/描述）"""
     kb_name = f"edit-{_PREFIX}"
     create_resp = _create_kb_api(logged_in_page, base_url, kb_name, desc="原始描述")
-    assert create_resp.status == 200, \
-        f"创建测试知识库失败: status={create_resp.status}"
+    _assert_kb_created(create_resp)
     kb_id = create_resp.json()["data"]["id"]
     register_cleanup(request, lambda kid=kb_id: _delete_kb_api(logged_in_page, base_url, kid))
 
@@ -1163,6 +1250,10 @@ def test_kb_020_edit_kb_info(logged_in_page, base_url, request):
         except Exception:
             pass  # SPA 路由可能中断初始导航
         logged_in_page.wait_for_load_state("domcontentloaded")
+        try:
+            logged_in_page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+        except Exception:
+            pass
 
         body_text = logged_in_page.inner_text("body")
         assert "返回知识库列表" in body_text, "知识库详情页未加载"
