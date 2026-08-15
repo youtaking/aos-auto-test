@@ -552,19 +552,19 @@ async def delete_pipeline(
     pipeline_id: int,
     db: AsyncSession = Depends(get_async_session),
 ):
-    """删除单条 PR Pipeline 记录"""
+    """删除单条 PR Pipeline 记录（级联删除关联的单元测试结果）"""
     pipeline = await db.get(PRPipeline, pipeline_id)
     if not pipeline:
         return ApiResponse(success=False, error=f"Pipeline #{pipeline_id} 不存在")
     if _is_truly_active(pipeline):
         return ApiResponse(success=False, error="运行中的 Pipeline 不能删除，请先取消")
-    # 置空引用此 pipeline 的 unit_test_results 和 unit_test_runs
+    # 删除关联的 unit_test_results 和 unit_test_runs
     ut_results = await db.execute(select(UnitTestResult).where(UnitTestResult.pipeline_id == pipeline_id))
     for r in ut_results.scalars().all():
-        r.pipeline_id = None
+        await db.delete(r)
     ut_runs = await db.execute(select(UnitTestRun).where(UnitTestRun.pipeline_id == pipeline_id))
     for r in ut_runs.scalars().all():
-        r.pipeline_id = None
+        await db.delete(r)
     await db.delete(pipeline)
     await db.commit()
     return ApiResponse(data={"deleted": pipeline_id})
@@ -590,13 +590,13 @@ async def batch_delete_pipelines(
 
     deleted_ids = []
     for pipeline in pipelines:
-        # 置空引用此 pipeline 的 unit_test_results 和 unit_test_runs
+        # 删除关联的 unit_test_results 和 unit_test_runs
         ut_results = await db.execute(select(UnitTestResult).where(UnitTestResult.pipeline_id == pipeline.id))
         for r in ut_results.scalars().all():
-            r.pipeline_id = None
+            await db.delete(r)
         ut_runs = await db.execute(select(UnitTestRun).where(UnitTestRun.pipeline_id == pipeline.id))
         for r in ut_runs.scalars().all():
-            r.pipeline_id = None
+            await db.delete(r)
         await db.delete(pipeline)
         deleted_ids.append(pipeline.id)
 
