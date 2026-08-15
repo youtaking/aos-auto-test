@@ -1,4 +1,4 @@
-import { get, post } from "./client";
+import { get, post, del } from "./client";
 import type { TestRun, TestResult } from "./types";
 
 export const listRuns = (params?: { project_id?: number; status?: string; trigger_type?: string; page?: number }) =>
@@ -7,6 +7,9 @@ export const getRun = (id: number) => get<TestRun>(`/runs/${id}`);
 export const getRunResults = (runId: number) => get<TestResult[]>(`/runs/${runId}/results`);
 export const getRunLogs = (runId: number) => get<string[]>(`/runs/${runId}/logs`);
 export const cancelRun = (id: number) => post<{ cancelled: boolean; killed_process: boolean }>(`/runs/${id}/cancel`);
+export const deleteRun = (id: number) => del<{ deleted: number }>(`/runs/${id}`);
+export const batchDeleteRuns = (runIds: number[]) =>
+  post<{ deleted: number[]; count: number }>("/runs/batch-delete", { run_ids: runIds });
 
 export interface SingleTestResult {
   status: string;

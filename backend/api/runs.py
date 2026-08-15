@@ -15,7 +15,7 @@ import yaml
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from backend.db.config import get_async_session, async_session
-from backend.db.models import TestRun, TestResult, TestCase, TestSuite, Project, AuthConfig, TestCollection
+from backend.db.models import TestRun, TestResult, TestCase, TestSuite, Project, AuthConfig, TestCollection, PRPipeline
 from backend.schemas.run import RunResponse, RunReport, ResultResponse
 from backend.schemas.common import ApiResponse
 from backend import ws as ws_module
@@ -384,6 +384,11 @@ async def delete_run(run_id: int, db: AsyncSession = Depends(get_async_session))
     run = await db.get(TestRun, run_id)
     if not run:
         return ApiResponse(success=False, error="运行记录不存在")
+    # 先置空 pr_pipelines 中引用此 run 的记录
+    pipelines = await db.execute(select(PRPipeline).where(PRPipeline.run_id == run_id))
+    for p in pipelines.scalars().all():
+        p.run_id = None
+    # 删除测试结果
     results = await db.execute(select(TestResult).where(TestResult.run_id == run_id))
     for r in results.scalars().all():
         await db.delete(r)
@@ -865,3 +870,38 @@ async def run_single_test(
     except Exception as e:
         print(f"[run-single] Error: {type(e).__name__}: {e}", flush=True)
         return ApiResponse(success=False, error=f"执行失败: {type(e).__name__}: {e}")
+
+
+
+
+@router.post("/runs/batch-delete")
+async def batch_delete_runs(
+    body: dict,
+    db: AsyncSession = Depends(get_async_session),
+):
+    """批量删除运行记录（级联删除测试结果）"""
+    run_ids = body.get("run_ids", [])
+    if not run_ids:
+        return ApiResponse(success=False, error="未指定要删除的运行记录")
+
+    from sqlalchemy import select as sa_select
+    result = await db.execute(sa_select(TestRun).where(TestRun.id.in_(run_ids)))
+    runs = result.scalars().all()
+
+    running = [r for r in runs if r.status == "running"]
+    if running:
+        running_ids = [r.id for r in running]
+        return ApiResponse(success=False, error=f"运行中的记录不能删除: {running_ids}")
+
+    deleted_ids = []
+    for run in runs:
+        # 先置空 pr_pipelines 中引用此 run 的记录
+        pipelines = await db.execute(select(PRPipeline).where(PRPipeline.run_id == run.id))
+        for p in pipelines.scalars().all():
+            p.run_id = None
+        await db.delete(run)
+        deleted_ids.append(run.id)
+
+    await db.commit()
+    return ApiResponse(data={"deleted": deleted_ids, "count": len(deleted_ids)})
+
