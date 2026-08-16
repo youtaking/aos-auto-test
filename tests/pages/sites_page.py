@@ -85,27 +85,38 @@ class SitesListPage:
 
     # === 创建者列 ===
 
+    def _creator_col_index(self) -> int:
+        """动态获取「创建者」列索引（0-based），默认回退 3"""
+        headers = self.get_table_headers()
+        for i, h in enumerate(headers):
+            if "创建者" in h:
+                return i
+        return 3  # fallback
+
     def get_creator_text(self, app_name: str) -> str:
         """获取某应用的创建者列文本"""
+        col = self._creator_col_index()
         for row in self.page.locator("table tbody tr").all():
             name_btn = row.locator("td").first.locator("button")
             if name_btn.count() > 0 and name_btn.inner_text().strip() == app_name:
-                return row.locator("td").nth(3).inner_text().strip()
+                return row.locator("td").nth(col).inner_text().strip()
         return ""
 
     def get_all_creator_texts(self) -> list[str]:
         """获取所有应用的创建者文本"""
+        col = self._creator_col_index()
         creators = []
         for row in self.page.locator("table tbody tr").all():
-            creators.append(row.locator("td").nth(3).inner_text().strip())
+            creators.append(row.locator("td").nth(col).inner_text().strip())
         return creators
 
     def click_creator(self, app_name: str):
         """点击某应用的创建者名称"""
+        col = self._creator_col_index()
         for row in self.page.locator("table tbody tr").all():
             name_btn = row.locator("td").first.locator("button")
             if name_btn.count() > 0 and name_btn.inner_text().strip() == app_name:
-                creator_td = row.locator("td").nth(3)
+                creator_td = row.locator("td").nth(col)
                 link = creator_td.locator("a, button").first
                 if link.count() > 0:
                     link.click()
@@ -114,10 +125,11 @@ class SitesListPage:
 
     def has_creator_link(self, app_name: str) -> bool:
         """某应用的创建者列是否有可点击链接"""
+        col = self._creator_col_index()
         for row in self.page.locator("table tbody tr").all():
             name_btn = row.locator("td").first.locator("button")
             if name_btn.count() > 0 and name_btn.inner_text().strip() == app_name:
-                creator_td = row.locator("td").nth(3)
+                creator_td = row.locator("td").nth(col)
                 return creator_td.locator("a, button").count() > 0
         return False
 
@@ -303,8 +315,8 @@ class SiteBuilderChatPage:
         self.page = page
         self.base_url = base_url
 
-    def goto_builder_chat(self):
-        """进入建站助手对话页"""
+    def goto_builder_chat(self) -> bool:
+        """进入建站助手对话页。返回是否找到并点击了建站助手。"""
         # 先到首页
         try:
             self.page.goto(f"{self.base_url}/ctrl/agent/home", wait_until="domcontentloaded")
@@ -336,7 +348,7 @@ class SiteBuilderChatPage:
                     )
                 except Exception:
                     self.page.wait_for_timeout(2000)
-                return
+                return True
             # 侧边栏可能懒加载，滚动触发加载
             sidebar = self.page.locator("div.agent-sidebar-tree")
             if sidebar.count() > 0:
@@ -346,6 +358,7 @@ class SiteBuilderChatPage:
                 self.page.wait_for_timeout(500)
             else:
                 self.page.wait_for_timeout(1000)
+        return False
 
     def is_chat_loaded(self) -> bool:
         """对话页是否加载"""
