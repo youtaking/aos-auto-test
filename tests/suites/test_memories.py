@@ -78,18 +78,68 @@ def test_memories_tab_entities(logged_in_page, base_url):
 @allure.epic("记忆")
 @pytest.mark.order(36)
 @pytest.mark.p1
-def test_memories_search_filter(logged_in_page, base_url):
+def test_memories_search_filter(logged_in_page, base_url, env_check):
     """TC-MEM-007: 记忆搜索过滤功能"""
+    # 前置条件：Hindsight 服务必须启用
+    if not env_check.get("hindsight_enabled", False):
+        pytest.skip("Hindsight 服务未启用，搜索过滤测试跳过")
+
     mem = MemoryPage(logged_in_page, base_url)
     mem.goto()
-    # Check if search input exists
-    search = logged_in_page.locator("div.agent-panel-content input[type='text']")
-    if search.count() == 0:
-        pytest.skip("记忆页面无搜索输入框")
-    search.first.fill("test")
-    logged_in_page.wait_for_timeout(500)
-    search.first.fill("")
-    logged_in_page.wait_for_timeout(500)
+
+    # 切换到心理模型 Tab（有搜索框）
+    mem.click_tab("心理模型")
+
+    # 等搜索框出现（Tab 内容懒加载）
+    search = logged_in_page.locator("input[placeholder='搜索心理模型...']")
+    try:
+        search.first.wait_for(state="visible", timeout=10000)
+    except Exception:
+        pytest.fail("心理模型 Tab 没有搜索框")
+
+    # 等数据加载：卡片出现 或 "暂无心理模型"
+    cards = logged_in_page.locator("h3.truncate")
+    empty = logged_in_page.locator("text=暂无心理模型")
+    for _w in range(10):
+        if cards.count() > 0 or empty.count() > 0:
+            break
+        logged_in_page.wait_for_timeout(1000)
+
+    import re
+    initial_count = cards.count()
+
+    if initial_count > 0:
+        # 有数据：搜索第一个模型名称，验证过滤生效
+        count_el = logged_in_page.locator("text=/\\d+ 个心理模型/")
+        count_text = count_el.first.inner_text() if count_el.count() > 0 else ""
+        match = re.search(r"(\d+)", count_text)
+        if match:
+            initial_count = int(match.group(1))
+
+        first_name = cards.first.inner_text().strip()
+        search.first.fill(first_name)
+        logged_in_page.wait_for_timeout(500)
+
+        filtered_count = logged_in_page.locator("h3.truncate").count()
+        assert filtered_count >= 1, f"搜索 '{first_name}' 后没有任何匹配"
+        if initial_count > 1:
+            assert filtered_count < initial_count, \
+                f"搜索 '{first_name}' 后数量未变化（仍为 {initial_count}）"
+
+        # 清空搜索，恢复
+        search.first.fill("")
+        logged_in_page.wait_for_timeout(500)
+        restored = logged_in_page.locator("h3.truncate").count()
+        assert restored == initial_count, \
+            f"清空搜索后卡片数 {restored}，预期 {initial_count}"
+    else:
+        # 无数据：验证搜索框可交互
+        search.first.fill("test")
+        logged_in_page.wait_for_timeout(500)
+        assert logged_in_page.locator("h3.truncate").count() == 0, \
+            "无数据时搜索后不应出现卡片"
+        search.first.fill("")
+        logged_in_page.wait_for_timeout(500)
 
 
 @allure.epic("记忆")
