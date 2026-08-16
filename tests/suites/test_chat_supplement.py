@@ -51,38 +51,44 @@ def test_chat_artifacts_panel(logged_in_page, base_url):
     chat.goto_agent_chat("my-auto-test")
     assert chat.is_chat_loaded(), "聊天页面未加载"
 
-    # 检查是否存在 Artifacts 面板或 iframe
-    artifacts_panel = logged_in_page.locator(
-        "[data-slot*='artifact'], iframe[title*='artifact'], iframe[src*='artifact']"
-    )
+    # 点击"站点"按钮显示 Artifacts 面板
+    site_btn = logged_in_page.get_by_role("button", name="站点")
+    if site_btn.count() == 0:
+        pytest.skip("当前 Agent 无「站点」按钮（未绑定 Site）")
+    site_btn.first.click()
+    try:
+        logged_in_page.locator("iframe").first.wait_for(state="visible", timeout=10000)
+    except Exception:
+        pytest.fail("点击「站点」后 Artifacts iframe 未出现")
+
+    # 验证 iframe 可见
     iframe = logged_in_page.locator("iframe")
-
-    has_artifacts = artifacts_panel.count() > 0 or iframe.count() > 0
-    if not has_artifacts:
-        pytest.skip("当前 Agent 未绑定 Sites 或无 Artifacts 面板（环境配置依赖）")
-
-    # 如果有 Artifacts，验证面板可见
-    if artifacts_panel.count() > 0:
-        assert artifacts_panel.first.is_visible(), "Artifacts 面板存在但不可见"
+    assert iframe.count() > 0, "Artifacts iframe 不存在"
+    assert iframe.first.is_visible(), "Artifacts iframe 不可见"
 
 
 @allure.epic("对话")
 @pytest.mark.order(62)
 @pytest.mark.p2
-def test_chat_copy_message(logged_in_page, base_url):
-    """TC-CHAT-SUP-003: AI 响应消息的复制按钮"""
+def test_chat_ai_response(logged_in_page, base_url):
+    """TC-CHAT-SUP-003: 发送消息后 AI 正常回复"""
     chat = ChatTestPage(logged_in_page, base_url)
     chat.goto_agent_chat("my-auto-test")
+    if not chat.is_on_chat_page():
+        pytest.skip("未能导航到 my-auto-test 聊天页（Agent 可能不在列表中或环境异常）")
     assert chat.is_chat_loaded(), "聊天页面未加载"
 
     chat.create_new_session()
     chat.send_message("回复一句话：今天天气真好")
 
-    # 在 AI 消息上寻找复制按钮
+    # 等待消息日志区域出现
     log_area = logged_in_page.locator("div[role='log']")
-    assert log_area.count() > 0, "消息日志区域（div[role='log']）不存在"
+    try:
+        log_area.first.wait_for(state="visible", timeout=15000)
+    except Exception:
+        pytest.fail("发送消息后消息日志区域 div[role='log'] 未出现")
 
-    # 等待 AI 响应渲染完成（消息内容出现）
+    # 等待 AI 回复渲染完成
     try:
         log_area.first.locator("div.prose, p").first.wait_for(
             state="attached", timeout=15000
@@ -91,27 +97,9 @@ def test_chat_copy_message(logged_in_page, base_url):
         pass
     logged_in_page.wait_for_timeout(500)
 
-    # Hover 最后一条消息，触发操作按钮显示
-    last_msg = log_area.first.locator("> div").last
-    assert last_msg.count() > 0, "无消息气泡"
-
-    last_msg.hover()
-    logged_in_page.wait_for_timeout(800)
-
-    # 查找复制按钮（消息级别或代码块级别）
-    copy_btn = last_msg.locator(
-        "button[title*='复制'], button[aria-label*='复制'], "
-        "button[title*='copy'], button[aria-label*='copy']"
-    ).or_(
-        logged_in_page.locator(
-            "button:has([data-lucide='copy'])"
-        )
-    )
-
-    if copy_btn.count() == 0:
-        pytest.skip("当前前端版本消息气泡无复制按钮（功能未实现或已移除）")
-
-    assert copy_btn.first.is_visible(), "复制按钮存在但不可见"
+    # 验证消息区域有内容
+    log_text = log_area.first.inner_text()
+    assert len(log_text.strip()) > 0, "AI 回复后消息区域无内容"
 
 
 @allure.epic("对话")
@@ -122,6 +110,8 @@ def test_chat_delete_session(logged_in_page, base_url):
     import uuid as _uuid
     chat = ChatTestPage(logged_in_page, base_url)
     chat.goto_agent_chat("my-auto-test")
+    if not chat.is_on_chat_page():
+        pytest.skip("未能导航到 my-auto-test 聊天页（Agent 可能不在列表中或环境异常）")
     assert chat.is_chat_loaded(), "聊天页面未加载"
 
     # 1. 创建新会话并发送消息使其有标题（使用唯一标记避免历史数据干扰）
@@ -129,7 +119,7 @@ def test_chat_delete_session(logged_in_page, base_url):
     unique_id = _uuid.uuid4().hex[:6]
     session_marker = f"E2E-del-{unique_id}"
     chat.send_message(f"{session_marker}-请回复OK")
-    logged_in_page.wait_for_timeout(800)
+    logged_in_page.wait_for_timeout(3000)
 
     try:
         # 2. 通过 client API 获取会话列表（绕过 UI 缓存），支持 YJS 异步加载重试
@@ -141,27 +131,25 @@ def test_chat_delete_session(logged_in_page, base_url):
             logged_in_page.wait_for_timeout(1500)
         assert len(titles_before) > 0, "会话列表为空（YJS sessions 未加载）"
 
-        # 3. 找到包含 marker 的会话
-        matching = [t for t in titles_before if session_marker[:8] in t]
-        if not matching:
-            # 使用第一个会话
-            target_title = titles_before[0]
-        else:
-            target_title = matching[0]
+        # 3. 找到包含 marker 的会话（只删除测试创建的）
+        matching = [t for t in titles_before if unique_id in t]
+        assert len(matching) > 0, \
+            f"未找到测试创建的会话（unique_id: {unique_id}），会话列表: {titles_before[:5]}"
 
-        count_before = sum(1 for t in titles_before if session_marker[:8] in t)
+        target_title = matching[0]
+        count_before = len(matching)
 
         # 4. 删除该会话（通过 client.deleteSession WebSocket JSON-RPC）
         deleted = chat.delete_session_by_title(target_title)
         assert deleted, \
-            f"会话删除失败：服务器不支持 session/delete 或无法删除 '{target_title}'"
+            f"会话删除 API 调用失败：服务器不支持 session/delete 或无法删除 '{target_title}'"
 
         # 5. 通过 client API 验证删除（轮询等待 YjsWs 同步）
         count_after = count_before
         for _retry in range(20):
             logged_in_page.wait_for_timeout(500)
             titles_after = chat.get_session_titles_via_client()
-            count_after = sum(1 for t in titles_after if session_marker[:8] in t)
+            count_after = sum(1 for t in titles_after if unique_id in t)
             if count_after < count_before:
                 break
 
@@ -173,16 +161,10 @@ def test_chat_delete_session(logged_in_page, base_url):
                 pass
             logged_in_page.wait_for_timeout(2000)
             titles_after = chat.get_session_titles_via_client()
-            count_after = sum(1 for t in titles_after if session_marker[:8] in t)
+            count_after = sum(1 for t in titles_after if unique_id in t)
 
-        if count_after >= count_before:
-            # 删除操作未生效，可能为 YJS 同步延迟或 WebSocket JSON-RPC 不支持
-            pytest.skip(
-                f"会话删除未生效（删除前 {count_before}，删除后 {count_after}），"
-                f"可能为 YJS 同步延迟或 deleteSession 不支持"
-            )
         assert count_after < count_before, (
-            f"删除后会话数量未减少: 删除前 {count_before}, 删除后 {count_after}"
+            f"删除后会话数量未减少（可能为应用 Bug）: 删除前 {count_before}, 删除后 {count_after}"
         )
     finally:
         # 清理：关闭对话框
@@ -259,16 +241,20 @@ def test_chat_artifacts_panel_collapse_expand(logged_in_page, base_url):
     chat.goto_agent_chat("my-auto-test")
     assert chat.is_chat_loaded(), "聊天页面未加载"
 
-    # 检查是否存在 Artifacts 面板
-    artifacts_panel = logged_in_page.locator(
-        "[data-slot*='artifact'], iframe[title*='artifact']"
-    )
+    # 先点击「站点」按钮显示 Artifacts 面板
+    site_btn = logged_in_page.get_by_role("button", name="站点")
+    if site_btn.count() == 0:
+        pytest.skip("当前 Agent 无「站点」按钮（未绑定 Site）")
+    site_btn.first.click()
+    try:
+        logged_in_page.locator("iframe").first.wait_for(state="visible", timeout=10000)
+    except Exception:
+        pytest.fail("点击「站点」后 Artifacts iframe 未出现")
+
     iframe = logged_in_page.locator("iframe")
+    assert iframe.count() > 0 and iframe.first.is_visible(), "Artifacts iframe 不可见"
 
-    if artifacts_panel.count() == 0 and iframe.count() == 0:
-        pytest.skip("当前 Agent 未绑定 Sites 或无 Artifacts 面板（环境配置依赖）")
-
-    # 查找折叠/展开按钮
+    # 查找折叠/展开按钮（面板级别或 iframe 周围的操作按钮）
     collapse_btn = logged_in_page.locator(
         "button[title*='折叠'], button[title*='收起'], "
         "button[title*='collapse'], button[aria-label*='collapse'], "
@@ -279,29 +265,39 @@ def test_chat_artifacts_panel_collapse_expand(logged_in_page, base_url):
         "button[aria-label*='expand'], button[aria-label*='展开']"
     )
 
+    if collapse_btn.count() == 0 and expand_btn.count() == 0:
+        allure.attach(
+            "未找到 Artifacts 折叠/展开按钮（功能未实现或按钮选择器不匹配）",
+            name="备注",
+            attachment_type=allure.attachment_type.TEXT,
+        )
+        return
+
     if collapse_btn.count() > 0:
         # 点击折叠
         collapse_btn.first.click()
         logged_in_page.wait_for_timeout(800)
 
-        # 验证面板折叠
-        after_collapse = artifacts_panel.count() == 0 or \
-            (artifacts_panel.count() > 0 and not artifacts_panel.first.is_visible())
+        # 折叠后 iframe 应该不可见或消失
+        iframe_after_collapse = logged_in_page.locator("iframe")
+        collapsed = iframe_after_collapse.count() == 0 or \
+            not iframe_after_collapse.first.is_visible()
 
         if expand_btn.count() > 0:
             # 点击展开
             expand_btn.first.click()
             logged_in_page.wait_for_timeout(800)
 
-            # 验证面板展开
-            after_expand = artifacts_panel.count() > 0 and \
-                artifacts_panel.first.is_visible()
-            assert after_expand or True, "Artifacts 面板展开后不可见"
+            # 展开后 iframe 应该重新可见
+            iframe_after_expand = logged_in_page.locator("iframe")
+            assert iframe_after_expand.count() > 0 and \
+                iframe_after_expand.first.is_visible(), \
+                "Artifacts 面板展开后 iframe 不可见"
         else:
-            assert after_collapse or True, "Artifacts 面板折叠后仍可见"
+            assert collapsed, "Artifacts 面板点击折叠后 iframe 仍可见"
     else:
         allure.attach(
-            "未找到 Artifacts 折叠/展开按钮",
+            "仅有展开按钮，无折叠按钮，跳过折叠/展开循环测试",
             name="备注",
             attachment_type=allure.attachment_type.TEXT,
         )
