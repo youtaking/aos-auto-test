@@ -1107,28 +1107,64 @@ def test_model_011_test_single_model(logged_in_page, base_url, request):
 @pytest.mark.order(212)
 @pytest.mark.p0
 def test_model_014_public_model_readonly(logged_in_page, base_url, request):
-    """TC-MODEL-014: 公有模型配置可读不可改
-    需要普通用户账号验证，当前仅有 admin 账号
-    """
+    """TC-MODEL-014: 共享 Provider 只读 — external Provider 无编辑/删除/公开开关，仅有「查看」按钮"""
+    # 前置：通过 API 查找 external（共享）Provider，获取其 ID
+    resp = logged_in_page.request.get(f"{base_url}/web/config/providers")
+    external_provider_id = None
+    if resp.status == 200:
+        for pr in resp.json().get("data", {}).get("providers", []):
+            ra = pr.get("resourceAccess", {})
+            if ra.get("ownership") == "external":
+                external_provider_id = pr.get("id", "")
+                break
+    if not external_provider_id:
+        pytest.skip("当前没有共享（external）的 Provider，无法验证只读行为")
+
     mc = ModelConfigPage(logged_in_page, base_url)
     mc.goto()
 
-    # 检查是否有公开的 Provider
-    names = mc.get_provider_names()
-    has_public = False
-    for name in names:
-        if mc.is_public(name):
-            has_public = True
+    # 通过 Provider ID 精确定位共享 Provider 卡片（卡片的 data 属性或文本含 ID）
+    cards = mc.get_provider_cards()
+    target_card = None
+    for i in range(cards.count()):
+        card_text = cards.nth(i).inner_text()
+        if external_provider_id in card_text:
+            target_card = cards.nth(i)
             break
+    if target_card is None:
+        pytest.fail(f"共享 Provider (id={external_provider_id}) 在页面中不可见")
 
-    if not has_public:
-        pytest.skip("当前没有公开的 Provider 配置，且缺少普通用户账号进行权限验证")
+    # 获取 provider 级操作栏（footer 最后一个 flex 行）
+    action_bar = target_card.locator("div.mt-auto div.flex.items-center.gap-3").last
+    try:
+        action_bar.wait_for(state="visible", timeout=5000)
+    except Exception:
+        pytest.fail("共享 Provider 操作栏未渲染")
 
-    # 如果有公开的 Provider，至少验证它可见
-    allure.attach(
-        "公有 Provider 在列表中可见，但完整的只读验证需要普通用户账号",
-        name="备注",
-        attachment_type=allure.attachment_type.TEXT,
+    bar_text = action_bar.inner_text()
+
+    # 验证：无「编辑」按钮
+    edit_btn = action_bar.locator("button").filter(has_text="编辑")
+    assert edit_btn.count() == 0, (
+        f"共享 Provider 不应有「编辑」按钮，但操作栏中存在。操作栏: '{bar_text}'"
+    )
+
+    # 验证：无「删除」按钮
+    delete_btn = action_bar.locator("button").filter(has_text="删除")
+    assert delete_btn.count() == 0, (
+        f"共享 Provider 不应有「删除」按钮，但操作栏中存在。操作栏: '{bar_text}'"
+    )
+
+    # 验证：无公开开关
+    public_switch = action_bar.locator("[role='switch']")
+    assert public_switch.count() == 0, (
+        f"共享 Provider 不应有公开开关，但操作栏中存在。操作栏: '{bar_text}'"
+    )
+
+    # 验证：有「查看」按钮
+    view_btn = action_bar.locator("button").filter(has_text="查看")
+    assert view_btn.count() > 0, (
+        f"共享 Provider 应有「查看」按钮，但操作栏中不存在。操作栏: '{bar_text}'"
     )
 
 
