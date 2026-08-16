@@ -14,10 +14,6 @@ def test_site_builder_chat_loads(logged_in_page, base_url):
     chat = SiteBuilderChatPage(logged_in_page, base_url)
     chat.goto_builder_chat()
 
-    # 建站助手 Agent 不存在时跳过
-    if not chat.is_chat_loaded():
-        pytest.skip(f"测试环境无「建站助手」Agent，当前 URL: {logged_in_page.url}")
-
     # 1. 对话页面正常加载
     assert chat.is_chat_loaded(), f"对话页未加载，当前 URL: {logged_in_page.url}"
 

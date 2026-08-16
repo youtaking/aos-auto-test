@@ -9,10 +9,10 @@ class WorkflowPage:
     def __init__(self, page: Page, base_url: str):
         self.page = page
         self.base_url = base_url
-        self.url = f"{base_url}/ctrl/workflow"
+        self.url = f"{base_url}/ctrl/agent/workflow"
 
-    # 页面就绪标识：搜索输入框、面板内容、Tab、或工作流卡片/空状态
-    _READY_SELECTOR = "input[placeholder*='搜索工作流'], div.agent-panel-content, [role='tab'], div.group.rounded-lg, p.text-text-muted"
+    # 页面就绪标识：副标题（仅工作流页面有，不依赖懒加载）
+    _READY_SELECTOR = "text=管理工作流与运行历史"
 
     def goto(self):
         for _attempt in range(2):
@@ -30,7 +30,7 @@ class WorkflowPage:
             self.page.wait_for_timeout(3000)
         # 降级：侧边栏 SPA 导航
         if not self.is_loaded():
-            nav_btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="工作流")
+            nav_btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="智能体编排")
             if nav_btn.count() > 0:
                 nav_btn.first.click()
                 try:
@@ -39,7 +39,7 @@ class WorkflowPage:
                     pass
 
     def is_loaded(self) -> bool:
-        if "/ctrl/workflow" not in self.page.url:
+        if "/ctrl/agent/workflow" not in self.page.url:
             return False
         return self.page.locator(self._READY_SELECTOR).count() > 0
 
@@ -67,7 +67,11 @@ class WorkflowPage:
 
     def has_create_button(self) -> bool:
         btn = self.page.get_by_role("button", name="新建工作流")
-        return btn.count() > 0 and btn.first.is_visible() and btn.first.is_enabled()
+        try:
+            btn.first.wait_for(state="visible", timeout=10000)
+            return btn.first.is_enabled()
+        except Exception:
+            return False
 
 
 class MemoryPage:

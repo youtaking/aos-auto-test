@@ -325,6 +325,10 @@ class SiteBuilderChatPage:
                 builder_card.first.scroll_into_view_if_needed()
                 self.page.wait_for_timeout(300)
                 builder_card.first.click()
+                self.page.wait_for_timeout(1000)
+                # 如果普通点击没导航，用 JS 点击
+                if "/chat/" not in self.page.url:
+                    builder_card.first.evaluate("el => el.click()")
                 # 等待聊天输入框出现（WebSocket 连接需要时间）
                 try:
                     self.page.locator("textarea").first.wait_for(
