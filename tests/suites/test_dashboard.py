@@ -28,47 +28,46 @@ def test_dashboard_has_title(logged_in_page, base_url):
 @pytest.mark.order(5)
 @pytest.mark.p1
 def test_dashboard_stats_cards(logged_in_page, base_url):
-    """TC-DASH-003: Dashboard 统计卡片展示"""
+    """TC-DASH-003: Dashboard 页面结构完整性（标题 + 副标题 + 内容区）"""
     dashboard = DashboardPage(logged_in_page, base_url)
     dashboard.goto()
 
-    # 检查内容区存在卡片类元素
+    # 1. 内容区域存在
     content = logged_in_page.locator("div.agent-panel-content")
     assert content.count() > 0, "Dashboard 内容区域不存在"
 
-    cards = content.first.locator("div.rounded-lg.border, div.grid > div")
+    # 2. 标题 "系统概览"
+    title = logged_in_page.locator("h1, h2").filter(has_text="系统概览")
+    assert title.count() > 0, "Dashboard 页面未显示「系统概览」标题"
 
-    if cards.count() == 0:
-        pytest.skip("Dashboard 页面无统计卡片元素")
+    # 3. 副标题
+    subtitle = logged_in_page.locator("p").filter(has_text="实时监控")
+    assert subtitle.count() > 0, \
+        "Dashboard 页面未显示副标题「实时监控 AI Agent 控制面板运行状态」"
 
-    assert cards.count() >= 1, f"统计卡片数量不足: {cards.count()}"
-    # 至少一个卡片有文本内容
-    all_text = cards.all_text_contents()
-    has_content = any(t.strip() for t in all_text)
-    assert has_content, "所有统计卡片均为空内容"
+    # 4. 页面有可见文本内容（非空白页）
+    body_text = content.first.inner_text()
+    assert len(body_text.strip()) > 0, "Dashboard 内容区域为空白"
 
 
 @allure.epic("Dashboard")
 @pytest.mark.order(5)
 @pytest.mark.p1
 def test_dashboard_recent_agents(logged_in_page, base_url):
-    """TC-DASH-004: Dashboard 最近智能体列表"""
+    """TC-DASH-004: Dashboard 页面侧边栏智能体列表可见"""
     dashboard = DashboardPage(logged_in_page, base_url)
     dashboard.goto()
 
     content = logged_in_page.locator("div.agent-panel-content")
     assert content.count() > 0, "Dashboard 内容区域不存在"
 
-    # 检查是否有智能体相关列表或链接
-    agent_items = content.first.locator(
-        "a[href*='agent'], button.agent-sidebar-agent-card"
-    )
+    # 等待侧边栏 agent 卡片加载（API 异步）
     sidebar_agents = logged_in_page.locator("button.agent-sidebar-agent-card")
+    for _w in range(10):
+        if sidebar_agents.count() > 0:
+            break
+        logged_in_page.wait_for_timeout(1000)
 
-    has_recent = agent_items.count() > 0 or sidebar_agents.count() > 0
-    if not has_recent:
-        pytest.skip("Dashboard 页面无最近智能体列表")
-
-    # 如果侧边栏有智能体卡片，验证至少一个可见
-    if sidebar_agents.count() > 0:
-        assert sidebar_agents.first.is_visible(), "侧边栏智能体卡片不可见"
+    assert sidebar_agents.count() > 0, \
+        "Dashboard 页面侧边栏无智能体卡片（等待 10s 后仍未加载）"
+    assert sidebar_agents.first.is_visible(), "侧边栏智能体卡片不可见"
