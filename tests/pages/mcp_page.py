@@ -48,14 +48,14 @@ class McpServerPage:
 
     def search(self, keyword: str):
         """搜索 MCP 服务器"""
-        inp = self.page.locator("input[placeholder='搜索 MCP 服务器...']")
+        inp = self.page.locator("input[placeholder*='搜索 MCP']")
         if inp.count() > 0:
             inp.first.fill(keyword)
             self.page.wait_for_timeout(500)
 
     def clear_search(self):
         """清空搜索"""
-        inp = self.page.locator("input[placeholder='搜索 MCP 服务器...']")
+        inp = self.page.locator("input[placeholder*='搜索 MCP']")
         if inp.count() > 0:
             inp.first.fill("")
             self.page.wait_for_timeout(500)

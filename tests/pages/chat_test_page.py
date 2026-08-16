@@ -23,32 +23,41 @@ class ChatTestPage:
             self.page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
         except Exception:
             pass
+        # 等待侧边栏 Agent 列表加载（API 异步返回，全量回归时可能较慢）
+        for _w in range(10):
+            all_cards = self.page.locator("button.agent-sidebar-agent-card")
+            if all_cards.count() > 0:
+                break
+            self.page.wait_for_timeout(1000)
         card = self.page.locator("button.agent-sidebar-agent-card").filter(has_text=agent_name)
         if card.count() == 0:
-            return
+            return  # Agent 不在列表中（可能环境未配置）
         card.first.scroll_into_view_if_needed()
         self.page.wait_for_timeout(300)
         # 点击 agent 卡片，期望导航到 chat 页
         card.first.click()
         # 等待 URL 变化（离开 home 页）+ textarea 出现
-        for _attempt in range(2):
+        for _attempt in range(3):
             try:
-                # 先等 URL 变化（最长 5 秒）
-                self.page.wait_for_url("**/chat/**", timeout=5000)
+                # 先等 URL 变化（最长 8 秒，全量回归时 SPA 路由可能较慢）
+                self.page.wait_for_url("**/chat/**", timeout=8000)
                 # 再等 textarea 出现（WebSocket 连接需要时间，给 20 秒）
                 self.page.locator("textarea").first.wait_for(
                     state="visible", timeout=20000
                 )
                 return  # 成功
             except Exception:
-                if _attempt == 0:
-                    # 第一次失败：重新点击
+                if _attempt < 2:
+                    # 重试：重新查找并点击卡片
                     card = self.page.locator("button.agent-sidebar-agent-card").filter(has_text=agent_name)
                     if card.count() > 0:
-                        card.first.click()
-                    self.page.wait_for_timeout(1000)
+                        try:
+                            card.first.click()
+                        except Exception:
+                            pass
+                    self.page.wait_for_timeout(1500)
                 else:
-                    # 第二次也失败：检查是否卡在 connecting 状态
+                    # 第三次也失败：检查是否卡在 connecting 状态
                     connecting = self.page.locator(".agent-welcome-empty, [class*='connecting']")
                     if connecting.count() > 0:
                         try:
@@ -60,6 +69,10 @@ class ChatTestPage:
                             pass
         # 最终回退
         self.page.wait_for_timeout(2000)
+
+    def is_on_chat_page(self) -> bool:
+        """当前是否在聊天页面（URL 包含 /chat/ 且有 textarea）"""
+        return "/chat/" in self.page.url and self.page.locator("textarea").count() > 0
 
     def is_chat_loaded(self) -> bool:
         """聊天界面是否加载完成（URL 不变，通过 textarea 判断）"""

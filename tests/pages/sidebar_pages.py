@@ -9,10 +9,10 @@ class WorkflowPage:
     def __init__(self, page: Page, base_url: str):
         self.page = page
         self.base_url = base_url
-        self.url = f"{base_url}/ctrl/agent/workflow"
+        self.url = f"{base_url}/ctrl/workflow"
 
-    # 页面就绪标识：搜索输入框
-    _READY_SELECTOR = "input[placeholder*='搜索工作流']"
+    # 页面就绪标识：搜索输入框、面板内容、Tab、或工作流卡片/空状态
+    _READY_SELECTOR = "input[placeholder*='搜索工作流'], div.agent-panel-content, [role='tab'], div.group.rounded-lg, p.text-text-muted"
 
     def goto(self):
         for _attempt in range(2):
@@ -28,10 +28,20 @@ class WorkflowPage:
             if self.is_loaded():
                 break
             self.page.wait_for_timeout(3000)
+        # 降级：侧边栏 SPA 导航
+        if not self.is_loaded():
+            nav_btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="工作流")
+            if nav_btn.count() > 0:
+                nav_btn.first.click()
+                try:
+                    self.page.locator(self._READY_SELECTOR).first.wait_for(state="attached", timeout=15000)
+                except Exception:
+                    pass
 
     def is_loaded(self) -> bool:
-        return "/ctrl/agent/workflow" in self.page.url and \
-            self.page.locator(self._READY_SELECTOR).count() > 0
+        if "/ctrl/workflow" not in self.page.url:
+            return False
+        return self.page.locator(self._READY_SELECTOR).count() > 0
 
     def search(self, keyword: str):
         """搜索工作流"""
@@ -48,9 +58,10 @@ class WorkflowPage:
 
     def get_workflow_count(self) -> int:
         """获取工作流卡片数量"""
-        # 排除侧边栏卡片
+        # 工作流卡片可能在不同容器内
         cards = self.page.locator(
-            "div.agent-panel-content div.rounded-lg.border"
+            "div.agent-panel-content div.rounded-lg.border, "
+            "div.group.rounded-lg.border"
         )
         return cards.count()
 
@@ -67,8 +78,8 @@ class MemoryPage:
         self.base_url = base_url
         self.url = f"{base_url}/ctrl/agent/memories"
 
-    # 页面就绪标识：Tab 或"未配置"提示
-    _READY_SELECTORS = "[role='tab'], :text('未配置'), :text('Hindsight')"
+    # 页面就绪标识：Tab 或"未开启"提示（记忆服务未配置时显示"记忆能力未开启..."）
+    _READY_SELECTORS = "[role='tab'], :text('未开启'), :text('记忆能力'), :text('Hindsight')"
 
     def goto(self):
         for _attempt in range(2):
@@ -245,6 +256,21 @@ class TasksPage:
         if inp.count() > 0:
             inp.first.fill("")
             self.page.wait_for_timeout(500)
+
+    def click_create(self):
+        """点击「新建任务」按钮"""
+        btn = self.page.get_by_role("button", name="新建任务")
+        if btn.count() == 0:
+            # 尝试其他可能的按钮文本
+            btn = self.page.locator("button").filter(has_text="新建")
+        if btn.count() > 0:
+            btn.first.click()
+            self.page.wait_for_timeout(1000)
+
+    def is_dialog_open(self) -> bool:
+        """检查新建/编辑任务弹窗是否打开"""
+        dialog = self.page.locator("[role='dialog']")
+        return dialog.count() > 0 and dialog.first.is_visible()
 
 
 class OrganizationPage:

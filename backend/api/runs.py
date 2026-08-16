@@ -144,6 +144,7 @@ async def _execute_tests(
             passed = 0
             failed = 0
             skipped = 0
+            last_result_time = datetime.utcnow()  # 追踪每条用例的耗时
 
             LOG_DIR.mkdir(parents=True, exist_ok=True)
             log_path = LOG_DIR / f"{run_id}.log"
@@ -166,6 +167,11 @@ async def _execute_tests(
                     func_name = parsed["func_name"]
                     outcome = parsed["outcome"]
 
+                    # 用前后时间差估算耗时（JSON 报告可用精确值覆盖）
+                    now = datetime.utcnow()
+                    estimated_ms = int((now - last_result_time).total_seconds() * 1000)
+                    last_result_time = now
+
                     case_query = await db.execute(
                         select(TestCase).where(TestCase.function_name == func_name)
                     )
@@ -177,7 +183,9 @@ async def _execute_tests(
                         case_name=func_name,
                         suite_name=parsed["suite_name"],
                         status=outcome if outcome in ("passed", "failed", "skipped") else "error",
-                        duration_ms=0,
+                        duration_ms=estimated_ms,
+                        started_at=now,
+                        finished_at=now,
                     )
                     db.add(result)
 
