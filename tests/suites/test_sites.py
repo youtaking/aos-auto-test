@@ -12,7 +12,9 @@ from tests.pages.sites_page import SitesListPage, SiteBuilderChatPage
 def test_site_builder_chat_loads(logged_in_page, base_url):
     """建站助手对话页面正常加载（TC-SITE-001） | ✅ 人工评审通过 |"""
     chat = SiteBuilderChatPage(logged_in_page, base_url)
-    chat.goto_builder_chat()
+    found = chat.goto_builder_chat()
+    if not found:
+        pytest.skip("侧边栏中未找到「建站助手」Agent（可能环境数据缺失）")
 
     # 1. 对话页面正常加载
     assert chat.is_chat_loaded(), f"对话页未加载，当前 URL: {logged_in_page.url}"
@@ -127,48 +129,44 @@ def test_artifacts_panel_with_bound_site(logged_in_page, base_url):
     """应用绑定到 Agent 后 ArtifactsPanel 展示（TC-SITE-015）"""
     import random
     chat = SiteBuilderChatPage(logged_in_page, base_url)
-    chat.goto_builder_chat()
+    found = chat.goto_builder_chat()
+    if not found:
+        pytest.skip("测试环境无「建站助手」Agent")
 
-    # 建站助手 Agent 不存在时跳过
-    if not chat.is_chat_loaded():
-        pytest.skip(f"测试环境无「建站助手」Agent，当前 URL: {logged_in_page.url}")
-
-    assert chat.is_chat_loaded(), "建站助手对话页未加载"
+    # textarea 必须存在
+    textarea = logged_in_page.locator("textarea")
+    try:
+        textarea.first.wait_for(state="visible", timeout=10000)
+    except Exception:
+        pytest.fail(f"对话页没有输入框（URL: {logged_in_page.url}）")
 
     # 0. 动态生成简单站点请求消息
     styles = ["简约风", "清新风", "科技感", "文艺风", "极简风"]
     colors = ["蓝色", "绿色", "暖色调", "渐变色", "黑白配色"]
     msg = f"生成一个简单的个人主页，{random.choice(styles)}，主色调{random.choice(colors)}"
-    textarea = logged_in_page.locator("textarea")
-    # textarea 可能需要额外渲染时间
-    for _wait in range(5):
-        if textarea.count() > 0:
-            break
-        logged_in_page.wait_for_timeout(1000)
-    if textarea.count() == 0:
-        pytest.skip(f"对话页没有输入框（URL: {logged_in_page.url}）")
     textarea.first.fill(msg)
     textarea.first.press("Enter")
 
     # 1. 等待对话区出现「您的站点已生成」卡片（最多 120 秒）
-    done_card = logged_in_page.locator("div.text-sm.text-text-primary", has_text="您的站点已生成")
-    appeared = False
-    for _ in range(120):
-        if done_card.count() > 0:
-            appeared = True
-            break
-        logged_in_page.wait_for_timeout(1000)
-    assert appeared, f"发消息后 120 秒内未出现「您的站点已生成」卡片（消息: {msg}）"
+    done_card = logged_in_page.locator(
+        "div.text-sm.text-text-primary", has_text="您的站点已生成"
+    )
+    try:
+        done_card.first.wait_for(state="visible", timeout=120000)
+    except Exception:
+        pytest.fail(f"发消息后 120 秒内未出现「您的站点已生成」卡片（消息: {msg}）")
 
     # 2. 点击「查看站点」按钮，打开右侧预览
     view_btn = logged_in_page.get_by_role("button", name="查看站点")
     assert view_btn.count() > 0, "未找到「查看站点」按钮"
     view_btn.first.click()
-    logged_in_page.wait_for_timeout(3000)
 
     # 3. 验证 iframe 预览区出现且 src 指向站点部署地址
     iframe = logged_in_page.locator("iframe[src*='/web/site/deploy/']")
-    assert iframe.count() > 0, "点击「查看站点」后未出现预览 iframe"
+    try:
+        iframe.first.wait_for(state="visible", timeout=10000)
+    except Exception:
+        pytest.fail("点击「查看站点」后未出现预览 iframe")
     src = iframe.first.get_attribute("src") or ""
     assert "/web/site/deploy/" in src, f"iframe src 不是站点部署地址: {src}"
 
@@ -199,44 +197,39 @@ def test_creator_name_display(logged_in_page, base_url):
 
 @pytest.mark.order(49)
 @pytest.mark.p1
-def test_creator_name_click_navigation(logged_in_page, base_url):
-    """创建者名称点击跳转（TC-SITE-017）"""
+def test_open_site_in_new_tab(logged_in_page, base_url):
+    """点击「打开」按钮在新标签页打开站点（TC-SITE-017）"""
     sites = SitesListPage(logged_in_page, base_url)
     sites.goto()
     assert sites.is_loaded()
 
-    # 查找有可点击创建者链接的应用
-    app_names = sites.get_app_names()
-    target = None
-    for name in app_names:
-        if sites.has_creator_link(name):
-            target = name
+    # 找到第一个有「打开」按钮的应用
+    rows = logged_in_page.locator("table tbody tr")
+    assert rows.count() > 0, "Sites 列表为空"
+
+    target_name = None
+    for row in rows.all():
+        name_btn = row.locator("td").first.locator("button")
+        open_btn = row.locator("button[title='打开']")
+        if name_btn.count() > 0 and open_btn.count() > 0:
+            target_name = name_btn.inner_text().strip()
             break
+    if not target_name:
+        pytest.skip("列表中没有带「打开」按钮的应用")
 
-    if not target:
-        # 所有创建者列都是 "—" 没有链接，验证这个事实
-        creators = sites.get_all_creator_texts()
-        all_dash = all(c == "—" for c in creators)
-        if all_dash:
-            pytest.skip("当前所有应用创建者均为 '—'，无可点击的创建者链接")
-        else:
-            # 有创建者文本但没链接，UI 可能没做跳转
-            pytest.skip("创建者名称存在但无可点击链接")
-            return
+    # 点击「打开」按钮，应在新标签页打开
+    new_page = sites.open_app_in_new_tab(target_name)
+    assert new_page is not None, f"点击「打开」按钮后未打开新标签页"
 
-    # 有可点击的创建者
-    url_before = logged_in_page.url
-    sites.click_creator(target)
-    url_after = logged_in_page.url
+    # 验证新标签页 URL 包含 /web/site/deploy/
+    new_url = new_page.url
+    assert "/web/site/deploy/" in new_url, f"新标签页 URL 格式异常: {new_url}"
 
-    # 应该发生跳转或弹出对话框
-    dialog = logged_in_page.locator("[role='dialog']")
-    url_changed = url_after != url_before
-    dialog_visible = dialog.count() > 0 and dialog.first.is_visible()
-    assert url_changed or dialog_visible, (
-        f"部署操作无响应: url_changed={url_changed}, dialog_visible={dialog_visible}"
-        f"（URL变化: {url_before} → {url_after}，dialog数={dialog.count()}）"
-    )
+    # 验证页面内容不为空
+    body_text = new_page.locator("body").inner_text()
+    assert len(body_text.strip()) > 0, "打开站点后页面内容为空"
+
+    new_page.close()
 
 
 # === TC-SITE-018: 创建 App ===

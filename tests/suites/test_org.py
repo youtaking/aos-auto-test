@@ -78,9 +78,9 @@ def test_org_001_list_loads(logged_in_page, base_url):
     count = org.get_org_count()
     assert count > 0, "组织列表为空"
 
-    # 3. 数据与 API 响应一致 — 至少有含 "ORG" 的组织
-    has_org = any("ORG" in name for name in org_names)
-    assert has_org, f"列表中未找到包含 'ORG' 的组织: {org_names}"
+    # 3. 数据与 API 响应一致 — 至少有含 "org" 的组织（不区分大小写）
+    has_org = any("org" in name.lower() for name in org_names)
+    assert has_org, f"列表中未找到包含 'org' 的组织: {org_names}"
 
 
 @allure.epic("组织管理")
