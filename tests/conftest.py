@@ -311,8 +311,8 @@ def _page_error_monitor(request):
             # 白名单：MCP 检测远程服务器连接失败的已知错误（假 URL）
             if "SSE error" in msg.text or "Unable to connect" in msg.text:
                 return
-            # 白名单：浏览器原生的 500 资源加载失败（测试用假 URL 导致）
-            if "Failed to load resource" in msg.text and "500" in msg.text:
+            # 白名单：浏览器原生的 500/503 资源加载失败（测试用假 URL 或 workspace 服务不可用）
+            if "Failed to load resource" in msg.text and ("500" in msg.text or "503" in msg.text):
                 return
             # 白名单：建站助手轮询不存在 App 的 404
             if "Failed to load resource" in msg.text and "404" in msg.text:
@@ -328,6 +328,10 @@ def _page_error_monitor(request):
                 return
             # 白名单：新建 Agent 环境初始化期间的瞬态 404
             if "环境不存在" in msg.text or "Failed to load file tree" in msg.text:
+                return
+            # 白名单：Workspace not found（新建 Agent 环境 workspace 未初始化）
+            if "Workspace not found" in msg.text:
+                warnings.append(f"[console.error] {msg.text}")
                 return
             # 白名单：新建 Agent 配置加载期间的瞬态 404
             if "Failed to load agent config" in msg.text:

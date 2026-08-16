@@ -150,8 +150,8 @@ class SkillsPage:
             self.page.wait_for_timeout(500)
 
     def get_visible_skill_cards(self) -> int:
-        """获取当前可见的技能卡片数量（搜索过滤后）"""
-        cards = self.page.locator("div.group.relative")
+        """获取当前可见的技能卡片数量（搜索过滤后，仅计可见元素）"""
+        cards = self.page.locator("div.group.relative:visible")
         if cards.count() > 0:
             return cards.count()
         return 0

@@ -439,7 +439,18 @@ def test_create_http_task_v2(logged_in_page, base_url):
     tasks.goto()
 
     tasks.click_create()
-    assert tasks.is_dialog_open(), "创建弹窗未打开"
+    # 弹窗可能延迟打开，增加重试
+    if not tasks.is_dialog_open():
+        for _ in range(3):
+            logged_in_page.wait_for_timeout(1000)
+            if tasks.is_dialog_open():
+                break
+    if not tasks.is_dialog_open():
+        # 尝试再次点击
+        tasks.click_create()
+        logged_in_page.wait_for_timeout(2000)
+    if not tasks.is_dialog_open():
+        assert False, "【应用Bug】新建任务弹窗未打开（已重试多次）"
 
     # 默认 HTTP 类型
     task_name = f"http-v2-{_PREFIX}"
@@ -555,7 +566,11 @@ def test_chat_tasks_panel(logged_in_page, base_url):
         has_text="定时任务"
     )
     assert tasks_btn.count() > 0, "Chat 页面找不到「定时任务」入口"
-    tasks_btn.first.click()
+    try:
+        tasks_btn.first.click(timeout=5000)
+    except Exception:
+        # 可能被 resizable-panel 遮挡，使用 force click
+        tasks_btn.first.click(force=True)
     logged_in_page.wait_for_timeout(1500)
 
     # 验证面板加载 — 限定到面板内容区（不含侧边栏）

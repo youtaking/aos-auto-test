@@ -147,7 +147,14 @@ class TasksPage:
         btn = self.page.locator("button").filter(has_text="新建任务")
         if btn.count() > 0:
             btn.first.click()
-            self.page.wait_for_timeout(1500)
+            self.page.wait_for_timeout(2000)
+            # 等待弹窗出现
+            try:
+                self.page.locator('[role="dialog"]').first.wait_for(
+                    state="visible", timeout=5000
+                )
+            except Exception:
+                pass
 
     def is_dialog_open(self) -> bool:
         """创建/编辑弹窗是否打开"""
