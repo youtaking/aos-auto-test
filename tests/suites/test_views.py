@@ -30,12 +30,14 @@ def _list_views_api(page, base_url):
 
 
 def _get_first_agent_id(page, base_url):
-    """GET /web/environments → 返回第一个可用 agent ID（用于创建视图的必填字段 agentId）"""
-    r = page.request.get(f"{base_url}/web/environments")
+    """GET /web/config/agents → 返回第一个可用 agent ID（用于创建视图的必填字段 agentId）"""
+    r = page.request.get(f"{base_url}/web/config/agents")
     if r.status == 200:
-        data = r.json().get("data", [])
-        if isinstance(data, list) and data:
-            return data[0].get("id")
+        body = r.json().get("data", {})
+        if isinstance(body, dict):
+            agents = body.get("agents", [])
+            if isinstance(agents, list) and agents:
+                return agents[0].get("id")
     return None
 
 
@@ -119,8 +121,14 @@ class TestViews:
         """产品视图页面有内容展示"""
         v = ViewsPage(logged_in_page, base_url)
         v.goto()
-        text = v.get_page_text()
-        assert len(text) > 0, "产品视图页面内容为空"
+
+        # 检查发布视图特定内容
+        has_title = logged_in_page.get_by_text("发布视图").count() > 0
+        has_views = v.get_view_count() > 0
+        has_empty = logged_in_page.get_by_text("暂无发布视图").count() > 0
+
+        assert has_title, "缺少「发布视图」标题"
+        assert has_views or has_empty, "既没有视图也没有空状态提示"
 
     # === 创建视图 ===
 
@@ -130,12 +138,24 @@ class TestViews:
         """点击新建按钮，验证弹窗/表单打开"""
         v = ViewsPage(logged_in_page, base_url)
         v.goto()
-        if not v.has_create_button():
-            pytest.skip("当前无新建视图按钮")
+
+        # 必须有创建按钮
+        assert v.has_create_button(), "缺少创建视图按钮"
+
         v.click_create_button()
-        logged_in_page.wait_for_timeout(1500)
+
+        # 验证弹窗打开
         dialog = logged_in_page.locator('[role="dialog"]')
-        assert dialog.count() > 0, "新建视图弹窗未打开"
+        try:
+            dialog.first.wait_for(state="visible", timeout=5000)
+        except Exception:
+            pytest.fail("创建视图弹窗未打开")
+
+        # 验证弹窗内容
+        dialog_text = dialog.first.inner_text()
+        assert "名称" in dialog_text, "弹窗缺少名称字段"
+        assert "保存" in dialog_text or "创建" in dialog_text, "弹窗缺少提交按钮"
+
         # 关闭弹窗
         cancel = dialog.locator("button").filter(has_text="取消")
         if cancel.count() > 0:
@@ -148,60 +168,85 @@ class TestViews:
     @pytest.mark.order(63)
     @pytest.mark.p1
     def test_views_edit(self, logged_in_page, base_url):
-        """TC-VIEW-004: 编辑已有视图 — 打开编辑弹窗验证"""
-        view_id, created = _get_or_create_view(logged_in_page, base_url)
+        """TC-VIEW-004: 编辑视图 — 修改名称并验证保存生效"""
+        # 前置：通过 API 创建视图
+        view = _create_view_api(logged_in_page, base_url)
+        view_id = view.get("id")
+        original_name = view.get("name", "")
         if not view_id:
-            pytest.skip("无法获取或创建视图 ID")
+            pytest.skip("无法创建视图")
         try:
             v = ViewsPage(logged_in_page, base_url)
             v.goto()
-            # 查找编辑入口：编辑按钮或卡片点击
-            edit_btn = loc.edit_button(logged_in_page).or_(
-                logged_in_page.locator('[role="menuitem"]').filter(has_text="编辑")
+
+            # 等待视图卡片加载
+            cards = logged_in_page.locator("div.rounded-lg.border")
+            try:
+                cards.first.wait_for(state="visible", timeout=5000)
+            except Exception:
+                pytest.fail("视图卡片未加载")
+
+            # 定位当前视图的卡片（按名称匹配）
+            card = cards.filter(has_text=original_name)
+            if card.count() == 0:
+                card = cards  # fallback 到第一个
+            first_card = card.first
+
+            # 点击编辑按钮（Pencil 图标）
+            edit_btn = first_card.locator("button").filter(
+                has=logged_in_page.locator("svg.lucide-pencil")
             )
-            # 尝试通过三点菜单
-            if edit_btn.count() == 0:
-                ellipsis = logged_in_page.locator("button").filter(
-                    has=logged_in_page.locator("svg.lucide-ellipsis")
-                ).or_(
-                    logged_in_page.locator('[title*="更多"]')
+            assert edit_btn.count() > 0, "视图卡片内缺少编辑按钮"
+            edit_btn.first.click()
+
+            # 验证编辑弹窗打开
+            dialog = logged_in_page.locator('[role="dialog"]')
+            try:
+                dialog.first.wait_for(state="visible", timeout=5000)
+            except Exception:
+                pytest.fail("编辑弹窗未打开")
+
+            # 修改名称
+            new_name = f"e2e-edit-{_PREFIX}"
+            name_input = dialog.locator("input").first
+            name_input.fill(new_name)
+
+            # 点击保存
+            save_btn = dialog.locator("button").filter(has_text="保存")
+            assert save_btn.count() > 0, "编辑弹窗缺少保存按钮"
+            save_btn.first.click()
+
+            # 等待弹窗关闭（保存完成）
+            try:
+                dialog.first.wait_for(state="hidden", timeout=8000)
+            except Exception:
+                pass
+
+            # 验证名称已更新 — 页面上能找到新名称
+            try:
+                logged_in_page.locator("span").filter(has_text=new_name).first.wait_for(
+                    state="visible", timeout=5000
                 )
-                if ellipsis.count() > 0:
-                    ellipsis.first.click()
-                    logged_in_page.wait_for_timeout(800)
-                    edit_btn = logged_in_page.locator('[role="menu"]').locator(
-                        '[role="menuitem"]'
-                    ).filter(has_text="编辑")
-            if edit_btn.count() > 0:
-                edit_btn.first.click()
-                logged_in_page.wait_for_timeout(1500)
-                dialog = logged_in_page.locator('[role="dialog"]')
-                assert dialog.count() > 0, "编辑弹窗未打开"
-                # 关闭弹窗
-                cancel = dialog.locator("button").filter(has_text="取消")
-                if cancel.count() > 0:
-                    cancel.first.click()
-                else:
-                    logged_in_page.keyboard.press("Escape")
-            else:
-                # 没有编辑按钮，验证卡片可点击
-                cards = logged_in_page.locator(
-                    "div.agent-panel-content [data-slot='card']"
-                ).or_(
-                    logged_in_page.locator("div.agent-panel-content > div > div")
+            except Exception:
+                pytest.fail(f"编辑保存后，视图名称未更新为 '{new_name}'")
+
+            # 通过 API 恢复原名称（清理）
+            if original_name:
+                logged_in_page.request.put(
+                    f"{base_url}/web/config/prod-views/{view_id}",
+                    data=json.dumps({"name": original_name}),
+                    headers={"Content-Type": "application/json"},
                 )
-                assert cards.count() > 0, "无编辑入口且无卡片"
         finally:
-            if created:
-                _delete_view_api(logged_in_page, base_url, view_id)
+            _delete_view_api(logged_in_page, base_url, view_id)
 
     # === 删除视图 ===
 
     @pytest.mark.order(64)
     @pytest.mark.p1
     def test_views_delete(self, logged_in_page, base_url):
-        """TC-VIEW-005: 删除已有视图 — 删除按钮可见可操作"""
-        # 创建一个临时视图用于删除测试
+        """TC-VIEW-005: 删除视图 — 点击删除按钮并确认，验证视图被移除"""
+        # 前置：API 创建临时视图
         view_name = f"e2e-del-view-{_PREFIX}"
         view = _create_view_api(logged_in_page, base_url, name=view_name)
         view_id = view.get("id")
@@ -210,46 +255,56 @@ class TestViews:
         try:
             v = ViewsPage(logged_in_page, base_url)
             v.goto()
-            initial_count = v.get_view_count()
-            # 查找删除入口
-            delete_btn = loc.delete_button(logged_in_page).or_(
-                logged_in_page.locator('[role="menuitem"]').filter(has_text="删除")
+
+            # 等待视图卡片加载
+            cards = logged_in_page.locator("div.rounded-lg.border")
+            try:
+                cards.first.wait_for(state="visible", timeout=5000)
+            except Exception:
+                pytest.fail("视图卡片未加载")
+
+            initial_count = cards.count()
+
+            # 定位目标视图卡片
+            card = cards.filter(has_text=view_name)
+            if card.count() == 0:
+                pytest.fail(f"未找到名称为 '{view_name}' 的视图卡片")
+
+            # 点击删除按钮（Trash2 图标 + "删除"文字）
+            delete_btn = card.first.locator("button").filter(
+                has=logged_in_page.locator("svg.lucide-trash-2")
             )
-            # 尝试通过三点菜单
-            if delete_btn.count() == 0:
-                ellipsis = logged_in_page.locator("button").filter(
-                    has=logged_in_page.locator("svg.lucide-ellipsis")
-                ).or_(
-                    logged_in_page.locator('[title*="更多"]')
-                )
-                if ellipsis.count() > 0:
-                    ellipsis.first.click()
-                    logged_in_page.wait_for_timeout(800)
-                    delete_btn = logged_in_page.locator('[role="menu"]').locator(
-                        '[role="menuitem"]'
-                    ).filter(has_text="删除")
-            if delete_btn.count() > 0:
-                delete_btn.first.click()
-                logged_in_page.wait_for_timeout(800)
-                # 确认弹窗
-                alert = logged_in_page.locator('[role="alertdialog"]')
-                if alert.count() > 0:
-                    confirm = loc.confirm_button(alert)
-                    if confirm.count() > 0:
-                        confirm.first.click()
-                        logged_in_page.wait_for_timeout(800)
-                v.goto()
-                new_count = v.get_view_count()
-                assert new_count < initial_count or new_count == initial_count, \
-                    "删除后视图数量异常"
-            else:
-                # 没有删除按钮，通过 API 验证删除功能
-                del_resp = logged_in_page.request.delete(
-                    f"{base_url}/web/config/prod-views/{view_id}"
-                )
-                assert del_resp.status < 500, \
-                    f"API 删除视图失败: HTTP {del_resp.status}"
-                view_id = None  # 已删除
+            assert delete_btn.count() > 0, "视图卡片内缺少删除按钮"
+            delete_btn.first.click()
+
+            # 确认弹窗出现（ConfirmDialog → alertdialog）
+            alert = logged_in_page.locator('[role="alertdialog"]')
+            try:
+                alert.first.wait_for(state="visible", timeout=5000)
+            except Exception:
+                pytest.fail("删除确认弹窗未出现")
+
+            # 点击确认
+            confirm_btn = alert.locator("button").filter(
+                has_text="确认"
+            ).or_(alert.locator("button").filter(has_text="确定"))
+            assert confirm_btn.count() > 0, "确认弹窗缺少确认按钮"
+            confirm_btn.first.click()
+
+            # 等待弹窗关闭 + 列表刷新
+            try:
+                alert.first.wait_for(state="hidden", timeout=8000)
+            except Exception:
+                pass
+
+            # 验证视图已被移除（按名称查找不到）
+            logged_in_page.wait_for_timeout(1000)
+            remaining = logged_in_page.locator("div.rounded-lg.border").filter(
+                has_text=view_name
+            )
+            assert remaining.count() == 0, \
+                f"删除后视图 '{view_name}' 仍在列表中"
+            view_id = None  # 已被 UI 删除
         finally:
             if view_id:
                 _delete_view_api(logged_in_page, base_url, view_id)
@@ -259,189 +314,179 @@ class TestViews:
     @pytest.mark.order(65)
     @pytest.mark.p1
     def test_views_detail_page(self, logged_in_page, base_url):
-        """TC-VIEW-006: 视图详情页 — 进入视图详情或预览"""
-        view_id, created = _get_or_create_view(logged_in_page, base_url)
+        """TC-VIEW-006: 打开视图 — 点击卡片上的「打开视图」按钮，验证新标签页打开"""
+        view = _create_view_api(logged_in_page, base_url)
+        view_id = view.get("id")
+        view_name = view.get("name", "")
         if not view_id:
-            pytest.skip("无法获取或创建视图 ID")
+            pytest.skip("无法创建视图")
+        new_page = None
         try:
-            # 尝试导航到详情页
-            detail_urls = [
-                f"{base_url}/ctrl/agent/views/{view_id}",
-                f"{base_url}/ctrl/agent/views?viewId={view_id}",
-            ]
-            loaded = False
-            for detail_url in detail_urls:
-                logged_in_page.goto(detail_url)
-                logged_in_page.wait_for_load_state("domcontentloaded")
-                panel = logged_in_page.locator("div.agent-panel-content, main")
-                if panel.count() > 0:
-                    loaded = True
-                    break
-            if not loaded:
-                # 尝试通过 API 验证详情可访问
-                r = logged_in_page.request.get(
-                    f"{base_url}/web/config/prod-views/{view_id}"
+            v = ViewsPage(logged_in_page, base_url)
+            v.goto()
+
+            # 等待视图卡片加载
+            cards = logged_in_page.locator("div.rounded-lg.border")
+            try:
+                cards.first.wait_for(state="visible", timeout=5000)
+            except Exception:
+                pytest.fail("视图卡片未加载")
+
+            # 定位目标视图卡片
+            card = cards.filter(has_text=view_name)
+            if card.count() == 0:
+                card = cards
+            first_card = card.first
+
+            # 点击「打开视图」按钮（ExternalLink 图标）
+            open_btn = first_card.locator("button").filter(
+                has=logged_in_page.locator("svg.lucide-external-link")
+            )
+            assert open_btn.count() > 0, "视图卡片内缺少「打开视图」按钮"
+
+            # 点击后会打开新标签页
+            with logged_in_page.context.expect_page() as new_page_info:
+                open_btn.first.click()
+            new_page = new_page_info.value
+            new_page.wait_for_load_state("domcontentloaded")
+
+            # 验证新标签页 URL 包含 /view/
+            new_url = new_page.url
+            assert "/view/" in new_url, f"打开视图后 URL 不包含 /view/: {new_url}"
+
+            # 等待页面渲染（ProdViewPage 需要 API 加载）
+            header = new_page.locator("div.agent-panel-layout")
+            try:
+                header.first.wait_for(state="visible", timeout=10000)
+            except Exception:
+                pass
+
+            # 等待文本渲染完成
+            try:
+                new_page.locator("span.font-medium").first.wait_for(
+                    state="visible", timeout=5000
                 )
-                assert r.status < 500, \
-                    f"视图详情 API 异常: HTTP {r.status}"
-            # 页面或 API 至少一个可用
-            assert view_id, "视图 ID 为空，无法验证详情页"
+            except Exception:
+                pass
+
+            # 验证页面有内容（header 含视图名称或 "FenixAgent"）
+            body_text = new_page.locator("body").inner_text()
+            assert len(body_text.strip()) > 0, "打开视图后页面内容为空"
         finally:
-            if created:
-                _delete_view_api(logged_in_page, base_url, view_id)
+            if new_page:
+                try:
+                    new_page.close()
+                except Exception:
+                    pass
+            _delete_view_api(logged_in_page, base_url, view_id)
 
     # === 新增测试 ===
 
     @pytest.mark.order(510)
     @pytest.mark.p1
     def test_view_module_config_switches(self, logged_in_page, base_url):
-        """TC-VIEW-007: 模块配置开关矩阵 — 创建/编辑视图时配置模块开关"""
-        view_id, created = _get_or_create_view(logged_in_page, base_url)
+        """TC-VIEW-007: 模块配置开关 — 编辑弹窗中有面板开关且可切换"""
+        view = _create_view_api(logged_in_page, base_url)
+        view_id = view.get("id")
+        view_name = view.get("name", "")
         if not view_id:
-            pytest.skip("无法获取或创建视图 ID")
+            pytest.skip("无法创建视图")
         try:
             v = ViewsPage(logged_in_page, base_url)
             v.goto()
-            # 查找编辑入口
-            edit_btn = loc.edit_button(logged_in_page)
-            if edit_btn.count() == 0:
-                ellipsis = logged_in_page.locator("button").filter(
-                    has=logged_in_page.locator("svg.lucide-ellipsis")
-                )
-                if ellipsis.count() > 0:
-                    ellipsis.first.click()
-                    logged_in_page.wait_for_timeout(800)
-                    edit_btn = logged_in_page.locator('[role="menu"]').locator(
-                        '[role="menuitem"]'
-                    ).filter(has_text="编辑")
-            if edit_btn.count() > 0:
-                edit_btn.first.click()
-                logged_in_page.wait_for_timeout(1500)
-                dialog = logged_in_page.locator('[role="dialog"]')
-                assert dialog.count() > 0, "编辑弹窗未打开"
-                # 查找模块开关
-                switches = dialog.locator('[role="switch"]')
-                checkboxes = dialog.locator('input[type="checkbox"]')
-                if switches.count() > 0:
-                    # 切换第一个开关
-                    initial_state = switches.first.get_attribute("aria-checked") or \
-                        switches.first.get_attribute("data-state")
-                    switches.first.click()
-                    logged_in_page.wait_for_timeout(500)
-                    new_state = switches.first.get_attribute("aria-checked") or \
-                        switches.first.get_attribute("data-state")
-                    assert new_state != initial_state, \
-                        f"开关切换后状态未变化: {initial_state} → {new_state}"
-                    # 切回来
-                    switches.first.click()
-                    logged_in_page.wait_for_timeout(500)
-                elif checkboxes.count() > 0:
-                    # checkbox 类型的模块配置
-                    assert checkboxes.count() > 0, "无模块配置 checkbox"
-                else:
-                    # 可能用其他 UI 表示模块配置
-                    module_section = dialog.locator(
-                        "[data-slot='module'], [data-slot='config']"
-                    )
-                    dialog_text = dialog.first.inner_text()
-                    has_module_ui = module_section.count() > 0 or \
-                        any(kw in dialog_text for kw in ["模块", "配置", "开关", "module"])
-                    assert has_module_ui or True, "无模块配置 UI"  # 非强制
-                # 关闭弹窗
-                cancel = dialog.locator("button").filter(has_text="取消")
-                if cancel.count() > 0:
-                    cancel.first.click()
-                else:
-                    logged_in_page.keyboard.press("Escape")
+
+            # 等待视图卡片加载
+            cards = logged_in_page.locator("div.rounded-lg.border")
+            try:
+                cards.first.wait_for(state="visible", timeout=5000)
+            except Exception:
+                pytest.fail("视图卡片未加载")
+
+            # 定位卡片，点击编辑按钮（Pencil 图标）
+            card = cards.filter(has_text=view_name)
+            if card.count() == 0:
+                card = cards
+            edit_btn = card.first.locator("button").filter(
+                has=logged_in_page.locator("svg.lucide-pencil")
+            )
+            assert edit_btn.count() > 0, "视图卡片内缺少编辑按钮"
+            edit_btn.first.evaluate("el => el.click()")
+
+            # 验证编辑弹窗打开
+            dialog = logged_in_page.locator('[role="dialog"]')
+            try:
+                dialog.first.wait_for(state="visible", timeout=5000)
+            except Exception:
+                pytest.fail("编辑弹窗未打开")
+
+            # 验证模块开关存在（应有 4 个面板开关）
+            switches = dialog.locator('[role="switch"]')
+            try:
+                switches.first.wait_for(state="visible", timeout=3000)
+            except Exception:
+                pytest.fail("编辑弹窗内缺少模块配置开关")
+            switch_count = switches.count()
+            assert switch_count >= 4, \
+                f"预期至少 4 个面板开关，实际 {switch_count}"
+
+            # 切换第一个开关，验证状态变化
+            initial_state = switches.first.get_attribute("data-state")
+            switches.first.click()
+            logged_in_page.wait_for_timeout(500)
+            new_state = switches.first.get_attribute("data-state")
+            assert new_state != initial_state, \
+                f"开关切换后状态未变化: {initial_state} → {new_state}"
+
+            # 切回原状态
+            switches.first.click()
+            logged_in_page.wait_for_timeout(500)
+
+            # 关闭弹窗
+            cancel = dialog.locator("button").filter(has_text="取消")
+            if cancel.count() > 0:
+                cancel.first.click()
             else:
-                # 无编辑入口，验证 API 返回模块配置
-                r = logged_in_page.request.get(
-                    f"{base_url}/web/config/prod-views/{view_id}"
-                )
-                assert r.status < 500, f"视图详情 API 异常: HTTP {r.status}"
+                logged_in_page.keyboard.press("Escape")
         finally:
-            if created:
-                _delete_view_api(logged_in_page, base_url, view_id)
+            _delete_view_api(logged_in_page, base_url, view_id)
 
     @pytest.mark.order(511)
     @pytest.mark.p2
     def test_view_copy_link(self, logged_in_page, base_url):
-        """TC-VIEW-008: 复制链接 — 复制产品视图的访问链接"""
-        view_id, created = _get_or_create_view(logged_in_page, base_url)
+        """TC-VIEW-008: 复制链接 — 点击复制按钮，验证 toast 提示"""
+        view = _create_view_api(logged_in_page, base_url)
+        view_id = view.get("id")
+        view_name = view.get("name", "")
         if not view_id:
-            pytest.skip("无法获取或创建视图 ID")
+            pytest.skip("无法创建视图")
         try:
             v = ViewsPage(logged_in_page, base_url)
             v.goto()
-            # 查找复制按钮
-            copy_btn = loc.button_by_name_or_title(logged_in_page, "复制")
-            # 尝试通过三点菜单
-            if copy_btn.count() == 0:
-                ellipsis = logged_in_page.locator("button").filter(
-                    has=logged_in_page.locator("svg.lucide-ellipsis")
-                )
-                if ellipsis.count() > 0:
-                    ellipsis.first.click()
-                    logged_in_page.wait_for_timeout(800)
-                    copy_btn = logged_in_page.locator('[role="menu"]').locator(
-                        '[role="menuitem"]'
-                    ).filter(has_text="复制")
-            if copy_btn.count() > 0:
-                copy_btn.first.click()
-                logged_in_page.wait_for_timeout(1500)
-                # 验证有 toast 提示已复制
-                toasts = logged_in_page.locator(
-                    "ol > li, [data-slot='toast'] li, [data-sonner-toast] li"
-                )
-                panel = logged_in_page.locator("div.agent-panel-content")
-                assert toasts.count() > 0 or panel.count() > 0, \
-                    "复制链接后无反馈"
-            else:
-                # 没有复制按钮，通过 API 验证视图可访问
-                r = logged_in_page.request.get(
-                    f"{base_url}/web/config/prod-views/{view_id}"
-                )
-                assert r.status < 500, f"视图详情 API 异常: HTTP {r.status}"
-        finally:
-            if created:
-                _delete_view_api(logged_in_page, base_url, view_id)
 
-    @pytest.mark.order(512)
-    @pytest.mark.p2
-    def test_view_external_access(self, logged_in_page, base_url):
-        """TC-VIEW-009: ProdView 独立访问 — 通过外部链接访问产品视图"""
-        view_id, created = _get_or_create_view(logged_in_page, base_url)
-        if not view_id:
-            pytest.skip("无法获取或创建视图 ID")
-        try:
-            # 尝试通过 /view/:id 路径访问
-            external_urls = [
-                f"{base_url}/view/{view_id}",
-                f"{base_url}/prod-view/{view_id}",
-                f"{base_url}/s/{view_id}",
-            ]
-            accessible = False
-            for ext_url in external_urls:
-                logged_in_page.goto(ext_url)
-                logged_in_page.wait_for_load_state("domcontentloaded")
-                # 检查页面是否加载（可能重定向到登录页）
-                body = logged_in_page.locator("body")
-                body_text = body.inner_text() if body.count() > 0 else ""
-                # 页面有内容或重定向到登录页均可接受
-                if len(body_text) > 0:
-                    accessible = True
-                    break
-            if not accessible:
-                # 通过 API 验证 load 端点
-                load_resp = logged_in_page.request.get(
-                    f"{base_url}/web/prod-views/{view_id}/load"
-                )
-                if load_resp.status >= 500:
-                    pytest.skip(f"ProdView 外部访问和 API 均不可用: HTTP {load_resp.status}")
-                assert load_resp.status < 500, \
-                    f"ProdView load API 异常: HTTP {load_resp.status}"
-            # 外部链接或 API 至少一个可用
-            assert view_id, "视图 ID 为空，无法验证外部访问"
+            # 等待视图卡片加载
+            cards = logged_in_page.locator("div.rounded-lg.border")
+            try:
+                cards.first.wait_for(state="visible", timeout=5000)
+            except Exception:
+                pytest.fail("视图卡片未加载")
+
+            # 定位卡片，找复制按钮（Copy 图标 + "复制链接"文字）
+            card = cards.filter(has_text=view_name)
+            if card.count() == 0:
+                card = cards
+            copy_btn = card.first.locator("button").filter(
+                has=logged_in_page.locator("svg.lucide-copy")
+            )
+            assert copy_btn.count() > 0, "视图卡片内缺少复制链接按钮"
+            copy_btn.first.click()
+
+            # 验证 toast 出现"链接已复制"
+            toast = logged_in_page.locator("[data-sonner-toast]").filter(
+                has_text="链接已复制"
+            )
+            try:
+                toast.first.wait_for(state="visible", timeout=5000)
+            except Exception:
+                pytest.fail("点击复制后未出现「链接已复制」toast")
         finally:
-            if created:
-                _delete_view_api(logged_in_page, base_url, view_id)
+            _delete_view_api(logged_in_page, base_url, view_id)
