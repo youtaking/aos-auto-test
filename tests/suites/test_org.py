@@ -629,48 +629,53 @@ def test_org_default_machine(logged_in_page, base_url):
 @allure.epic("组织管理")
 @pytest.mark.order(361)
 @pytest.mark.p2
-def test_org_invite_link_copy(logged_in_page, base_url):
-    """TC-ORG-015: 邀请链接复制 — 复制组织邀请链接"""
+def test_org_add_member_dialog(logged_in_page, base_url):
+    """TC-ORG-015: 添加成员对话框 — 点击「添加成员」按钮，验证对话框打开并含搜索框"""
     org = OrgPage(logged_in_page, base_url)
     org.goto()
 
     names = org.get_org_names()
-    if not names:
-        pytest.skip("无可用组织")
-    org.click_org(names[0])
-    logged_in_page.wait_for_timeout(800)
+    target = next((n for n in names if "ORG_AUTO_TEST" in n), None)
+    if not target:
+        pytest.fail(f"未找到 ORG_AUTO_TEST 组织，当前列表: {names}")
+    org.click_org(target)
 
+    # 等待组织详情面板加载
     body = logged_in_page.locator("div.agent-panel-body").first
+    try:
+        body.wait_for(state="visible", timeout=8000)
+    except Exception:
+        pytest.fail("组织详情面板未加载")
 
-    # 查找邀请/复制链接按钮
-    invite_btn = body.get_by_role("button", name="邀请").or_(
-        body.get_by_role("button", name="复制邀请链接")
-    )
-    if invite_btn.count() == 0:
-        pytest.skip("组织页面无邀请链接按钮")
+    # 查找「添加成员」按钮
+    add_btn = body.get_by_role("button", name="添加成员")
+    if add_btn.count() == 0:
+        pytest.skip("当前用户无管理权限，「添加成员」按钮不可见")
 
-    # 拦截剪贴板写入
-    logged_in_page.evaluate("""() => {
-        window.__clipboardText = '';
-        if (navigator.clipboard) {
-            navigator.clipboard.writeText = (text) => {
-                window.__clipboardText = text;
-                return Promise.resolve();
-            };
-        }
-    }""")
+    add_btn.first.click()
 
-    invite_btn.first.click()
-    logged_in_page.wait_for_timeout(800)
+    # 验证对话框打开
+    dialog = logged_in_page.locator('[role="dialog"]')
+    try:
+        dialog.first.wait_for(state="visible", timeout=5000)
+    except Exception:
+        pytest.fail("点击「添加成员」后对话框未打开")
 
-    # 验证复制动作（toast 提示或剪贴板有内容）
-    clipboard = logged_in_page.evaluate("() => window.__clipboardText")
-    toasts = logged_in_page.locator("ol > li, [data-slot='toast'] li, [data-sonner-toast] li")
-    has_toast = toasts.count() > 0
-    has_clipboard = len(clipboard) > 0
+    dialog_text = dialog.first.inner_text()
 
-    assert has_clipboard or has_toast, \
-        "点击邀请按钮后未检测到复制动作（剪贴板为空且无 toast 提示）"
+    # 验证对话框标题
+    assert "添加成员" in dialog_text, f"对话框缺少「添加成员」标题，实际内容: '{dialog_text[:100]}'"
+
+    # 验证搜索框存在
+    search_input = dialog.locator("input[placeholder*='搜索'], input[cmdk-input]")
+    assert search_input.count() > 0, "对话框中缺少搜索输入框"
+
+    # 关闭对话框
+    cancel_btn = dialog.locator("button").filter(has_text="取消")
+    if cancel_btn.count() > 0:
+        cancel_btn.first.click()
+    else:
+        logged_in_page.keyboard.press("Escape")
 
 
 @allure.epic("组织管理")
