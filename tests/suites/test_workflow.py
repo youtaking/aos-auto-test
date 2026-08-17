@@ -686,7 +686,7 @@ class TestWorkflow:
             except Exception:
                 pass
 
-            yaml_btn = logged_in_page.locator("button").filter(has_text="YAML")
+            yaml_btn = logged_in_page.locator("button[data-tooltip*='YAML']")
             if yaml_btn.count() == 0:
                 pytest.skip("编辑器中无 YAML 按钮")
 

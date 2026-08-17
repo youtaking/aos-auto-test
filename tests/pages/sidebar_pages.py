@@ -137,7 +137,11 @@ class MemoryPage:
         btns = self.page.get_by_role("button", name="星座图").or_(
             self.page.get_by_role("button", name="图谱")
         )
-        return btns.count() > 0
+        try:
+            btns.first.wait_for(state="visible", timeout=15000)
+            return True
+        except Exception:
+            return False
 
 
 class KnowledgeBasePage:

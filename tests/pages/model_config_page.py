@@ -79,12 +79,14 @@ class ModelConfigPage:
         return self.get_provider_cards().count()
 
     def has_provider(self, name: str) -> bool:
-        """是否存在指定名称的 Provider"""
-        cards = self.get_provider_cards()
-        for i in range(cards.count()):
-            if name in cards.nth(i).inner_text():
-                return True
-        return False
+        """是否存在指定名称的 Provider（等待列表加载完成）"""
+        # 等待目标名称出现在页面中
+        target = self.page.locator(f"text={name}")
+        try:
+            target.first.wait_for(state="visible", timeout=15000)
+            return True
+        except Exception:
+            return False
 
     def get_provider_names(self) -> list[str]:
         """获取所有 Provider 显示名称（从卡片文本第2行提取）"""
@@ -315,7 +317,11 @@ class ModelConfigPage:
     def has_model_list_section(self) -> bool:
         """编辑弹窗中是否存在「可用模型列表」区域"""
         dialog = self.page.locator("[role=dialog]")
-        return "可用模型列表" in dialog.inner_text()
+        try:
+            dialog.first.wait_for(state="visible", timeout=10000)
+            return "可用模型列表" in dialog.first.inner_text()
+        except Exception:
+            return False
 
     def has_fetch_models_in_dialog(self) -> bool:
         """编辑弹窗中是否有「获取模型列表」按钮"""
@@ -602,7 +608,19 @@ class ModelConfigPage:
         return False
 
     def click_model_edit(self, provider_name: str, model_name: str):
-        """点击模型级别的「编辑」按钮"""
+        """点击模型级别的「编辑」按钮（等待列表加载完成）"""
+        # 等待目标 provider 出现在页面
+        target = self.page.locator(f"text={provider_name}")
+        try:
+            target.first.wait_for(state="visible", timeout=15000)
+        except Exception:
+            return False
+        # 再等模型名称出现
+        model_target = self.page.locator(f"text={model_name}")
+        try:
+            model_target.first.wait_for(state="visible", timeout=10000)
+        except Exception:
+            return False
         cards = self.get_provider_cards()
         for i in range(cards.count()):
             if provider_name in cards.nth(i).inner_text():

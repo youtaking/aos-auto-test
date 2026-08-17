@@ -99,7 +99,7 @@ pipeline {
                         local url="$1"
                         local output="$2"
                         local proxies="https://gh-proxy.com https://mirror.ghproxy.com https://ghfast.top https://ghproxy.net"
-                        for proxy in $proxies ""; do
+                        for proxy in "" $proxies; do
                             if [ -n "$proxy" ]; then
                                 full_url="${proxy}/${url}"
                             else
@@ -370,6 +370,7 @@ services:
       RCS_SECRET_LITELLM_ADMIN_KEY: sk-litellm-admin-dev-key
       BETTER_AUTH_URL: http://__HOST_IP__:__RCS_PORT__
       NODE_ENV: test
+      BUN_TEST: "1"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
       interval: 10s

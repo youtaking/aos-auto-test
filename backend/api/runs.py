@@ -225,6 +225,16 @@ async def _execute_tests(
                         call_info = test.get("call", {})
                         duration_ms = int(call_info.get("duration", 0) * 1000)
                         longrepr = str(call_info.get("longrepr", "")) if call_info.get("longrepr") else None
+
+                        # teardown 失败时（如 _page_error_monitor fixture 在 teardown 中 assert），
+                        # call 阶段可能是 passed 且无 longrepr，需要从 teardown 阶段获取错误信息
+                        if not longrepr:
+                            teardown_info = test.get("teardown", {})
+                            if teardown_info.get("outcome") == "failed":
+                                td_longrepr = teardown_info.get("longrepr", "")
+                                if td_longrepr:
+                                    longrepr = str(td_longrepr)
+
                         existing = await db.execute(
                             select(TestResult).where(
                                 TestResult.run_id == run_id,
@@ -849,6 +859,14 @@ async def run_single_test(
                     longrepr = call_info.get("longrepr", "")
                     if longrepr:
                         error_message = str(longrepr)[:1000]
+                    # teardown 失败时从 teardown 阶段获取错误信息
+                    if not error_message:
+                        teardown_info = test.get("teardown", {})
+                        if teardown_info.get("outcome") == "failed":
+                            td_longrepr = teardown_info.get("longrepr", "")
+                            if td_longrepr:
+                                error_message = str(td_longrepr)[:1000]
+                                status = "failed"
             except Exception:
                 pass
             finally:

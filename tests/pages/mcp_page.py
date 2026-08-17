@@ -89,9 +89,14 @@ class McpServerPage:
         return names
 
     def has_server(self, name: str) -> bool:
-        """列表中是否包含指定名称的服务器"""
-        body = self.page.locator("div.agent-panel-body").inner_text()
-        return name in body
+        """列表中是否包含指定名称的服务器（等待列表加载完成）"""
+        # 等待目标名称出现在页面中（列表 API 可能需要时间）
+        target = self.page.locator(f"text={name}")
+        try:
+            target.first.wait_for(state="visible", timeout=15000)
+            return True
+        except Exception:
+            return False
 
     # === 创建 ===
 

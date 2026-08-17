@@ -562,7 +562,7 @@ def test_view_tools(logged_in_page, base_url):
     mcp = McpServerPage(logged_in_page, base_url)
     mcp.goto()
 
-    target = "langtesttest"
+    target = "ORG_001_new/my-langfuse-mcp"
     if not mcp.has_server(target):
         pytest.skip(f"已有 MCP 服务器 '{target}' 不存在")
 
@@ -638,11 +638,11 @@ def test_view_tools(logged_in_page, base_url):
 @pytest.mark.order(91)
 @pytest.mark.p2
 def test_inspect_server(logged_in_page, base_url):
-    """✅ 人工评审通过 | TC-MCP-012: 检查 MCP 服务器状态（使用已有服务器 langtesttest）"""
+    """✅ 人工评审通过 | TC-MCP-012: 检查 MCP 服务器状态（使用已有服务器 ORG_001_new/my-langfuse-mcp）"""
     mcp = McpServerPage(logged_in_page, base_url)
     mcp.goto()
 
-    target = "langtesttest"
+    target = "ORG_001_new/my-langfuse-mcp"
     if not mcp.has_server(target):
         pytest.skip(f"已有 MCP 服务器 '{target}' 不存在")
 
@@ -1089,11 +1089,11 @@ def test_mcp_api_auth(logged_in_page, base_url, browser_instance):
 @pytest.mark.order(96)
 @pytest.mark.p2
 def test_mcp_api_tools(logged_in_page, base_url):
-    """✅ 人工评审通过 | TC-MCP-019: 获取 MCP 工具列表 API 验证（使用 langtesttest）"""
+    """✅ 人工评审通过 | TC-MCP-019: 获取 MCP 工具列表 API 验证（使用 ORG_001_new/my-langfuse-mcp）"""
     mcp = McpServerPage(logged_in_page, base_url)
     mcp.goto()
 
-    target = "langtesttest"
+    target = "ORG_001_new/my-langfuse-mcp"
     if not mcp.has_server(target):
         pytest.skip(f"已有 MCP 服务器 '{target}' 不存在")
 

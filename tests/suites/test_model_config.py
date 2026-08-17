@@ -1939,12 +1939,16 @@ def test_model_public_toggle(logged_in_page, base_url, request):
         sw.click()
         logged_in_page.wait_for_timeout(1500)
 
+        # 重新获取开关（React 重渲染后 DOM 元素可能已替换）
+        sw = mc.get_public_switch(provider_id)
+
         # 验证 aria-checked 变化（增加重试）
         new_checked = sw.get_attribute("aria-checked")
         if new_checked == initial_checked:
             # 重试一次点击
             sw.click()
             logged_in_page.wait_for_timeout(1500)
+            sw = mc.get_public_switch(provider_id)
             new_checked = sw.get_attribute("aria-checked")
         if new_checked == initial_checked:
             assert False, \
@@ -1953,6 +1957,7 @@ def test_model_public_toggle(logged_in_page, base_url, request):
         # 再次点击恢复
         sw.click()
         logged_in_page.wait_for_timeout(1500)
+        sw = mc.get_public_switch(provider_id)
 
         restored_checked = sw.get_attribute("aria-checked")
         assert restored_checked == initial_checked, \

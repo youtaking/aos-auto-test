@@ -214,6 +214,14 @@ class TestRunner:
                 duration_ms = int(call_info.get("duration", 0) * 1000)
                 longrepr = call_info.get("longrepr", "")
 
+                # teardown 失败时从 teardown 阶段获取错误信息
+                if not longrepr:
+                    teardown_info = test.get("teardown", {})
+                    if teardown_info.get("outcome") == "failed":
+                        td_longrepr = teardown_info.get("longrepr", "")
+                        if td_longrepr:
+                            longrepr = td_longrepr
+
                 run_result.results.append(CaseResult(
                     suite_name=suite_name,
                     case_name=func_name,

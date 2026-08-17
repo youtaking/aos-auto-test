@@ -52,7 +52,13 @@ class AgentPage:
         return [name_elements.nth(i).inner_text().strip() for i in range(name_elements.count())]
 
     def get_agent_count(self) -> int:
-        """获取当前显示的智能体卡片数量"""
+        """获取当前显示的智能体卡片数量（等待加载完成）"""
+        # 等待加载状态消失（"加载智能体..." 不再可见）
+        loading = self.page.locator("text=加载智能体")
+        try:
+            loading.first.wait_for(state="hidden", timeout=10000)
+        except Exception:
+            pass  # 可能已经加载完成
         return self.get_agent_cards().count()
 
     def search_agent(self, keyword: str):
