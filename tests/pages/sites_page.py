@@ -168,12 +168,24 @@ class SitesListPage:
                 sel.first.select_option(label=visibility)
 
     def save_create(self):
-        """点击创建弹窗的保存按钮"""
+        """点击创建弹窗的保存按钮，等待创建完成（toast 提示或弹窗关闭）"""
         d = self.page.locator('[role="dialog"]')
         btn = d.locator("button").filter(has_text="保存")
         if btn.count() > 0:
             btn.first.click()
-            self.page.wait_for_timeout(1000)
+            # 等待 toast 提示"创建成功"或"保存失败"（API 是 3 步远程调用，可能较慢）
+            toast = self.page.locator("[role='status'], [data-sonner-toast], [data-slot='toast']")
+            try:
+                toast.filter(has_text="成功").or_(toast.filter(has_text="失败")).first.wait_for(
+                    state="visible", timeout=30000
+                )
+            except Exception:
+                pass
+            # 等弹窗关闭
+            try:
+                d.first.wait_for(state="hidden", timeout=5000)
+            except Exception:
+                pass
 
     # === 打开应用（独立 URL）===
 
