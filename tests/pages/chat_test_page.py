@@ -12,6 +12,16 @@ class ChatTestPage:
 
     # === 导航 ===
 
+    def _collapse_artifacts_if_open(self):
+        """如果 Artifacts 面板是展开的，折叠它（避免 resizable panel 遮挡按钮）"""
+        expand_btn = self.page.locator("button.agent-artifacts-expand-btn.open")
+        if expand_btn.count() > 0:
+            try:
+                expand_btn.first.click()
+                self.page.wait_for_timeout(500)
+            except Exception:
+                pass
+
     def goto_agent_chat(self, agent_name: str = "通用助手"):
         """进入指定 Agent 的对话页（带重试）"""
         try:
@@ -45,6 +55,7 @@ class ChatTestPage:
                 self.page.locator("textarea").first.wait_for(
                     state="visible", timeout=20000
                 )
+                self._collapse_artifacts_if_open()
                 return  # 成功
             except Exception:
                 if _attempt < 2:
@@ -64,6 +75,7 @@ class ChatTestPage:
                             self.page.locator("textarea").first.wait_for(
                                 state="visible", timeout=10000
                             )
+                            self._collapse_artifacts_if_open()
                             return
                         except Exception:
                             pass

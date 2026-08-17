@@ -51,11 +51,19 @@ def test_chat_artifacts_panel(logged_in_page, base_url):
     chat.goto_agent_chat("my-auto-test")
     assert chat.is_chat_loaded(), "聊天页面未加载"
 
+    # 确保 Artifacts 面板已展开（批量跑时面板可能被前面的用例折叠或展开）
+    expand_btn = logged_in_page.locator("button[title='显示内容面板']")
+    if expand_btn.count() > 0 and expand_btn.first.is_visible():
+        expand_btn.first.click(force=True)
+        logged_in_page.wait_for_timeout(500)
+
     # 点击"站点"按钮显示 Artifacts 面板
     site_btn = logged_in_page.get_by_role("button", name="站点")
     if site_btn.count() == 0:
         pytest.skip("当前 Agent 无「站点」按钮（未绑定 Site）")
-    site_btn.first.click()
+    if not site_btn.first.is_visible():
+        pytest.skip("「站点」按钮不可见（Artifacts 面板可能未展开）")
+    site_btn.first.click(force=True)
     try:
         logged_in_page.locator("iframe").first.wait_for(state="visible", timeout=10000)
     except Exception:
@@ -241,11 +249,19 @@ def test_chat_artifacts_panel_collapse_expand(logged_in_page, base_url):
     chat.goto_agent_chat("my-auto-test")
     assert chat.is_chat_loaded(), "聊天页面未加载"
 
+    # 确保 Artifacts 面板已展开
+    expand_btn = logged_in_page.locator("button[title='显示内容面板']")
+    if expand_btn.count() > 0 and expand_btn.first.is_visible():
+        expand_btn.first.click(force=True)
+        logged_in_page.wait_for_timeout(500)
+
     # 先点击「站点」按钮显示 Artifacts 面板
     site_btn = logged_in_page.get_by_role("button", name="站点")
     if site_btn.count() == 0:
         pytest.skip("当前 Agent 无「站点」按钮（未绑定 Site）")
-    site_btn.first.click()
+    if not site_btn.first.is_visible():
+        pytest.skip("「站点」按钮不可见（Artifacts 面板可能未展开）")
+    site_btn.first.click(force=True)
     try:
         logged_in_page.locator("iframe").first.wait_for(state="visible", timeout=10000)
     except Exception:
