@@ -364,7 +364,7 @@ def test_agent_023_system_prompt_effective(logged_in_page, base_url):
 
         # 一键创建可能选到遗留的假模型，通过配置界面修改为真实可用模型
         model_changed = ac.change_model_via_config(
-            agent_name, "deepseek-v4-flash"
+            agent_name, "deepseek/deepseek-v4-flash"
         )
         if not model_changed:
             pytest.skip("无法通过配置界面修改模型（配置 modal 打开失败或目标模型不存在）")
