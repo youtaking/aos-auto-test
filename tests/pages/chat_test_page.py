@@ -22,16 +22,32 @@ class ChatTestPage:
             except Exception:
                 pass
 
+    def _expand_sidebar_if_collapsed(self):
+        """如果左侧侧边栏折叠了，点击展开按钮"""
+        sidebar = self.page.locator("aside.agent-sidebar")
+        if sidebar.count() == 0:
+            return
+        is_collapsed = sidebar.first.evaluate("el => el.classList.contains('collapsed')")
+        if is_collapsed:
+            toggle = self.page.locator("button.agent-sidebar-toggle")
+            if toggle.count() > 0:
+                toggle.first.click()
+                self.page.wait_for_timeout(800)
+
     def expand_artifacts_panel(self):
-        """展开右侧 Artifacts 面板（文件树、预览区在面板内）"""
-        # 按钮 title="显示内容面板" 表示面板已折叠
-        btn = self.page.locator("button.agent-artifacts-expand-btn")
-        if btn.count() > 0 and btn.first.is_visible():
-            is_open = btn.first.evaluate("el => el.classList.contains('open')")
-            if not is_open:
-                btn.first.click()
-                self.page.wait_for_timeout(1500)
-                return True
+        """展开右侧 Artifacts 面板（文件树、预览区在面板内）
+        注意：页面可能有多个 agent-artifacts-expand-btn（内层+外层），
+        外层按钮 title="显示内容面板" 表示折叠态，"隐藏内容面板"/"收起至弹窗" 表示已展开。
+        """
+        # 精确匹配外层折叠按钮：title="显示内容面板" = 面板已折叠
+        collapsed_btn = self.page.locator(
+            "button.agent-artifacts-expand-btn[title='显示内容面板']"
+        )
+        if collapsed_btn.count() > 0:
+            collapsed_btn.first.click()
+            self.page.wait_for_timeout(1500)
+            return True
+        # 没有 title="显示内容面板" 的按钮 → 面板已展开，无需操作
         return False
 
     def goto_agent_chat(self, agent_name: str = "通用助手"):
@@ -45,6 +61,8 @@ class ChatTestPage:
             self.page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
         except Exception:
             pass
+        # 确保左侧侧边栏展开（折叠状态存储在 localStorage，前面的测试可能折叠了）
+        self._expand_sidebar_if_collapsed()
         # 等待侧边栏 Agent 列表加载（API 异步返回，全量回归时可能较慢）
         for _w in range(10):
             all_cards = self.page.locator("button.agent-sidebar-agent-card")

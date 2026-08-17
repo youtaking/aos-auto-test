@@ -19,6 +19,20 @@ class ChatPage:
             self.page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
         except Exception:
             pass
+        # 确保左侧侧边栏展开（折叠状态存储在 localStorage，前面的测试可能折叠了）
+        self._expand_sidebar_if_collapsed()
+
+    def _expand_sidebar_if_collapsed(self):
+        """如果左侧侧边栏折叠了，点击展开按钮"""
+        sidebar = self.page.locator("aside.agent-sidebar")
+        if sidebar.count() == 0:
+            return
+        is_collapsed = sidebar.first.evaluate("el => el.classList.contains('collapsed')")
+        if is_collapsed:
+            toggle = self.page.locator("button.agent-sidebar-toggle")
+            if toggle.count() > 0:
+                toggle.first.click()
+                self.page.wait_for_timeout(800)
 
     def is_home_loaded(self) -> bool:
         """首页是否加载完成"""
@@ -78,29 +92,21 @@ class ChatPage:
             card.first.scroll_into_view_if_needed()
             self.page.wait_for_timeout(300)
             card.first.click()
-            # 等待聊天输入框出现（WebSocket 连接需要时间，给 20 秒）
-            try:
-                self.page.locator("textarea").first.wait_for(
-                    state="visible", timeout=20000
-                )
-            except Exception:
-                # 检查是否显示"Agent 未连接"，自动点击"重连"按钮
+            # 等待聊天输入框稳定出现（WebSocket 连接需要时间，轮询最多 30 秒）
+            # 注意：textarea 可能短暂闪现后消失（React 重渲染），需要轮询确认稳定可见
+            for _attempt in range(15):
+                ta = self.page.locator("textarea")
+                if ta.count() > 0 and ta.first.is_visible():
+                    return  # textarea 稳定可见
+                # 检查是否显示"Agent 未连接"（必须可见，DOM 中有 display:none 的同名元素）
                 reconnect_area = self.page.locator("div.agent-welcome-empty")
-                if reconnect_area.count() > 0:
+                if reconnect_area.count() > 0 and reconnect_area.first.is_visible():
                     reconnect_btn = reconnect_area.locator("button")
-                    if reconnect_btn.count() > 0:
+                    if reconnect_btn.count() > 0 and reconnect_btn.first.is_visible():
                         reconnect_btn.first.click()
-                        # 重连后再等 textarea
-                        try:
-                            self.page.locator("textarea").first.wait_for(
-                                state="visible", timeout=20000
-                            )
-                        except Exception:
-                            self.page.wait_for_timeout(2000)
-                    else:
-                        self.page.wait_for_timeout(2000)
-                else:
-                    self.page.wait_for_timeout(2000)
+                        self.page.wait_for_timeout(3000)
+                        continue
+                self.page.wait_for_timeout(2000)
 
     def send_message(self, text: str):
         """发送消息"""

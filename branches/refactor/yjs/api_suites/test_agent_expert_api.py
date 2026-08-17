@@ -19,6 +19,13 @@ import pytest
 
 # ── 工具函数 ──
 
+def _unwrap_expert(result: dict) -> dict:
+    """从 {expert: {...}} 嵌套结构中提取专家对象，兼容扁平结构"""
+    if isinstance(result, dict) and "expert" in result and isinstance(result["expert"], dict):
+        return result["expert"]
+    return result
+
+
 def _agent_expert_action(client, action: str, **extra) -> dict:
     """发送 agent-expert action 请求"""
     body = {"action": action, **extra}
@@ -118,7 +125,8 @@ class TestAgentExpertAPI:
             })
 
             assert isinstance(create_resp, dict)
-            expert_id = create_resp.get("id")
+            expert_obj = _unwrap_expert(create_resp)
+            expert_id = expert_obj.get("id")
             assert expert_id is not None, f"创建专家未返回 id: {create_resp}"
 
             # 回查验证
@@ -162,7 +170,8 @@ class TestAgentExpertAPI:
                 "description": "Original description",
                 "prompt": "Test prompt.",
             })
-            expert_id = create_resp["id"]
+            expert_obj = _unwrap_expert(create_resp)
+            expert_id = expert_obj["id"]
         except (httpx.HTTPStatusError, RuntimeError) as e:
             pytest.skip(f"创建专家失败，无法测试更新: {e}")
 
@@ -195,7 +204,8 @@ class TestAgentExpertAPI:
                 "description": "To be deleted",
                 "prompt": "Test prompt.",
             })
-            expert_id = create_resp["id"]
+            expert_obj = _unwrap_expert(create_resp)
+            expert_id = expert_obj["id"]
         except (httpx.HTTPStatusError, RuntimeError) as e:
             pytest.skip(f"创建专家失败，无法测试删除: {e}")
 
@@ -258,7 +268,8 @@ class TestAgentExpertAPI:
         try:
             dup_resp = _agent_expert_action(web_client, "duplicate", id=system_id)
             assert isinstance(dup_resp, dict)
-            new_id = dup_resp.get("id")
+            dup_obj = _unwrap_expert(dup_resp)
+            new_id = dup_obj.get("id")
             assert new_id is not None, f"复制后未返回 id: {dup_resp}"
             # 新复制的专家 ID 应不同于原始 ID
             assert new_id != system_id, "复制的专家 ID 不应与原始相同"
