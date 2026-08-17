@@ -369,9 +369,6 @@ def test_agent_023_system_prompt_effective(logged_in_page, base_url):
         if not model_changed:
             pytest.skip("无法通过配置界面修改模型（配置 modal 打开失败或目标模型不存在）")
 
-        # 修改模型并重启后，等待聊天页面恢复
-        logged_in_page.wait_for_timeout(3000)
-
         # 发送非 Python 问题，验证 SP 生效（Agent 应拒绝回答）
         ac.send_message("请推荐一家北京好吃的火锅店")
         reply = ac.wait_for_ai_reply(timeout_ms=45000)
