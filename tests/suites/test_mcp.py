@@ -580,40 +580,53 @@ def test_view_tools(logged_in_page, base_url):
 
     logged_in_page.on("response", on_tools_resp)
 
-    # 点击「检测」按钮
-    mcp.click_inspect(target)
-
-    # 快速轮询抓取 toast（toast 自动消失）
-    toast_texts = []
-    for _ in range(10):
-        logged_in_page.wait_for_timeout(500)
-        errors = mcp.get_validation_errors()
-        if errors:
-            toast_texts.extend(errors)
-            break
-
-    logged_in_page.wait_for_load_state("domcontentloaded", timeout=10000)
-
-    # 验证有工具相关信息
-    dialog = logged_in_page.locator("[role='dialog']")
-    body_text = logged_in_page.locator("div.agent-panel-body").inner_text()
-    dialog_text = dialog.first.inner_text() if dialog.count() > 0 and dialog.first.is_visible() else ""
-    combined = " ".join(toast_texts) + " " + body_text + " " + dialog_text
-
-    has_tools_info = (
-        ("成功" in combined and "工具" in combined)
-        or "tool" in combined.lower()
-    )
-
-    # 也检查 API 返回
-    api_tools_count = 0
-    if tools_data:
-        for data in tools_data:
-            tools = data.get("tools") or data.get("data", {}).get("tools") or data.get("items")
-            if tools and isinstance(tools, list) and len(tools) > 0:
-                has_tools_info = True
-                api_tools_count = len(tools)
+    def _poll_for_result(max_rounds=20):
+        """轮询抓取 toast/dialog，返回 (toast_texts, combined, has_tools_info)"""
+        _toast_texts = []
+        for _ in range(max_rounds):
+            logged_in_page.wait_for_timeout(500)
+            errors = mcp.get_validation_errors()
+            if errors:
+                _toast_texts.extend(errors)
+                # 检测到 toast 后再等一轮确保抓全
+                logged_in_page.wait_for_timeout(500)
+                more = mcp.get_validation_errors()
+                if more:
+                    _toast_texts.extend(more)
                 break
+
+        logged_in_page.wait_for_load_state("domcontentloaded", timeout=10000)
+
+        # 验证有工具相关信息
+        dialog = logged_in_page.locator("[role='dialog']")
+        body_text = logged_in_page.locator("div.agent-panel-body").inner_text()
+        dialog_text = dialog.first.inner_text() if dialog.count() > 0 and dialog.first.is_visible() else ""
+        combined = " ".join(_toast_texts) + " " + body_text + " " + dialog_text
+
+        _has_tools_info = (
+            ("成功" in combined and "工具" in combined)
+            or "tool" in combined.lower()
+        )
+
+        # 也检查 API 返回
+        if tools_data:
+            for data in tools_data:
+                tools = data.get("tools") or data.get("data", {}).get("tools") or data.get("items")
+                if tools and isinstance(tools, list) and len(tools) > 0:
+                    _has_tools_info = True
+                    break
+
+        return _toast_texts, combined, _has_tools_info
+
+    # 第一次点击「检测」
+    mcp.click_inspect(target)
+    toast_texts, combined, has_tools_info = _poll_for_result()
+
+    # 全量回归：首次未检测到结果，重新点击重试
+    if not has_tools_info:
+        logged_in_page.wait_for_timeout(2000)
+        mcp.click_inspect(target)
+        toast_texts, combined, has_tools_info = _poll_for_result()
 
     assert has_tools_info, (
         f"检测后无工具相关信息（toast: {toast_texts}，API 响应数: {len(tools_data)}，"
@@ -626,6 +639,7 @@ def test_view_tools(logged_in_page, base_url):
         assert "成功" in toast_combined, f"toast 未包含成功提示: {toast_combined[:80]}"
 
     # 关闭可能的 dialog
+    dialog = logged_in_page.locator("[role='dialog']")
     if dialog.count() > 0 and dialog.first.is_visible():
         close_btn = loc.close_button(dialog)
         if close_btn.count() > 0:

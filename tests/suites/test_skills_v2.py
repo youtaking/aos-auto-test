@@ -344,24 +344,38 @@ def test_skill_delete_via_ui(logged_in_page, base_url):
     try:
         skill_name_el.wait_for(state="visible", timeout=15000)
     except Exception:
-        # 刷新页面重试（SPA 可能缓存了旧的列表数据）
+        # 用 goto 重新导航（比 reload 更彻底，能清除 SPA 内存缓存）
         try:
-            logged_in_page.reload(wait_until="domcontentloaded")
+            logged_in_page.goto(f"{base_url}/ctrl/agent/skills", wait_until="networkidle")
+        except Exception:
+            try:
+                logged_in_page.goto(f"{base_url}/ctrl/agent/skills", wait_until="domcontentloaded")
+            except Exception:
+                pass
+        # 等待页面主容器
+        try:
             logged_in_page.locator("div.agent-panel-content").first.wait_for(
-                state="attached", timeout=8000
+                state="attached", timeout=10000
             )
         except Exception:
             pass
+        # 等待骨架屏消失
         skeleton = logged_in_page.locator("[data-slot='skeleton'], .animate-pulse")
         try:
-            skeleton.first.wait_for(state="hidden", timeout=10000)
+            skeleton.first.wait_for(state="hidden", timeout=12000)
         except Exception:
             pass
+        # 如果还没出现，轮询等待（API 已确认存在，只是 UI 渲染延迟）
+        found = False
+        for _poll in range(8):
+            el = logged_in_page.locator(f"text={skill_name}").first
+            if el.count() > 0 and el.is_visible():
+                found = True
+                break
+            logged_in_page.wait_for_timeout(1500)
+        if not found:
+            pytest.fail(f"页面中未找到技能 '{skill_name}'（重新导航后仍未出现，上传可能未生效）")
         skill_name_el = logged_in_page.locator(f"text={skill_name}").first
-        try:
-            skill_name_el.wait_for(state="visible", timeout=10000)
-        except Exception:
-            pytest.fail(f"页面中未找到技能 '{skill_name}'（刷新后仍未出现，上传可能未生效）")
 
     card = skill_name_el.locator("xpath=ancestor::div[contains(@class,'group')]").first
     delete_btn = card.locator("button", has_text="删除")

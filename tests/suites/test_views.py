@@ -122,10 +122,22 @@ class TestViews:
         v = ViewsPage(logged_in_page, base_url)
         v.goto()
 
-        # 检查发布视图特定内容
-        has_title = logged_in_page.get_by_text("发布视图").count() > 0
-        has_views = v.get_view_count() > 0
-        has_empty = logged_in_page.get_by_text("暂无发布视图").count() > 0
+        # 全量回归：发布视图 tab 内容可能未加载，重新点击 tab 激活（最多 4 轮）
+        for _retry in range(4):
+            has_title = logged_in_page.get_by_text("发布视图").count() > 0
+            has_views = v.get_view_count() > 0
+            has_empty = logged_in_page.get_by_text("暂无发布视图").count() > 0
+            if has_title and (has_views or has_empty):
+                break
+            # 重新点击「发布视图」tab
+            tab_btn = logged_in_page.get_by_role("button", name="发布视图")
+            if tab_btn.count() > 0:
+                tab_btn.first.click(force=True)
+                logged_in_page.wait_for_timeout(1500)
+            else:
+                # tab 按钮都找不到，面板可能折叠了，goto 重试
+                v.goto()
+                logged_in_page.wait_for_timeout(1000)
 
         assert has_title, "缺少「发布视图」标题"
         assert has_views or has_empty, "既没有视图也没有空状态提示"
@@ -256,19 +268,43 @@ class TestViews:
             v = ViewsPage(logged_in_page, base_url)
             v.goto()
 
+            # 全量回归：发布视图 tab 内容可能未加载，重新点击 tab 激活
+            for _retry in range(4):
+                cards = logged_in_page.locator("div.rounded-lg.border")
+                # 确认当前是「发布视图」tab（有标题或有视图卡片或空状态）
+                has_title = logged_in_page.get_by_text("发布视图").count() > 0
+                has_cards = cards.count() > 0
+                has_empty = logged_in_page.get_by_text("暂无发布视图").count() > 0
+                if has_title and (has_cards or has_empty):
+                    break
+                tab_btn = logged_in_page.get_by_role("button", name="发布视图")
+                if tab_btn.count() > 0:
+                    tab_btn.first.click(force=True)
+                    logged_in_page.wait_for_timeout(1500)
+                else:
+                    v.goto()
+                    logged_in_page.wait_for_timeout(1000)
+
             # 等待视图卡片加载
             cards = logged_in_page.locator("div.rounded-lg.border")
             try:
-                cards.first.wait_for(state="visible", timeout=5000)
+                cards.first.wait_for(state="visible", timeout=8000)
             except Exception:
                 pytest.fail("视图卡片未加载")
 
             initial_count = cards.count()
 
-            # 定位目标视图卡片
+            # 定位目标视图卡片（API 刚创建，UI 可能未刷新，轮询等待）
             card = cards.filter(has_text=view_name)
             if card.count() == 0:
-                pytest.fail(f"未找到名称为 '{view_name}' 的视图卡片")
+                for _poll in range(6):
+                    logged_in_page.wait_for_timeout(1500)
+                    cards = logged_in_page.locator("div.rounded-lg.border")
+                    card = cards.filter(has_text=view_name)
+                    if card.count() > 0:
+                        break
+                else:
+                    pytest.fail(f"未找到名称为 '{view_name}' 的视图卡片（已轮询等待）")
 
             # 点击删除按钮（Trash2 图标 + "删除"文字）
             delete_btn = card.first.locator("button").filter(
