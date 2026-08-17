@@ -501,11 +501,15 @@ class AgentConfigPage:
             self.page.wait_for_timeout(300)
             card.first.click()
 
-        # 轮询等待 textarea 出现（重启后 WebSocket 重连需要时间，最多 30s）
-        for _attempt in range(15):
-            ta = self.page.locator("textarea")
+        # 轮询等待聊天输入框稳定可见（重启后 WebSocket 重连需要时间，最多 40s）
+        # textarea 可能短暂闪现后消失（React 重渲染），需确认稳定可见
+        for _attempt in range(20):
+            ta = self.page.locator("textarea[placeholder*='发送']")
             if ta.count() > 0 and ta.first.is_visible():
-                return True
+                # 等 2s 再确认仍然可见（排除闪现）
+                self.page.wait_for_timeout(2000)
+                if ta.count() > 0 and ta.first.is_visible():
+                    return True
             # 检查是否需要手动重连
             reconnect_area = self.page.locator("div.agent-welcome-empty")
             if reconnect_area.count() > 0 and reconnect_area.first.is_visible():
