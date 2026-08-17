@@ -988,10 +988,20 @@ def test_model_010_fetch_provider_models(logged_in_page, base_url, request):
     mc.goto()
 
     count = mc.get_provider_count()
+    cleanup_provider = None
     if count == 0:
-        pytest.skip("Provider 列表为空")
+        # 环境无 Provider 时自动创建一个用于测试
+        cleanup_provider = f"fetch-{_TEST_PREFIX}"
+        _create_provider_via_api(
+            logged_in_page, base_url,
+            cleanup_provider, f"Fetch {_TEST_PREFIX}",
+        )
+        mc.goto()
+        count = mc.get_provider_count()
+        if count == 0:
+            pytest.skip("Provider 创建失败，列表仍为空")
 
-    # 使用第一个已有 Provider 进行测试
+    # 使用第一个 Provider 进行测试
     names = mc.get_provider_names()
     provider_name = names[0]
 
