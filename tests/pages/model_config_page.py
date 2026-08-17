@@ -319,6 +319,11 @@ class ModelConfigPage:
         dialog = self.page.locator("[role=dialog]")
         try:
             dialog.first.wait_for(state="visible", timeout=10000)
+            # 等待弹窗内容加载完成（全套回归时渲染可能较慢）
+            for _ in range(5):
+                if "可用模型列表" in dialog.first.inner_text():
+                    return True
+                self.page.wait_for_timeout(500)
             return "可用模型列表" in dialog.first.inner_text()
         except Exception:
             return False
