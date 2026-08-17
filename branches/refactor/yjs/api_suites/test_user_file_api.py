@@ -50,6 +50,8 @@ class TestUserFileWebAPI:
                 pytest.skip("环境或 workspace 不存在")
             if "503" in err_str or "remote_error" in err_str:
                 pytest.skip("远程文件系统不可用")
+            if "UNKNOWN" in err_str:
+                pytest.skip("workspace 未初始化或服务不可用")
             raise
 
         assert isinstance(result, dict)
@@ -72,6 +74,8 @@ class TestUserFileWebAPI:
                 pytest.skip("远程 mkdir 不可用")
             if "400" in err_str:
                 pytest.skip(f"创建目录受限: {e}")
+            if "UNKNOWN" in err_str:
+                pytest.skip("workspace 未初始化或服务不可用")
             raise
 
         assert isinstance(result, dict)

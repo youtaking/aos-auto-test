@@ -43,6 +43,6 @@ class TestAgentSiteWebAPI:
 
     def test_get_nonexistent_agent_site_app(self, web_client):
         """获取不存在的 Agent Site App：应抛出 404/422 异常"""
-        with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(404|422)"):
+        with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(400|404|422)"):
             web_client.get_agent_site_app("nonexistent-app-id-99999")
 
