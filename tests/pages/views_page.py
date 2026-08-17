@@ -43,18 +43,26 @@ class ViewsPage:
         # 3. 展开右侧 ArtifactsPanel（默认折叠）
         expand_btn = self.page.locator("button.agent-artifacts-expand-btn")
         if expand_btn.count() > 0 and expand_btn.first.is_visible():
-            # 检查是否已折叠（按钮 title 包含 "show" 或 "显示"）
             title = expand_btn.first.get_attribute("title") or ""
             if "show" in title.lower() or "显示" in title:
                 expand_btn.first.click()
-                self.page.wait_for_timeout(1000)
+                self.page.wait_for_timeout(1500)
+            else:
+                # 面板已展开，等待 Tab 栏渲染
+                self.page.wait_for_timeout(500)
 
-        # 4. 点击「发布视图」Tab
+        # 4. 点击「发布视图」Tab（等待可见后再点击，避免面板动画期间点击无效）
         prod_view_tab = self.page.get_by_role("button", name="发布视图")
         if prod_view_tab.count() == 0:
             return  # 没有发布视图 Tab
 
-        prod_view_tab.first.click()
+        try:
+            prod_view_tab.first.wait_for(state="visible", timeout=5000)
+        except Exception:
+            pass
+
+        # 使用 force=True 绕过 resizable-panel-group 遮挡（与 Artifacts 面板同一根因）
+        prod_view_tab.first.click(force=True)
         self.page.wait_for_timeout(1500)
 
     def is_loaded(self) -> bool:
