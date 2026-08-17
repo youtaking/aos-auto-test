@@ -68,12 +68,18 @@ class ChatTestPage:
                             pass
                     self.page.wait_for_timeout(1500)
                 else:
-                    # 第三次也失败：检查是否卡在 connecting 状态
+                    # 第三次也失败：检查是否卡在 "Agent 未连接" 状态
                     connecting = self.page.locator(".agent-welcome-empty, [class*='connecting']")
                     if connecting.count() > 0:
+                        # 点击"重连"按钮恢复 WebSocket 连接
+                        reconnect_btn = self.page.locator(
+                            "div.agent-welcome-empty button"
+                        )
+                        if reconnect_btn.count() > 0:
+                            reconnect_btn.first.click()
                         try:
                             self.page.locator("textarea").first.wait_for(
-                                state="visible", timeout=10000
+                                state="visible", timeout=20000
                             )
                             self._collapse_artifacts_if_open()
                             return

@@ -84,7 +84,23 @@ class ChatPage:
                     state="visible", timeout=20000
                 )
             except Exception:
-                self.page.wait_for_timeout(2000)
+                # 检查是否显示"Agent 未连接"，自动点击"重连"按钮
+                reconnect_area = self.page.locator("div.agent-welcome-empty")
+                if reconnect_area.count() > 0:
+                    reconnect_btn = reconnect_area.locator("button")
+                    if reconnect_btn.count() > 0:
+                        reconnect_btn.first.click()
+                        # 重连后再等 textarea
+                        try:
+                            self.page.locator("textarea").first.wait_for(
+                                state="visible", timeout=20000
+                            )
+                        except Exception:
+                            self.page.wait_for_timeout(2000)
+                    else:
+                        self.page.wait_for_timeout(2000)
+                else:
+                    self.page.wait_for_timeout(2000)
 
     def send_message(self, text: str):
         """发送消息"""
