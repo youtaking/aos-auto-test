@@ -370,15 +370,24 @@ def test_agent_023_system_prompt_effective(logged_in_page, base_url):
             pytest.skip("无法通过配置界面修改模型（配置 modal 打开失败或目标模型不存在）")
 
         # 发送非 Python 问题，验证 SP 生效（Agent 应拒绝回答）
-        ac.send_message("请推荐一家北京好吃的火锅店")
-        reply = ac.wait_for_ai_reply(timeout_ms=45000)
+        # 重启后环境可能未就绪，最多重试 3 次
+        reply = ""
+        for _send_attempt in range(3):
+            ac.send_message("请推荐一家北京好吃的火锅店")
+            reply = ac.wait_for_ai_reply(timeout_ms=45000)
+            # 检查是否返回了占位文本（环境未就绪）
+            if reply and "开始对话" not in reply and "ACP agent" not in reply:
+                break
+            print(f"  [retry] 第 {_send_attempt + 1} 次发送后未收到有效回复，等待 5s 重试...")
+            logged_in_page.wait_for_timeout(5000)
+
         allure.attach(
             f"发送: 请推荐一家北京好吃的火锅店\nAI 回复: {reply[:200]}",
             name="SP 生效验证",
             attachment_type=allure.attachment_type.TEXT,
         )
         # AI 未响应（仍在"思考中"或无回复），环境/模型问题，非应用 Bug
-        if not reply or "思考中" in reply or len(reply) < 5:
+        if not reply or "思考中" in reply or len(reply) < 5 or "开始对话" in reply:
             pytest.skip(f"AI 未在 45s 内完成回复（可能模型响应慢或环境异常），无法验证 SP 生效: '{reply[:100]}'")
         # SP 要求只回答 Python 问题，非 Python 问题应被拒绝或引导回 Python
         python_keywords = ["python", "Python", "编程", "代码", "开发",
