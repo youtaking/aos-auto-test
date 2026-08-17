@@ -153,11 +153,16 @@ def test_memories_graph_visualization(logged_in_page, base_url, env_check):
     mem.goto()
     assert mem.is_loaded(), "记忆页面未加载"
 
-    # 检查是否有视图切换按钮（星座图/图谱/表格等）
-    if not mem.has_view_buttons():
-        pytest.skip("记忆页面无图谱可视化切换按钮")
+    # 等待 DataView 加载完成
+    has_buttons = mem.has_view_buttons()
+    if not has_buttons:
+        # 无数据时应显示空状态
+        body_text = logged_in_page.locator("div.agent-panel-body").inner_text()
+        assert "暂无" in body_text or "no data" in body_text.lower() or "empty" in body_text.lower(), \
+            f"无图谱按钮且无空状态提示，页面内容: {body_text[:200]}"
+        return  # 无数据，空状态验证通过
 
-    # 尝试切换到图谱视图
+    # 有数据时：尝试切换到图谱视图
     graph_btn = logged_in_page.get_by_role("button", name="图谱").or_(
         logged_in_page.get_by_role("button", name="星座图")
     )
@@ -190,7 +195,11 @@ def test_memories_detail_modal(logged_in_page, base_url, env_check):
         "div.cursor-pointer, tr[data-row-key]"
     )
     if items.count() == 0:
-        pytest.skip("记忆页面无数据项可点击")
+        # 无数据时应显示空状态
+        body_text = logged_in_page.locator("div.agent-panel-body").inner_text()
+        assert "暂无" in body_text or "no data" in body_text.lower() or "empty" in body_text.lower(), \
+            f"无数据项且无空状态提示，页面内容: {body_text[:200]}"
+        return  # 无数据，空状态验证通过
 
     # 点击第一个记忆项
     items.first.click()

@@ -213,6 +213,13 @@ async def _execute_api_tests(
                     call_info = test.get("call", {})
                     duration_ms = int(call_info.get("duration", 0) * 1000)
                     longrepr = str(call_info.get("longrepr", "")) if call_info.get("longrepr") else None
+                    # teardown 失败时从 teardown 阶段获取错误信息
+                    if not longrepr:
+                        teardown_info = test.get("teardown", {})
+                        if teardown_info.get("outcome") == "failed":
+                            td_longrepr = teardown_info.get("longrepr", "")
+                            if td_longrepr:
+                                longrepr = str(td_longrepr)
                     existing = await db.execute(
                         select(TestResult).where(
                             TestResult.run_id == run_id,

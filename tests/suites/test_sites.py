@@ -33,6 +33,14 @@ def test_app_preview_and_url_access(logged_in_page, base_url):
     sites.goto()
     assert sites.is_loaded()
 
+    # 等待表格数据加载完成（全量回归时 API 响应可能因服务端负载较慢）
+    try:
+        logged_in_page.locator("table tbody tr").first.wait_for(
+            state="attached", timeout=10000
+        )
+    except Exception:
+        pass  # 表格可能确实为空，后续断言会处理
+
     # 找到任一公开应用
     app_names = sites.get_app_names()
     assert len(app_names) > 0, "Sites 列表为空"

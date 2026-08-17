@@ -308,6 +308,18 @@ def test_skill_delete_via_ui(logged_in_page, base_url):
     )
     assert upload_resp.status_code < 400, f"预置测试技能上传失败: HTTP {upload_resp.status_code}"
 
+    # ── Step 2b: 验证上传在 API 层面生效（全量回归时服务端可能延迟写入）──
+    for _verify in range(5):
+        verify_resp = requests.get(f"{base_url}/web/config/skills", cookies=cookie_jar, timeout=10)
+        if verify_resp.status_code == 200:
+            skills_list = verify_resp.json().get("data", {}).get("skills", [])
+            if any(s.get("name") == skill_name for s in skills_list):
+                break
+        import time as _time
+        _time.sleep(1)
+    else:
+        pytest.fail(f"上传后 API 列表中未找到技能 '{skill_name}'，服务端可能写入延迟")
+
     # ── Step 3: 导航到技能管理页面 ──
     try:
         logged_in_page.goto(f"{base_url}/ctrl/agent/skills", wait_until="domcontentloaded")
@@ -320,11 +332,36 @@ def test_skill_delete_via_ui(logged_in_page, base_url):
         pass
 
     # ── Step 4: 找到测试技能卡片的删除按钮 ──
+    # 等待骨架屏消失（技能列表 API 加载需要时间）
+    skeleton = logged_in_page.locator("[data-slot='skeleton'], .animate-pulse")
+    try:
+        skeleton.first.wait_for(state="hidden", timeout=15000)
+    except Exception:
+        pass  # 可能已经没有骨架屏了
+
+    # 查找技能名（全量回归时 UI 渲染可能滞后于 API，刷新重试一次）
     skill_name_el = logged_in_page.locator(f"text={skill_name}").first
     try:
-        skill_name_el.wait_for(state="visible", timeout=10000)
+        skill_name_el.wait_for(state="visible", timeout=15000)
     except Exception:
-        pytest.fail(f"页面中未找到技能 '{skill_name}'，上传可能未生效")
+        # 刷新页面重试（SPA 可能缓存了旧的列表数据）
+        try:
+            logged_in_page.reload(wait_until="domcontentloaded")
+            logged_in_page.locator("div.agent-panel-content").first.wait_for(
+                state="attached", timeout=8000
+            )
+        except Exception:
+            pass
+        skeleton = logged_in_page.locator("[data-slot='skeleton'], .animate-pulse")
+        try:
+            skeleton.first.wait_for(state="hidden", timeout=10000)
+        except Exception:
+            pass
+        skill_name_el = logged_in_page.locator(f"text={skill_name}").first
+        try:
+            skill_name_el.wait_for(state="visible", timeout=10000)
+        except Exception:
+            pytest.fail(f"页面中未找到技能 '{skill_name}'（刷新后仍未出现，上传可能未生效）")
 
     card = skill_name_el.locator("xpath=ancestor::div[contains(@class,'group')]").first
     delete_btn = card.locator("button", has_text="删除")
