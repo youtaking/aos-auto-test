@@ -493,7 +493,16 @@ class AgentConfigPage:
             self.page.keyboard.press("Escape")
             self.page.wait_for_timeout(500)
 
-        # 重启后等待聊天输入框恢复
+        # 重启后需要重新点击侧边栏 Agent 卡片进入对话页面
+        self.page.wait_for_timeout(2000)
+        card = self.page.locator("button.agent-sidebar-agent-card").filter(has_text=agent_name)
+        if card.count() > 0:
+            card.first.scroll_into_view_if_needed()
+            self.page.wait_for_timeout(300)
+            card.first.click()
+            self.page.wait_for_timeout(1000)
+
+        # 等待聊天输入框恢复
         ta = self.page.locator("textarea[placeholder*='发送']")
         try:
             ta.first.wait_for(state="visible", timeout=20000)
