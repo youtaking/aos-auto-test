@@ -107,6 +107,33 @@ def logged_in_page(page, base_url, test_config, step_delay):
     return page
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _cleanup_leftover_test_providers(logged_in_page, base_url):
+    """会话开始时清理遗留的测试 Provider（防止假模型污染模型库）。
+
+    测试模型配置用例（test_model_config.py）创建 Provider 时以 'e2e-test-' 为前缀，
+    若上次运行异常退出未能清理，遗留的假模型会被 Agent 一键创建选中导致测试失败。
+    """
+    try:
+        resp = logged_in_page.request.get(f"{base_url}/web/config/providers")
+        if resp.status != 200:
+            return
+        data = resp.json()
+        providers = data.get("data", {}).get("providers", [])
+        leftover = [p for p in providers if "e2e-test-" in p.get("id", "")]
+        if leftover:
+            print(f"\n[session-cleanup] 发现 {len(leftover)} 个遗留测试 Provider，正在清理...")
+            for p in leftover:
+                pid = p.get("id", "")
+                del_resp = logged_in_page.request.delete(
+                    f"{base_url}/web/config/providers?name={pid}"
+                )
+                status = "ok" if del_resp.status in (200, 204) else f"fail({del_resp.status})"
+                print(f"  删除 '{pid}': {status}")
+    except Exception as e:
+        print(f"\n[session-cleanup] 清理遗留 Provider 失败（不影响测试）: {e}")
+
+
 @pytest.fixture(scope="session")
 def env_check(logged_in_page, base_url):
     """检查测试环境依赖的服务/数据是否可用，供测试用例按需 skip"""

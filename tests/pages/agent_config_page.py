@@ -290,6 +290,9 @@ class AgentConfigPage:
         if clear_skills:
             self._clear_skill_tags()
 
+        # 注意：一键创建流程没有模型选择器，模型由系统自动从模型库取第一个
+        # 如果模型库有遗留假模型，可能选到无效模型 → 创建后需通过配置界面修改
+
         # 点击创建
         create_btn.scroll_into_view_if_needed()
         create_btn.click()
@@ -331,6 +334,38 @@ class AgentConfigPage:
                 if btns.count() > 0:
                     btns.first.click()
                     self.page.wait_for_timeout(200)
+
+    def _select_model(self, provider: str, model_name: str):
+        """在创建/编辑表单中选择模型（Radix Select 下拉）
+
+        Args:
+            provider: provider 名称（如 "deepseek-test"）
+            model_name: 模型名称（如 "deepseek-v4-flash"）
+        """
+        target_label = f"{provider}/{model_name}"
+        # 找到模型 Select 触发器（Label "模型" 旁边的 SelectTrigger）
+        model_label = self.page.locator("label", has_text="模型")
+        if model_label.count() == 0:
+            print(f"  [select_model] 未找到模型 Label，跳过")
+            return
+        # SelectTrigger 是 label 的兄弟元素
+        select_trigger = model_label.locator("..").locator("button[role='combobox']")
+        if select_trigger.count() == 0:
+            # 回退：直接找包含当前模型文本的 button
+            select_trigger = model_label.locator("..").locator("button").first
+        select_trigger.scroll_into_view_if_needed()
+        select_trigger.click()
+        self.page.wait_for_timeout(500)
+        # 在下拉面板中选择目标模型
+        option = self.page.locator("[role='option']").filter(has_text=target_label)
+        if option.count() > 0:
+            option.first.click()
+            self.page.wait_for_timeout(300)
+            print(f"  [select_model] 已选择模型: {target_label}")
+        else:
+            # 找不到目标模型，关闭下拉
+            self.page.keyboard.press("Escape")
+            print(f"  [select_model] 警告：未找到模型 '{target_label}'，保持当前选择")
 
     # ==================== 对话页面 ====================
 
@@ -382,6 +417,91 @@ class AgentConfigPage:
             pass
         self.page.wait_for_timeout(1000)
         return modal, agent_wrapper
+
+    def change_model_via_config(self, agent_name: str, target_model_label: str) -> bool:
+        """通过 Agent 配置 modal 修改模型并保存+重启。
+
+        Args:
+            agent_name: Agent 名称（用于在侧边栏定位配置按钮）
+            target_model_label: 目标模型在下拉中显示的文本（如 "deepseek-test/deepseek-v4-flash"）
+
+        Returns:
+            True 表示模型修改成功，False 表示失败
+        """
+        modal, _ = self.open_agent_config_modal(agent_name)
+        if modal is None:
+            print(f"  [change_model] 无法打开配置 modal: {agent_name}")
+            return False
+
+        # 在 modal 中找到模型 Select（Label "模型" + Radix SelectTrigger）
+        model_label = modal.locator("label", has_text="模型")
+        if model_label.count() == 0:
+            print("  [change_model] modal 中未找到模型 Label")
+            # 关闭 modal
+            self.page.keyboard.press("Escape")
+            return False
+
+        # SelectTrigger 是 Label 所在 div 内的 combobox button
+        select_trigger = model_label.locator("..").locator("button[role='combobox']")
+        if select_trigger.count() == 0:
+            select_trigger = model_label.locator("..").locator("button").first
+        select_trigger.scroll_into_view_if_needed()
+        select_trigger.click()
+        self.page.wait_for_timeout(500)
+
+        # 在下拉面板中选择目标模型
+        option = self.page.locator("[role='option']").filter(has_text=target_model_label)
+        if option.count() == 0:
+            print(f"  [change_model] 未找到模型选项: {target_model_label}")
+            self.page.keyboard.press("Escape")
+            self.page.keyboard.press("Escape")
+            return False
+
+        option.first.click()
+        self.page.wait_for_timeout(300)
+        print(f"  [change_model] 已选择模型: {target_model_label}")
+
+        # 点击「保存」按钮
+        save_btn = modal.get_by_role("button", name="保存")
+        if save_btn.count() == 0:
+            print("  [change_model] 未找到保存按钮")
+            self.page.keyboard.press("Escape")
+            return False
+        save_btn.first.click()
+        self.page.wait_for_timeout(1500)
+
+        # 处理重启确认弹窗（"配置已保存" → 点击"重启"）
+        restart_dialog = self.page.locator("[role='alertdialog']")
+        if restart_dialog.count() > 0 and restart_dialog.first.is_visible():
+            restart_btn = restart_dialog.get_by_role("button", name="重启")
+            if restart_btn.count() > 0:
+                restart_btn.first.click()
+                self.page.wait_for_timeout(3000)
+                print("  [change_model] 已点击重启")
+            else:
+                # 找不到重启按钮，点击"稍后"
+                later_btn = restart_dialog.get_by_role("button", name="稍后")
+                if later_btn.count() > 0:
+                    later_btn.first.click()
+                    self.page.wait_for_timeout(1000)
+                print("  [change_model] 点击稍后重启")
+
+        # 等待 modal 关闭
+        try:
+            modal.wait_for(state="hidden", timeout=8000)
+        except Exception:
+            self.page.keyboard.press("Escape")
+            self.page.wait_for_timeout(500)
+
+        # 重启后等待聊天输入框恢复
+        ta = self.page.locator("textarea[placeholder*='发送']")
+        try:
+            ta.first.wait_for(state="visible", timeout=20000)
+            self.page.wait_for_timeout(1000)
+        except Exception:
+            pass
+
+        return True
 
     def wait_for_ai_reply(self, timeout_ms: int = 30000) -> str:
         """轮询等待 AI 回复完成（不再显示"思考中"），返回最终回复文本。"""
