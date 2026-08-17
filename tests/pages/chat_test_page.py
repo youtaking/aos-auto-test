@@ -22,6 +22,18 @@ class ChatTestPage:
             except Exception:
                 pass
 
+    def expand_artifacts_panel(self):
+        """展开右侧 Artifacts 面板（文件树、预览区在面板内）"""
+        # 按钮 title="显示内容面板" 表示面板已折叠
+        btn = self.page.locator("button.agent-artifacts-expand-btn")
+        if btn.count() > 0 and btn.first.is_visible():
+            is_open = btn.first.evaluate("el => el.classList.contains('open')")
+            if not is_open:
+                btn.first.click()
+                self.page.wait_for_timeout(1500)
+                return True
+        return False
+
     def goto_agent_chat(self, agent_name: str = "通用助手"):
         """进入指定 Agent 的对话页（带重试）"""
         try:

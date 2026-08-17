@@ -41,29 +41,44 @@ class ViewsPage:
             self.page.wait_for_timeout(2000)
 
         # 3. 展开右侧 ArtifactsPanel（默认折叠）
+        # 用 .open class 判断面板状态（比 title 属性更可靠）
         expand_btn = self.page.locator("button.agent-artifacts-expand-btn")
         if expand_btn.count() > 0 and expand_btn.first.is_visible():
-            title = expand_btn.first.get_attribute("title") or ""
-            if "show" in title.lower() or "显示" in title:
+            is_open = expand_btn.first.evaluate("el => el.classList.contains('open')")
+            if not is_open:
                 expand_btn.first.click()
                 self.page.wait_for_timeout(1500)
             else:
-                # 面板已展开，等待 Tab 栏渲染
                 self.page.wait_for_timeout(500)
 
-        # 4. 点击「发布视图」Tab（等待可见后再点击，避免面板动画期间点击无效）
-        prod_view_tab = self.page.get_by_role("button", name="发布视图")
-        if prod_view_tab.count() == 0:
-            return  # 没有发布视图 Tab
+        # 4. 点击「发布视图」Tab（带重试：跨测试时面板状态可能不一致）
+        for _tab_attempt in range(3):
+            prod_view_tab = self.page.get_by_role("button", name="发布视图")
+            if prod_view_tab.count() == 0:
+                # Tab 不存在，可能面板未展开，尝试重新展开
+                if expand_btn.count() > 0 and expand_btn.first.is_visible():
+                    expand_btn.first.click()
+                    self.page.wait_for_timeout(1500)
+                continue
 
-        try:
-            prod_view_tab.first.wait_for(state="visible", timeout=5000)
-        except Exception:
-            pass
+            try:
+                prod_view_tab.first.wait_for(state="visible", timeout=5000)
+            except Exception:
+                pass
 
-        # 使用 force=True 绕过 resizable-panel-group 遮挡（与 Artifacts 面板同一根因）
-        prod_view_tab.first.click(force=True)
-        self.page.wait_for_timeout(1500)
+            prod_view_tab.first.click(force=True)
+            self.page.wait_for_timeout(1500)
+
+            # 验证 Tab 内容已加载（创建按钮或视图列表出现）
+            has_create = self.page.locator("button").filter(
+                has=self.page.locator("svg.lucide-plus")
+            ).count() > 0
+            has_views = self.page.locator("div.rounded-lg.border").count() > 0
+            has_empty = self.page.get_by_text("暂无发布视图").count() > 0
+            if has_create or has_views or has_empty:
+                break  # 成功
+            # 未加载，重试
+            self.page.wait_for_timeout(1000)
 
     def is_loaded(self) -> bool:
         """发布视图页面是否加载"""
