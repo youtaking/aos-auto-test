@@ -68,6 +68,12 @@ class ChatPage:
     def click_sidebar_agent(self, name: str):
         """点击侧边栏的某个智能体"""
         card = self.page.locator("button.agent-sidebar-agent-card").filter(has_text=name)
+        # 等待卡片出现（sidebar 可能还在渲染中），最长 10 秒
+        try:
+            card.first.wait_for(state="visible", timeout=10000)
+        except Exception:
+            pass  # 超时不抛异常，后面 count 检查会处理
+
         if card.count() > 0:
             card.first.scroll_into_view_if_needed()
             self.page.wait_for_timeout(300)
