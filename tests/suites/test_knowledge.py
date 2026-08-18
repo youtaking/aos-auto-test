@@ -1381,11 +1381,16 @@ def test_kb_021_delete_via_ui(logged_in_page, base_url, request):
     body_text = logged_in_page.inner_text("body")
     assert "返回知识库列表" in body_text, "知识库详情页未加载"
 
-    # 点击删除按钮
-    delete_btn = loc.button_by_name_or_title(logged_in_page, "删除")
-    assert delete_btn.count() > 0, "删除按钮不存在"
-    delete_btn.first.wait_for(state="visible", timeout=5000)
-    delete_btn.first.click()
+    # 点击删除按钮 — 限定到知识库详情头部区域，避免误匹配侧边栏的 "删除智能体" 按钮
+    # DOM 结构：返回知识库列表 与 编辑/删除 在同一 header 容器中
+    return_btn = logged_in_page.get_by_role("button", name="返回知识库列表")
+    return_btn.wait_for(state="visible", timeout=5000)
+    # 向上找到包含 返回/编辑/删除 的 header 容器（第 4 级祖先）
+    kb_header = return_btn.locator("xpath=ancestor::div[4]")
+    delete_btn = kb_header.get_by_role("button", name="删除")
+    assert delete_btn.count() > 0, "知识库详情页删除按钮不存在"
+    delete_btn.wait_for(state="visible", timeout=5000)
+    delete_btn.click()
     logged_in_page.wait_for_timeout(800)
 
     # 处理确认弹窗
@@ -1398,6 +1403,13 @@ def test_kb_021_delete_via_ui(logged_in_page, base_url, request):
     )
 
     if has_confirm:
+        # 安全检查：确认弹窗是关于知识库删除，而非误触的智能体删除
+        active_dialog = alert_dialog if alert_dialog.count() > 0 and alert_dialog.first.is_visible() else dialog
+        dialog_text = active_dialog.first.inner_text() if active_dialog.count() > 0 else ""
+        assert "删除智能体" not in dialog_text, (
+            f"【严重】确认弹窗是关于删除智能体的，不是知识库！弹窗内容: {dialog_text[:100]}"
+        )
+
         confirm_btn = loc.confirm_button(alert_dialog).or_(
             loc.confirm_button(dialog)
         )
@@ -1421,10 +1433,14 @@ def test_kb_021_delete_via_ui(logged_in_page, base_url, request):
         _wait_rate_limit_reset(logged_in_page, 65)
         if not _goto_kb_detail(logged_in_page, base_url, kb_id):
             pytest.skip("429 限流导致知识库详情页无法加载")
-        delete_btn2 = loc.button_by_name_or_title(logged_in_page, "删除")
+        # 重试时也限定到 KB 头部区域
+        return_btn2 = logged_in_page.get_by_role("button", name="返回知识库列表")
+        return_btn2.wait_for(state="visible", timeout=5000)
+        kb_header2 = return_btn2.locator("xpath=ancestor::div[4]")
+        delete_btn2 = kb_header2.get_by_role("button", name="删除")
         if delete_btn2.count() > 0:
-            delete_btn2.first.wait_for(state="visible", timeout=5000)
-            delete_btn2.first.click()
+            delete_btn2.wait_for(state="visible", timeout=5000)
+            delete_btn2.click()
             logged_in_page.wait_for_timeout(800)
         alert_dialog2 = logged_in_page.locator("[role=alertdialog]")
         dialog2 = logged_in_page.locator("[role=dialog]")
@@ -1434,6 +1450,12 @@ def test_kb_021_delete_via_ui(logged_in_page, base_url, request):
                 and any(kw in dialog2.first.inner_text() for kw in ["删除", "确认", "确定"]))
         )
         if has_confirm2:
+            # 安全检查：确认弹窗是关于知识库删除
+            active_dialog2 = alert_dialog2 if alert_dialog2.count() > 0 and alert_dialog2.first.is_visible() else dialog2
+            dialog_text2 = active_dialog2.first.inner_text() if active_dialog2.count() > 0 else ""
+            assert "删除智能体" not in dialog_text2, (
+                f"【严重】重试后确认弹窗是关于删除智能体的！弹窗内容: {dialog_text2[:100]}"
+            )
             confirm_btn2 = loc.confirm_button(alert_dialog2).or_(
                 loc.confirm_button(dialog2)
             )
