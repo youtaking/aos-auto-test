@@ -184,15 +184,18 @@ class TestHindsightWebAPI:
         assert detail is not None
 
     def test_get_hindsight_memory_nonexistent(self, web_client, _hindsight_enabled):
-        """获取不存在的记忆：应返回 404 或空响应"""
+        """获取不存在的记忆：应返回 404 或空结果"""
         try:
-            web_client.get_hindsight_memory("nonexistent-memory-id-99999")
-            # 如果没抛异常，上游可能返回空结果（不算错误）
+            result = web_client.get_hindsight_memory("nonexistent-memory-id-99999")
+            # Hindsight 服务可能返回 200 + 空结果而非 404
+            assert result is None or isinstance(result, (dict, list)), \
+                f"预期空结果或 dict/list，实际: {type(result)}"
         except httpx.HTTPStatusError as e:
-            assert e.response.status_code in (404, 400, 500), \
-                f"预期 404/400/500，实际 {e.response.status_code}"
-        except RuntimeError:
-            pass  # 上游服务返回错误
+            assert e.response.status_code in (404, 400), \
+                f"预期 404/400，实际 {e.response.status_code}"
+        except RuntimeError as e:
+            assert "404" in str(e) or "400" in str(e) or "not_found" in str(e).lower(), \
+                f"预期 404/not_found 错误，实际: {e}"
 
     # ── Recall & Reflect ──
 
@@ -202,7 +205,10 @@ class TestHindsightWebAPI:
             resp = web_client.recall_hindsight({"query": "test query"})
             assert resp is not None
         except (httpx.HTTPStatusError, RuntimeError) as e:
-            logger.warning(f"Recall failed (may need data): {e}")
+            err_str = str(e)
+            if "502" in err_str or "503" in err_str or "504" in err_str:
+                pytest.skip(f"Hindsight 上游服务不可用: {e}")
+            raise
 
     def test_reflect_hindsight(self, web_client, _hindsight_enabled):
         """触发反思：POST /reflect"""
@@ -210,7 +216,10 @@ class TestHindsightWebAPI:
             resp = web_client.reflect_hindsight({})
             assert resp is not None
         except (httpx.HTTPStatusError, RuntimeError) as e:
-            logger.warning(f"Reflect failed (may need data): {e}")
+            err_str = str(e)
+            if "502" in err_str or "503" in err_str or "504" in err_str:
+                pytest.skip(f"Hindsight 上游服务不可用: {e}")
+            raise
 
     # ── Documents ──
 
@@ -224,14 +233,17 @@ class TestHindsightWebAPI:
         assert isinstance(resp["total"], int)
 
     def test_delete_hindsight_document_nonexistent(self, web_client, _hindsight_enabled):
-        """删除不存在的文档：应返回 404 或错误"""
+        """删除不存在的文档：应返回 404 或幂等成功"""
         try:
-            web_client.delete_hindsight_document("nonexistent-doc-id-99999")
+            result = web_client.delete_hindsight_document("nonexistent-doc-id-99999")
+            # 幂等删除：服务可能返回 200 成功
+            assert result is None or isinstance(result, dict)
         except httpx.HTTPStatusError as e:
-            assert e.response.status_code in (404, 400, 500), \
-                f"预期 404/400/500，实际 {e.response.status_code}"
-        except RuntimeError:
-            pass
+            assert e.response.status_code in (404, 400), \
+                f"预期 404/400，实际 {e.response.status_code}"
+        except RuntimeError as e:
+            assert "404" in str(e) or "400" in str(e) or "not_found" in str(e).lower(), \
+                f"预期 404/not_found 错误，实际: {e}"
 
     def test_get_hindsight_document_chunks(self, web_client, _hindsight_enabled):
         """获取文档分块：需要先有文档"""
@@ -246,7 +258,10 @@ class TestHindsightWebAPI:
             chunks = web_client.get_hindsight_document_chunks(doc_id)
             assert chunks is not None
         except (httpx.HTTPStatusError, RuntimeError) as e:
-            logger.warning(f"Get chunks failed: {e}")
+            err_str = str(e)
+            if "502" in err_str or "503" in err_str or "504" in err_str:
+                pytest.skip(f"Hindsight 上游服务不可用: {e}")
+            raise
 
     # ── Mental Models ──
 
@@ -270,14 +285,16 @@ class TestHindsightWebAPI:
         assert detail is not None
 
     def test_delete_hindsight_mental_model_nonexistent(self, web_client, _hindsight_enabled):
-        """删除不存在的心智模型：应返回 404 或错误"""
+        """删除不存在的心智模型：应返回 404 或幂等成功"""
         try:
-            web_client.delete_hindsight_mental_model("nonexistent-model-id-99999")
+            result = web_client.delete_hindsight_mental_model("nonexistent-model-id-99999")
+            assert result is None or isinstance(result, dict)
         except httpx.HTTPStatusError as e:
-            assert e.response.status_code in (404, 400, 500), \
-                f"预期 404/400/500，实际 {e.response.status_code}"
-        except RuntimeError:
-            pass
+            assert e.response.status_code in (404, 400), \
+                f"预期 404/400，实际 {e.response.status_code}"
+        except RuntimeError as e:
+            assert "404" in str(e) or "400" in str(e) or "not_found" in str(e).lower(), \
+                f"预期 404/not_found 错误，实际: {e}"
 
     # ── Entities ──
 
@@ -303,14 +320,17 @@ class TestHindsightWebAPI:
         assert detail is not None
 
     def test_get_hindsight_entity_nonexistent(self, web_client, _hindsight_enabled):
-        """获取不存在的实体：应返回 404 或错误"""
+        """获取不存在的实体：应返回 404 或空结果"""
         try:
-            web_client.get_hindsight_entity("nonexistent-entity-id-99999")
+            result = web_client.get_hindsight_entity("nonexistent-entity-id-99999")
+            assert result is None or isinstance(result, (dict, list)), \
+                f"预期空结果或 dict/list，实际: {type(result)}"
         except httpx.HTTPStatusError as e:
-            assert e.response.status_code in (404, 400, 500), \
-                f"预期 404/400/500，实际 {e.response.status_code}"
-        except RuntimeError:
-            pass
+            assert e.response.status_code in (404, 400), \
+                f"预期 404/400，实际 {e.response.status_code}"
+        except RuntimeError as e:
+            assert "404" in str(e) or "400" in str(e) or "not_found" in str(e).lower(), \
+                f"预期 404/not_found 错误，实际: {e}"
 
     def test_get_hindsight_entities_graph(self, web_client, _hindsight_enabled):
         """获取实体关系图谱"""

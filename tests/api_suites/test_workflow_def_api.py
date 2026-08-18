@@ -101,7 +101,7 @@ class TestWorkflowDefWebAPI:
 
     def test_get_nonexistent_workflow_def(self, web_client):
         """获取不存在的工作流定义：应抛出 404 异常"""
-        with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(404|500)"):
+        with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"404"):
             web_client.get_workflow_def("nonexistent-wf-id-99999")
 
     def test_workflow_def_update_meta(self, web_client):

@@ -281,7 +281,7 @@ class TestMcpOpenAPI:
     def test_get_nonexistent_mcp_server(self, api_client, _openapi_access):
         """获取不存在的 MCP Server：应返回 404"""
 
-        with pytest.raises(httpx.HTTPStatusError, match=r"(404|500)"):
+        with pytest.raises(httpx.HTTPStatusError, match=r"404"):
             api_client.get_mcp_server("nonexistent-mcp-id-99999")
 
     def test_delete_mcp_idempotent(self, api_client, _openapi_access):

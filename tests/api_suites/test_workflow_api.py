@@ -23,25 +23,24 @@ class TestWorkflowOpenAPI:
     def test_execute_workflow_not_found(self, api_client, _openapi_access):
         """执行不存在的 workflow：应返回 404"""
 
-        with pytest.raises(httpx.HTTPStatusError, match=r"(404|400|500)"):
+        with pytest.raises(httpx.HTTPStatusError, match=r"404"):
             api_client.execute_workflow("nonexistent-workflow-id-99999", {
                 "inputs": {},
             })
 
     def test_execute_workflow_invalid_inputs(self, api_client, _openapi_access):
-        """执行不存在的 workflow 带错误 inputs：应返回 404 或 422"""
+        """执行不存在的 workflow 带错误 inputs：应返回 404"""
 
-        with pytest.raises(httpx.HTTPStatusError, match=r"(400|500)"):
+        with pytest.raises(httpx.HTTPStatusError, match=r"404"):
             api_client.execute_workflow("nonexistent-workflow-id-99999", {
                 "inputs": {"invalid_key": "invalid_value"},
                 "mode": "sync",
             })
 
     def test_execute_workflow_empty_body(self, api_client, _openapi_access):
-        """执行 workflow 带空 body：验证服务端处理"""
+        """执行 workflow 带空 body：不存在的工作流应返回 404"""
 
-        # 即使 body 为空，对不存在的 workflow 应返回 404
-        with pytest.raises(httpx.HTTPStatusError, match=r"(400|500)"):
+        with pytest.raises(httpx.HTTPStatusError, match=r"404"):
             api_client.execute_workflow("fake-workflow-id", {})
 
     def test_execute_real_workflow_invalid_inputs(self, api_client, web_client, _openapi_access):
@@ -64,6 +63,6 @@ class TestWorkflowOpenAPI:
             # 如果没抛异常，验证响应中至少有某种结构
             assert isinstance(resp, dict), f"响应应为 dict，实际为 {type(resp)}"
         except httpx.HTTPStatusError as e:
-            # 抛异常也是预期行为，验证状态码
-            assert e.response.status_code in (400, 404, 422, 500), \
+            # 抛异常也是预期行为，验证状态码（400/404/422 为客户端错误）
+            assert e.response.status_code in (400, 404, 422), \
                 f"意外状态码: {e.response.status_code}"

@@ -129,7 +129,7 @@ class TestEnvironmentWebAPI:
 
     def test_create_environment_invalid_agent_id(self, web_client):
         """创建环境使用无效 agentConfigId：应返回 400/404/422"""
-        with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(400|404|422|500)"):
+        with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(400|404|422)"):
             web_client.create_environment({
                 "name": "api-test-env-bad-agent",
                 "agentConfigId": "nonexistent-agent-id-99999",

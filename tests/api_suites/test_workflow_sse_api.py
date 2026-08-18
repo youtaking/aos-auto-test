@@ -62,8 +62,8 @@ class TestWorkflowSSEWebAPI:
             raise
 
     def test_sse_nonexistent_workflow(self, web_client):
-        """连接不存在的工作流 SSE：应返回 404 或 500"""
-        with pytest.raises(httpx.HTTPStatusError, match=r"(404|500)"):
+        """连接不存在的工作流 SSE：应返回 404"""
+        with pytest.raises(httpx.HTTPStatusError, match=r"404"):
             web_client.client.get("/web/workflow/nonexistent-wf-99999/events").raise_for_status()
 
     def test_sse_with_from_seq(self, web_client):

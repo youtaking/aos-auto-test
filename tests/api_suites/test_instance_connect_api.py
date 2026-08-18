@@ -31,7 +31,7 @@ class TestInstanceConnectOpenAPI:
     def test_connect_nonexistent_agent(self, api_client, _openapi_access):
         """连接不存在的 Agent：应返回 404"""
 
-        with pytest.raises(httpx.HTTPStatusError, match=r"(404|400|500)"):
+        with pytest.raises(httpx.HTTPStatusError, match=r"(404|400)"):
             api_client.connect_instance("nonexistent-agent-id-99999")
 
     def test_connect_agent_without_machine(self, api_client, _openapi_access):

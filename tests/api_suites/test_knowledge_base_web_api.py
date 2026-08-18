@@ -95,7 +95,7 @@ class TestKnowledgeBaseWebAPI:
 
     def test_get_nonexistent_knowledge_base(self, web_client, _kb_service_access):
         """获取不存在的知识库：应抛出 404 异常"""
-        with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(404|500)"):
+        with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"404"):
             web_client.get_knowledge_base("nonexistent-kb-id-99999")
 
     def test_knowledge_base_crud_lifecycle(self, web_client, _kb_service_access):
@@ -258,7 +258,7 @@ class TestKnowledgeBaseResourceAPI:
         assert isinstance(resp, (list, dict))
 
     def test_toggle_knowledge_resource(self, web_client, _kb_service_access):
-        """切换资源启用状态：自建知识库 + 检查资源切换行为"""
+        """切换资源启用状态：切换后恢复原始状态"""
         items = web_client.list_knowledge_bases()
         if len(items) == 0:
             pytest.skip("知识库列表为空，无法测试资源切换")
@@ -278,14 +278,25 @@ class TestKnowledgeBaseResourceAPI:
 
         kb_id = kb_with_resources["id"]
         resources = web_client.list_knowledge_resources(kb_id)
-        if isinstance(resources, list) and len(resources) > 0:
-            resource_id = resources[0]["id"]
-            original_enabled = resources[0].get("enabled", True)
-            # 切换状态
-            new_state = not original_enabled
+        if not (isinstance(resources, list) and len(resources) > 0):
+            pytest.skip("知识库无资源")
+
+        resource_id = resources[0]["id"]
+        original_enabled = resources[0].get("enabled", True)
+        new_state = not original_enabled
+
+        try:
+            resp = web_client.toggle_knowledge_resource(kb_id, resource_id, new_state)
+            assert isinstance(resp, (dict, type(None)))
+        except (httpx.HTTPStatusError, RuntimeError) as e:
+            err_str = str(e)
+            if any(code in err_str for code in ("502", "503", "504")):
+                pytest.skip(f"资源切换服务不可用: {e}")
+            raise
+        finally:
+            # 恢复原始状态
             try:
-                resp = web_client.toggle_knowledge_resource(kb_id, resource_id, new_state)
-                assert isinstance(resp, (dict, type(None)))
+                web_client.toggle_knowledge_resource(kb_id, resource_id, original_enabled)
             except (httpx.HTTPStatusError, RuntimeError) as e:
                 import logging
-                logging.getLogger("test").warning(f"资源切换跳过: {e}")
+                logging.getLogger("cleanup").warning(f"恢复资源状态失败: {e}")
