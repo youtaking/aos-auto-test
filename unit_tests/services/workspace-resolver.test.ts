@@ -1,31 +1,34 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { resolveWorkspacePath } from "@fenix/services/workspace-resolver";
 import { join } from "node:path";
 
 describe("resolveWorkspacePath", () => {
+  let originalWorkspaceRoot: string | undefined;
+
+  beforeEach(() => {
+    originalWorkspaceRoot = process.env.WORKSPACE_ROOT;
+  });
+
+  afterEach(() => {
+    if (originalWorkspaceRoot === undefined) delete process.env.WORKSPACE_ROOT;
+    else process.env.WORKSPACE_ROOT = originalWorkspaceRoot;
+  });
+
   test("默认使用 cwd/workspaces 作为根目录", () => {
-    const original = process.env.WORKSPACE_ROOT;
     delete process.env.WORKSPACE_ROOT;
 
     const result = resolveWorkspacePath("org-1", "user-1", "env-1");
     expect(result).toBe(join(process.cwd(), "workspaces", "org-1", "user-1", "env-1"));
-
-    if (original !== undefined) process.env.WORKSPACE_ROOT = original;
   });
 
   test("WORKSPACE_ROOT 已设置时使用配置值", () => {
-    const original = process.env.WORKSPACE_ROOT;
     process.env.WORKSPACE_ROOT = "/data/rcs";
 
     const result = resolveWorkspacePath("org-1", "user-1", "env-1");
     expect(result).toBe(join("/data/rcs", "org-1", "user-1", "env-1"));
-
-    if (original !== undefined) process.env.WORKSPACE_ROOT = original;
-    else delete process.env.WORKSPACE_ROOT;
   });
 
   test("不同 orgId + userId + envId 产生不同路径", () => {
-    const original = process.env.WORKSPACE_ROOT;
     delete process.env.WORKSPACE_ROOT;
 
     const path1 = resolveWorkspacePath("org-a", "user-1", "env-1");
@@ -39,12 +42,9 @@ describe("resolveWorkspacePath", () => {
     expect(path2).not.toBe(path3);
     expect(path2).not.toBe(path4);
     expect(path3).not.toBe(path4);
-
-    if (original !== undefined) process.env.WORKSPACE_ROOT = original;
   });
 
   test("相同 org/user 下不同 envId 产生不同路径", () => {
-    const original = process.env.WORKSPACE_ROOT;
     process.env.WORKSPACE_ROOT = "/data";
 
     const pathA = resolveWorkspacePath("org-1", "user-1", "env-aaa");
@@ -53,8 +53,5 @@ describe("resolveWorkspacePath", () => {
     expect(pathA).toBe(join("/data", "org-1", "user-1", "env-aaa"));
     expect(pathB).toBe(join("/data", "org-1", "user-1", "env-bbb"));
     expect(pathA).not.toBe(pathB);
-
-    if (original !== undefined) process.env.WORKSPACE_ROOT = original;
-    else delete process.env.WORKSPACE_ROOT;
   });
 });

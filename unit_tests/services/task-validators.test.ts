@@ -1,7 +1,18 @@
 import { describe, expect, it } from "bun:test";
 
-// 复制 task.ts 内部验证逻辑进行纯单元测试（private 函数无法直接 import）
+// 复制 task-v2.ts 内部验证逻辑进行纯单元测试（private 函数无法直接 import）
 // 覆盖 validateCron、normalizeTimezone、validateTaskInput 的边界场景
+
+type CreateTaskV2Input = {
+  name: string;
+  description?: string;
+  cron: string;
+  timezone?: string | null;
+  timeoutSeconds?: number;
+  type: "http" | "agent";
+  agentId?: string | null;
+  definition: Record<string, unknown>;
+};
 
 function validateCron(cron: string): string | null {
   const parts = cron.trim().split(/\s+/);
@@ -20,27 +31,24 @@ function normalizeTimezone(timezone: string | null | undefined): string | null {
 }
 
 function validateTaskInput(
-  data: { name?: string; url?: string; cron?: string; method?: string },
+  data: Partial<CreateTaskV2Input>,
   isUpdate = false,
 ): string | null {
-  if (data.name !== undefined) {
-    if (data.name.trim().length === 0) return "任务名称不能为空";
-    if (data.name.length > 128) return "任务名称不能超过 128 字符";
-  }
-  if (!isUpdate && !data.name) return "任务名称不能为空";
-  if (data.url !== undefined && data.url.trim().length === 0) return "URL 不能为空";
-  if (!isUpdate && !data.url) return "URL 不能为空";
-  if (!isUpdate && (!data.cron || data.cron.trim().length === 0)) return "cron 表达式不能为空";
-  if (data.cron) {
-    const cronErr = validateCron(data.cron);
-    if (cronErr) return cronErr;
-  }
-  if (data.method !== undefined) {
-    if (typeof data.method !== "string" || data.method.trim().length === 0) return "HTTP 方法不能为空";
-    if (!["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"].includes(data.method.toUpperCase())) {
-      return "不支持的 HTTP 方法";
+  // cron 语义格式校验（5 字段 + 合法字符，Zod 只校验非空）。
+  // 用 !== undefined 而非真值判断：更新路径传空串 cron 时也必须被拒绝（R36 不变量），
+  // 否则空 cron 会被写入并仅靠 reschedule 时静默失败。
+  if (data.cron !== undefined) {
+    const parts = data.cron.trim().split(/\s+/);
+    if (parts.length !== 5) return "cron 表达式必须为 5 字段（分 时 日 月 周）";
+    const validPattern = /^[\d*/?\-,LW#]+$/;
+    for (const part of parts) {
+      if (!validPattern.test(part)) return `cron 字段 "${part}" 包含非法字符`;
     }
   }
+
+  // 跨字段约束：agent 类型必须绑定 agentId（Zod schema 中 agentId 为 optional/nullable）
+  if (!isUpdate && data.type === "agent" && !data.agentId) return "Agent 任务必须指定 agentId";
+
   return null;
 }
 
@@ -105,68 +113,68 @@ describe("normalizeTimezone", () => {
 // ── validateTaskInput ──
 
 describe("validateTaskInput", () => {
-  it("创建模式要求 name/url/cron 非空", () => {
-    expect(validateTaskInput({})).not.toBeNull();
-    expect(validateTaskInput({ name: "t" })).not.toBeNull();
-    expect(validateTaskInput({ name: "t", url: "http://x" })).not.toBeNull();
+  it("未提供 cron 时不报错（cron 校验跳过）", () => {
+    expect(validateTaskInput({})).toBeNull();
+    expect(validateTaskInput({ type: "http" })).toBeNull();
   });
 
-  it("创建模式接受完整输入", () => {
-    expect(validateTaskInput({ name: "test", url: "http://x", cron: "* * * * *" })).toBeNull();
+  it("提供有效 cron 时通过", () => {
+    expect(validateTaskInput({ type: "http", cron: "* * * * *" })).toBeNull();
   });
 
-  it("更新模式允许部分字段为空", () => {
-    expect(validateTaskInput({}, true)).toBeNull();
-    expect(validateTaskInput({ name: "new" }, true)).toBeNull();
+  it("拒绝非法 cron 表达式", () => {
+    expect(validateTaskInput({ type: "http", cron: "* * *" })).not.toBeNull();
+    expect(validateTaskInput({ type: "http", cron: "abc * * * *" })).not.toBeNull();
   });
 
-  it("拒绝超过 128 字符的名称", () => {
-    expect(validateTaskInput({ name: "a".repeat(129), url: "http://x", cron: "* * * * *" })).not.toBeNull();
+  it("拒绝空字符串 cron", () => {
+    expect(validateTaskInput({ type: "http", cron: "" })).not.toBeNull();
   });
 
-  it("接受 128 字符的名称", () => {
-    expect(validateTaskInput({ name: "a".repeat(128), url: "http://x", cron: "* * * * *" })).toBeNull();
+  it("创建模式：agent 类型缺少 agentId 报错", () => {
+    expect(validateTaskInput({ type: "agent", cron: "* * * * *" })).toBe(
+      "Agent 任务必须指定 agentId",
+    );
   });
 
-  it("拒绝纯空白的名称", () => {
-    expect(validateTaskInput({ name: "   ", url: "http://x", cron: "* * * * *" })).not.toBeNull();
+  it("创建模式：agent 类型带 agentId 通过", () => {
+    expect(
+      validateTaskInput({ type: "agent", cron: "* * * * *", agentId: "agent-1" }),
+    ).toBeNull();
   });
 
-  it("拒绝纯空白的 URL", () => {
-    expect(validateTaskInput({ name: "t", url: "   ", cron: "* * * * *" })).not.toBeNull();
+  it("创建模式：agent 类型 agentId 为空字符串时报错（falsy）", () => {
+    expect(
+      validateTaskInput({ type: "agent", cron: "* * * * *", agentId: "" }),
+    ).toBe("Agent 任务必须指定 agentId");
   });
 
-  it("接受所有标准 HTTP 方法", () => {
-    for (const m of ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]) {
-      expect(validateTaskInput({ name: "t", url: "http://x", cron: "* * * * *", method: m })).toBeNull();
-    }
+  it("创建模式：agent 类型 agentId 为 null 时报错", () => {
+    expect(
+      validateTaskInput({ type: "agent", cron: "* * * * *", agentId: null }),
+    ).toBe("Agent 任务必须指定 agentId");
   });
 
-  it("接受小写 HTTP 方法（自动 upperCase）", () => {
-    expect(validateTaskInput({ name: "t", url: "http://x", cron: "* * * * *", method: "get" })).toBeNull();
+  it("创建模式：http 类型不需要 agentId", () => {
+    expect(validateTaskInput({ type: "http", cron: "* * * * *" })).toBeNull();
   });
 
-  it("拒绝非法 HTTP 方法", () => {
-    expect(validateTaskInput({ name: "t", url: "http://x", cron: "* * * * *", method: "INVALID" })).not.toBeNull();
+  it("更新模式：不强制 agentId 要求", () => {
+    expect(validateTaskInput({ type: "agent", cron: "* * * * *" }, true)).toBeNull();
   });
 
-  it("拒绝空字符串 method", () => {
-    expect(validateTaskInput({ name: "t", url: "http://x", cron: "* * * * *", method: "" })).not.toBeNull();
+  it("更新模式：空串 cron 被拒绝（R36 不变量）", () => {
+    expect(validateTaskInput({ cron: "" }, true)).not.toBeNull();
   });
 
-  it("拒绝纯空白 method", () => {
-    expect(validateTaskInput({ name: "t", url: "http://x", cron: "* * * * *", method: "  " })).not.toBeNull();
+  it("更新模式：未提供 cron 时通过", () => {
+    expect(validateTaskInput({ name: "new-name" }, true)).toBeNull();
   });
 
-  it("更新模式下 name 为 undefined 时不报 name 错误", () => {
-    expect(validateTaskInput({ url: "http://x" }, true)).toBeNull();
-  });
-
-  it("更新模式下 url 为 undefined 时不报 url 错误", () => {
-    expect(validateTaskInput({ name: "t" }, true)).toBeNull();
-  });
-
-  it("更新模式下 name 为空字符串时仍报错", () => {
-    expect(validateTaskInput({ name: "" }, true)).not.toBeNull();
+  it("不校验 name/url/method 等字段（由 Zod schema 负责）", () => {
+    // 源码 validateTaskInput 不校验 name、url、method，这些由 Zod schema 层处理
+    expect(validateTaskInput({ type: "http", cron: "*/5 * * * *" })).toBeNull();
+    // 即使 name 为空也不会报错（源码不校验 name）
+    expect(validateTaskInput({ type: "http", cron: "*/5 * * * *", name: "" })).toBeNull();
   });
 });

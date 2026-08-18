@@ -41,7 +41,7 @@ class EventBus {
     };
     this.events.push(full);
     if (this.events.length > MAX_EVENTS_PER_BUS) {
-      this.events = this.events.slice(-MAX_EVENTS_PER_BUS);
+      this.events = this.events.slice(-Math.floor(MAX_EVENTS_PER_BUS / 2));
     }
     for (const sub of this.subscribers) {
       try {
@@ -54,7 +54,9 @@ class EventBus {
   }
 
   getEventsSince(seqNum: number): SessionEvent[] {
-    return this.events.filter((e) => e.seqNum > seqNum);
+    const idx = this.events.findIndex((e) => e.seqNum > seqNum);
+    if (idx === -1) return [];
+    return this.events.slice(idx);
   }
 
   getLastSeqNum(): number {
@@ -224,8 +226,7 @@ describe("EventBus", () => {
         bus.publish({ id: `e${i}`, sessionId: "s1", type: "user", payload: {}, direction: "outbound" });
       }
       const eventsSince0 = bus.getEventsSince(0);
-      expect(eventsSince0.length).toBeLessThan(5001);
-      expect(eventsSince0.length).toBeGreaterThan(0);
+      expect(eventsSince0.length).toBe(2500);
       expect(bus.getLastSeqNum()).toBe(5001);
     });
   });

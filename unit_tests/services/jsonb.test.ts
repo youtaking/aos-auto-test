@@ -44,6 +44,20 @@ describe("parseJsonb", () => {
   test("布尔类型直接返回", () => {
     expect(parseJsonb(true)).toBe(true);
   });
+
+  // ── P1: falsy 值边界测试 ──
+
+  test("falsy 数字 0 直接返回（非 null）", () => {
+    expect(parseJsonb(0)).toBe(0);
+  });
+
+  test("falsy 布尔 false 直接返回（非 null）", () => {
+    expect(parseJsonb(false)).toBe(false);
+  });
+
+  test("空字符串触发 JSON.parse 抛错 → 返回 null", () => {
+    expect(parseJsonb("")).toBeNull();
+  });
 });
 
 describe("parseJsonbOr", () => {

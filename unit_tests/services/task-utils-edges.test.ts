@@ -1,46 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-// 测试 task.ts 内部工具函数的边界场景
-
-// ── truncateSummary ──
-
-function truncateSummary(value: string | null | undefined): string | null {
-  if (!value) {
-    return null;
-  }
-  return value.length > 2000 ? value.slice(0, 2000) : value;
-}
-
-describe("truncateSummary", () => {
-  it("null/undefined 返回 null", () => {
-    expect(truncateSummary(null)).toBeNull();
-    expect(truncateSummary(undefined)).toBeNull();
-  });
-
-  it("空字符串返回 null", () => {
-    expect(truncateSummary("")).toBeNull();
-  });
-
-  it("短字符串原样返回", () => {
-    expect(truncateSummary("hello")).toBe("hello");
-  });
-
-  it("恰好 2000 字符不截断", () => {
-    const s = "a".repeat(2000);
-    expect(truncateSummary(s)).toBe(s);
-    expect(truncateSummary(s)!.length).toBe(2000);
-  });
-
-  it("超过 2000 字符截断", () => {
-    const s = "a".repeat(2001);
-    const result = truncateSummary(s);
-    expect(result!.length).toBe(2000);
-  });
-
-  it("保留 unicode 字符", () => {
-    expect(truncateSummary("你好世界")).toBe("你好世界");
-  });
-});
+// 测试 task-v2.ts 内部工具函数的边界场景
 
 // ── toUnixTimestamp ──
 
