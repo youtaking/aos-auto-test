@@ -75,37 +75,35 @@ class TestWorkflowRunWebAPI:
             web_client.validate_schema(approvals[0], WORKFLOW_RUN_APPROVAL)
 
     def test_get_nonexistent_workflow_run(self, web_client):
-        """获取不存在的运行记录 — 应返回 404/500 或返回 None/空对象"""
+        """获取不存在的运行记录 — 应返回 404 或 null 空结果"""
         try:
             resp = web_client.get_workflow_run("nonexistent-run-id-99999")
-            # 服务端可能返回 None 或空对象（非异常路径）
+            # 服务端可能返回 200 + 空结果
             assert resp is None or isinstance(resp, dict), \
                 f"预期 None/dict 响应，实际: {type(resp)}"
-            if isinstance(resp, dict):
-                assert len(resp) == 0 or "id" not in resp, \
+            if isinstance(resp, dict) and resp:
+                assert "id" not in resp and "run_id" not in resp, \
                     "不应返回包含有效 id 的运行记录"
         except (httpx.HTTPStatusError, RuntimeError) as e:
-            assert "404" in str(e) or "400" in str(e) or "500" in str(e), \
-                f"非预期错误: {e}"
+            assert "404" in str(e) or "400" in str(e), \
+                f"预期 404/400，实际: {e}"
 
     def test_cancel_nonexistent_workflow_run(self, web_client):
-        """取消不存在的运行 — 应返回 404/500"""
-        try:
+        """取消不存在的运行 — 应返回 404"""
+        with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"404"):
             web_client.cancel_workflow_run("nonexistent-run-id-99999")
-            # 可能返回空响应不算错误
-        except (httpx.HTTPStatusError, RuntimeError) as e:
-            assert "404" in str(e) or "500" in str(e), \
-                f"预期 404/500，实际: {e}"
 
     def test_get_node_output_nonexistent_run(self, web_client):
-        """获取不存在运行的节点输出 — 应返回 404/500"""
+        """获取不存在运行的节点输出 — 应返回 404 或空结果"""
         try:
-            web_client.get_workflow_run_node_output(
+            resp = web_client.get_workflow_run_node_output(
                 "nonexistent-run-id-99999", "nonexistent-node-id"
             )
+            assert resp is None or isinstance(resp, dict), \
+                f"预期 None/dict 响应，实际: {type(resp)}"
         except (httpx.HTTPStatusError, RuntimeError) as e:
-            assert "404" in str(e) or "500" in str(e), \
-                f"预期 404/500，实际: {e}"
+            assert "404" in str(e) or "400" in str(e), \
+                f"预期 404/400，实际: {e}"
 
     def test_dry_run_workflow_invalid(self, web_client):
         """干运行校验 — 无效 YAML 应返回错误"""
@@ -117,22 +115,18 @@ class TestWorkflowRunWebAPI:
             if isinstance(resp, dict):
                 assert resp.get("valid") is False or "issues" in resp, \
                     "无效 YAML 应返回 valid=false 或 issues"
+            else:
+                pytest.fail("无效 YAML dry_run 应返回错误响应或抛异常")
         except (httpx.HTTPStatusError, RuntimeError) as e:
             assert "400" in str(e) or "500" in str(e), \
                 f"预期 400/500，实际: {e}"
 
     def test_recover_nonexistent_run(self, web_client):
-        """恢复不存在的运行 — 应返回 400/404/500"""
-        try:
+        """恢复不存在的运行 — 应返回 400 或 404"""
+        with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(400|404)"):
             web_client.recover_workflow_run("nonexistent-run-id-99999")
-        except (httpx.HTTPStatusError, RuntimeError) as e:
-            assert "400" in str(e) or "404" in str(e) or "500" in str(e), \
-                f"预期 400/404/500，实际: {e}"
 
     def test_rerun_nonexistent_run(self, web_client):
-        """重新运行不存在的运行 — 应返回 400/404/500"""
-        try:
+        """重新运行不存在的运行 — 应返回 400 或 404"""
+        with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(400|404)"):
             web_client.rerun_workflow_run("nonexistent-run-id-99999")
-        except (httpx.HTTPStatusError, RuntimeError) as e:
-            assert "400" in str(e) or "404" in str(e) or "500" in str(e), \
-                f"预期 400/404/500，实际: {e}"

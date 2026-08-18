@@ -10,6 +10,7 @@
 """
 import httpx
 import pytest
+from tests.api_contracts.sandbox_schemas import SANDBOX_POOL_ITEM, SANDBOX_INSTANCE_ITEM
 
 
 def _check_sandbox_access(client):
@@ -36,6 +37,16 @@ class TestSandboxPoolAPI:
             raise
 
         assert isinstance(result, (list, dict))
+        # 验证列表项结构
+        if isinstance(result, list) and len(result) > 0:
+            item = result[0]
+            api_client.validate_schema(item, SANDBOX_POOL_ITEM)
+            assert "id" in item or "poolId" in item, f"沙盒池项缺少 ID 字段: {list(item.keys())}"
+        elif isinstance(result, dict):
+            items = result.get("items", result.get("pools", []))
+            assert isinstance(items, list), f"分页结构中 items/pools 应为 list，实际: {type(items)}"
+            if len(items) > 0:
+                api_client.validate_schema(items[0], SANDBOX_POOL_ITEM)
 
     def test_get_sandbox_pool(self, api_client):
         """获取沙盒池详情：先拿列表取第一个 id"""
@@ -62,7 +73,11 @@ class TestSandboxPoolAPI:
             pytest.skip("沙盒池无有效 ID 字段")
 
         detail = api_client.get_sandbox_pool(pool_id)
-        assert isinstance(detail, dict)
+        api_client.validate_schema(detail, SANDBOX_POOL_ITEM)
+        # 验证详情包含 ID 字段
+        detail_id = detail.get("id") or detail.get("poolId")
+        assert detail_id is not None, f"沙盒池详情缺少 ID 字段: {list(detail.keys())}"
+        assert detail_id == pool_id, f"沙盒池详情 ID 不匹配: 期望 {pool_id}，实际 {detail_id}"
 
     def test_get_nonexistent_pool(self, api_client):
         """获取不存在的沙盒池：应返回 404"""
@@ -70,7 +85,7 @@ class TestSandboxPoolAPI:
         if access is None:
             pytest.skip("System API Key 未配置或无权限")
 
-        with pytest.raises(httpx.HTTPStatusError, match=r"(404|400)"):
+        with pytest.raises(httpx.HTTPStatusError, match=r"404"):
             api_client.get_sandbox_pool("nonexistent-pool-id-99999")
 
 
@@ -87,6 +102,17 @@ class TestSandboxInstanceAPI:
             raise
 
         assert isinstance(result, (list, dict))
+        # 验证列表项结构
+        if isinstance(result, list) and len(result) > 0:
+            item = result[0]
+            api_client.validate_schema(item, SANDBOX_INSTANCE_ITEM)
+            assert "id" in item or "instanceId" in item, \
+                f"沙盒实例项缺少 ID 字段: {list(item.keys())}"
+        elif isinstance(result, dict):
+            items = result.get("items", result.get("instances", []))
+            assert isinstance(items, list), f"分页结构中 items/instances 应为 list，实际: {type(items)}"
+            if len(items) > 0:
+                api_client.validate_schema(items[0], SANDBOX_INSTANCE_ITEM)
 
     def test_get_sandbox_instance(self, api_client):
         """获取沙盒实例详情：先拿列表取第一个 id"""
@@ -113,7 +139,11 @@ class TestSandboxInstanceAPI:
             pytest.skip("沙盒实例无有效 ID 字段")
 
         detail = api_client.get_sandbox_instance(instance_id)
-        assert isinstance(detail, dict)
+        api_client.validate_schema(detail, SANDBOX_INSTANCE_ITEM)
+        # 验证详情包含 ID 字段
+        detail_id = detail.get("id") or detail.get("instanceId")
+        assert detail_id is not None, f"沙盒实例详情缺少 ID 字段: {list(detail.keys())}"
+        assert detail_id == instance_id, f"沙盒实例详情 ID 不匹配: 期望 {instance_id}，实际 {detail_id}"
 
     def test_get_nonexistent_instance(self, api_client):
         """获取不存在的沙盒实例：应返回 404"""
@@ -121,5 +151,5 @@ class TestSandboxInstanceAPI:
         if access is None:
             pytest.skip("System API Key 未配置或无权限")
 
-        with pytest.raises(httpx.HTTPStatusError, match=r"(404|400)"):
+        with pytest.raises(httpx.HTTPStatusError, match=r"404"):
             api_client.get_sandbox_instance("nonexistent-instance-id-99999")

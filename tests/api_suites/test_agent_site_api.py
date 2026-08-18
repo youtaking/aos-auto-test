@@ -97,19 +97,13 @@ class TestAgentSiteWebAPI:
 
     def test_rotate_token_nonexistent(self, web_client):
         """轮转不存在的 App Token：应返回 404"""
-        try:
+        with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(404|400)"):
             web_client.rotate_agent_site_token("nonexistent-app-id-99999")
-        except (httpx.HTTPStatusError, RuntimeError) as e:
-            assert "404" in str(e) or "400" in str(e) or "500" in str(e), \
-                f"预期 404/400/500，实际: {e}"
 
     def test_deploy_nonexistent(self, web_client):
         """部署不存在的 App：应返回 404"""
-        try:
+        with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(404|400)"):
             web_client.deploy_agent_site("nonexistent-app-id-99999")
-        except (httpx.HTTPStatusError, RuntimeError) as e:
-            assert "404" in str(e) or "400" in str(e) or "500" in str(e), \
-                f"预期 404/400/500，实际: {e}"
 
     def test_list_agent_config_sites(self, web_client):
         """获取 Agent 配置关联的 Sites：使用列表首个 agent 的 configId"""

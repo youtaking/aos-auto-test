@@ -312,8 +312,5 @@ class TestProviderModelActions:
 
     def test_fetch_provider_models_nonexistent(self, web_client):
         """获取不存在 Provider 的模型列表 — 应返回 404"""
-        try:
+        with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(404|400)"):
             web_client.fetch_provider_models("nonexistent-provider-99999")
-        except (httpx.HTTPStatusError, RuntimeError) as e:
-            assert "404" in str(e) or "400" in str(e) or "500" in str(e), \
-                f"预期 404/400/500，实际: {e}"

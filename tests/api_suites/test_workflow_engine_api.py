@@ -20,37 +20,18 @@ class TestWorkflowEngineWebAPI:
 
     def test_unknown_action(self, web_client):
         """未知 action：应返回 400 或 422"""
-        try:
+        with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(400|422)"):
             web_client.workflow_engine_action({"action": "unknown_action_xyz"})
-        except (httpx.HTTPStatusError, RuntimeError) as e:
-            err_str = str(e)
-            if any(code in err_str for code in ["400", "422", "validation", "unknown"]):
-                return  # 预期行为
-            raise
-        # 如果没有异常，检查返回值中的错误
-        pytest.fail("未知 action 应返回错误")
 
     def test_dry_run_without_yaml(self, web_client):
         """dryRun 缺少 yaml：应返回 400"""
-        try:
+        with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(400|422)"):
             web_client.workflow_engine_action({"action": "dryRun"})
-        except (httpx.HTTPStatusError, RuntimeError) as e:
-            err_str = str(e)
-            if "400" in err_str or "validation" in err_str.lower():
-                return  # 预期行为
-            raise
-        pytest.fail("dryRun 缺少 yaml 应返回错误")
 
     def test_run_without_yaml(self, web_client):
         """run 缺少 yaml 和 workflowId：应返回 400"""
-        try:
+        with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(400|422)"):
             web_client.workflow_engine_action({"action": "run"})
-        except (httpx.HTTPStatusError, RuntimeError) as e:
-            err_str = str(e)
-            if "400" in err_str or "validation" in err_str.lower():
-                return  # 预期行为
-            raise
-        pytest.fail("run 缺少 yaml 应返回错误")
 
     def test_get_run_status_nonexistent(self, web_client):
         """获取不存在的 run 状态：应返回 404 或 null 数据"""
@@ -59,11 +40,12 @@ class TestWorkflowEngineWebAPI:
                 "action": "getRunStatus",
                 "runId": "nonexistent-run-99999",
             })
-            # 如果没抛异常，结果应为 null 或带 error
-            assert result is None or isinstance(result, dict)
+            # 如果没抛异常，结果应为 null 或带 error 标识
+            assert result is None or isinstance(result, dict), \
+                f"预期 None/dict 响应，实际: {type(result)}"
         except (httpx.HTTPStatusError, RuntimeError) as e:
-            err_str = str(e)
-            assert any(code in err_str for code in ["404", "not_found", "RUN_NOT_FOUND", "500"])
+            assert "404" in str(e) or "not_found" in str(e).lower(), \
+                f"预期 404/not_found，实际: {e}"
 
     def test_get_events_nonexistent(self, web_client):
         """获取不存在的 run 事件：应返回 404 或空列表"""
@@ -72,10 +54,11 @@ class TestWorkflowEngineWebAPI:
                 "action": "getEvents",
                 "runId": "nonexistent-run-99999",
             })
-            assert result is None or isinstance(result, (dict, list))
+            assert result is None or isinstance(result, (dict, list)), \
+                f"预期 None/dict/list 响应，实际: {type(result)}"
         except (httpx.HTTPStatusError, RuntimeError) as e:
-            err_str = str(e)
-            assert any(code in err_str for code in ["404", "not_found", "RUN_NOT_FOUND", "500"])
+            assert "404" in str(e) or "not_found" in str(e).lower(), \
+                f"预期 404/not_found，实际: {e}"
 
     def test_get_pending_approvals_nonexistent(self, web_client):
         """获取不存在的 run 审批列表：应返回 404 或空列表"""
@@ -84,10 +67,11 @@ class TestWorkflowEngineWebAPI:
                 "action": "getPendingApprovals",
                 "runId": "nonexistent-run-99999",
             })
-            assert result is None or isinstance(result, (dict, list))
+            assert result is None or isinstance(result, (dict, list)), \
+                f"预期 None/dict/list 响应，实际: {type(result)}"
         except (httpx.HTTPStatusError, RuntimeError) as e:
-            err_str = str(e)
-            assert any(code in err_str for code in ["404", "not_found", "RUN_NOT_FOUND", "500"])
+            assert "404" in str(e) or "not_found" in str(e).lower(), \
+                f"预期 404/not_found，实际: {e}"
 
     def test_dry_run_with_simple_yaml(self, web_client):
         """dryRun 简单 YAML：验证工作流定义合法性"""

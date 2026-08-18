@@ -247,5 +247,5 @@ class TestFsWebAPI:
             assert resp.get("ok") is True or resp.get("success") is True
         except (httpx.HTTPStatusError, RuntimeError) as e:
             # 也可能返回 404（文件不存在）
-            assert "404" in str(e) or "500" in str(e) or "503" in str(e), \
-                f"预期幂等删除或 404/500/503，实际: {e}"
+            assert "404" in str(e) or "503" in str(e), \
+                f"预期幂等删除或 404/503，实际: {e}"

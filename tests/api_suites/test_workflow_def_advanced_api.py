@@ -66,6 +66,14 @@ steps:
             )
             data = web_client._unwrap(resp)
             assert data is None or isinstance(data, dict)
+
+            # 回读验证：重新获取 draft 确认已保存
+            try:
+                get_resp = web_client.get(f"/web/workflow-defs/{wf_id}/draft")
+                get_data = web_client._unwrap(get_resp)
+                assert get_data is not None, "保存草稿后 GET draft 不应为空"
+            except (httpx.HTTPStatusError, RuntimeError):
+                pass  # draft GET 端点可能不存在
         except (httpx.HTTPStatusError, RuntimeError) as e:
             err_str = str(e)
             if "400" in err_str or "422" in err_str:
@@ -80,6 +88,16 @@ steps:
         wf_id = _create_test_workflow(web_client, test_name)
 
         try:
+            # 先保存一个草稿，再发布
+            draft_yaml = "name: test-publish\nsteps:\n  - id: step1\n    type: log\n"
+            try:
+                web_client.put(
+                    f"/web/workflow-defs/{wf_id}/draft",
+                    json={"yaml": draft_yaml},
+                )
+            except (httpx.HTTPStatusError, RuntimeError):
+                pass  # 草稿保存失败不影响发布测试
+
             resp = web_client.post(
                 f"/web/workflow-defs/{wf_id}/publish",
                 json={},
@@ -87,10 +105,15 @@ steps:
             data = web_client._unwrap(resp)
             # 发布成功返回版本信息或 null
             assert data is None or isinstance(data, dict)
+
+            # 回读验证：发布后版本列表应非空
+            versions = web_client.list_workflow_def_versions(wf_id)
+            assert isinstance(versions, list)
+            # 注意：无草稿时发布可能不产生新版本
         except (httpx.HTTPStatusError, RuntimeError) as e:
             err_str = str(e)
             # 无草稿时发布可能返回 400/404/500
-            if any(code in err_str for code in ("400", "404", "422", "500", "502")):
+            if any(code in err_str for code in ("400", "404", "422", "502")):
                 pytest.skip(f"发布失败（可能无有效草稿或服务不可用）: {e}")
             raise
         finally:
@@ -264,6 +287,19 @@ class TestWorkflowDefTriggerAPI:
             )
             del_data = web_client._unwrap(del_resp)
             assert del_data is None or isinstance(del_data, dict)
+
+            # 回读验证：触发器列表不应包含已删除的触发器
+            try:
+                list_resp = web_client.get(f"/web/workflow-defs/{wf_id}/triggers")
+                list_data = web_client._unwrap(list_resp)
+                if isinstance(list_data, list):
+                    remaining_ids = [
+                        t.get("id") or t.get("triggerId") for t in list_data
+                    ]
+                    assert trigger_id not in remaining_ids, \
+                        f"已删除触发器 {trigger_id} 仍在列表中"
+            except (httpx.HTTPStatusError, RuntimeError):
+                pass  # 列表端点可能不可用
         except (httpx.HTTPStatusError, RuntimeError) as e:
             err_str = str(e)
             if "400" in err_str or "422" in err_str:
@@ -273,7 +309,7 @@ class TestWorkflowDefTriggerAPI:
             _cleanup_workflow(web_client, wf_id)
 
     def test_enable_disable_trigger(self, web_client):
-        """启用/禁用触发器"""
+        """启用/禁用触发器：验证 disable 和 enable 调用成功"""
         test_name = "api-test-wf-trigger-toggle-001"
         wf_id = _create_test_workflow(web_client, test_name)
 
@@ -291,21 +327,19 @@ class TestWorkflowDefTriggerAPI:
             if not trigger_id:
                 pytest.skip("创建触发器未返回 id")
 
-            # 禁用
-            try:
-                web_client.post(
-                    f"/web/workflow-defs/{wf_id}/triggers/{trigger_id}/disable",
-                )
-            except (httpx.HTTPStatusError, RuntimeError):
-                pass
+            # 禁用 — 应成功返回（不抛异常即为通过）
+            disable_resp = web_client.post(
+                f"/web/workflow-defs/{wf_id}/triggers/{trigger_id}/disable",
+            )
+            disable_data = web_client._unwrap(disable_resp)
+            assert disable_data is None or isinstance(disable_data, dict)
 
-            # 启用
-            try:
-                web_client.post(
-                    f"/web/workflow-defs/{wf_id}/triggers/{trigger_id}/enable",
-                )
-            except (httpx.HTTPStatusError, RuntimeError):
-                pass
+            # 启用 — 应成功返回
+            enable_resp = web_client.post(
+                f"/web/workflow-defs/{wf_id}/triggers/{trigger_id}/enable",
+            )
+            enable_data = web_client._unwrap(enable_resp)
+            assert enable_data is None or isinstance(enable_data, dict)
         except (httpx.HTTPStatusError, RuntimeError) as e:
             err_str = str(e)
             if "400" in err_str or "422" in err_str:
@@ -401,7 +435,9 @@ class TestWorkflowDefRecoverAPI:
                 json={"workflowIds": []},
             )
             data = web_client._unwrap(resp)
-            assert data is None or isinstance(data, (dict, list))
-        except (httpx.HTTPStatusError, RuntimeError):
-            # 空列表返回 400 也是合理行为
-            pass
+            assert data is None or isinstance(data, (dict, list)), \
+                f"空列表恢复返回意外数据类型: {type(data)}"
+        except (httpx.HTTPStatusError, RuntimeError) as e:
+            # 空列表返回 400/422 是合理行为，不接受 500
+            assert "400" in str(e) or "422" in str(e), \
+                f"空列表恢复预期 400/422，实际: {e}"
