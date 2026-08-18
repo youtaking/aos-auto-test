@@ -198,19 +198,24 @@ def _cleanup_modal(request):
         # 关闭 alert dialog overlay (data-slot='alert-dialog-overlay')
         alert_overlay = page.locator("[data-slot='alert-dialog-overlay']")
         if alert_overlay.count() > 0 and alert_overlay.first.is_visible():
-            # 尝试点击 alert dialog 中的确认/取消按钮
+            # 尝试点击 alert dialog 中的取消/关闭按钮
             alert_btns = page.locator("[data-slot='alert-dialog'] button, [role='alertdialog'] button")
             if alert_btns.count() > 0:
+                # 安全检查：如果弹窗标题包含"删除"，只点取消/关闭，绝不点确认
+                alert_text = page.locator("[data-slot='alert-dialog'], [role='alertdialog']").first.inner_text()
+                is_delete_dialog = "删除" in alert_text
+                safe_cancel = ("取消", "关闭", "Cancel", "Close")
+                safe_confirm = ("确认", "确定", "Confirm", "OK")
+                # 删除类弹窗：只接受取消按钮
+                allowed = safe_cancel if is_delete_dialog else (*safe_cancel, *safe_confirm)
                 for i in range(alert_btns.count()):
                     btn = alert_btns.nth(i)
                     txt = (btn.text_content() or "").strip()
-                    if txt in ("确认", "确定", "取消", "关闭", "Confirm", "Cancel", "OK"):
+                    if txt in allowed:
                         btn.click(force=True)
                         page.wait_for_timeout(500)
                         break
-                else:
-                    alert_btns.first.click(force=True)
-                    page.wait_for_timeout(500)
+                # 不再 fallback 点击第一个按钮 — 未知按钮可能是危险操作（如 "删除智能体"）
             else:
                 page.keyboard.press("Escape")
                 page.wait_for_timeout(500)
