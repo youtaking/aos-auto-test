@@ -87,3 +87,52 @@ class TestWorkflowRunWebAPI:
         except (httpx.HTTPStatusError, RuntimeError) as e:
             assert "404" in str(e) or "400" in str(e) or "500" in str(e), \
                 f"非预期错误: {e}"
+
+    def test_cancel_nonexistent_workflow_run(self, web_client):
+        """取消不存在的运行 — 应返回 404/500"""
+        try:
+            web_client.cancel_workflow_run("nonexistent-run-id-99999")
+            # 可能返回空响应不算错误
+        except (httpx.HTTPStatusError, RuntimeError) as e:
+            assert "404" in str(e) or "500" in str(e), \
+                f"预期 404/500，实际: {e}"
+
+    def test_get_node_output_nonexistent_run(self, web_client):
+        """获取不存在运行的节点输出 — 应返回 404/500"""
+        try:
+            web_client.get_workflow_run_node_output(
+                "nonexistent-run-id-99999", "nonexistent-node-id"
+            )
+        except (httpx.HTTPStatusError, RuntimeError) as e:
+            assert "404" in str(e) or "500" in str(e), \
+                f"预期 404/500，实际: {e}"
+
+    def test_dry_run_workflow_invalid(self, web_client):
+        """干运行校验 — 无效 YAML 应返回错误"""
+        try:
+            resp = web_client.dry_run_workflow({
+                "yaml": "invalid: yaml: content: [",
+            })
+            # 如果没抛异常，检查返回 valid=false
+            if isinstance(resp, dict):
+                assert resp.get("valid") is False or "issues" in resp, \
+                    "无效 YAML 应返回 valid=false 或 issues"
+        except (httpx.HTTPStatusError, RuntimeError) as e:
+            assert "400" in str(e) or "500" in str(e), \
+                f"预期 400/500，实际: {e}"
+
+    def test_recover_nonexistent_run(self, web_client):
+        """恢复不存在的运行 — 应返回 400/404/500"""
+        try:
+            web_client.recover_workflow_run("nonexistent-run-id-99999")
+        except (httpx.HTTPStatusError, RuntimeError) as e:
+            assert "400" in str(e) or "404" in str(e) or "500" in str(e), \
+                f"预期 400/404/500，实际: {e}"
+
+    def test_rerun_nonexistent_run(self, web_client):
+        """重新运行不存在的运行 — 应返回 400/404/500"""
+        try:
+            web_client.rerun_workflow_run("nonexistent-run-id-99999")
+        except (httpx.HTTPStatusError, RuntimeError) as e:
+            assert "400" in str(e) or "404" in str(e) or "500" in str(e), \
+                f"预期 400/404/500，实际: {e}"

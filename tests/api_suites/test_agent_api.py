@@ -171,20 +171,14 @@ class TestAgentOpenAPI:
     - 响应为裸数据，无 {success, data} 包装
     """
 
-    def test_list_agents(self, api_client, api_test_config):
+    def test_list_agents(self, api_client, _openapi_access):
         """获取 Agent 列表：返回分页结构"""
-        if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
-            pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
-
         resp = api_client.list_agents()
         api_client.validate_schema(resp, API_AGENT_LIST_RESPONSE)
         assert isinstance(resp["items"], list)
 
-    def test_get_agent(self, api_client, api_test_config):
+    def test_get_agent(self, api_client, _openapi_access):
         """获取单个 Agent 详情：先拿列表取第一个 ID，再查详情"""
-        if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
-            pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
-
         list_resp = api_client.list_agents()
         if len(list_resp["items"]) == 0:
             pytest.skip("Agent 列表为空，跳过详情测试")
@@ -194,11 +188,8 @@ class TestAgentOpenAPI:
         api_client.validate_schema(resp, API_AGENT_DETAIL_RESPONSE)
         assert resp["id"] == agent_id
 
-    def test_create_and_delete_agent(self, api_client, api_test_config):
+    def test_create_and_delete_agent(self, api_client, _openapi_access):
         """创建并删除 Agent：写操作生命周期测试"""
-        if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
-            pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
-
         test_name = "api-test-openapi-agent-001"
 
         _cleanup_api_agent(api_client, test_name)
@@ -225,11 +216,8 @@ class TestAgentOpenAPI:
             # 清理
             _cleanup_api_agent(api_client, test_name)
 
-    def test_update_agent(self, api_client, api_test_config):
+    def test_update_agent(self, api_client, _openapi_access):
         """更新 Agent：创建 → 修改描述 → 验证 → 删除"""
-        if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
-            pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
-
         test_name = "api-test-openapi-agent-002"
         updated_desc = "updated by openapi test"
 
@@ -256,18 +244,13 @@ class TestAgentOpenAPI:
         finally:
             api_client.delete_agent(agent_id)
 
-    def test_get_nonexistent_agent(self, api_client, api_test_config):
+    def test_get_nonexistent_agent(self, api_client, _openapi_access):
         """获取不存在的 Agent：应返回 404"""
-        if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
-            pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
-
         with pytest.raises(httpx.HTTPStatusError, match=r"(404|500)"):
             api_client.get_agent("nonexistent-agent-id-99999")
 
-    def test_delete_idempotent(self, api_client, api_test_config):
+    def test_delete_idempotent(self, api_client, _openapi_access):
         """验证 DELETE 同一资源两次，第二次返回 404（幂等性）"""
-        if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
-            pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
         test_name = "test-idempotent-delete-agent"
         _cleanup_api_agent(api_client, test_name)
         try:
@@ -279,11 +262,8 @@ class TestAgentOpenAPI:
         finally:
             _cleanup_api_agent(api_client, test_name)
 
-    def test_update_agent_partial(self, api_client, api_test_config):
+    def test_update_agent_partial(self, api_client, _openapi_access):
         """PUT 部分字段更新，验证未修改字段不被清空"""
-        if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
-            pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
-
         test_name = "api-test-openapi-agent-partial"
         _cleanup_api_agent(api_client, test_name)
 
@@ -345,20 +325,15 @@ class TestAgentWebAPIExtra:
 class TestAgentOpenAPIExtra:
     """Agent OpenAPI 额外场景测试"""
 
-    def test_list_agents_pagination(self, api_client, api_test_config):
+    def test_list_agents_pagination(self, api_client, _openapi_access):
         """验证分页参数生效"""
-        if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
-            pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
-
         resp = api_client.list_agents(params={"page": 1, "pageSize": 1})
         api_client.validate_schema(resp, API_AGENT_LIST_RESPONSE)
         assert resp["page"] == 1
         assert resp["pageSize"] == 1
 
-    def test_list_agents_pagination_page2(self, api_client, api_test_config):
+    def test_list_agents_pagination_page2(self, api_client, _openapi_access):
         """验证获取第 2 页数据，不与第 1 页重复"""
-        if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
-            pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
         page1 = api_client.list_agents({"page": 1, "pageSize": 1})
         if page1["total"] <= 1:
             pytest.skip("Not enough agents for pagination")
@@ -368,11 +343,8 @@ class TestAgentOpenAPIExtra:
         if page1["items"] and page2["items"]:
             assert page1["items"][0]["id"] != page2["items"][0]["id"]
 
-    def test_list_agents_pagination_boundary(self, api_client, api_test_config):
+    def test_list_agents_pagination_boundary(self, api_client, _openapi_access):
         """分页边界：超大 pageSize 的处理"""
-        if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
-            pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
-
         try:
             resp = api_client.list_agents({"page": 1, "pageSize": 99999})
             api_client.validate_schema(resp, API_AGENT_LIST_RESPONSE)
@@ -384,11 +356,8 @@ class TestAgentOpenAPIExtra:
             else:
                 raise
 
-    def test_create_agent_special_characters(self, api_client, api_test_config):
+    def test_create_agent_special_characters(self, api_client, _openapi_access):
         """name 含特殊字符的处理"""
-        if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
-            pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
-
         test_name = "api-test-special-chars-<>&\"'"
         _cleanup_api_agent(api_client, test_name)
         try:

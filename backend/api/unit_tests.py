@@ -29,6 +29,9 @@ def discover_unit_tests(base_dir: Path, branch: str = "main") -> list[dict]:
     """扫描 unit_tests/ 目录，提取 describe/test 结构（逐行解析，正确关联 describe → test）"""
     cases = []
     for ts_file in base_dir.rglob("*.test.ts"):
+        # 跳过 node_modules 中的文件
+        if "node_modules" in ts_file.parts:
+            continue
         content = ts_file.read_text(encoding="utf-8")
         relative_path = str(ts_file.relative_to(base_dir))
 
@@ -169,16 +172,16 @@ async def discover_tests(db: AsyncSession = Depends(get_async_session)):
         total_updated += upd_c
         total_removed += rem_c
 
-    # 2. 扫描 branches/*/unit_tests/
+    # 2. 扫描 branches/*/unit_tests/（支持含斜杠的分支名，如 refactor/yjs）
     branches_dir = UNIT_TESTS_DIR.parent / "branches"
     if branches_dir.exists():
-        for branch_dir in branches_dir.iterdir():
-            if not branch_dir.is_dir():
+        for branch_unit_dir in branches_dir.rglob("unit_tests"):
+            if not branch_unit_dir.is_dir() or "node_modules" in branch_unit_dir.parts:
                 continue
-            branch_unit_dir = branch_dir / "unit_tests"
-            if not branch_unit_dir.exists():
+            # 从相对路径提取分支名：branches/refactor/yjs/unit_tests → refactor/yjs
+            branch_name = str(branch_unit_dir.relative_to(branches_dir).parent).replace("\\", "/")
+            if branch_name == ".":
                 continue
-            branch_name = branch_dir.name
             discovered = discover_unit_tests(branch_unit_dir, branch=branch_name)
             seen = set()
             unique = []

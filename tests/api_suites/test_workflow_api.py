@@ -20,20 +20,16 @@ class TestWorkflowOpenAPI:
     - 响应可能包含 output 或 runId
     """
 
-    def test_execute_workflow_not_found(self, api_client, api_test_config):
+    def test_execute_workflow_not_found(self, api_client, _openapi_access):
         """执行不存在的 workflow：应返回 404"""
-        if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
-            pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
 
         with pytest.raises(httpx.HTTPStatusError, match=r"(404|400|500)"):
             api_client.execute_workflow("nonexistent-workflow-id-99999", {
                 "inputs": {},
             })
 
-    def test_execute_workflow_invalid_inputs(self, api_client, api_test_config):
+    def test_execute_workflow_invalid_inputs(self, api_client, _openapi_access):
         """执行不存在的 workflow 带错误 inputs：应返回 404 或 422"""
-        if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
-            pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
 
         with pytest.raises(httpx.HTTPStatusError, match=r"(400|500)"):
             api_client.execute_workflow("nonexistent-workflow-id-99999", {
@@ -41,20 +37,15 @@ class TestWorkflowOpenAPI:
                 "mode": "sync",
             })
 
-    def test_execute_workflow_empty_body(self, api_client, api_test_config):
+    def test_execute_workflow_empty_body(self, api_client, _openapi_access):
         """执行 workflow 带空 body：验证服务端处理"""
-        if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
-            pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
 
         # 即使 body 为空，对不存在的 workflow 应返回 404
         with pytest.raises(httpx.HTTPStatusError, match=r"(400|500)"):
             api_client.execute_workflow("fake-workflow-id", {})
 
-    def test_execute_real_workflow_invalid_inputs(self, api_client, web_client, api_test_config):
+    def test_execute_real_workflow_invalid_inputs(self, api_client, web_client, _openapi_access):
         """用真实 workflow ID + 错误 inputs 执行：应返回错误或服务端容错处理"""
-        if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
-            pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
-
         # 通过 web 接口获取一个真实的工作流定义 ID
         try:
             wf_defs = web_client.list_workflow_defs()

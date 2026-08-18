@@ -27,11 +27,16 @@ class KnowledgePage:
                 pass
             if self.page.locator("div.agent-panel-content").count() > 0:
                 break
-            self.page.wait_for_timeout(3000)
+            try:
+                self.page.wait_for_load_state("networkidle", timeout=5000)
+            except Exception:
+                pass
+            self.page.wait_for_timeout(500)
         # 降级：侧边栏 SPA 导航
         if self.page.locator("div.agent-panel-content").count() == 0:
             nav_btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="知识库")
             if nav_btn.count() > 0:
+                nav_btn.first.wait_for(state="visible", timeout=5000)
                 nav_btn.first.click()
                 try:
                     self.page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
@@ -40,6 +45,7 @@ class KnowledgePage:
 
     def goto_via_sidebar(self):
         btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="知识库")
+        btn.first.wait_for(state="visible", timeout=5000)
         btn.first.click()
         self.page.wait_for_load_state("domcontentloaded")
 
@@ -52,6 +58,7 @@ class KnowledgePage:
         body = self.page.locator("div.agent-panel-body").first
         inp = body.locator("input[placeholder*='搜索知识库']")
         if inp.count() > 0:
+            inp.first.wait_for(state="visible", timeout=5000)
             inp.first.fill(keyword)
             self.page.wait_for_timeout(500)
 
@@ -59,6 +66,7 @@ class KnowledgePage:
         body = self.page.locator("div.agent-panel-body").first
         inp = body.locator("input[placeholder*='搜索知识库']")
         if inp.count() > 0:
+            inp.first.wait_for(state="visible", timeout=5000)
             inp.first.fill("")
             self.page.wait_for_timeout(500)
 
@@ -76,32 +84,19 @@ class KnowledgePage:
             has_not_text="定时任务").filter(has_not_text="发布视图")
 
     def get_kb_count(self) -> int:
-        """知识库数量"""
+        """知识库数量（通过卡片内 h3 heading 计数）"""
         body = self.page.locator("div.agent-panel-body").first
-        # KB 按钮在列表区域，排除导航按钮
-        all_btns = body.locator("div > div > button")
-        count = 0
-        for i in range(all_btns.count()):
-            text = all_btns.nth(i).inner_text().strip()
-            # KB 按钮文本包含 KB 名称
-            if text and "新建" not in text and "文件" not in text and "站点" not in text \
-                    and "定时" not in text and "发布" not in text:
-                count += 1
-        return count
+        return body.locator("h3").count()
 
     def get_kb_names(self) -> list[str]:
-        """获取知识库名称列表"""
+        """获取知识库名称列表（从卡片内 h3 heading 提取）"""
         body = self.page.locator("div.agent-panel-body").first
-        btns = body.locator("div > div > button")
+        headings = body.locator("h3")
         names = []
-        for i in range(btns.count()):
-            text = btns.nth(i).inner_text().strip()
-            if text and "新建" not in text and "文件" not in text and "站点" not in text \
-                    and "定时" not in text and "发布" not in text:
-                # 名称在第一行
-                name = text.split("\n")[0].strip()
-                if name:
-                    names.append(name)
+        for i in range(headings.count()):
+            name = headings.nth(i).text_content().strip()
+            if name:
+                names.append(name)
         return names
 
     def has_kb(self, name: str) -> bool:
@@ -113,6 +108,7 @@ class KnowledgePage:
         body = self.page.locator("div.agent-panel-body").first
         btn = body.locator("button").filter(has_text=name)
         if btn.count() > 0:
+            btn.first.wait_for(state="visible", timeout=5000)
             btn.first.click()
             self.page.wait_for_timeout(1000)
 
@@ -120,6 +116,7 @@ class KnowledgePage:
 
     def click_create_kb(self):
         body = self.page.locator("div.agent-panel-body").first
+        body.get_by_role("button", name="新建知识库").wait_for(state="visible", timeout=5000)
         body.get_by_role("button", name="新建知识库").click()
         self.page.wait_for_timeout(1000)
 
@@ -149,29 +146,36 @@ class KnowledgePage:
             dialog.locator("input[placeholder*='知识库名称']")
         )
         if name_inp.count() > 0 and name:
+            name_inp.first.wait_for(state="visible", timeout=5000)
             name_inp.first.fill(name)
         elif name and inputs.count() > 0:
+            inputs.first.wait_for(state="visible", timeout=5000)
             inputs.first.fill(name)
 
         desc_inp = dialog.locator("textarea[placeholder*='描述']").or_(
             dialog.locator("input[placeholder*='描述']")
         )
         if desc_inp.count() > 0 and description:
+            desc_inp.first.wait_for(state="visible", timeout=5000)
             desc_inp.first.fill(description)
 
         slug_inp = dialog.locator("input[placeholder*='slug']").or_(
             dialog.locator("input[placeholder*='标识']")
         )
         if slug_inp.count() > 0 and slug:
+            slug_inp.first.wait_for(state="visible", timeout=5000)
             slug_inp.first.fill(slug)
 
     def submit_dialog(self):
         dialog = self.page.locator("[role=dialog]")
-        loc.save_or_submit_button(dialog).first.click()
+        submit_btn = loc.save_or_submit_button(dialog)
+        submit_btn.first.wait_for(state="visible", timeout=5000)
+        submit_btn.first.click()
         self.page.wait_for_timeout(1000)
 
     def cancel_dialog(self):
         dialog = self.page.locator("[role=dialog]")
+        dialog.get_by_role("button", name="取消").wait_for(state="visible", timeout=5000)
         dialog.get_by_role("button", name="取消").click()
         self.page.wait_for_timeout(500)
 
@@ -216,11 +220,14 @@ class KnowledgePage:
 
     def confirm_alert(self):
         dialog = self.page.locator("[role=alertdialog]")
-        loc.confirm_button(dialog).first.click()
+        confirm_btn = loc.confirm_button(dialog)
+        confirm_btn.first.wait_for(state="visible", timeout=5000)
+        confirm_btn.first.click()
         self.page.wait_for_timeout(1000)
 
     def cancel_alert(self):
         dialog = self.page.locator("[role=alertdialog]")
+        dialog.get_by_role("button", name="取消").wait_for(state="visible", timeout=5000)
         dialog.get_by_role("button", name="取消").click()
         self.page.wait_for_timeout(500)
 

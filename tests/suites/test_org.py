@@ -101,13 +101,20 @@ def test_org_002_create_org(logged_in_page, base_url):
 
     # 填写表单
     dialog = logged_in_page.locator("[role=dialog]")
-    dialog.locator("input[placeholder='组织名称']").fill(f"测试组织{_PREFIX}")
-    dialog.locator("input[placeholder='url-identifier']").fill(f"test-org-{_PREFIX}")
-    dialog.locator("input[placeholder='可选']").fill("E2E 测试组织")
+    _name_input = dialog.locator("input[placeholder='组织名称']")
+    _name_input.wait_for(state="visible", timeout=5000)
+    _name_input.fill(f"测试组织{_PREFIX}")
+    _slug_input = dialog.locator("input[placeholder='url-identifier']")
+    _slug_input.wait_for(state="visible", timeout=5000)
+    _slug_input.fill(f"test-org-{_PREFIX}")
+    _desc_input = dialog.locator("input[placeholder='可选']")
+    _desc_input.wait_for(state="visible", timeout=5000)
+    _desc_input.fill("E2E 测试组织")
 
     # 提交
     logged_in_page.wait_for_timeout(500)
     create_btn = dialog.get_by_role("button", name="创建")
+    create_btn.wait_for(state="visible", timeout=5000)
     if create_btn.is_enabled():
         create_btn.click()
         logged_in_page.wait_for_timeout(800)
@@ -158,6 +165,7 @@ def test_org_003_name_empty_validation(logged_in_page, base_url):
 
     if not is_disabled:
         # 尝试点击，检查是否有校验提示
+        create_btn.wait_for(state="visible", timeout=5000)
         create_btn.click(force=True)
         logged_in_page.wait_for_timeout(800)
         has_error = len(org.get_form_validation_text()) > 0
@@ -273,12 +281,14 @@ def test_org_006_add_member(logged_in_page, base_url):
             has=logged_in_page.locator("svg.lucide-trash-2")
         )
         if trash_btn.count() > 0:
+            trash_btn.first.wait_for(state="visible", timeout=5000)
             trash_btn.first.click()
             logged_in_page.wait_for_timeout(800)
 
             # 确认弹窗（alertdialog）：「确认移除成员」→ 点「确认移除」
             confirm_btn = logged_in_page.get_by_role("button", name="确认移除")
             if confirm_btn.count() > 0:
+                confirm_btn.first.wait_for(state="visible", timeout=5000)
                 confirm_btn.first.click()
                 logged_in_page.wait_for_timeout(800)
 
@@ -306,9 +316,11 @@ def test_org_006_add_member(logged_in_page, base_url):
         search_input = dialog.locator("input[type=text]")
     assert search_input.count() > 0, "添加成员弹窗中无搜索输入框"
 
-    search_input.first.fill("")
+    _si = search_input.first
+    _si.wait_for(state="visible", timeout=5000)
+    _si.fill("")
     logged_in_page.wait_for_timeout(300)
-    search_input.first.press_sequentially("perftest001", delay=150)
+    _si.press_sequentially("perftest001", delay=150)
     logged_in_page.wait_for_timeout(800)
 
     # 选择搜索结果中第一个可添加的用户
@@ -317,6 +329,7 @@ def test_org_006_add_member(logged_in_page, base_url):
     for i in range(options.count()):
         opt = options.nth(i)
         if opt.get_attribute("aria-disabled") != "true":
+            opt.wait_for(state="visible", timeout=5000)
             opt.click()
             selected = True
             logged_in_page.wait_for_timeout(800)
@@ -326,6 +339,7 @@ def test_org_006_add_member(logged_in_page, base_url):
     # 点击添加
     add_btn = dialog.get_by_role("button", name="添加")
     assert add_btn.count() > 0 and add_btn.first.is_enabled(), "选中用户后「添加」按钮仍禁用"
+    add_btn.first.wait_for(state="visible", timeout=5000)
     add_btn.first.click()
 
     # 快速轮询抓取 toast
@@ -369,21 +383,25 @@ def test_org_008_remove_member(logged_in_page, base_url):
         search_input = dialog.locator("input[placeholder*='搜索']")
         if search_input.count() == 0:
             search_input = dialog.locator("input[type=text]")
-        search_input.first.fill("")
+        _si = search_input.first
+        _si.wait_for(state="visible", timeout=5000)
+        _si.fill("")
         logged_in_page.wait_for_timeout(300)
-        search_input.first.press_sequentially("perftest001", delay=150)
+        _si.press_sequentially("perftest001", delay=150)
         logged_in_page.wait_for_timeout(800)
 
         options = logged_in_page.locator("[role=option]")
         for i in range(options.count()):
             opt = options.nth(i)
             if opt.get_attribute("aria-disabled") != "true":
+                opt.wait_for(state="visible", timeout=5000)
                 opt.click()
                 logged_in_page.wait_for_timeout(800)
                 break
 
         add_btn = dialog.get_by_role("button", name="添加")
         if add_btn.count() > 0 and add_btn.first.is_enabled():
+            add_btn.first.wait_for(state="visible", timeout=5000)
             add_btn.first.click()
             logged_in_page.wait_for_timeout(800)
 
@@ -408,6 +426,7 @@ def test_org_008_remove_member(logged_in_page, base_url):
     )
     assert trash_btn.count() > 0, "未找到移除成员按钮（垃圾桶图标）"
 
+    trash_btn.first.wait_for(state="visible", timeout=5000)
     trash_btn.first.click()
     logged_in_page.wait_for_timeout(800)
 
@@ -421,6 +440,7 @@ def test_org_008_remove_member(logged_in_page, base_url):
     # 3. 点击「确认移除」
     confirm_btn = logged_in_page.get_by_role("button", name="确认移除")
     assert confirm_btn.count() > 0, "未找到「确认移除」按钮"
+    confirm_btn.first.wait_for(state="visible", timeout=5000)
     confirm_btn.first.click()
     logged_in_page.wait_for_timeout(800)
 
@@ -480,6 +500,7 @@ def test_org_011_delete_org(logged_in_page, base_url):
     # 4. 点击「确认删除」，真正执行 UI 删除
     confirm_btn = logged_in_page.get_by_role("button", name="确认删除")
     assert confirm_btn.count() > 0, "未找到「确认删除」按钮"
+    confirm_btn.first.wait_for(state="visible", timeout=5000)
     confirm_btn.first.click()
     logged_in_page.wait_for_timeout(800)
 
@@ -533,10 +554,12 @@ def test_org_012_edit_org(logged_in_page, base_url):
 
     # 4. 修改名称
     new_name = f"{org_name}-edited"
+    name_input.first.wait_for(state="visible", timeout=5000)
     name_input.first.fill("")
     name_input.first.fill(new_name)
 
     # 5. 点击保存
+    save_btn.first.wait_for(state="visible", timeout=5000)
     save_btn.first.click()
     logged_in_page.wait_for_timeout(800)
 
@@ -604,18 +627,21 @@ def test_org_default_machine(logged_in_page, base_url):
 
     # 如果有选择器，尝试点击并选择
     if machine_selector.count() > 0:
+        machine_selector.first.wait_for(state="visible", timeout=5000)
         machine_selector.first.click()
         logged_in_page.wait_for_timeout(500)
 
         # 查找下拉选项
         options = logged_in_page.locator("[role='option'], [role='menuitem']")
         if options.count() > 0:
+            options.first.wait_for(state="visible", timeout=5000)
             options.first.click()
             logged_in_page.wait_for_timeout(500)
 
             # 保存（如有保存按钮）
             save_btn = body.get_by_role("button", name="保存")
             if save_btn.count() > 0:
+                save_btn.first.wait_for(state="visible", timeout=5000)
                 save_btn.first.click()
                 logged_in_page.wait_for_timeout(800)
 
@@ -652,6 +678,7 @@ def test_org_add_member_dialog(logged_in_page, base_url):
     if add_btn.count() == 0:
         pytest.skip("当前用户无管理权限，「添加成员」按钮不可见")
 
+    add_btn.first.wait_for(state="visible", timeout=5000)
     add_btn.first.click()
 
     # 验证对话框打开
@@ -673,6 +700,7 @@ def test_org_add_member_dialog(logged_in_page, base_url):
     # 关闭对话框
     cancel_btn = dialog.locator("button").filter(has_text="取消")
     if cancel_btn.count() > 0:
+        cancel_btn.first.wait_for(state="visible", timeout=5000)
         cancel_btn.first.click()
     else:
         logged_in_page.keyboard.press("Escape")
@@ -708,9 +736,11 @@ def test_org_member_search_add(logged_in_page, base_url):
     assert search_input.count() > 0, "添加成员弹窗中无搜索输入框"
 
     # 搜索用户（使用通用搜索词）
-    search_input.first.fill("")
+    _si = search_input.first
+    _si.wait_for(state="visible", timeout=5000)
+    _si.fill("")
     logged_in_page.wait_for_timeout(300)
-    search_input.first.press_sequentially("test", delay=150)
+    _si.press_sequentially("test", delay=150)
     logged_in_page.wait_for_timeout(800)
 
     # 验证搜索结果出现
@@ -720,14 +750,16 @@ def test_org_member_search_add(logged_in_page, base_url):
     else:
         # 有些 UI 用列表项而非 option
         result_items = dialog.locator("[role='option'], li, [data-slot='command-item']")
-        # 搜索结果区域存在即可（可能为空结果）
-        assert result_items.count() >= 0, "搜索功能正常"
+        # 搜索结果区域存在即可（可能为空结果，但容器必须在 DOM 中）
+        assert result_items.count() > 0 or dialog.locator("input").count() > 0, \
+            f"搜索功能异常：无结果区域且无搜索输入框"
 
     # 取消关闭弹窗（不实际添加以避免副作用）
     cancel_btn = dialog.get_by_role("button", name="取消").or_(
         dialog.get_by_role("button", name="Close")
     )
     if cancel_btn.count() > 0:
+        cancel_btn.first.wait_for(state="visible", timeout=5000)
         cancel_btn.first.click()
     else:
         logged_in_page.keyboard.press("Escape")

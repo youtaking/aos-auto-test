@@ -32,10 +32,8 @@ class TestOpenAIChatAPI:
             return None
         return resp["items"][0]["id"]
 
-    def test_chat_nonexistent_agent(self, api_client, api_test_config):
+    def test_chat_nonexistent_agent(self, api_client, _openapi_access):
         """向不存在的 Agent 发送 chat 请求：应返回 404"""
-        if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
-            pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
 
         with pytest.raises(httpx.HTTPStatusError, match=r"404"):
             api_client.post("/api/agents/nonexistent-agent-id/v1/chat/completions", json={
@@ -43,10 +41,8 @@ class TestOpenAIChatAPI:
                 "messages": [{"role": "user", "content": "hello"}],
             })
 
-    def test_chat_no_user_message(self, api_client, api_test_config):
+    def test_chat_no_user_message(self, api_client, _openapi_access):
         """发送不含 user 消息的请求：应返回 400"""
-        if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
-            pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
 
         agent_id = self._get_first_agent_id(api_client)
         if agent_id is None:
@@ -58,10 +54,8 @@ class TestOpenAIChatAPI:
                 "messages": [{"role": "system", "content": "you are a helper"}],
             })
 
-    def test_chat_empty_messages(self, api_client, api_test_config):
+    def test_chat_empty_messages(self, api_client, _openapi_access):
         """发送空 messages 数组：应返回 400"""
-        if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
-            pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
 
         agent_id = self._get_first_agent_id(api_client)
         if agent_id is None:
@@ -73,10 +67,8 @@ class TestOpenAIChatAPI:
                 "messages": [],
             })
 
-    def test_chat_non_stream(self, api_client, api_test_config):
+    def test_chat_non_stream(self, api_client, _openapi_access):
         """非流式 chat 请求：验证基本响应结构（可能需要较长超时）"""
-        if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
-            pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
 
         agent_id = self._get_first_agent_id(api_client)
         if agent_id is None:

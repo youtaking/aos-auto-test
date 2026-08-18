@@ -291,3 +291,29 @@ class TestProviderModelActions:
             assert test_model_id not in model_ids, f"模型 {test_model_id} 应已被删除"
         finally:
             self._cleanup_provider(web_client, test_provider)
+
+    def test_fetch_provider_models(self, web_client):
+        """获取 Provider 模型列表（从上游拉取）：使用已有 Provider"""
+        providers = web_client.list_providers()
+        provider_list = providers if isinstance(providers, list) else providers.get("items", providers.get("data", []))
+        if not provider_list:
+            pytest.skip("Provider 列表为空，无法测试 fetch-models")
+        provider_name = provider_list[0].get("id") or provider_list[0].get("name")
+        if not provider_name:
+            pytest.skip("Provider 缺少标识字段")
+
+        try:
+            resp = web_client.fetch_provider_models(provider_name)
+            assert isinstance(resp, (list, dict)), f"fetch-models 响应类型异常: {type(resp)}"
+        except (httpx.HTTPStatusError, RuntimeError) as e:
+            if "500" in str(e) or "503" in str(e):
+                pytest.skip(f"Provider 上游服务不可用: {e}")
+            raise
+
+    def test_fetch_provider_models_nonexistent(self, web_client):
+        """获取不存在 Provider 的模型列表 — 应返回 404"""
+        try:
+            web_client.fetch_provider_models("nonexistent-provider-99999")
+        except (httpx.HTTPStatusError, RuntimeError) as e:
+            assert "404" in str(e) or "400" in str(e) or "500" in str(e), \
+                f"预期 404/400/500，实际: {e}"

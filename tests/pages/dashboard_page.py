@@ -22,7 +22,11 @@ class DashboardPage:
                 pass
             if self.page.locator("div.agent-panel-content").count() > 0:
                 break
-            self.page.wait_for_timeout(3000)
+            try:
+                self.page.wait_for_load_state("networkidle", timeout=5000)
+            except Exception:
+                pass
+            self.page.wait_for_timeout(500)
 
     def is_loaded(self) -> bool:
         return (

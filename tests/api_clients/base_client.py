@@ -22,6 +22,7 @@ class BaseClient:
             timeout=timeout,
             verify=False,  # 测试环境可能用自签证书
         )
+        self._last_request_time = 0  # 请求节流：记录上次请求时间
 
     def get(self, path: str, params: dict | None = None) -> dict:
         """发送 GET 请求，返回解析后的 JSON"""
@@ -57,15 +58,36 @@ class BaseClient:
         self.client.close()
 
     def _request_with_retry(self, method: str, path: str, **kwargs) -> httpx.Response:
-        """带重试的请求：遇到 500/502/503 自动重试最多 2 次"""
+        """带重试的请求：遇到 500/502/503/429 自动重试
+        - 请求节流：最小间隔 0.7s（服务端限流 100 req/min）
+        - 5xx：重试 2 次（1s, 2s）
+        - 429（限流）：按 Retry-After 头等待，最多重试 5 次
+        """
+        min_interval = 0.7  # 请求最小间隔（秒），避免撞 100 req/min 限流
         max_retries = 2
-        for attempt in range(max_retries + 1):
+        rate_limit_retries = 5
+        for attempt in range(max_retries + rate_limit_retries + 1):
+            # 请求节流：距上次请求不足 min_interval 则等待
+            now = time.time()
+            if self._last_request_time and attempt == 0:
+                elapsed = now - self._last_request_time
+                if elapsed < min_interval:
+                    time.sleep(min_interval - elapsed)
+            self._last_request_time = time.time()
+
             # httpx 的 delete 方法不支持 json 参数，统一走 request
             if method == "delete" and "json" in kwargs:
                 resp = self.client.request(method.upper(), path, **kwargs)
             else:
                 resp = getattr(self.client, method)(path, **kwargs)
-            if resp.status_code < 500 or attempt == max_retries:
+
+            # 429 限流：按 Retry-After 等待后重试
+            if resp.status_code == 429 and attempt < rate_limit_retries:
+                retry_after = int(resp.headers.get("Retry-After", "5"))
+                time.sleep(min(retry_after, 65))  # 最多等 65s（服务端窗口 60s）
+                continue
+
+            if resp.status_code < 500 or attempt >= rate_limit_retries + max_retries:
                 break
             time.sleep(1 * (attempt + 1))  # 递增延迟：1s, 2s
         self._attach_allure(method, path, kwargs, resp)

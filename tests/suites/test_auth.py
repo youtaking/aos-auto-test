@@ -533,6 +533,7 @@ def test_auth_015_change_password_validation(logged_in_page, base_url):
             )
         else:
             # 尝试提交
+            submit_btn.first.wait_for(state="visible", timeout=5000)
             submit_btn.first.click(force=True)
             logged_in_page.wait_for_timeout(800)
             error = auth.get_dialog_error()
@@ -574,6 +575,7 @@ def test_auth_015b_change_password_required_fields(logged_in_page, base_url):
         # 填写其他两个字段，跳过当前字段
         for j in range(3):
             if j != skip_idx:
+                pw_inputs.nth(j).wait_for(state="visible", timeout=5000)
                 pw_inputs.nth(j).fill("test123456")
 
         # 尝试提交
@@ -584,6 +586,7 @@ def test_auth_015b_change_password_required_fields(logged_in_page, base_url):
             )
         )
         if submit_btn.count() > 0 and not submit_btn.first.is_disabled():
+            submit_btn.first.wait_for(state="visible", timeout=5000)
             submit_btn.first.click()
             logged_in_page.wait_for_timeout(800)
 

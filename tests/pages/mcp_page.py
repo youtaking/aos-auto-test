@@ -18,6 +18,7 @@ class McpServerPage:
         # SPA 导航优先（sidebar 测试已验证可靠），避免全页面刷新后 router 初始化问题
         nav_btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="MCP")
         if nav_btn.count() > 0:
+            nav_btn.first.wait_for(state="visible", timeout=5000)
             nav_btn.first.click()
             try:
                 self.page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
@@ -38,7 +39,11 @@ class McpServerPage:
                 pass
             if self.is_loaded():
                 break
-            self.page.wait_for_timeout(3000)
+            try:
+                self.page.wait_for_load_state("networkidle", timeout=5000)
+            except Exception:
+                pass
+            self.page.wait_for_timeout(500)
 
     def is_loaded(self) -> bool:
         """MCP 页面内容已加载"""
@@ -50,6 +55,7 @@ class McpServerPage:
         """搜索 MCP 服务器"""
         inp = self.page.locator("input[placeholder*='搜索 MCP']")
         if inp.count() > 0:
+            inp.first.wait_for(state="visible", timeout=5000)
             inp.first.fill(keyword)
             self.page.wait_for_timeout(500)
 
@@ -57,6 +63,7 @@ class McpServerPage:
         """清空搜索"""
         inp = self.page.locator("input[placeholder*='搜索 MCP']")
         if inp.count() > 0:
+            inp.first.wait_for(state="visible", timeout=5000)
             inp.first.fill("")
             self.page.wait_for_timeout(500)
 
@@ -102,6 +109,7 @@ class McpServerPage:
 
     def open_create_dialog(self):
         """点击「新建服务器」按钮"""
+        self.page.get_by_role("button", name="新建服务器").first.wait_for(state="visible", timeout=5000)
         self.page.get_by_role("button", name="新建服务器").first.click()
         self.page.wait_for_timeout(1000)
 
@@ -126,6 +134,7 @@ class McpServerPage:
         # 点击 combobox 触发器打开下拉列表
         trigger = dialog.locator("button[role='combobox'][data-slot='select-trigger']")
         if trigger.count() > 0:
+            trigger.first.wait_for(state="visible", timeout=5000)
             trigger.first.click()
             self.page.wait_for_timeout(800)
 
@@ -134,6 +143,7 @@ class McpServerPage:
             for i in range(options.count()):
                 txt = options.nth(i).inner_text().strip()
                 if txt == option_text:
+                    options.nth(i).wait_for(state="visible", timeout=5000)
                     options.nth(i).click()
                     self.page.wait_for_timeout(800)
                     return
@@ -147,6 +157,7 @@ class McpServerPage:
             dialog.locator("input[name='name']")
         )
         if name_input.count() > 0:
+            name_input.first.wait_for(state="visible", timeout=5000)
             name_input.first.fill(name)
 
         # 命令（Local/Stdio 模式，placeholder = npx @anthropic/mcp-server-xxx --arg1 val1）
@@ -155,6 +166,7 @@ class McpServerPage:
                 dialog.locator("input[name='command']")
             )
             if cmd_input.count() > 0:
+                cmd_input.first.wait_for(state="visible", timeout=5000)
                 cmd_input.first.fill(command)
 
         # URL（Remote/SSE 模式，placeholder = https://example.com/mcp）
@@ -163,6 +175,7 @@ class McpServerPage:
                 dialog.locator("input[name='url']")
             )
             if url_input.count() > 0:
+                url_input.first.wait_for(state="visible", timeout=5000)
                 url_input.first.fill(url)
 
     def save(self):
@@ -170,6 +183,7 @@ class McpServerPage:
         dialog = self.page.locator("[role='dialog']")
         save_btn = loc.save_or_submit_button(dialog)
         if save_btn.count() > 0:
+            save_btn.first.wait_for(state="visible", timeout=5000)
             save_btn.first.click()
             self.page.wait_for_timeout(1000)
 
@@ -178,6 +192,7 @@ class McpServerPage:
         dialog = self.page.locator("[role='dialog']")
         cancel = loc.cancel_button(dialog)
         if cancel.count() > 0:
+            cancel.first.wait_for(state="visible", timeout=5000)
             cancel.first.click()
             self.page.wait_for_timeout(500)
 
@@ -259,6 +274,7 @@ class McpServerPage:
         """切换启用/禁用"""
         btn = self.get_enable_disable_button(name)
         if btn.count() > 0:
+            btn.first.wait_for(state="visible", timeout=5000)
             btn.first.click()
             self.page.wait_for_timeout(1500)
 
@@ -269,6 +285,7 @@ class McpServerPage:
         row = self._get_server_row(name)
         btn = row.get_by_role("button", name="检测")
         if btn.count() > 0:
+            btn.first.wait_for(state="visible", timeout=5000)
             btn.first.click()
             self.page.wait_for_load_state("domcontentloaded")
 
@@ -277,6 +294,7 @@ class McpServerPage:
         row = self._get_server_row(name)
         btn = row.get_by_role("button", name="编辑")
         if btn.count() > 0:
+            btn.first.wait_for(state="visible", timeout=5000)
             btn.first.click()
             self.page.wait_for_timeout(1000)
 
@@ -287,12 +305,14 @@ class McpServerPage:
         row = self._get_server_row(name)
         delete_btn = row.get_by_role("button", name="删除")
         if delete_btn.count() > 0:
+            delete_btn.first.wait_for(state="visible", timeout=5000)
             delete_btn.first.click()
             self.page.wait_for_timeout(500)
 
         # 确认删除弹窗
         confirm = loc.confirm_button(self.page)
         if confirm.count() > 0:
+            confirm.first.wait_for(state="visible", timeout=5000)
             confirm.first.click()
             self.page.wait_for_timeout(1000)
 
@@ -314,6 +334,7 @@ class McpServerPage:
         """切换公开状态"""
         switch = self.get_public_switch(name)
         if switch.count() > 0:
+            switch.first.wait_for(state="visible", timeout=5000)
             switch.first.click()
             self.page.wait_for_timeout(1500)
 

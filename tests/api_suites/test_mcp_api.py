@@ -197,19 +197,15 @@ class TestMcpOpenAPI:
     - 创建 body 直接传 {name, type, url/command, ...}，无包装
     """
 
-    def test_list_mcp_servers(self, api_client, api_test_config):
+    def test_list_mcp_servers(self, api_client, _openapi_access):
         """获取 MCP Server 列表：返回分页结构"""
-        if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
-            pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
 
         resp = api_client.list_mcp_servers()
         api_client.validate_schema(resp, API_MCP_LIST_RESPONSE)
         assert isinstance(resp["items"], list)
 
-    def test_get_mcp_server(self, api_client, api_test_config):
+    def test_get_mcp_server(self, api_client, _openapi_access):
         """获取单个 MCP Server 详情：先拿列表取第一个 ID，再查详情"""
-        if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
-            pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
 
         list_resp = api_client.list_mcp_servers()
         if len(list_resp["items"]) == 0:
@@ -220,10 +216,8 @@ class TestMcpOpenAPI:
         api_client.validate_schema(resp, API_MCP_DETAIL_RESPONSE)
         assert resp["id"] == server_id
 
-    def test_create_and_delete_mcp_server(self, api_client, api_test_config):
+    def test_create_and_delete_mcp_server(self, api_client, _openapi_access):
         """创建并删除 MCP Server：写操作生命周期测试"""
-        if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
-            pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
 
         test_name = "api-test-openapi-mcp-001"
 
@@ -250,10 +244,8 @@ class TestMcpOpenAPI:
         finally:
             _cleanup_api_mcp(api_client, test_name)
 
-    def test_update_mcp_server(self, api_client, api_test_config):
+    def test_update_mcp_server(self, api_client, _openapi_access):
         """更新 MCP Server：创建 → 修改 url → 验证 → 删除"""
-        if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
-            pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
 
         test_name = "api-test-openapi-mcp-002"
         updated_url = "https://updated-openapi.example.com/mcp"
@@ -286,18 +278,14 @@ class TestMcpOpenAPI:
         finally:
             api_client.delete_mcp_server(server_id)
 
-    def test_get_nonexistent_mcp_server(self, api_client, api_test_config):
+    def test_get_nonexistent_mcp_server(self, api_client, _openapi_access):
         """获取不存在的 MCP Server：应返回 404"""
-        if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
-            pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
 
         with pytest.raises(httpx.HTTPStatusError, match=r"(404|500)"):
             api_client.get_mcp_server("nonexistent-mcp-id-99999")
 
-    def test_delete_mcp_idempotent(self, api_client, api_test_config):
+    def test_delete_mcp_idempotent(self, api_client, _openapi_access):
         """MCP DELETE 幂等性：第二次删除返回 404"""
-        if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
-            pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
         test_name = "test-idempotent-delete-mcp"
         _cleanup_api_mcp(api_client, test_name)
         try:
@@ -313,10 +301,8 @@ class TestMcpOpenAPI:
         finally:
             _cleanup_api_mcp(api_client, test_name)
 
-    def test_create_mcp_server_duplicate_name(self, api_client, api_test_config):
+    def test_create_mcp_server_duplicate_name(self, api_client, _openapi_access):
         """创建同名 MCP Server：应返回 409 或抛出冲突异常"""
-        if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
-            pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
 
         test_name = "api-test-openapi-mcp-dup"
         _cleanup_api_mcp(api_client, test_name)

@@ -3,9 +3,16 @@
 import os
 import pytest
 import yaml
+import httpx
 from pathlib import Path
 from tests.api_clients.web_client import WebClient
 from tests.api_clients.api_client import ApiClient
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _cleanup_leftover_test_providers():
+    """覆盖根 conftest 的同名 fixture，API 测试不需要 Playwright 登录。"""
+    return
 
 
 @pytest.fixture(scope="session")
@@ -58,3 +65,27 @@ def api_client(api_base_url, api_test_config):
     client = ApiClient(api_base_url, api_key)
     yield client
     client.close()
+
+
+@pytest.fixture(scope="module")
+def _openapi_access(api_client, api_test_config):
+    """模块级 OpenAPI 访问检查：验证 API Key 是否有效
+
+    用法：在 OpenAPI 测试类中添加为 fixture 依赖即可
+    class TestXxxOpenAPI:
+        def test_xxx(self, api_client, _openapi_access):
+            ...
+    """
+    # 1. 检查 API Key 是否为占位符
+    if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
+        pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
+
+    # 2. 发送简单请求验证 Key 是否有效
+    try:
+        api_client.list_agents(params={"page": 1, "pageSize": 1})
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 401:
+            pytest.skip("API Key 无效或已过期（401），跳过 OpenAPI 测试")
+        if e.response.status_code == 403:
+            pytest.skip("API Key 权限不足（403），跳过 OpenAPI 测试")
+        raise

@@ -171,6 +171,7 @@ class TestViews:
         # 关闭弹窗
         cancel = dialog.locator("button").filter(has_text="取消")
         if cancel.count() > 0:
+            cancel.first.wait_for(state="visible", timeout=5000)
             cancel.first.click()
         else:
             logged_in_page.keyboard.press("Escape")
@@ -221,11 +222,13 @@ class TestViews:
             # 修改名称
             new_name = f"e2e-edit-{_PREFIX}"
             name_input = dialog.locator("input").first
+            name_input.wait_for(state="visible", timeout=5000)
             name_input.fill(new_name)
 
             # 点击保存
             save_btn = dialog.locator("button").filter(has_text="保存")
             assert save_btn.count() > 0, "编辑弹窗缺少保存按钮"
+            save_btn.first.wait_for(state="visible", timeout=5000)
             save_btn.first.click()
 
             # 等待弹窗关闭（保存完成）
@@ -311,6 +314,7 @@ class TestViews:
                 has=logged_in_page.locator("svg.lucide-trash-2")
             )
             assert delete_btn.count() > 0, "视图卡片内缺少删除按钮"
+            delete_btn.first.wait_for(state="visible", timeout=5000)
             delete_btn.first.click()
 
             # 确认弹窗出现（ConfirmDialog → alertdialog）
@@ -325,6 +329,7 @@ class TestViews:
                 has_text="确认"
             ).or_(alert.locator("button").filter(has_text="确定"))
             assert confirm_btn.count() > 0, "确认弹窗缺少确认按钮"
+            confirm_btn.first.wait_for(state="visible", timeout=5000)
             confirm_btn.first.click()
 
             # 等待弹窗关闭 + 列表刷新
@@ -382,6 +387,7 @@ class TestViews:
 
             # 点击后会打开新标签页
             with logged_in_page.context.expect_page() as new_page_info:
+                open_btn.first.wait_for(state="visible", timeout=5000)
                 open_btn.first.click()
             new_page = new_page_info.value
             new_page.wait_for_load_state("domcontentloaded")
@@ -514,6 +520,7 @@ class TestViews:
                 has=logged_in_page.locator("svg.lucide-copy")
             )
             assert copy_btn.count() > 0, "视图卡片内缺少复制链接按钮"
+            copy_btn.first.wait_for(state="visible", timeout=5000)
             copy_btn.first.click()
 
             # 验证 toast 出现"链接已复制"

@@ -43,7 +43,7 @@ def test_skill_search_filter(logged_in_page, base_url):
         pytest.skip("技能列表为空，无法测试搜索")
 
     # 从第一个技能卡片取真实名称作为搜索词
-    first_card = logged_in_page.locator("div.group.relative").first
+    first_card = logged_in_page.locator("div.group.relative:not(.agent-sidebar-agent)").first
     first_name = first_card.locator("span, h3, h4, div.font-medium").first.inner_text().strip()
     if not first_name:
         pytest.skip("无法获取技能名称")
@@ -51,7 +51,7 @@ def test_skill_search_filter(logged_in_page, base_url):
     # 搜索真实名称 → 应至少匹配到这一个
     skills.search(first_name)
     try:
-        logged_in_page.locator("div.group.relative:visible").first.wait_for(
+        logged_in_page.locator("div.group.relative:not(.agent-sidebar-agent):visible").first.wait_for(
             state="visible", timeout=5000
         )
     except Exception:
@@ -390,6 +390,7 @@ def test_skill_delete_via_ui(logged_in_page, base_url):
 
     logged_in_page.on("response", on_delete_resp)
 
+    delete_btn.wait_for(state="visible", timeout=5000)
     delete_btn.click()
 
     # ── Step 6: 确认对话框 ──
@@ -445,6 +446,7 @@ def test_skill_folder_upload(logged_in_page, base_url):
     if upload_btn.count() == 0:
         pytest.skip("上传按钮不存在，可能当前版本不支持 UI 上传")
     assert upload_btn.count() > 0, "上传按钮不存在"
+    upload_btn.first.wait_for(state="visible", timeout=5000)
     upload_btn.first.click()
     logged_in_page.wait_for_timeout(800)
 
@@ -768,6 +770,7 @@ def test_skill_upload_conflict_handling(logged_in_page, base_url):
             assert upload_btn.count() > 0, "上传按钮不存在"
 
             # 点击"上传技能"按钮 → 打开上传对话框
+            upload_btn.first.wait_for(state="visible", timeout=5000)
             upload_btn.first.click()
             logged_in_page.wait_for_timeout(1000)
 

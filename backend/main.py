@@ -50,14 +50,14 @@ async def lifespan(app: FastAPI):
                 from pathlib import Path as _Path
                 branches_dir = _Path(__file__).resolve().parent.parent / "branches"
                 if branches_dir.exists():
-                    for branch_dir in branches_dir.iterdir():
-                        if not branch_dir.is_dir():
+                    for branch_api_dir in branches_dir.rglob("api_suites"):
+                        if not branch_api_dir.is_dir() or "node_modules" in branch_api_dir.parts:
                             continue
-                        branch_api_dir = str(branch_dir / "api_suites")
-                        if not _Path(branch_api_dir).exists():
+                        # 从相对路径提取分支名：branches/refactor/yjs/api_suites → refactor/yjs
+                        branch_name = str(branch_api_dir.relative_to(branches_dir).parent).replace("\\", "/")
+                        if branch_name == ".":
                             continue
-                        branch_name = branch_dir.name
-                        branch_collected = runner.collect_tests_api(test_dir=branch_api_dir)
+                        branch_collected = runner.collect_tests_api(test_dir=str(branch_api_dir))
                         if branch_collected:
                             branch_stats = await sync_test_cases(
                                 db, project, branch_collected, API_SUITE_LABELS, "api",
@@ -89,16 +89,16 @@ async def lifespan(app: FastAPI):
             print(f"[AutoDiscover] Unit (main): discovered {len(unique_discovered)}, "
                   f"new {new_c}, updated {updated_c}, removed {removed_c}")
 
-        # 分支目录
+        # 分支目录（支持含斜杠的分支名，如 refactor/yjs）
         branches_dir = UNIT_TESTS_DIR.parent / "branches"
         if branches_dir.exists():
-            for branch_dir in branches_dir.iterdir():
-                if not branch_dir.is_dir():
+            for branch_unit_dir in branches_dir.rglob("unit_tests"):
+                if not branch_unit_dir.is_dir() or "node_modules" in branch_unit_dir.parts:
                     continue
-                branch_unit_dir = branch_dir / "unit_tests"
-                if not branch_unit_dir.exists():
+                # 从相对路径提取分支名：branches/refactor/yjs/unit_tests → refactor/yjs
+                branch_name = str(branch_unit_dir.relative_to(branches_dir).parent).replace("\\", "/")
+                if branch_name == ".":
                     continue
-                branch_name = branch_dir.name
                 discovered = discover_unit_tests(branch_unit_dir, branch=branch_name)
                 seen = set()
                 unique_discovered = []

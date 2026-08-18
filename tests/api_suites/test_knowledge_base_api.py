@@ -20,10 +20,8 @@ class TestKnowledgeBaseOpenAPI:
     - 列表带分页 {items, total, page, pageSize}
     """
 
-    def test_list_knowledge_bases(self, api_client, api_test_config):
+    def test_list_knowledge_bases(self, api_client, _openapi_access):
         """获取知识库列表：返回分页结构"""
-        if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
-            pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
 
         resp = api_client.list_knowledge_bases()
         api_client.validate_schema(resp, API_KNOWLEDGE_BASE_LIST_RESPONSE)

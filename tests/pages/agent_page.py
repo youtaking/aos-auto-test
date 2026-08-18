@@ -27,11 +27,16 @@ class AgentPage:
             # React.lazy 加载 _panel layout 需要额外时间
             if self.page.locator("div.agent-panel-content").count() > 0:
                 break
-            self.page.wait_for_timeout(3000)
+            try:
+                self.page.wait_for_load_state("networkidle", timeout=5000)
+            except Exception:
+                pass
+            self.page.wait_for_timeout(500)
         # 降级：侧边栏 SPA 导航
         if self.page.locator("div.agent-panel-content").count() == 0:
             nav_btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="智能体管理")
             if nav_btn.count() > 0:
+                nav_btn.first.wait_for(state="visible", timeout=5000)
                 nav_btn.first.click()
                 try:
                     self.page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
@@ -64,18 +69,22 @@ class AgentPage:
     def search_agent(self, keyword: str):
         """搜索智能体"""
         search_input = self.page.locator("input[placeholder*='搜索']")
+        search_input.wait_for(state="visible", timeout=5000)
         search_input.fill(keyword)
         self.page.wait_for_timeout(500)
 
     def clear_search(self):
         """清空搜索"""
         search_input = self.page.locator("input[placeholder*='搜索']")
+        search_input.wait_for(state="visible", timeout=5000)
         search_input.fill("")
         self.page.wait_for_timeout(500)
 
     def filter_by_category(self, category: str):
         """按分类筛选（全部/通用助理/数据分析/搜索检索/监控告警/代码助手/自定义）"""
-        self.page.get_by_role("button", name=category).click()
+        btn = self.page.get_by_role("button", name=category)
+        btn.wait_for(state="visible", timeout=5000)
+        btn.click()
         self.page.wait_for_timeout(500)
 
     def click_create_button(self):
@@ -83,6 +92,7 @@ class AgentPage:
         btn = self.page.get_by_role("button", name="创建智能体")
         if btn.count() == 0:
             btn = self.page.get_by_role("button", name="新建智能体")
+        btn.first.wait_for(state="visible", timeout=5000)
         btn.first.click()
 
     def is_create_dialog_open(self) -> bool:
@@ -101,10 +111,13 @@ class AgentPage:
     def fill_create_form(self, name: str, description: str = ""):
         """填写创建表单"""
         dialog = self.page.locator("[role='dialog']")
-        dialog.locator("input").first.fill(name)
+        name_input = dialog.locator("input").first
+        name_input.wait_for(state="visible", timeout=5000)
+        name_input.fill(name)
         if description:
             textarea = dialog.locator("textarea")
             if textarea.count() > 0:
+                textarea.wait_for(state="visible", timeout=5000)
                 textarea.fill(description)
 
     def submit_create_form(self):
@@ -114,6 +127,7 @@ class AgentPage:
         submit_btn = dialog.get_by_role("button", name="创建").or_(
             dialog.get_by_role("button", name="确定")
         )
+        submit_btn.first.wait_for(state="visible", timeout=5000)
         submit_btn.first.click()
         self.page.wait_for_load_state("domcontentloaded")
 
@@ -124,6 +138,7 @@ class AgentPage:
             dialog.locator("button[aria-label*='close' i], button[aria-label*='关闭']")
         )
         if close_btn.count() > 0:
+            close_btn.first.wait_for(state="visible", timeout=5000)
             close_btn.first.click()
             self.page.wait_for_timeout(500)
 
@@ -135,6 +150,7 @@ class AgentPage:
         """进入某个智能体对话"""
         # 找到包含该名称的卡片，点击"进入对话"
         card = self.page.locator(f"text={name}").first
+        card.wait_for(state="visible", timeout=5000)
         card.click()
         self.page.wait_for_load_state("domcontentloaded")
 
