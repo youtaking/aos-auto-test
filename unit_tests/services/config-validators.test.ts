@@ -8,27 +8,33 @@ import { describe, expect, it } from "bun:test";
 function validateMcpConfig(config: unknown): string | null {
   if (typeof config !== "object" || config === null) return "INVALID_CONFIG";
   const cfg = config as Record<string, unknown>;
+
   if ("enabled" in cfg && cfg.enabled === false && Object.keys(cfg).length === 1) return null;
+
   if (!("type" in cfg) || typeof cfg.type !== "string") return "INVALID_CONFIG_TYPE";
   const type = cfg.type as string;
+
   if (type === "local") {
-    if (!Array.isArray(cfg.command) || cfg.command.length === 0) return "INVALID_COMMAND";
-    if (cfg.command.some((c: unknown) => typeof c !== "string")) return "INVALID_COMMAND";
-    if ("timeout" in cfg) {
-      const t = cfg.timeout;
-      if (typeof t !== "number" || t <= 0) return "INVALID_TIMEOUT";
+    if (
+      !Array.isArray(cfg.command) ||
+      cfg.command.length === 0 ||
+      cfg.command.some((c: unknown) => typeof c !== "string")
+    ) {
+      return "INVALID_COMMAND";
     }
-    if ("headers" in cfg && cfg.headers !== null && cfg.headers !== undefined) {
-      if (typeof cfg.headers !== "object" || Array.isArray(cfg.headers)) return "INVALID_HEADERS";
+    if (cfg.environment !== undefined && (typeof cfg.environment !== "object" || cfg.environment === null)) {
+      return "INVALID_ENVIRONMENT";
+    }
+    if (cfg.timeout !== undefined && (typeof cfg.timeout !== "number" || cfg.timeout <= 0)) {
+      return "INVALID_TIMEOUT";
     }
   } else if (type === "remote" || type === "streamable-http") {
     if (typeof cfg.url !== "string" || cfg.url.length === 0) return "INVALID_URL";
-    if ("headers" in cfg && cfg.headers !== null && cfg.headers !== undefined) {
-      if (typeof cfg.headers !== "object" || Array.isArray(cfg.headers)) return "INVALID_HEADERS";
+    if (cfg.headers !== undefined && (typeof cfg.headers !== "object" || cfg.headers === null)) {
+      return "INVALID_HEADERS";
     }
-    if ("timeout" in cfg) {
-      const t = cfg.timeout;
-      if (typeof t !== "number" || t <= 0) return "INVALID_TIMEOUT";
+    if (cfg.timeout !== undefined && (typeof cfg.timeout !== "number" || cfg.timeout <= 0)) {
+      return "INVALID_TIMEOUT";
     }
   } else {
     return "INVALID_CONFIG_TYPE";
@@ -94,11 +100,14 @@ describe("validateMcpConfig", () => {
 
 // ── isValidMcpName ──
 
-const MCP_NAME_RE = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
-
 function isValidMcpName(name: string): boolean {
-  if (!name || name.length > 64) return false;
-  return MCP_NAME_RE.test(name);
+  return (
+    typeof name === "string" &&
+    name.length >= 1 &&
+    name.length <= 64 &&
+    !/--/.test(name) &&
+    /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(name)
+  );
 }
 
 describe("isValidMcpName", () => {
@@ -188,21 +197,100 @@ describe("toServerInfo", () => {
 
 // ── validateAgentData ──
 
+function normalizeAgentNode(input: unknown): Record<string, unknown> | null {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  const value = input as Record<string, unknown>;
+  if (Object.keys(value).length === 0) return {};
+  if (value.kind === "machine" && typeof value.machineId === "string" && value.machineId.length > 0) {
+    return { kind: "machine", machineId: value.machineId };
+  }
+  if (value.kind === "sandbox" && typeof value.sandboxPoolId === "string" && value.sandboxPoolId.length > 0) {
+    return { kind: "sandbox", sandboxPoolId: value.sandboxPoolId };
+  }
+  return null;
+}
+
+function isValidMode(mode: string): boolean {
+  return ["primary", "subagent", "all"].includes(mode);
+}
+
+function isValidSteps(steps: number): boolean {
+  return Number.isInteger(steps) && steps >= 1 && steps <= 1000;
+}
+
+function validateKnowledgeConfigInternal(value: unknown): string | null {
+  if (value == null) return null;
+  if (typeof value !== "object") return "INVALID_KNOWLEDGE";
+
+  const config = value as Record<string, unknown>;
+  if (!Array.isArray(config.knowledgeBaseIds)) {
+    return "INVALID_KNOWLEDGE_BASE_IDS";
+  }
+  if (config.knowledgeBaseIds.some((item) => typeof item !== "string" || item.trim().length === 0)) {
+    return "INVALID_KNOWLEDGE_BASE_IDS";
+  }
+
+  if (config.policy !== undefined && config.policy !== null) {
+    if (typeof config.policy !== "object") {
+      return "INVALID_KNOWLEDGE_POLICY";
+    }
+    const policy = config.policy as Record<string, unknown>;
+    if (policy.searchFirst !== undefined && typeof policy.searchFirst !== "boolean") {
+      return "INVALID_KNOWLEDGE_SEARCH_FIRST";
+    }
+    if (
+      policy.maxResults !== undefined &&
+      (!Number.isInteger(policy.maxResults) || (policy.maxResults as number) < 1 || (policy.maxResults as number) > 20)
+    ) {
+      return "INVALID_KNOWLEDGE_MAX_RESULTS";
+    }
+    if (
+      policy.defaultNamespaces !== undefined &&
+      (!Array.isArray(policy.defaultNamespaces) ||
+        policy.defaultNamespaces.some((item) => typeof item !== "string" || item.trim().length === 0))
+    ) {
+      return "INVALID_KNOWLEDGE_DEFAULT_NAMESPACES";
+    }
+  }
+
+  return null;
+}
+
 function validateAgentData(data: Record<string, unknown>): string | null {
-  if ("extra" in data) {
-    if (data.extra !== null && data.extra !== undefined && (typeof data.extra !== "object" || Array.isArray(data.extra))) {
-      return "INVALID_EXTRA";
-    }
+  if (data.agentNode !== undefined && data.agentNode !== null && !normalizeAgentNode(data.agentNode)) {
+    return "INVALID_AGENT_NODE";
   }
-  if ("knowledge" in data && data.knowledge) {
-    const k = data.knowledge as Record<string, unknown>;
-    if ("knowledgeBaseIds" in k) {
-      const ids = k.knowledgeBaseIds;
-      if (!Array.isArray(ids) || ids.some((id) => typeof id !== "string" || !id.trim())) {
-        return "INVALID_KNOWLEDGE_BASE_IDS";
-      }
-    }
+  if (data.mode !== undefined && typeof data.mode === "string" && !isValidMode(data.mode)) return "INVALID_MODE";
+  if (data.steps !== undefined && typeof data.steps === "number" && !isValidSteps(data.steps)) return "INVALID_STEPS";
+  if (data.temperature !== undefined) {
+    if (typeof data.temperature !== "number" || data.temperature < 0 || data.temperature > 2)
+      return "INVALID_TEMPERATURE";
   }
+  if (data.top_p !== undefined) {
+    if (typeof data.top_p !== "number" || data.top_p < 0 || data.top_p > 1) return "INVALID_TOP_P";
+  }
+  if (data.topP !== undefined) {
+    if (typeof data.topP !== "number" || data.topP < 0 || data.topP > 1) return "INVALID_TOP_P";
+  }
+  if (data.color !== undefined) {
+    if (typeof data.color !== "string") return "INVALID_COLOR";
+    const c = data.color;
+    const PRESET_COLORS = ["primary", "secondary", "accent", "success", "warning", "error", "info"];
+    const isHex = /^#[0-9a-fA-F]{6}$/.test(c);
+    if (!isHex && !PRESET_COLORS.includes(c)) return "INVALID_COLOR";
+  }
+  if (data.permission !== undefined && data.permission !== null) {
+    if (typeof data.permission === "string") return "INVALID_PERMISSION";
+    if (typeof data.permission !== "object" || Array.isArray(data.permission)) return "INVALID_PERMISSION";
+  }
+  if (data.extra !== undefined && data.extra !== null) {
+    if (typeof data.extra !== "object" || Array.isArray(data.extra)) return "INVALID_EXTRA";
+  }
+  if (data.knowledge !== undefined) {
+    const error = validateKnowledgeConfigInternal(data.knowledge);
+    if (error) return error;
+  }
+
   return null;
 }
 
@@ -223,7 +311,7 @@ describe("validateAgentData", () => {
 
 // ── isBuiltInAgent ──
 
-const BUILT_IN_AGENTS = new Set(["build", "general", "explore"]);
+const BUILT_IN_AGENTS = new Set(["build", "plan", "general", "explore", "title", "summary", "compaction", "meta"]);
 
 function isBuiltInAgent(slug: string): boolean {
   return BUILT_IN_AGENTS.has(slug);
@@ -243,19 +331,44 @@ describe("isBuiltInAgent", () => {
 
 // ── normalizeKnowledgeConfig ──
 
-function normalizeKnowledgeConfig(config: { knowledgeBaseIds?: string[] } | null | undefined) {
-  if (!config) return null;
-  if (!config.knowledgeBaseIds) return config;
-  const seen = new Set<string>();
-  const ids: string[] = [];
-  for (const raw of config.knowledgeBaseIds) {
-    const id = raw.trim();
-    if (id && !seen.has(id)) {
-      seen.add(id);
-      ids.push(id);
-    }
-  }
-  return { ...config, knowledgeBaseIds: ids };
+const DEFAULT_SEARCH_FIRST = true;
+const DEFAULT_MAX_RESULTS = 5;
+
+function resolveAgentKnowledgePolicy(policy?: { searchFirst?: boolean; maxResults?: number; defaultNamespaces?: string[] } | null) {
+  return {
+    searchFirst: policy?.searchFirst ?? DEFAULT_SEARCH_FIRST,
+    maxResults: policy?.maxResults ?? DEFAULT_MAX_RESULTS,
+    defaultNamespaces: Array.isArray(policy?.defaultNamespaces)
+      ? policy!.defaultNamespaces.filter(
+          (value): value is string => typeof value === "string" && value.trim().length > 0,
+        )
+      : [],
+  };
+}
+
+function normalizeKnowledgePolicy(value: { searchFirst?: boolean; maxResults?: number; defaultNamespaces?: string[] } | null | undefined) {
+  const policy = resolveAgentKnowledgePolicy(value);
+  return {
+    searchFirst: policy.searchFirst,
+    maxResults: policy.maxResults,
+    defaultNamespaces: policy.defaultNamespaces,
+  };
+}
+
+function normalizeKnowledgeConfig(config: unknown): { knowledgeBaseIds: string[]; policy: { searchFirst: boolean; maxResults: number; defaultNamespaces: string[] } } | null {
+  if (config == null) return null;
+  const input = config as { knowledgeBaseIds?: unknown; policy?: unknown };
+  return {
+    knowledgeBaseIds: Array.from(
+      new Set(
+        (Array.isArray(input.knowledgeBaseIds) ? input.knowledgeBaseIds : [])
+          .filter((item): item is string => typeof item === "string")
+          .map((item) => item.trim())
+          .filter(Boolean),
+      ),
+    ),
+    policy: normalizeKnowledgePolicy(input.policy as any),
+  };
 }
 
 describe("normalizeKnowledgeConfig", () => {
@@ -284,6 +397,11 @@ function validateWorkspacePath(p: string): string | null {
   if (!isAbsolute(p)) return "workspace 路径必须是绝对路径";
   const normalized = resolve(p);
   if (BLOCKED_PATHS.includes(normalized)) return `不允许使用系统目录: ${normalized}`;
+  for (const blocked of BLOCKED_PATHS) {
+    if (blocked !== "/" && normalized.startsWith(`${blocked}/`)) {
+      return `不允许使用系统目录下的路径: ${normalized}`;
+    }
+  }
   return null;
 }
 
@@ -307,13 +425,22 @@ describe("validateWorkspacePath", () => {
 
 // ── KEBAB_CASE_RE ──
 
-const KEBAB_CASE_RE = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
+const KEBAB_CASE_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
 
 describe("KEBAB_CASE_RE", () => {
   it("接受合法 kebab-case", () => {
     expect(KEBAB_CASE_RE.test("my-project")).toBe(true);
     expect(KEBAB_CASE_RE.test("abc123")).toBe(true);
     expect(KEBAB_CASE_RE.test("a")).toBe(true);
+  });
+
+  it("接受源码允许的额外格式", () => {
+    // 源码允许数字开头（测试旧版不允许）
+    expect(KEBAB_CASE_RE.test("1abc")).toBe(true);
+    // 源码允许中间连续连字符
+    expect(KEBAB_CASE_RE.test("a--b")).toBe(true);
+    // 单个数字
+    expect(KEBAB_CASE_RE.test("1")).toBe(true);
   });
 
   it("拒绝非法格式", () => {

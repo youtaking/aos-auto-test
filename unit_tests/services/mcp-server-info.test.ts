@@ -5,37 +5,25 @@ import { describe, expect, it } from "bun:test";
 
 function toServerInfo(name: string, entry: { type: string; config: Record<string, unknown>; enabled: boolean }) {
   const cfg = entry.config;
-  const cfgType = (cfg.type as string) || entry.type;
-
-  if (!entry.enabled && !cfgType) {
-    return { name, type: "disabled", enabled: false, summary: "已禁用", timeout: undefined };
+  if (!entry.enabled && !("type" in cfg)) {
+    return { name, type: "disabled", enabled: false, summary: "已禁用" };
   }
-
+  const cfgType = cfg.type as string;
   if (cfgType === "local") {
-    const cmd = Array.isArray(cfg.command) ? (cfg.command as string[]) : null;
+    const command = Array.isArray(cfg.command) ? (cfg.command as string[]) : [];
     return {
       name,
       type: "local",
       enabled: entry.enabled,
-      summary: cmd?.[0] ?? "",
+      summary: command[0] ?? "",
       timeout: cfg.timeout as number | undefined,
     };
   }
-
-  if (cfgType === "remote" || cfgType === "streamable-http") {
-    return {
-      name,
-      type: cfgType,
-      enabled: entry.enabled,
-      summary: (cfg.url as string) ?? "",
-      timeout: cfg.timeout as number | undefined,
-    };
-  }
-
-  // 未知类型归为 remote
+  // streamable-http 和 remote 统一展示（使用 URL）
+  const typeLabel = cfgType === "streamable-http" ? ("streamable-http" as const) : ("remote" as const);
   return {
     name,
-    type: "remote",
+    type: typeLabel,
     enabled: entry.enabled,
     summary: (cfg.url as string) ?? "",
     timeout: cfg.timeout as number | undefined,
