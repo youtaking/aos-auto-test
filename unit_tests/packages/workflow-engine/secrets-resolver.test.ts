@@ -1,7 +1,12 @@
 import { describe, test, expect } from "bun:test";
 
 // ── Pure function copies from packages/workflow-engine/src/secrets/secrets-resolver.ts ──
+// Source version: FenixAgent/packages/workflow-engine/src/secrets/secrets-resolver.ts (commit f5ac00e, 2025-08)
 // Only the pure redaction logic is copied (no file I/O for parseEnvFile).
+//
+// Test adaptation: In the source, redactValue is a private method of SecretsResolver class.
+// Here it's extracted as a standalone function for direct unit testing without class instantiation.
+// The logic is identical — exact string match replacement, recursive traversal of arrays/objects.
 
 /**
  * Recursively redact secret values from metadata.
@@ -127,6 +132,22 @@ describe("redactValue", () => {
   test("handles empty secrets — nothing is redacted", () => {
     expect(redactValue("any-value", {})).toBe("any-value");
   });
+
+  // ── Boundary tests ──
+
+  test("passes through falsy number 0 unchanged", () => {
+    expect(redactValue(0, secrets)).toBe(0);
+  });
+
+  test("空字符串 secret 值仍然脱敏为 ***", () => {
+    // Empty string as a secret value would match any empty string input
+    expect(redactValue("", { KEY: "" })).toBe("***");
+  });
+
+  test("handles deeply nested null values", () => {
+    const input = { a: { b: { c: null } } };
+    expect(redactValue(input, secrets)).toEqual({ a: { b: { c: null } } });
+  });
 });
 
 describe("redactSecrets", () => {
@@ -147,11 +168,21 @@ describe("redactSecrets", () => {
   });
 
   test("does not mutate original metadata", () => {
-    const metadata = { apiKey: "sk-secret-123" };
-    const secrets = { API_KEY: "sk-secret-123" };
+    const metadata = {
+      apiKey: "sk-secret-123",
+      nested: { password: "p@ssw0rd", safe: "hello" },
+      list: [1, "sk-secret-123"],
+    };
+    const secrets = { API_KEY: "sk-secret-123", DB_PASS: "p@ssw0rd" };
+    const originalSnapshot = JSON.parse(JSON.stringify(metadata));
 
     redactSecrets(metadata, secrets);
+
+    // 深度比较：整个原始对象未被修改
+    expect(metadata).toEqual(originalSnapshot);
     expect(metadata.apiKey).toBe("sk-secret-123");
+    expect(metadata.nested.password).toBe("p@ssw0rd");
+    expect(metadata.list).toEqual([1, "sk-secret-123"]);
   });
 
   test("returns new object (not same reference)", () => {
@@ -165,5 +196,19 @@ describe("redactSecrets", () => {
     const metadata = { name: "agent", count: 5 };
     const result = redactSecrets(metadata, { KEY: "secret" });
     expect(result).toEqual({ name: "agent", count: 5 });
+  });
+
+  // ── Boundary tests ──
+
+  test("handles empty metadata object", () => {
+    const result = redactSecrets({}, { KEY: "secret" });
+    expect(result).toEqual({});
+  });
+
+  test("redacts when multiple secrets have the same value", () => {
+    const metadata = { key1: "shared-secret", key2: "shared-secret", key3: "other" };
+    const dupSecrets = { A: "shared-secret", B: "shared-secret" };
+    const result = redactSecrets(metadata, dupSecrets);
+    expect(result).toEqual({ key1: "***", key2: "***", key3: "other" });
   });
 });

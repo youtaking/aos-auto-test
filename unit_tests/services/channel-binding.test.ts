@@ -1,6 +1,14 @@
 // channel-binding.test.ts — 频道绑定消息匹配测试
 // 测试目标：findBindingForMessage 的精确匹配、通配符匹配、优先级、过滤逻辑
 // 业务意图：确保消息路由到正确的 Agent 频道绑定
+//
+// Source version: FenixAgent/src/services/channel-binding.ts (commit f5ac00e, 2025-08)
+//
+// Test adaptation (API signature differs from source):
+//   Source: `findBindingForMessage(platform: string, chatId: string)` — async, queries DB via channelBindingRepo
+//   Test:   `findBindingForMessage(bindings: ChannelBinding[], platform: string, chatId: string)` — sync, takes bindings array
+//   Rationale: Avoids DB dependency. The matching logic (exact → wildcard → undefined) is identical;
+//   only the data source differs (parameter vs DB query).
 
 import { describe, expect, test } from "bun:test";
 
@@ -57,7 +65,6 @@ describe("ChannelBinding 消息匹配", () => {
     test("chatId 完全匹配时返回 exact", () => {
       const bindings = [makeBinding({ id: "bind-1", chatId: "chat-123" })];
       const result = findBindingForMessage(bindings, "dingtalk", "chat-123");
-      expect(result).toBeDefined();
       expect(result!.matchType).toBe("exact");
       expect(result!.binding.id).toBe("bind-1");
     });
@@ -68,7 +75,6 @@ describe("ChannelBinding 消息匹配", () => {
         makeBinding({ id: "exact", chatId: "chat-123", agentId: "agent-exact" }),
       ];
       const result = findBindingForMessage(bindings, "dingtalk", "chat-123");
-      expect(result).toBeDefined();
       expect(result!.matchType).toBe("exact");
       expect(result!.binding.id).toBe("exact");
     });
@@ -89,7 +95,7 @@ describe("ChannelBinding 消息匹配", () => {
     test("chatId 为 null 的绑定作为通配符匹配", () => {
       const bindings = [makeBinding({ id: "wildcard", chatId: null })];
       const result = findBindingForMessage(bindings, "dingtalk", "any-chat");
-      expect(result).toBeDefined();
+      expect(result).not.toBeUndefined();
       expect(result!.matchType).toBe("wildcard");
       expect(result!.binding.id).toBe("wildcard");
     });
@@ -100,7 +106,7 @@ describe("ChannelBinding 消息匹配", () => {
         makeBinding({ id: "wildcard", chatId: null }),
       ];
       const result = findBindingForMessage(bindings, "dingtalk", "unknown-chat");
-      expect(result).toBeDefined();
+      expect(result).not.toBeUndefined();
       expect(result!.matchType).toBe("wildcard");
       expect(result!.binding.id).toBe("wildcard");
     });
@@ -142,7 +148,7 @@ describe("ChannelBinding 消息匹配", () => {
         makeBinding({ id: "wildcard-enabled", chatId: null, enabled: true }),
       ];
       const result = findBindingForMessage(bindings, "dingtalk", "chat-123");
-      expect(result).toBeDefined();
+      expect(result).not.toBeUndefined();
       expect(result!.matchType).toBe("wildcard");
       expect(result!.binding.id).toBe("wildcard-enabled");
     });
@@ -163,7 +169,7 @@ describe("ChannelBinding 消息匹配", () => {
         makeBinding({ id: "ding-bind", platform: "dingtalk", chatId: "chat-123" }),
       ];
       const result = findBindingForMessage(bindings, "dingtalk", "chat-123");
-      expect(result).toBeDefined();
+      expect(result).not.toBeUndefined();
       expect(result!.binding.id).toBe("ding-bind");
     });
 
@@ -173,7 +179,7 @@ describe("ChannelBinding 消息匹配", () => {
         makeBinding({ platform: "dingtalk", chatId: null, id: "ding-wild" }),
       ];
       const result = findBindingForMessage(bindings, "dingtalk", "any-chat");
-      expect(result).toBeDefined();
+      expect(result).not.toBeUndefined();
       expect(result!.binding.id).toBe("ding-wild");
     });
   });
@@ -207,6 +213,36 @@ describe("ChannelBinding 消息匹配", () => {
       ];
       const result = findBindingForMessage(bindings, "dingtalk", "chat-1");
       expect(result!.binding.id).toBe("a");
+    });
+
+    // ── Additional boundary tests ──
+
+    test("all bindings disabled returns undefined", () => {
+      const bindings = [
+        makeBinding({ id: "a", chatId: "chat-123", enabled: false }),
+        makeBinding({ id: "b", chatId: null, enabled: false }),
+      ];
+      const result = findBindingForMessage(bindings, "dingtalk", "chat-123");
+      expect(result).toBeUndefined();
+    });
+
+    test("same chatId on different platforms does not cross-match", () => {
+      const bindings = [
+        makeBinding({ id: "slack-bind", platform: "slack", chatId: "chat-123" }),
+      ];
+      const result = findBindingForMessage(bindings, "dingtalk", "chat-123");
+      expect(result).toBeUndefined();
+    });
+
+    test("empty string chatId is not matched by wildcard (null)", () => {
+      // chatId "" is a valid exact chatId, not a wildcard
+      const bindings = [
+        makeBinding({ id: "exact-empty", chatId: "" }),
+        makeBinding({ id: "wildcard", chatId: null }),
+      ];
+      const result = findBindingForMessage(bindings, "dingtalk", "");
+      expect(result!.matchType).toBe("exact");
+      expect(result!.binding.id).toBe("exact-empty");
     });
   });
 });

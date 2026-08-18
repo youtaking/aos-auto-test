@@ -154,6 +154,12 @@ describe("ConcurrencyExceededError", () => {
     expect(err.name).toBe("ConcurrencyExceededError");
   });
 
+  test("accepts custom message", () => {
+    const err = new ConcurrencyExceededError("max 10 concurrent sessions exceeded");
+    expect(err.message).toBe("max 10 concurrent sessions exceeded");
+    expect(err.code).toBe("CONCURRENCY_EXCEEDED");
+  });
+
   test("is instanceof OrchestrationError", () => {
     const err = new ConcurrencyExceededError();
     expect(err instanceof OrchestrationError).toBe(true);
@@ -181,6 +187,12 @@ describe("MachineOfflineError", () => {
     expect(err.name).toBe("MachineOfflineError");
   });
 
+  test("accepts custom message", () => {
+    const err = new MachineOfflineError("machine node-42 is offline");
+    expect(err.message).toBe("machine node-42 is offline");
+    expect(err.code).toBe("MACHINE_OFFLINE");
+  });
+
   test("is instanceof OrchestrationError", () => {
     const err = new MachineOfflineError();
     expect(err instanceof OrchestrationError).toBe(true);
@@ -206,6 +218,12 @@ describe("LaunchSpecBuildError", () => {
   test("has correct name", () => {
     const err = new LaunchSpecBuildError();
     expect(err.name).toBe("LaunchSpecBuildError");
+  });
+
+  test("accepts custom message", () => {
+    const err = new LaunchSpecBuildError("missing required tool: node-xyz");
+    expect(err.message).toBe("missing required tool: node-xyz");
+    expect(err.code).toBe("LAUNCH_SPEC_BUILD_FAILED");
   });
 
   test("is instanceof OrchestrationError", () => {

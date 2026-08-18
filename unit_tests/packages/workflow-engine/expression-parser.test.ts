@@ -706,7 +706,7 @@ describe("parseExpression", () => {
   });
 
   test("throws for invalid syntax", () => {
-    expect(() => parseExpression("!!!")).toThrow();
+    expect(() => parseExpression("!!!")).toThrow("Unexpected");
   });
 
   test("throws for unterminated string", () => {
@@ -980,6 +980,29 @@ describe("evaluateExpression", () => {
       },
     };
     expect(evaluateExpression(ast, ctx)).toBe("result-data");
+  });
+
+  test("binary + 混合 number 和 string 触发字符串强制转换", () => {
+    // 源码逻辑：if (typeof left === "string" || typeof right === "string") → String(left) + String(right)
+    const ast1 = parseExpression('1 + "hello"');
+    expect(evaluateExpression(ast1, {})).toBe("1hello");
+
+    const ast2 = parseExpression('"hello" + 1');
+    expect(evaluateExpression(ast2, {})).toBe("hello1");
+
+    // number + string 也是字符串拼接
+    const ast3 = parseExpression('42 + " items"');
+    expect(evaluateExpression(ast3, {})).toBe("42 items");
+  });
+
+  test("负数组索引返回 null", () => {
+    // 源码逻辑：idx >= 0 && idx < obj.length → false when idx < 0 → returns null
+    const ast = parseExpression("params.items[-1]");
+    const ctx = { params: { items: ["a", "b", "c"] } };
+    expect(evaluateExpression(ast, ctx)).toBeNull();
+
+    const ast2 = parseExpression("params.items[-100]");
+    expect(evaluateExpression(ast2, ctx)).toBeNull();
   });
 });
 

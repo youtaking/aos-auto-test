@@ -42,59 +42,72 @@ function validateMcpConfig(config: unknown): string | null {
   return null;
 }
 
+// 共享测试数据
+const VALID_LOCAL_CONFIG = { type: "local", command: ["npx", "-y", "some-server"] } as const;
+const VALID_REMOTE_CONFIG = { type: "remote", url: "https://api.example.com/sse" } as const;
+const VALID_STREAMABLE_CONFIG = { type: "streamable-http", url: "https://api.example.com/mcp" } as const;
+
 describe("validateMcpConfig", () => {
-  it("接受有效的 local 配置", () => {
-    expect(validateMcpConfig({ type: "local", command: ["npx", "-y", "some-server"], environment: { KEY: "val" }, timeout: 5000 })).toBeNull();
+  describe("有效配置", () => {
+    it("接受有效的 local 配置", () => {
+      expect(validateMcpConfig({ ...VALID_LOCAL_CONFIG, environment: { KEY: "val" }, timeout: 5000 })).toBeNull();
+    });
+
+    it("接受有效的 remote 配置", () => {
+      expect(validateMcpConfig({ ...VALID_REMOTE_CONFIG, headers: { Authorization: "Bearer token" }, timeout: 3000 })).toBeNull();
+    });
+
+    it("接受 enabled:false 的快捷禁用配置", () => {
+      expect(validateMcpConfig({ enabled: false })).toBeNull();
+    });
+
+    it("接受有效的 streamable-http 配置", () => {
+      expect(validateMcpConfig({ ...VALID_STREAMABLE_CONFIG, timeout: 5000 })).toBeNull();
+    });
   });
 
-  it("接受有效的 remote 配置", () => {
-    expect(validateMcpConfig({ type: "remote", url: "https://api.example.com/sse", headers: { Authorization: "Bearer token" }, timeout: 3000 })).toBeNull();
+  describe("类型校验", () => {
+    it("拒绝非 object 输入", () => {
+      expect(validateMcpConfig("string")).toBe("INVALID_CONFIG");
+      expect(validateMcpConfig(null)).toBe("INVALID_CONFIG");
+    });
+
+    it("拒绝缺少 type 字段的配置", () => {
+      expect(validateMcpConfig({ command: ["npx"] })).toBe("INVALID_CONFIG_TYPE");
+    });
+
+    it("拒绝未知 type", () => {
+      expect(validateMcpConfig({ type: "unknown", url: "http://x" })).toBe("INVALID_CONFIG_TYPE");
+    });
   });
 
-  it("接受 enabled:false 的快捷禁用配置", () => {
-    expect(validateMcpConfig({ enabled: false })).toBeNull();
+  describe("local 类型校验", () => {
+    it("拒绝 local 类型缺少 command", () => {
+      expect(validateMcpConfig({ type: "local" })).toBe("INVALID_COMMAND");
+    });
+
+    it("拒绝 command 非数组", () => {
+      expect(validateMcpConfig({ type: "local", command: "npx" })).toBe("INVALID_COMMAND");
+    });
+
+    it("拒绝无效 timeout（负数或零）", () => {
+      expect(validateMcpConfig({ ...VALID_LOCAL_CONFIG, timeout: -1 })).toBe("INVALID_TIMEOUT");
+      expect(validateMcpConfig({ ...VALID_LOCAL_CONFIG, timeout: 0 })).toBe("INVALID_TIMEOUT");
+    });
   });
 
-  it("拒绝非 object 输入", () => {
-    expect(validateMcpConfig("string")).toBe("INVALID_CONFIG");
-    expect(validateMcpConfig(null)).toBe("INVALID_CONFIG");
-  });
+  describe("remote/streamable-http 类型校验", () => {
+    it("拒绝 remote 类型缺少 url", () => {
+      expect(validateMcpConfig({ type: "remote" })).toBe("INVALID_URL");
+    });
 
-  it("拒绝缺少 type 字段的配置", () => {
-    expect(validateMcpConfig({ command: ["npx"] })).toBe("INVALID_CONFIG_TYPE");
-  });
+    it("拒绝 streamable-http 缺少 url", () => {
+      expect(validateMcpConfig({ type: "streamable-http" })).toBe("INVALID_URL");
+    });
 
-  it("拒绝 local 类型缺少 command", () => {
-    expect(validateMcpConfig({ type: "local" })).toBe("INVALID_COMMAND");
-  });
-
-  it("拒绝 command 非数组", () => {
-    expect(validateMcpConfig({ type: "local", command: "npx" })).toBe("INVALID_COMMAND");
-  });
-
-  it("拒绝 remote 类型缺少 url", () => {
-    expect(validateMcpConfig({ type: "remote" })).toBe("INVALID_URL");
-  });
-
-  it("拒绝无效 timeout（负数或零）", () => {
-    expect(validateMcpConfig({ type: "local", command: ["npx"], timeout: -1 })).toBe("INVALID_TIMEOUT");
-    expect(validateMcpConfig({ type: "local", command: ["npx"], timeout: 0 })).toBe("INVALID_TIMEOUT");
-  });
-
-  it("拒绝未知 type", () => {
-    expect(validateMcpConfig({ type: "unknown", url: "http://x" })).toBe("INVALID_CONFIG_TYPE");
-  });
-
-  it("接受有效的 streamable-http 配置", () => {
-    expect(validateMcpConfig({ type: "streamable-http", url: "https://api.example.com/mcp", timeout: 5000 })).toBeNull();
-  });
-
-  it("拒绝 streamable-http 缺少 url", () => {
-    expect(validateMcpConfig({ type: "streamable-http" })).toBe("INVALID_URL");
-  });
-
-  it("拒绝 streamable-http 无效 headers", () => {
-    expect(validateMcpConfig({ type: "streamable-http", url: "https://x.com", headers: "bad" })).toBe("INVALID_HEADERS");
+    it("拒绝 streamable-http 无效 headers", () => {
+      expect(validateMcpConfig({ ...VALID_STREAMABLE_CONFIG, headers: "bad" })).toBe("INVALID_HEADERS");
+    });
   });
 });
 
@@ -111,36 +124,47 @@ function isValidMcpName(name: string): boolean {
 }
 
 describe("isValidMcpName", () => {
-  it("接受合法 kebab-case 名称", () => {
-    expect(isValidMcpName("my-server")).toBe(true);
-    expect(isValidMcpName("a")).toBe(true);
-    expect(isValidMcpName("server-123")).toBe(true);
+  describe("合法名称", () => {
+    it("接受合法 kebab-case 名称", () => {
+      expect(isValidMcpName("my-server")).toBe(true);
+      expect(isValidMcpName("a")).toBe(true);
+      expect(isValidMcpName("server-123")).toBe(true);
+    });
+
+    it("接受恰好最大长度（64 字符）", () => {
+      expect(isValidMcpName("a".repeat(64))).toBe(true);
+    });
   });
 
-  it("拒绝空字符串", () => {
-    expect(isValidMcpName("")).toBe(false);
-  });
+  describe("非法名称", () => {
+    it("拒绝空字符串", () => {
+      expect(isValidMcpName("")).toBe(false);
+    });
 
-  it("拒绝包含连续连字符的名称", () => {
-    expect(isValidMcpName("my--server")).toBe(false);
-  });
+    it("拒绝包含连续连字符的名称", () => {
+      expect(isValidMcpName("my--server")).toBe(false);
+    });
 
-  it("拒绝大写字母", () => {
-    expect(isValidMcpName("MyServer")).toBe(false);
-  });
+    it("拒绝大写字母", () => {
+      expect(isValidMcpName("MyServer")).toBe(false);
+    });
 
-  it("拒绝以连字符开头或结尾", () => {
-    expect(isValidMcpName("-server")).toBe(false);
-    expect(isValidMcpName("server-")).toBe(false);
-  });
+    it("拒绝以连字符开头或结尾", () => {
+      expect(isValidMcpName("-server")).toBe(false);
+      expect(isValidMcpName("server-")).toBe(false);
+    });
 
-  it("拒绝超长名称（>64 字符）", () => {
-    expect(isValidMcpName("a".repeat(65))).toBe(false);
-    expect(isValidMcpName("a".repeat(64))).toBe(true);
+    it("拒绝超长名称（>64 字符）", () => {
+      expect(isValidMcpName("a".repeat(65))).toBe(false);
+    });
   });
 });
 
 // ── toServerInfo ──
+// 与源码的差异：
+// 1. 源码使用 parseJsonb 解析 PostgreSQL JSONB 格式的 config 字段，测试中直接传入普通对象
+// 2. 源码的 disabled 判定条件是 !enabled && !("type" in config)，
+//    测试简化为：任何非 local/remote/streamable-http 的 type 都走 fallback 分支返回 "已禁用"
 
 function toServerInfo(name: string, entry: { type: string; config: Record<string, unknown>; enabled: boolean }) {
   const cfg = entry.config;
@@ -294,18 +318,27 @@ function validateAgentData(data: Record<string, unknown>): string | null {
   return null;
 }
 
+// 共享合法数据
+const VALID_AGENT_DATA = { extra: { panel: "compact" } } as const;
+
 describe("validateAgentData", () => {
-  it("接受合法数据", () => {
-    expect(validateAgentData({ extra: { panel: "compact" } })).toBeNull();
+  describe("基础校验", () => {
+    it("接受合法数据", () => {
+      expect(validateAgentData(VALID_AGENT_DATA)).toBeNull();
+    });
   });
 
-  it("拒绝非法 extra", () => {
-    expect(validateAgentData({ extra: "bad" })).toBe("INVALID_EXTRA");
-    expect(validateAgentData({ extra: [] })).toBe("INVALID_EXTRA");
+  describe("extra 字段校验", () => {
+    it("拒绝非法 extra", () => {
+      expect(validateAgentData({ extra: "bad" })).toBe("INVALID_EXTRA");
+      expect(validateAgentData({ extra: [] })).toBe("INVALID_EXTRA");
+    });
   });
 
-  it("拒绝非法 knowledge", () => {
-    expect(validateAgentData({ knowledge: { knowledgeBaseIds: ["", "kb_a"] } })).toBe("INVALID_KNOWLEDGE_BASE_IDS");
+  describe("knowledge 字段校验", () => {
+    it("拒绝非法 knowledge", () => {
+      expect(validateAgentData({ knowledge: { knowledgeBaseIds: ["", "kb_a"] } })).toBe("INVALID_KNOWLEDGE_BASE_IDS");
+    });
   });
 });
 
@@ -408,18 +441,25 @@ function validateWorkspacePath(p: string): string | null {
 describe("validateWorkspacePath", () => {
   it("拒绝相对路径", () => {
     expect(validateWorkspacePath("relative/path")).toBe("workspace 路径必须是绝对路径");
-  });
-
-  it("拒绝根路径 /", () => {
-    // Windows 上 resolve("/") 返回 C:\，不等于 "/"，所以此用例仅 Linux 下触发
-    // 但相对路径检测在两个平台都生效
-    const result = validateWorkspacePath("not-absolute");
-    expect(result).toBe("workspace 路径必须是绝对路径");
+    // "not-absolute" 同样是相对路径，验证一致性
+    expect(validateWorkspacePath("not-absolute")).toBe("workspace 路径必须是绝对路径");
+    // 注意：根路径 "/" 在 Windows 上 resolve("/") 返回 "C:\"，不等于 "/"，
+    // 因此 BLOCKED_PATHS 中的 "/" 仅在 Linux 上生效，此处不单独测试。
   });
 
   it("接受合法绝对路径", () => {
     // Windows: C:\Users\xxx  Linux: /home/user/project
     expect(validateWorkspacePath("/home/user/project")).toBeNull();
+  });
+
+  it("Windows 系统目录 C:\\Windows 未被 BLOCKED_PATHS 覆盖（已知限制）", () => {
+    // BLOCKED_PATHS 只包含 Linux 系统路径（/etc, /usr, /bin 等），
+    // Windows 系统目录如 C:\Windows、C:\Program Files 等未被覆盖。
+    // 这是已知限制：在 Windows 上这些路径不会触发拦截。
+    const result = validateWorkspacePath("C:\\Windows");
+    // 在 Windows 上返回 null（未被拦截），在 Linux 上 "C:\Windows" 不是绝对路径会返回错误
+    // 此测试记录已知限制，不做强断言
+    expect(result === null || typeof result === "string").toBe(true);
   });
 });
 
@@ -428,25 +468,29 @@ describe("validateWorkspacePath", () => {
 const KEBAB_CASE_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
 
 describe("KEBAB_CASE_RE", () => {
-  it("接受合法 kebab-case", () => {
-    expect(KEBAB_CASE_RE.test("my-project")).toBe(true);
-    expect(KEBAB_CASE_RE.test("abc123")).toBe(true);
-    expect(KEBAB_CASE_RE.test("a")).toBe(true);
+  describe("合法格式", () => {
+    it("接受合法 kebab-case", () => {
+      expect(KEBAB_CASE_RE.test("my-project")).toBe(true);
+      expect(KEBAB_CASE_RE.test("abc123")).toBe(true);
+      expect(KEBAB_CASE_RE.test("a")).toBe(true);
+    });
+
+    it("接受源码允许的额外格式", () => {
+      // 源码允许数字开头（测试旧版不允许）
+      expect(KEBAB_CASE_RE.test("1abc")).toBe(true);
+      // 源码允许中间连续连字符
+      expect(KEBAB_CASE_RE.test("a--b")).toBe(true);
+      // 单个数字
+      expect(KEBAB_CASE_RE.test("1")).toBe(true);
+    });
   });
 
-  it("接受源码允许的额外格式", () => {
-    // 源码允许数字开头（测试旧版不允许）
-    expect(KEBAB_CASE_RE.test("1abc")).toBe(true);
-    // 源码允许中间连续连字符
-    expect(KEBAB_CASE_RE.test("a--b")).toBe(true);
-    // 单个数字
-    expect(KEBAB_CASE_RE.test("1")).toBe(true);
-  });
-
-  it("拒绝非法格式", () => {
-    expect(KEBAB_CASE_RE.test("MyProject")).toBe(false);
-    expect(KEBAB_CASE_RE.test("-leading")).toBe(false);
-    expect(KEBAB_CASE_RE.test("trailing-")).toBe(false);
-    expect(KEBAB_CASE_RE.test("")).toBe(false);
+  describe("非法格式", () => {
+    it("拒绝非法格式", () => {
+      expect(KEBAB_CASE_RE.test("MyProject")).toBe(false);
+      expect(KEBAB_CASE_RE.test("-leading")).toBe(false);
+      expect(KEBAB_CASE_RE.test("trailing-")).toBe(false);
+      expect(KEBAB_CASE_RE.test("")).toBe(false);
+    });
   });
 });

@@ -103,6 +103,12 @@ describe("ConcurrencyExceededError", () => {
     expect(err.code).toBe("CONCURRENCY_EXCEEDED");
     expect(err.name).toBe("ConcurrencyExceededError");
   });
+
+  test("自定义 message", () => {
+    const err = new ConcurrencyExceededError("max 10 concurrent sessions exceeded");
+    expect(err.message).toBe("max 10 concurrent sessions exceeded");
+    expect(err.code).toBe("CONCURRENCY_EXCEEDED");
+  });
 });
 
 describe("MachineOfflineError", () => {
@@ -111,6 +117,12 @@ describe("MachineOfflineError", () => {
     expect(err.code).toBe("MACHINE_OFFLINE");
     expect(err.name).toBe("MachineOfflineError");
   });
+
+  test("自定义 message", () => {
+    const err = new MachineOfflineError("machine node-42 is offline");
+    expect(err.message).toBe("machine node-42 is offline");
+    expect(err.code).toBe("MACHINE_OFFLINE");
+  });
 });
 
 describe("LaunchSpecBuildError", () => {
@@ -118,6 +130,12 @@ describe("LaunchSpecBuildError", () => {
     const err = new LaunchSpecBuildError();
     expect(err.code).toBe("LAUNCH_SPEC_BUILD_FAILED");
     expect(err.name).toBe("LaunchSpecBuildError");
+  });
+
+  test("自定义 message", () => {
+    const err = new LaunchSpecBuildError("missing required tool: node-xyz");
+    expect(err.message).toBe("missing required tool: node-xyz");
+    expect(err.code).toBe("LAUNCH_SPEC_BUILD_FAILED");
   });
 });
 

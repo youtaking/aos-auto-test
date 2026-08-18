@@ -80,6 +80,12 @@ describe("decodeWsText", () => {
     expect(decodeWsText([buf])).toBe("single buffer");
   });
 
+  test("decodeWsText 接受单个 Buffer 输入走 ArrayBuffer.isView 分支", () => {
+    // Buffer 继承 Uint8Array，满足 ArrayBuffer.isView(data) 条件
+    const buf = Buffer.from("hello", "utf8");
+    expect(decodeWsText(buf)).toBe("hello");
+  });
+
   test("throws for unsupported type (number)", () => {
     expect(() => decodeWsText(42)).toThrow("Unsupported WebSocket message payload");
   });

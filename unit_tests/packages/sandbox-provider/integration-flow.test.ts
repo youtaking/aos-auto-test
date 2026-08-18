@@ -106,4 +106,25 @@ describe("OpenSandbox Cluster Provider integration flow", () => {
     await expect(provider.create(input)).rejects.toMatchObject({ code: "UNAVAILABLE", retryable: true });
     expect(createCalls).toBe(1);
   });
+
+  // get() 在 sandbox 已被销毁（404）时应返回 null，而不是抛错。
+  test("get 返回 null 当 sandbox 已消失 (404)", async () => {
+    const provider = new OpenSandboxClusterProvider(
+      {
+        baseUrl: "http://cluster.test",
+        apiKey: "cluster-key",
+        requestTimeoutMs: 1000,
+        createTimeoutMs: 1000,
+        resumeTimeoutMs: 1000,
+        destroyTimeoutMs: 1000,
+      },
+      async (url, init) => {
+        // 所有请求返回 404
+        return new Response("sandbox not found", { status: 404 });
+      },
+    );
+
+    const result = await provider.get("osb-gone", "sbi-gone");
+    expect(result).toBeNull();
+  });
 });

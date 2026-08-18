@@ -115,6 +115,19 @@ function isBuiltInAgent(slug: string): boolean {
   return BUILT_IN_AGENTS.has(slug);
 }
 
+// ── validateAgentName ──
+// 纯函数复制自 schemas/api-agent.schema.ts: name: z.string().min(1).max(64)
+
+const AGENT_NAME_MIN = 1;
+const AGENT_NAME_MAX = 64;
+
+function validateAgentName(name: unknown): string | null {
+  if (typeof name !== "string") return "INVALID_NAME_TYPE";
+  if (name.length < AGENT_NAME_MIN) return "INVALID_NAME_EMPTY";
+  if (name.length > AGENT_NAME_MAX) return "INVALID_NAME_TOO_LONG";
+  return null;
+}
+
 // ── AGENT_SETTABLE_FIELDS ──
 
 describe("AGENT_SETTABLE_FIELDS", () => {
@@ -168,5 +181,49 @@ describe("isBuiltInAgent (expanded)", () => {
     expect(isBuiltInAgent("custom")).toBe(false);
     expect(isBuiltInAgent("Build")).toBe(false);
     expect(isBuiltInAgent("")).toBe(false);
+  });
+});
+
+// ── validateAgentName 边界测试 ──
+
+describe("validateAgentName 边界测试", () => {
+  test("空字符串名称 → 被拒绝", () => {
+    expect(validateAgentName("")).toBe("INVALID_NAME_EMPTY");
+  });
+
+  test("超长名称（>64 字符）→ 被拒绝", () => {
+    expect(validateAgentName("a".repeat(65))).toBe("INVALID_NAME_TOO_LONG");
+    expect(validateAgentName("x".repeat(257))).toBe("INVALID_NAME_TOO_LONG");
+  });
+
+  test("特殊字符（emoji、控制字符）→ 通过（仅校验长度）", () => {
+    // Zod schema 只校验长度，不限制字符类型
+    expect(validateAgentName("🤖")).toBeNull();
+    expect(validateAgentName("agent\x00name")).toBeNull();
+    expect(validateAgentName("你好世界")).toBeNull();
+  });
+
+  test("null/undefined 输入 → 安全处理", () => {
+    expect(validateAgentName(null)).toBe("INVALID_NAME_TYPE");
+    expect(validateAgentName(undefined)).toBe("INVALID_NAME_TYPE");
+  });
+
+  test("纯空白名称 → 通过（仅校验长度，空白也算有效字符）", () => {
+    // Zod z.string().min(1) 允许空白字符
+    expect(validateAgentName("   ")).toBeNull();
+    expect(validateAgentName("\t")).toBeNull();
+  });
+
+  test("纯数字名称 → 通过", () => {
+    expect(validateAgentName("12345")).toBeNull();
+    expect(validateAgentName("0")).toBeNull();
+  });
+
+  test("恰好最大长度（64 字符）→ 通过", () => {
+    expect(validateAgentName("a".repeat(AGENT_NAME_MAX))).toBeNull();
+  });
+
+  test("最大长度 +1（65 字符）→ 被拒绝", () => {
+    expect(validateAgentName("a".repeat(AGENT_NAME_MAX + 1))).toBe("INVALID_NAME_TOO_LONG");
   });
 });

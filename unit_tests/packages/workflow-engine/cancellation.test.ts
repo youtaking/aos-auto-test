@@ -100,11 +100,15 @@ describe("CancellationManager", () => {
       expect(elapsed).toBeGreaterThanOrEqual(graceMs - 10);
     });
 
-    test("default grace period is 10000ms (constructor default)", () => {
+    test("default grace period constructor creates valid instance", () => {
+      // gracePeriodMs 是 private readonly，无法从外部直接读取。
+      // 等待 10s 来验证默认值不现实，因此验证实例完整性和方法签名。
       const cm = new CancellationManager();
-      // We can't easily test 10s wait, but we can verify construction doesn't throw
-      expect(cm).toBeDefined();
+      expect(cm).not.toBeNull();
       expect(cm.cancelled).toBe(false);
+      expect(cm.signal).toBeInstanceOf(AbortSignal);
+      expect(typeof cm.cancel).toBe("function");
+      expect(typeof cm.waitForGracePeriod).toBe("function");
     });
 
     test("custom grace period works", async () => {
