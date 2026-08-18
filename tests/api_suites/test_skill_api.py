@@ -185,7 +185,7 @@ class TestSkillOpenAPI:
     def test_get_nonexistent_skill(self, api_client, _openapi_access):
         """获取不存在的 Skill：应返回 404"""
 
-        with pytest.raises(httpx.HTTPStatusError, match=r"(404|500)"):
+        with pytest.raises(httpx.HTTPStatusError, match=r"404"):
             api_client.get_skill("nonexistent-skill-id-99999")
 
     def test_list_skills_pagination_page2(self, api_client, _openapi_access):

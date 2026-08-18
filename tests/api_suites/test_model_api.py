@@ -210,7 +210,7 @@ class TestModelOpenAPI:
     def test_get_nonexistent_provider(self, api_client, _openapi_access):
         """获取不存在的 Provider：应返回 404"""
 
-        with pytest.raises(httpx.HTTPStatusError, match=r"(404|500)"):
+        with pytest.raises(httpx.HTTPStatusError, match=r"404"):
             api_client.get_provider("nonexistent-provider-id-99999")
 
     def test_create_model_invalid_id(self, api_client, _openapi_access):
