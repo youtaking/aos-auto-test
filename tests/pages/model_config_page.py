@@ -28,11 +28,16 @@ class ModelConfigPage:
             # React.lazy 加载 _panel layout 需要额外时间
             if self.page.locator("div.agent-panel-content").count() > 0:
                 break
-            self.page.wait_for_timeout(3000)
+            try:
+                self.page.wait_for_load_state("networkidle", timeout=5000)
+            except Exception:
+                pass
+            self.page.wait_for_timeout(500)
         # 降级：侧边栏 SPA 导航
         if self.page.locator("div.agent-panel-content").count() == 0:
             nav_btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="模型库")
             if nav_btn.count() > 0:
+                nav_btn.first.wait_for(state="visible", timeout=5000)
                 nav_btn.first.click()
                 try:
                     self.page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
@@ -56,12 +61,14 @@ class ModelConfigPage:
     def search(self, keyword: str):
         inp = self.page.locator("input[placeholder*='搜索服务商名称']")
         if inp.count() > 0:
+            inp.first.wait_for(state="visible", timeout=5000)
             inp.first.fill(keyword)
             self.page.wait_for_timeout(500)
 
     def clear_search(self):
         inp = self.page.locator("input[placeholder*='搜索服务商名称']")
         if inp.count() > 0:
+            inp.first.wait_for(state="visible", timeout=5000)
             inp.first.fill("")
             self.page.wait_for_timeout(500)
 
@@ -156,13 +163,21 @@ class ModelConfigPage:
         """填写新建 Provider 表单（弹窗须已打开）"""
         dialog = self.page.locator("[role=dialog]")
         if provider_id:
-            dialog.locator("input[placeholder='bailian-token-plan']").fill(provider_id)
+            el = dialog.locator("input[placeholder='bailian-token-plan']")
+            el.wait_for(state="visible", timeout=5000)
+            el.fill(provider_id)
         if display_name:
-            dialog.locator("input[placeholder='例如 阿里百炼']").fill(display_name)
+            el = dialog.locator("input[placeholder='例如 阿里百炼']")
+            el.wait_for(state="visible", timeout=5000)
+            el.fill(display_name)
         if api_key:
-            dialog.locator("input[placeholder='输入 API Key']").fill(api_key)
+            el = dialog.locator("input[placeholder='输入 API Key']")
+            el.wait_for(state="visible", timeout=5000)
+            el.fill(api_key)
         if base_url:
-            dialog.locator("input[placeholder*='默认使用服务商']").fill(base_url)
+            el = dialog.locator("input[placeholder*='默认使用服务商']")
+            el.wait_for(state="visible", timeout=5000)
+            el.fill(base_url)
 
     def select_protocol(self, protocol: str):
         """选择协议（'OpenAI 兼容' 或 'Anthropic'）"""
@@ -170,22 +185,29 @@ class ModelConfigPage:
         # 点击 combobox 按钮打开下拉
         combobox = dialog.locator("button[role=combobox]")
         if combobox.count() > 0:
+            combobox.wait_for(state="visible", timeout=5000)
             combobox.click()
             self.page.wait_for_timeout(300)
             # 在下拉中选择
-            self.page.locator("[role=option]").filter(has_text=protocol).click()
+            option = self.page.locator("[role=option]").filter(has_text=protocol)
+            option.wait_for(state="visible", timeout=5000)
+            option.click()
             self.page.wait_for_timeout(300)
 
     def submit_form(self):
         """点击保存按钮"""
         dialog = self.page.locator("[role=dialog]")
-        dialog.get_by_role("button", name="保存").click()
+        btn = dialog.get_by_role("button", name="保存")
+        btn.wait_for(state="visible", timeout=5000)
+        btn.click()
         self.page.wait_for_timeout(1000)
 
     def cancel_form(self):
         """点击取消按钮"""
         dialog = self.page.locator("[role=dialog]")
-        dialog.get_by_role("button", name="取消").click()
+        btn = dialog.get_by_role("button", name="取消")
+        btn.wait_for(state="visible", timeout=5000)
+        btn.click()
         self.page.wait_for_timeout(500)
 
     def close_dialog(self):
@@ -193,6 +215,7 @@ class ModelConfigPage:
         dialog = self.page.locator("[role=dialog]")
         close_btn = dialog.locator("button").filter(has_text="Close")
         if close_btn.count() > 0:
+            close_btn.first.wait_for(state="visible", timeout=5000)
             close_btn.first.click()
         else:
             self.page.keyboard.press("Escape")
@@ -233,21 +256,27 @@ class ModelConfigPage:
         """点击 Provider 级别的编辑按钮"""
         footer = self._get_provider_footer(name)
         if footer:
-            footer.get_by_role("button", name="编辑").click()
+            btn = footer.get_by_role("button", name="编辑")
+            btn.wait_for(state="visible", timeout=5000)
+            btn.click()
             self.page.wait_for_timeout(1000)
 
     def click_provider_delete(self, name: str):
         """点击 Provider 级别的删除按钮"""
         footer = self._get_provider_footer(name)
         if footer:
-            footer.get_by_role("button", name="删除").click()
+            btn = footer.get_by_role("button", name="删除")
+            btn.wait_for(state="visible", timeout=5000)
+            btn.click()
             self.page.wait_for_timeout(1000)
 
     def click_fetch_models(self, name: str):
         """点击「获取模型列表」按钮"""
         footer = self._get_provider_footer(name)
         if footer:
-            footer.get_by_role("button", name="获取模型列表").click()
+            btn = footer.get_by_role("button", name="获取模型列表")
+            btn.wait_for(state="visible", timeout=5000)
+            btn.click()
             self.page.wait_for_timeout(1000)
 
     def get_public_switch(self, name: str):
@@ -270,6 +299,7 @@ class ModelConfigPage:
         """切换公开状态"""
         sw = self.get_public_switch(name)
         if sw:
+            sw.wait_for(state="visible", timeout=5000)
             sw.click()
             self.page.wait_for_timeout(1000)
 
@@ -284,11 +314,17 @@ class ModelConfigPage:
         """填写编辑 Provider 表单（弹窗须已打开）"""
         dialog = self.page.locator("[role=dialog]")
         if display_name:
-            dialog.locator("input[placeholder='例如 阿里百炼']").fill(display_name)
+            el = dialog.locator("input[placeholder='例如 阿里百炼']")
+            el.wait_for(state="visible", timeout=5000)
+            el.fill(display_name)
         if api_key:
-            dialog.locator("input[placeholder='留空表示不修改']").fill(api_key)
+            el = dialog.locator("input[placeholder='留空表示不修改']")
+            el.wait_for(state="visible", timeout=5000)
+            el.fill(api_key)
         if base_url:
-            dialog.locator("input[placeholder*='默认使用服务商']").fill(base_url)
+            el = dialog.locator("input[placeholder*='默认使用服务商']")
+            el.wait_for(state="visible", timeout=5000)
+            el.fill(base_url)
 
     def get_edit_form_base_url(self) -> str:
         """获取编辑弹窗中的 Base URL 当前值"""
@@ -339,6 +375,7 @@ class ModelConfigPage:
         dialog = self.page.locator("[role=dialog]")
         btn = dialog.get_by_role("button", name="获取模型列表")
         if btn.count() > 0:
+            btn.first.wait_for(state="visible", timeout=5000)
             btn.first.click()
             self.page.wait_for_timeout(1000)
 
@@ -359,6 +396,7 @@ class ModelConfigPage:
         dialog = self.page.locator("[role=dialog]")
         number_inputs = dialog.locator("input[type=number]")
         if number_inputs.count() >= 1:
+            number_inputs.nth(0).wait_for(state="visible", timeout=5000)
             number_inputs.nth(0).fill(str(value))
 
     def set_output_limit(self, value: int):
@@ -366,6 +404,7 @@ class ModelConfigPage:
         dialog = self.page.locator("[role=dialog]")
         number_inputs = dialog.locator("input[type=number]")
         if number_inputs.count() >= 2:
+            number_inputs.nth(1).wait_for(state="visible", timeout=5000)
             number_inputs.nth(1).fill(str(value))
 
     def get_context_limit(self) -> str:
@@ -421,6 +460,7 @@ class ModelConfigPage:
         btns = self._get_modality_buttons(section)
         for btn in btns:
             if btn.inner_text().strip() == modality:
+                btn.wait_for(state="visible", timeout=5000)
                 btn.click()
                 self.page.wait_for_timeout(300)
                 return True
@@ -457,6 +497,7 @@ class ModelConfigPage:
         dialog = self.page.locator("[role=dialog]")
         btn = dialog.get_by_role("button", name="展开高级参数")
         if btn.count() > 0:
+            btn.wait_for(state="visible", timeout=5000)
             btn.click()
             self.page.wait_for_timeout(500)
 
@@ -479,6 +520,7 @@ class ModelConfigPage:
         dialog = self.page.locator("[role=dialog]")
         switch = dialog.locator("button[role=switch]")
         if switch.count() > 0:
+            switch.first.wait_for(state="visible", timeout=5000)
             switch.first.click()
             self.page.wait_for_timeout(300)
 
@@ -489,12 +531,14 @@ class ModelConfigPage:
         if label.count() > 0:
             inp = label.locator("xpath=following-sibling::input | ./input")
             if inp.count() > 0:
+                inp.first.wait_for(state="visible", timeout=5000)
                 inp.first.fill(value)
             else:
                 # label 和 input 在同一个父 div 中
                 parent = label.locator("xpath=..")
                 num_inp = parent.locator("input[type=number]")
                 if num_inp.count() > 0:
+                    num_inp.first.wait_for(state="visible", timeout=5000)
                     num_inp.first.fill(value)
 
     def set_output_cost(self, value: str):
@@ -505,6 +549,7 @@ class ModelConfigPage:
             parent = label.locator("xpath=..")
             num_inp = parent.locator("input[type=number]")
             if num_inp.count() > 0:
+                num_inp.first.wait_for(state="visible", timeout=5000)
                 num_inp.first.fill(value)
 
     def get_input_cost(self) -> str:
@@ -543,6 +588,7 @@ class ModelConfigPage:
             parent = label.locator("xpath=..")
             num_inp = parent.locator("input[type=number]")
             if num_inp.count() > 0:
+                num_inp.first.wait_for(state="visible", timeout=5000)
                 num_inp.first.fill(value)
 
     def get_thinking_budget(self) -> str:
@@ -565,6 +611,7 @@ class ModelConfigPage:
             if provider_name in cards.nth(i).inner_text():
                 btn = cards.nth(i).locator("button").filter(has_text="+ 添加模型")
                 if btn.count() > 0:
+                    btn.first.wait_for(state="visible", timeout=5000)
                     btn.first.click()
                     self.page.wait_for_timeout(1000)
                     return True
@@ -575,7 +622,9 @@ class ModelConfigPage:
         dialog = self.page.locator("[role=dialog]")
         inputs = dialog.locator("input[data-slot='input']")
         if inputs.count() >= 2:
+            inputs.nth(0).wait_for(state="visible", timeout=5000)
             inputs.nth(0).fill(model_id)
+            inputs.nth(1).wait_for(state="visible", timeout=5000)
             inputs.nth(1).fill(display_name)
 
     def get_model_names_for_provider(self, provider_name: str) -> list[str]:
@@ -607,6 +656,7 @@ class ModelConfigPage:
                     if model_name in rows.nth(j).inner_text():
                         btn = rows.nth(j).locator("button").filter(has_text="测试")
                         if btn.count() > 0:
+                            btn.first.wait_for(state="visible", timeout=5000)
                             btn.first.click()
                             self.page.wait_for_timeout(500)
                             return True
@@ -634,6 +684,7 @@ class ModelConfigPage:
                     if model_name in rows.nth(j).inner_text():
                         btn = rows.nth(j).locator("button").filter(has_text="编辑")
                         if btn.count() > 0:
+                            btn.first.wait_for(state="visible", timeout=5000)
                             btn.first.click()
                             self.page.wait_for_timeout(1000)
                             return True
@@ -652,6 +703,7 @@ class ModelConfigPage:
         dialog = self.page.locator("[role=dialog]")
         inputs = dialog.locator("input[data-slot='input']")
         if display_name and inputs.count() >= 2:
+            inputs.nth(1).wait_for(state="visible", timeout=5000)
             inputs.nth(1).fill(display_name)
 
     def get_edit_model_display_name(self) -> str:
@@ -672,6 +724,7 @@ class ModelConfigPage:
                     if model_name in rows.nth(j).inner_text():
                         btn = rows.nth(j).locator("button").filter(has_text="删除")
                         if btn.count() > 0:
+                            btn.first.wait_for(state="visible", timeout=5000)
                             btn.first.click()
                             self.page.wait_for_timeout(500)
                             return True
@@ -692,13 +745,17 @@ class ModelConfigPage:
     def confirm_alert_dialog(self):
         """点击确认弹窗的「确认」按钮"""
         dialog = self.page.locator("[role=alertdialog]")
-        dialog.get_by_role("button", name="确认").click()
+        btn = dialog.get_by_role("button", name="确认")
+        btn.wait_for(state="visible", timeout=5000)
+        btn.click()
         self.page.wait_for_timeout(1000)
 
     def cancel_alert_dialog(self):
         """点击确认弹窗的「取消」按钮"""
         dialog = self.page.locator("[role=alertdialog]")
-        dialog.get_by_role("button", name="取消").click()
+        btn = dialog.get_by_role("button", name="取消")
+        btn.wait_for(state="visible", timeout=5000)
+        btn.click()
         self.page.wait_for_timeout(500)
 
     # ==================== 加载状态 ====================

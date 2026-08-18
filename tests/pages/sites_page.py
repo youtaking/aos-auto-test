@@ -24,7 +24,11 @@ class SitesListPage:
                 pass
             if self.page.locator("div.agent-panel-content").count() > 0:
                 break
-            self.page.wait_for_timeout(3000)
+            try:
+                self.page.wait_for_load_state("networkidle", timeout=5000)
+            except Exception:
+                pass
+            self.page.wait_for_timeout(500)
         # 降级：侧边栏 SPA 导航
         if self.page.locator("div.agent-panel-content").count() == 0:
             nav_btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="AOS应用部署")

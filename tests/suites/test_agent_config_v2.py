@@ -155,6 +155,7 @@ def test_create_new_agent(logged_in_page, base_url, request):
     assert generated_sp, "AI 应生成 System Prompt"
 
     # 6. 在 AI 生成的名称上追加修改
+    name_input.wait_for(state="visible", timeout=5000)
     name_input.fill(generated_name + "-e2e")
     modified_name = name_input.input_value()
     assert modified_name == generated_name + "-e2e", "名称应可修改"
@@ -163,6 +164,7 @@ def test_create_new_agent(logged_in_page, base_url, request):
     register_cleanup(request, lambda: ac.delete_agent_api(modified_name))
 
     # 7. 在 AI 生成的 System Prompt 上追加修改
+    sp_ta.wait_for(state="visible", timeout=5000)
     sp_ta.fill(generated_sp + "\n请始终用中文回答。")
     modified_sp = sp_ta.input_value()
     assert modified_sp.startswith(generated_sp), "System Prompt 应可修改（保留原内容）"
@@ -297,9 +299,11 @@ def test_click_all_templates(logged_in_page, base_url, request):
 
         # 在名称后追加 -e2e 标识
         modified_name = generated_name + "-e2e"
+        name_input.wait_for(state="visible", timeout=5000)
         name_input.fill(modified_name)
 
         # 在 System Prompt 后追加修改
+        sp_ta.wait_for(state="visible", timeout=5000)
         sp_ta.fill(generated_sp + "\n请始终用中文回答。")
         modified_sp = sp_ta.input_value()
         assert "请始终用中文回答" in modified_sp, \
@@ -455,6 +459,7 @@ def test_agent_025_bind_mcp(logged_in_page, base_url):
         agent_wrapper.hover()
         # 在该容器内点击配置按钮
         config_btn = agent_wrapper.locator('button[title="智能体配置"]')
+        config_btn.wait_for(state="visible", timeout=5000)
         config_btn.click()
         logged_in_page.locator("div.absolute.inset-0.z-50").wait_for(state="visible", timeout=10000)
         try:
@@ -486,6 +491,7 @@ def test_agent_025_bind_mcp(logged_in_page, base_url):
 
         # 点击 + 号展开 MCP 列表
         plus_btn = mcp_section.locator("button:has(svg.lucide-plus)")
+        plus_btn.first.wait_for(state="visible", timeout=3000)
         plus_btn.first.click()
         logged_in_page.wait_for_timeout(500)
 
@@ -502,11 +508,13 @@ def test_agent_025_bind_mcp(logged_in_page, base_url):
         # 获取第一个 MCP 名称
         first_mcp_name = mcp_labels.first.text_content().strip()
         print(f"选择绑定: {first_mcp_name}")
+        mcp_labels.first.wait_for(state="visible", timeout=3000)
         mcp_labels.first.click()
         logged_in_page.wait_for_timeout(500)
 
         # 6. 点击保存
         save_btn = modal.get_by_role("button", name="保存")
+        save_btn.wait_for(state="visible", timeout=5000)
         save_btn.click()
         logged_in_page.wait_for_timeout(500)
 
@@ -520,6 +528,7 @@ def test_agent_025_bind_mcp(logged_in_page, base_url):
         card = ac.wait_for_agent_card(agent_name)
         agent_wrapper = card.first.locator("xpath=ancestor::div[contains(@class,'agent-sidebar-agent')]")
         agent_wrapper.hover()
+        agent_wrapper.locator('button[title="智能体配置"]').wait_for(state="visible", timeout=5000)
         agent_wrapper.locator('button[title="智能体配置"]').click()
         logged_in_page.locator("div.absolute.inset-0.z-50").wait_for(state="visible", timeout=10000)
         try:
@@ -634,6 +643,7 @@ def test_agent_027_bind_skill(logged_in_page, base_url):
 
         # 点击 + 号展开 Skill 列表
         plus_btn = skill_section.locator("button:has(svg.lucide-plus)")
+        plus_btn.first.wait_for(state="visible", timeout=3000)
         plus_btn.first.click()
         logged_in_page.wait_for_timeout(500)
 
@@ -645,11 +655,13 @@ def test_agent_027_bind_skill(logged_in_page, base_url):
 
         first_skill_name = skill_labels.first.text_content().strip()
         print(f"选择绑定: {first_skill_name}")
+        skill_labels.first.wait_for(state="visible", timeout=3000)
         skill_labels.first.click()
         logged_in_page.wait_for_timeout(500)
 
         # 6. 点击保存
         save_btn = modal.get_by_role("button", name="保存")
+        save_btn.wait_for(state="visible", timeout=5000)
         save_btn.click()
         logged_in_page.wait_for_timeout(500)
 
@@ -665,6 +677,7 @@ def test_agent_027_bind_skill(logged_in_page, base_url):
         card = ac.wait_for_agent_card(agent_name)
         agent_wrapper = card.first.locator("xpath=ancestor::div[contains(@class,'agent-sidebar-agent')]")
         agent_wrapper.hover()
+        agent_wrapper.locator('button[title="智能体配置"]').wait_for(state="visible", timeout=5000)
         agent_wrapper.locator('button[title="智能体配置"]').click()
         logged_in_page.locator("div.absolute.inset-0.z-50").wait_for(state="visible", timeout=10000)
         try:
@@ -745,6 +758,7 @@ def test_agent_029_bind_knowledge(logged_in_page, base_url):
         card = ac.wait_for_agent_card(agent_name)
         agent_wrapper = card.first.locator("xpath=ancestor::div[contains(@class,'agent-sidebar-agent')]")
         agent_wrapper.hover()
+        agent_wrapper.locator('button[title="智能体配置"]').wait_for(state="visible", timeout=5000)
         agent_wrapper.locator('button[title="智能体配置"]').click()
         logged_in_page.locator("div.absolute.inset-0.z-50").wait_for(state="visible", timeout=10000)
         try:
@@ -758,6 +772,7 @@ def test_agent_029_bind_knowledge(logged_in_page, base_url):
 
         # 4. 切换到"知识库" tab
         kb_tab = modal.get_by_role("button", name="知识库")
+        kb_tab.wait_for(state="visible", timeout=3000)
         kb_tab.click()
         logged_in_page.wait_for_timeout(500)
 
@@ -773,7 +788,8 @@ def test_agent_029_bind_knowledge(logged_in_page, base_url):
         if kb_labels.count() == 0:
             # 备选：知识库列表中的可点击 label
             kb_labels = modal.locator("label:visible").filter(has_text="知识库").nth(1)
-        kb_labels.click()
+            kb_labels.wait_for(state="visible", timeout=3000)
+            kb_labels.click()
         logged_in_page.wait_for_timeout(500)
 
         # 获取选中的知识库名称
@@ -782,6 +798,7 @@ def test_agent_029_bind_knowledge(logged_in_page, base_url):
 
         # 7. 点击保存
         save_btn = modal.get_by_role("button", name="保存")
+        save_btn.wait_for(state="visible", timeout=5000)
         save_btn.click()
         logged_in_page.wait_for_timeout(500)
 
@@ -795,6 +812,7 @@ def test_agent_029_bind_knowledge(logged_in_page, base_url):
         card = ac.wait_for_agent_card(agent_name)
         agent_wrapper = card.first.locator("xpath=ancestor::div[contains(@class,'agent-sidebar-agent')]")
         agent_wrapper.hover()
+        agent_wrapper.locator('button[title="智能体配置"]').wait_for(state="visible", timeout=5000)
         agent_wrapper.locator('button[title="智能体配置"]').click()
         logged_in_page.locator("div.absolute.inset-0.z-50").wait_for(state="visible", timeout=10000)
         try:
@@ -805,6 +823,7 @@ def test_agent_029_bind_knowledge(logged_in_page, base_url):
 
         modal2 = logged_in_page.locator("div.absolute.inset-0.z-50")
         kb_tab2 = modal2.get_by_role("button", name="知识库")
+        kb_tab2.wait_for(state="visible", timeout=3000)
         kb_tab2.click()
         logged_in_page.wait_for_timeout(500)
 
@@ -849,6 +868,7 @@ def test_agent_030_select_model(logged_in_page, base_url):
         card = ac.wait_for_agent_card(agent_name)
         agent_wrapper = card.first.locator("xpath=ancestor::div[contains(@class,'agent-sidebar-agent')]")
         agent_wrapper.hover()
+        agent_wrapper.locator('button[title="智能体配置"]').wait_for(state="visible", timeout=5000)
         agent_wrapper.locator('button[title="智能体配置"]').click()
         logged_in_page.locator("div.absolute.inset-0.z-50").wait_for(state="visible", timeout=10000)
         try:
@@ -868,6 +888,7 @@ def test_agent_030_select_model(logged_in_page, base_url):
         print(f"\n当前模型: {current_model}")
 
         # 5. 点击模型下拉按钮
+        model_btn.wait_for(state="visible", timeout=3000)
         model_btn.click()
         logged_in_page.wait_for_timeout(500)
 
@@ -893,6 +914,7 @@ def test_agent_030_select_model(logged_in_page, base_url):
             # 选择第二个模型（与当前不同的）
             new_model_text = model_options.nth(1).text_content().strip()
             print(f"切换到: {new_model_text}")
+            model_options.nth(1).wait_for(state="visible", timeout=3000)
             model_options.nth(1).click()
             logged_in_page.wait_for_timeout(500)
 
@@ -911,6 +933,7 @@ def test_agent_030_select_model(logged_in_page, base_url):
             card = ac.wait_for_agent_card(agent_name)
             agent_wrapper = card.first.locator("xpath=ancestor::div[contains(@class,'agent-sidebar-agent')]")
             agent_wrapper.hover()
+            agent_wrapper.locator('button[title="智能体配置"]').wait_for(state="visible", timeout=5000)
             agent_wrapper.locator('button[title="智能体配置"]').click()
             logged_in_page.locator("div.absolute.inset-0.z-50").wait_for(state="visible", timeout=10000)
             try:
@@ -1039,6 +1062,7 @@ def test_add_then_remove_skill(logged_in_page, base_url):
 
     # 展开 Skill 列表
     plus_btn = skill_section.locator("button:has(svg.lucide-plus)")
+    plus_btn.first.wait_for(state="visible", timeout=3000)
     plus_btn.first.click()
     logged_in_page.wait_for_timeout(500)
 
@@ -1063,8 +1087,10 @@ def test_add_then_remove_skill(logged_in_page, base_url):
         target = unbound_indices[0]
         skill_name = skill_labels.nth(target).text_content().strip()[:40]
         print(f"场景 A: 绑定 '{skill_name}'")
+        skill_labels.nth(target).wait_for(state="visible", timeout=3000)
         skill_labels.nth(target).click()
         logged_in_page.wait_for_timeout(500)
+        modal.get_by_role("button", name="保存").wait_for(state="visible", timeout=5000)
         modal.get_by_role("button", name="保存").click()
         logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启").wait_for(state="visible", timeout=15000)
         logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启").click()
@@ -1080,6 +1106,7 @@ def test_add_then_remove_skill(logged_in_page, base_url):
 
         # 阶段三：解绑恢复
         x_btns = ss2.locator("div.flex.flex-wrap button:has(svg.lucide-x)")
+        x_btns.last.wait_for(state="visible", timeout=3000)
         x_btns.last.click()
         logged_in_page.wait_for_timeout(500)
         modal2.get_by_role("button", name="保存").click()
@@ -1091,8 +1118,10 @@ def test_add_then_remove_skill(logged_in_page, base_url):
         target = bound_indices[-1]
         skill_name = skill_labels.nth(target).text_content().strip()[:40]
         print(f"场景 B: 解绑 '{skill_name}'")
+        skill_labels.nth(target).wait_for(state="visible", timeout=3000)
         skill_labels.nth(target).click()
         logged_in_page.wait_for_timeout(500)
+        modal.get_by_role("button", name="保存").wait_for(state="visible", timeout=5000)
         modal.get_by_role("button", name="保存").click()
         logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启").wait_for(state="visible", timeout=15000)
         logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启").click()
@@ -1108,12 +1137,14 @@ def test_add_then_remove_skill(logged_in_page, base_url):
 
         # 阶段三：重新绑定恢复
         plus2 = ss2.locator("button:has(svg.lucide-plus)")
+        plus2.first.wait_for(state="visible", timeout=3000)
         plus2.first.click()
         logged_in_page.wait_for_timeout(500)
         labels2 = ss2.locator("div.mt-3 label")
         for j in range(labels2.count()):
             nm = labels2.nth(j).text_content().strip()[:40]
             if skill_name[:20] in nm:
+                labels2.nth(j).wait_for(state="visible", timeout=3000)
                 labels2.nth(j).click()
                 break
         logged_in_page.wait_for_timeout(500)
@@ -1155,6 +1186,7 @@ def test_add_then_remove_mcp(logged_in_page, base_url):
 
     # 展开 MCP 列表
     plus_btn = mcp_section.locator("button:has(svg.lucide-plus)")
+    plus_btn.first.wait_for(state="visible", timeout=3000)
     plus_btn.first.click()
     logged_in_page.wait_for_timeout(500)
 
@@ -1180,8 +1212,10 @@ def test_add_then_remove_mcp(logged_in_page, base_url):
         target = unbound_indices[0]
         mcp_name = mcp_labels.nth(target).text_content().strip()[:40]
         print(f"场景 A: 绑定 '{mcp_name}'")
+        mcp_labels.nth(target).wait_for(state="visible", timeout=3000)
         mcp_labels.nth(target).click()
         logged_in_page.wait_for_timeout(500)
+        modal.get_by_role("button", name="保存").wait_for(state="visible", timeout=5000)
         modal.get_by_role("button", name="保存").click()
         logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启").wait_for(state="visible", timeout=15000)
         logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启").click()
@@ -1197,6 +1231,7 @@ def test_add_then_remove_mcp(logged_in_page, base_url):
 
         # 阶段三：解绑恢复
         x_btns = ms2.locator("div.flex.flex-wrap button:has(svg.lucide-x)")
+        x_btns.last.wait_for(state="visible", timeout=3000)
         x_btns.last.click()
         logged_in_page.wait_for_timeout(500)
         modal2.get_by_role("button", name="保存").click()
@@ -1208,8 +1243,10 @@ def test_add_then_remove_mcp(logged_in_page, base_url):
         target = bound_indices[-1]
         mcp_name = mcp_labels.nth(target).text_content().strip()[:40]
         print(f"场景 B: 解绑 '{mcp_name}'")
+        mcp_labels.nth(target).wait_for(state="visible", timeout=3000)
         mcp_labels.nth(target).click()
         logged_in_page.wait_for_timeout(500)
+        modal.get_by_role("button", name="保存").wait_for(state="visible", timeout=5000)
         modal.get_by_role("button", name="保存").click()
         logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启").wait_for(state="visible", timeout=15000)
         logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启").click()
@@ -1225,12 +1262,14 @@ def test_add_then_remove_mcp(logged_in_page, base_url):
 
         # 阶段三：重新绑定恢复
         plus2 = ms2.locator("button:has(svg.lucide-plus)")
+        plus2.first.wait_for(state="visible", timeout=3000)
         plus2.first.click()
         logged_in_page.wait_for_timeout(500)
         labels2 = ms2.locator("div.mt-3 label")
         for j in range(labels2.count()):
             nm = labels2.nth(j).text_content().strip()[:40]
             if mcp_name[:20] in nm:
+                labels2.nth(j).wait_for(state="visible", timeout=3000)
                 labels2.nth(j).click()
                 break
         logged_in_page.wait_for_timeout(500)
@@ -1267,6 +1306,7 @@ def test_add_then_remove_knowledge(logged_in_page, base_url):
     # === 阶段一：打开配置 modal，读取基线 ===
     modal, _ = ac.open_agent_config_modal(agent_name)
     # 知识库 section 需要先点击 tab 才可见
+    modal.get_by_role("button", name="知识库").wait_for(state="visible", timeout=3000)
     modal.get_by_role("button", name="知识库").click()
     logged_in_page.wait_for_timeout(500)
     kb_section = modal.locator(
@@ -1297,8 +1337,10 @@ def test_add_then_remove_knowledge(logged_in_page, base_url):
         target = unbound_indices[0]
         kb_name = kb_labels.nth(target).text_content().strip()[:40]
         print(f"场景 A: 绑定 '{kb_name}'")
+        kb_labels.nth(target).wait_for(state="visible", timeout=3000)
         kb_labels.nth(target).click()
         logged_in_page.wait_for_timeout(500)
+        modal.get_by_role("button", name="保存").wait_for(state="visible", timeout=5000)
         modal.get_by_role("button", name="保存").click()
         logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启").wait_for(state="visible", timeout=15000)
         logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启").click()
@@ -1306,6 +1348,7 @@ def test_add_then_remove_knowledge(logged_in_page, base_url):
 
         # 阶段二：验证绑定成功
         modal2, _ = ac.open_agent_config_modal(agent_name)
+        modal2.get_by_role("button", name="知识库").wait_for(state="visible", timeout=3000)
         modal2.get_by_role("button", name="知识库").click()
         logged_in_page.wait_for_timeout(500)
         ks2 = modal2.locator("div.rounded-lg.border.border-border-subtle.p-3").filter(has_text="绑定知识库")
@@ -1320,6 +1363,7 @@ def test_add_then_remove_knowledge(logged_in_page, base_url):
         for j in range(labels2.count()):
             cb = labels2.nth(j).locator("input[type='checkbox']")
             if cb.count() > 0 and cb.first.is_checked() and kb_name[:10] in labels2.nth(j).text_content():
+                labels2.nth(j).wait_for(state="visible", timeout=3000)
                 labels2.nth(j).click()
                 break
         logged_in_page.wait_for_timeout(500)
@@ -1332,8 +1376,10 @@ def test_add_then_remove_knowledge(logged_in_page, base_url):
         target = bound_indices[-1]
         kb_name = kb_labels.nth(target).text_content().strip()[:40]
         print(f"场景 B: 解绑 '{kb_name}'")
+        kb_labels.nth(target).wait_for(state="visible", timeout=3000)
         kb_labels.nth(target).click()
         logged_in_page.wait_for_timeout(500)
+        modal.get_by_role("button", name="保存").wait_for(state="visible", timeout=5000)
         modal.get_by_role("button", name="保存").click()
         logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启").wait_for(state="visible", timeout=15000)
         logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启").click()
@@ -1341,6 +1387,7 @@ def test_add_then_remove_knowledge(logged_in_page, base_url):
 
         # 阶段二：验证解绑成功
         modal2, _ = ac.open_agent_config_modal(agent_name)
+        modal2.get_by_role("button", name="知识库").wait_for(state="visible", timeout=3000)
         modal2.get_by_role("button", name="知识库").click()
         logged_in_page.wait_for_timeout(500)
         ks2 = modal2.locator("div.rounded-lg.border.border-border-subtle.p-3").filter(has_text="绑定知识库")
@@ -1353,6 +1400,7 @@ def test_add_then_remove_knowledge(logged_in_page, base_url):
         labels2 = ks2.locator("div.mt-3 label")
         for j in range(labels2.count()):
             if kb_name[:10] in labels2.nth(j).text_content():
+                labels2.nth(j).wait_for(state="visible", timeout=3000)
                 labels2.nth(j).click()
                 break
         logged_in_page.wait_for_timeout(500)
@@ -1363,6 +1411,7 @@ def test_add_then_remove_knowledge(logged_in_page, base_url):
 
     # === 阶段四：验证恢复 ===
     modal3, _ = ac.open_agent_config_modal(agent_name)
+    modal3.get_by_role("button", name="知识库").wait_for(state="visible", timeout=3000)
     modal3.get_by_role("button", name="知识库").click()
     logged_in_page.wait_for_timeout(500)
     ks3 = modal3.locator("div.rounded-lg.border.border-border-subtle.p-3").filter(has_text="绑定知识库")
@@ -1396,6 +1445,7 @@ def test_add_then_remove_sites(logged_in_page, base_url):
 
     # 展开 Sites 列表
     plus_btn = sites_section.locator("button:has(svg.lucide-plus)")
+    plus_btn.first.wait_for(state="visible", timeout=3000)
     plus_btn.first.click()
     logged_in_page.wait_for_timeout(500)
 
@@ -1421,8 +1471,10 @@ def test_add_then_remove_sites(logged_in_page, base_url):
         target = unbound_indices[0]
         site_name = sites_labels.nth(target).text_content().strip()[:40]
         print(f"场景 A: 绑定 '{site_name}'")
+        sites_labels.nth(target).wait_for(state="visible", timeout=3000)
         sites_labels.nth(target).click()
         logged_in_page.wait_for_timeout(500)
+        modal.get_by_role("button", name="保存").wait_for(state="visible", timeout=5000)
         modal.get_by_role("button", name="保存").click()
         logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启").wait_for(state="visible", timeout=15000)
         logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启").click()
@@ -1438,6 +1490,7 @@ def test_add_then_remove_sites(logged_in_page, base_url):
 
         # 阶段三：解绑恢复
         x_btns = ss2.locator("div.flex.flex-wrap button:has(svg.lucide-x)")
+        x_btns.last.wait_for(state="visible", timeout=3000)
         x_btns.last.click()
         logged_in_page.wait_for_timeout(500)
         modal2.get_by_role("button", name="保存").click()
@@ -1449,8 +1502,10 @@ def test_add_then_remove_sites(logged_in_page, base_url):
         target = bound_indices[-1]
         site_name = sites_labels.nth(target).text_content().strip()[:40]
         print(f"场景 B: 解绑 '{site_name}'")
+        sites_labels.nth(target).wait_for(state="visible", timeout=3000)
         sites_labels.nth(target).click()
         logged_in_page.wait_for_timeout(500)
+        modal.get_by_role("button", name="保存").wait_for(state="visible", timeout=5000)
         modal.get_by_role("button", name="保存").click()
         logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启").wait_for(state="visible", timeout=15000)
         logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启").click()
@@ -1466,12 +1521,14 @@ def test_add_then_remove_sites(logged_in_page, base_url):
 
         # 阶段三：重新绑定恢复
         plus2 = ss2.locator("button:has(svg.lucide-plus)")
+        plus2.first.wait_for(state="visible", timeout=3000)
         plus2.first.click()
         logged_in_page.wait_for_timeout(500)
         labels2 = ss2.locator("div.mt-3 label")
         for j in range(labels2.count()):
             nm = labels2.nth(j).text_content().strip()[:40]
             if site_name[:20] in nm:
+                labels2.nth(j).wait_for(state="visible", timeout=3000)
                 labels2.nth(j).click()
                 break
         logged_in_page.wait_for_timeout(500)
@@ -1515,8 +1572,10 @@ def test_edit_description(logged_in_page, base_url):
     print(f"\n原描述: '{old_desc}'")
 
     # === 阶段二：修改描述并保存 ===
+    desc_input.wait_for(state="visible", timeout=5000)
     desc_input.fill(new_desc)
     logged_in_page.wait_for_timeout(500)
+    modal.get_by_role("button", name="保存").wait_for(state="visible", timeout=5000)
     modal.get_by_role("button", name="保存").click()
     logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启").wait_for(state="visible", timeout=15000)
     logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启").click()
@@ -1543,7 +1602,8 @@ def test_edit_description(logged_in_page, base_url):
     desc_input2b = modal2b.locator("label:has-text('描述') + input, label:has-text('描述') ~ input").first
     if desc_input2b.count() == 0:
         desc_input2b = modal2b.locator("input[placeholder*='描述']").first
-    desc_input2b.fill(old_desc)
+        desc_input2b.wait_for(state="visible", timeout=5000)
+        desc_input2b.fill(old_desc)
     logged_in_page.wait_for_timeout(500)
     modal2b.get_by_role("button", name="保存").click()
     logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启").wait_for(state="visible", timeout=15000)
@@ -1586,8 +1646,10 @@ def test_edit_prompt(logged_in_page, base_url):
     print(f"\n原提示词: '{old_prompt[:50]}...'")
 
     # === 阶段二：修改提示词并保存 ===
+    prompt_ta.wait_for(state="visible", timeout=5000)
     prompt_ta.fill(new_prompt)
     logged_in_page.wait_for_timeout(500)
+    modal.get_by_role("button", name="保存").wait_for(state="visible", timeout=5000)
     modal.get_by_role("button", name="保存").click()
     logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启").wait_for(state="visible", timeout=15000)
     logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启").click()
@@ -1614,9 +1676,11 @@ def test_edit_prompt(logged_in_page, base_url):
     prompt_ta2b = modal2b.locator("label:has-text('Prompt') + textarea, label:has-text('提示词') ~ textarea").first
     if prompt_ta2b.count() == 0:
         prompt_ta2b = modal2b.locator("textarea[placeholder*='提示词']").first
+    prompt_ta2b.wait_for(state="visible", timeout=5000)
     prompt_ta2b.click()
     prompt_ta2b.press("Control+a")
     if old_prompt:
+        prompt_ta2b.wait_for(state="visible", timeout=5000)
         prompt_ta2b.fill(old_prompt)
     else:
         prompt_ta2b.press("Backspace")
@@ -1661,9 +1725,11 @@ def test_cancel_discards_changes(logged_in_page, base_url):
     print(f"\n原提示词: '{original_prompt[:50]}...'")
 
     # === 阶段二：修改提示词但不保存（点取消） ===
+    prompt_ta.wait_for(state="visible", timeout=5000)
     prompt_ta.fill("这是一个不应该被保存的临时修改！")
     logged_in_page.wait_for_timeout(500)
     cancel_btn = modal.get_by_role("button", name="取消")
+    cancel_btn.wait_for(state="visible", timeout=3000)
     cancel_btn.click()
 
     # === 阶段三：重新打开配置，验证提示词未改变 ===
@@ -1708,6 +1774,7 @@ def test_refresh_during_reply(logged_in_page, base_url):
 
     # 3. 发送一条需要较长回复的消息（不等 AI 回复）
     ta = logged_in_page.locator("textarea[placeholder*='发送']")
+    ta.first.wait_for(state="visible", timeout=5000)
     ta.first.fill("请写300字介绍一下人工智能的发展历程，从起源到现代")
     ta.first.press("Enter")
 

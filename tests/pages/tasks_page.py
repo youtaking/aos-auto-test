@@ -27,7 +27,11 @@ class TasksPage:
                 pass
             if self.is_loaded():
                 break
-            self.page.wait_for_timeout(3000)
+            try:
+                self.page.wait_for_load_state("networkidle", timeout=5000)
+            except Exception:
+                pass
+            self.page.wait_for_timeout(500)
         # 降级：侧边栏 SPA 导航
         if not self.is_loaded():
             nav_btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="定时任务")

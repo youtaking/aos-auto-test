@@ -81,19 +81,15 @@ class TestModelOpenAPI:
     - 列表带分页 {items, total, page, pageSize}
     """
 
-    def test_list_providers(self, api_client, api_test_config):
+    def test_list_providers(self, api_client, _openapi_access):
         """获取 Provider 列表：返回分页结构"""
-        if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
-            pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
 
         resp = api_client.list_providers()
         api_client.validate_schema(resp, API_PROVIDER_LIST_RESPONSE)
         assert isinstance(resp["items"], list)
 
-    def test_get_provider(self, api_client, api_test_config):
+    def test_get_provider(self, api_client, _openapi_access):
         """获取 Provider 详情：先拿列表取第一个 ID，再查详情"""
-        if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
-            pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
 
         list_resp = api_client.list_providers()
         if len(list_resp["items"]) == 0:
@@ -104,10 +100,8 @@ class TestModelOpenAPI:
         api_client.validate_schema(resp, API_PROVIDER_DETAIL_RESPONSE)
         assert resp["id"] == provider_id
 
-    def test_provider_crud_lifecycle(self, api_client, api_test_config):
+    def test_provider_crud_lifecycle(self, api_client, _openapi_access):
         """Provider CRUD 生命周期：创建 → 读取 → 更新 → 删除"""
-        if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
-            pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
 
         test_name = "api-test-openapi-provider-001"
         _cleanup_api_provider(api_client, test_name)
@@ -151,10 +145,8 @@ class TestModelOpenAPI:
         finally:
             _cleanup_api_provider(api_client, test_name)
 
-    def test_list_models(self, api_client, api_test_config):
+    def test_list_models(self, api_client, _openapi_access):
         """获取 Model 列表：先取一个 Provider ID，再列出其模型"""
-        if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
-            pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
 
         list_resp = api_client.list_providers()
         if len(list_resp["items"]) == 0:
@@ -165,10 +157,8 @@ class TestModelOpenAPI:
         api_client.validate_schema(resp, API_MODEL_LIST_RESPONSE)
         assert isinstance(resp["items"], list)
 
-    def test_model_crud_lifecycle(self, api_client, api_test_config):
+    def test_model_crud_lifecycle(self, api_client, _openapi_access):
         """Model CRUD 生命周期：创建 Provider → 添加 Model → 读取 → 更新 → 删除 Model → 删除 Provider"""
-        if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
-            pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
 
         test_provider_name = "api-test-openapi-model-provider-001"
         test_model_id = "test-model-gpt-4"
@@ -217,18 +207,14 @@ class TestModelOpenAPI:
         finally:
             api_client.delete_provider(provider_id)
 
-    def test_get_nonexistent_provider(self, api_client, api_test_config):
+    def test_get_nonexistent_provider(self, api_client, _openapi_access):
         """获取不存在的 Provider：应返回 404"""
-        if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
-            pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
 
         with pytest.raises(httpx.HTTPStatusError, match=r"(404|500)"):
             api_client.get_provider("nonexistent-provider-id-99999")
 
-    def test_create_model_invalid_id(self, api_client, api_test_config):
+    def test_create_model_invalid_id(self, api_client, _openapi_access):
         """创建 Model 使用无效 modelId：应返回 400/422"""
-        if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
-            pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
 
         list_resp = api_client.list_providers()
         if len(list_resp["items"]) == 0:
@@ -242,10 +228,8 @@ class TestModelOpenAPI:
                 "displayName": "Invalid Model",
             })
 
-    def test_create_model_missing_model_id(self, api_client, api_test_config):
+    def test_create_model_missing_model_id(self, api_client, _openapi_access):
         """创建 Model 缺少 modelId 字段：应返回 400/422"""
-        if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
-            pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
 
         list_resp = api_client.list_providers()
         if len(list_resp["items"]) == 0:

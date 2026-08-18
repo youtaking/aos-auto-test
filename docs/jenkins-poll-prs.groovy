@@ -121,7 +121,9 @@ def triggerBuild(Map params) {
     def paramsAction = new hudson.model.ParametersAction(
         params.collect { k, v -> new hudson.model.StringParameterValue(k, v ?: "") }
     )
-    def causeAction = new hudson.model.CauseAction(new hudson.model.Cause.UserIdCause())
+    def causeAction = new hudson.model.CauseAction(
+        new hudson.model.Cause.UpstreamCause(build)
+    )
     job.scheduleBuild2(0, causeAction, paramsAction)
     return true
 }

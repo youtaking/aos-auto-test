@@ -113,13 +113,16 @@ def test_workflow_create_and_return(logged_in_page, base_url):
     create_btn_locator = logged_in_page.get_by_role("button", name="新建工作流")
     if create_btn_locator.count() == 0:
         pytest.skip("新建工作流按钮不存在（工作流模块可能未完全启用）")
+    create_btn_locator.first.wait_for(state="visible", timeout=5000)
     create_btn_locator.first.click()
     logged_in_page.wait_for_timeout(1500)
 
     dialog = logged_in_page.locator("[role='dialog']")
     assert dialog.count() > 0, "新建工作流对话框未弹出"
 
+    logged_in_page.locator("#wf-name").wait_for(state="visible", timeout=5000)
     logged_in_page.locator("#wf-name").fill(wf_name)
+    logged_in_page.locator("#wf-desc").wait_for(state="visible", timeout=5000)
     logged_in_page.locator("#wf-desc").fill("自动化测试创建的工作流")
 
     # 等待 React state 更新 → "创建并编辑"按钮变为可用

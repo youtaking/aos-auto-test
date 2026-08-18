@@ -25,7 +25,14 @@ class WebClient(BaseClient):
         """解包 {success, data} 响应，返回 data 部分"""
         if not resp.get("success"):
             error = resp.get("error", {})
-            raise RuntimeError(f"Web API error: {error.get('code', 'UNKNOWN')} - {error.get('message', '')}")
+            code = error.get('code', 'UNKNOWN')
+            message = error.get('message', '')
+
+            # 当 error 对象为空时，包含完整响应以便调试
+            if not error or (code == 'UNKNOWN' and not message):
+                raise RuntimeError(f"Web API error: {code} - {message} | Full response: {resp}")
+
+            raise RuntimeError(f"Web API error: {code} - {message}")
         return resp.get("data")
 
     # ── Agent 模块 ──
@@ -228,6 +235,20 @@ class WebClient(BaseClient):
         DELETE /web/config/providers/actions/models/:modelId?name=xxx → {success, data: {modelId}}
         """
         resp = self.delete(f"/web/config/providers/actions/models/{model_id}", params={"name": name})
+        return self._unwrap(resp)
+
+    def fetch_provider_models(self, name: str, body: dict | None = None) -> dict:
+        """获取 Provider 模型列表（从上游拉取）
+        POST /web/config/providers/actions/fetch-models?name=xxx → {success, data: {models}}
+        """
+        resp = self.post("/web/config/providers/actions/fetch-models", params={"name": name}, json=body or {})
+        return self._unwrap(resp)
+
+    def test_provider_model(self, name: str, body: dict) -> dict:
+        """测试 Provider 模型连通性
+        POST /web/config/providers/actions/test-model?name=xxx body: {modelId} → {success, data: {...}}
+        """
+        resp = self.post("/web/config/providers/actions/test-model", params={"name": name}, json=body)
         return self._unwrap(resp)
 
     # ── Model 偏好模块 ──
@@ -549,6 +570,125 @@ class WebClient(BaseClient):
         resp = self.get("/web/hindsight/status")
         return self._unwrap(resp)
 
+    def get_hindsight_graph(self) -> dict:
+        """获取记忆图谱
+        GET /web/hindsight/graph → {success, data: {nodes, edges, ...}}
+        """
+        resp = self.get("/web/hindsight/graph")
+        return self._unwrap(resp)
+
+    def get_hindsight_bank_stats(self) -> dict:
+        """获取记忆库统计
+        GET /web/hindsight/bank-stats → {success, data: {total_nodes, ...}}
+        """
+        resp = self.get("/web/hindsight/bank-stats")
+        return self._unwrap(resp)
+
+    def list_hindsight_memories(self, params: dict | None = None) -> dict:
+        """列出记忆
+        GET /web/hindsight/memories → {success, data: {items, total, ...}}
+        """
+        resp = self.get("/web/hindsight/memories", params=params)
+        return self._unwrap(resp)
+
+    def get_hindsight_memory(self, memory_id: str) -> dict:
+        """获取记忆详情
+        GET /web/hindsight/memories/:id → {success, data: {...}}
+        """
+        resp = self.get(f"/web/hindsight/memories/{memory_id}")
+        return self._unwrap(resp)
+
+    def create_hindsight_memory(self, body: dict) -> dict:
+        """创建记忆
+        POST /web/hindsight/memories → {success, data: {...}}
+        """
+        resp = self.post("/web/hindsight/memories", json=body)
+        return self._unwrap(resp)
+
+    def delete_hindsight_memory(self, memory_id: str) -> dict:
+        """删除记忆
+        DELETE /web/hindsight/memories/:id → {success, data: {...}}
+        """
+        resp = self.delete(f"/web/hindsight/memories/{memory_id}")
+        return self._unwrap(resp)
+
+    def recall_hindsight(self, body: dict) -> dict:
+        """检索记忆
+        POST /web/hindsight/recall → {success, data: {...}}
+        """
+        resp = self.post("/web/hindsight/recall", json=body)
+        return self._unwrap(resp)
+
+    def reflect_hindsight(self, body: dict) -> dict:
+        """触发反思
+        POST /web/hindsight/reflect → {success, data: {...}}
+        """
+        resp = self.post("/web/hindsight/reflect", json=body)
+        return self._unwrap(resp)
+
+    def list_hindsight_documents(self, params: dict | None = None) -> dict:
+        """列出文档
+        GET /web/hindsight/documents → {success, data: {items, total, ...}}
+        """
+        resp = self.get("/web/hindsight/documents", params=params)
+        return self._unwrap(resp)
+
+    def delete_hindsight_document(self, doc_id: str) -> dict:
+        """删除文档
+        DELETE /web/hindsight/documents/:id → {success, data: {...}}
+        """
+        resp = self.delete(f"/web/hindsight/documents/{doc_id}")
+        return self._unwrap(resp)
+
+    def get_hindsight_document_chunks(self, doc_id: str) -> dict:
+        """获取文档分块
+        GET /web/hindsight/documents/:id/chunks → {success, data: {...}}
+        """
+        resp = self.get(f"/web/hindsight/documents/{doc_id}/chunks")
+        return self._unwrap(resp)
+
+    def list_hindsight_mental_models(self) -> dict:
+        """列中心智模型
+        GET /web/hindsight/mental-models → {success, data: {items}}
+        """
+        resp = self.get("/web/hindsight/mental-models")
+        return self._unwrap(resp)
+
+    def get_hindsight_mental_model(self, model_id: str) -> dict:
+        """获取心智模型详情
+        GET /web/hindsight/mental-models/:id → {success, data: {...}}
+        """
+        resp = self.get(f"/web/hindsight/mental-models/{model_id}")
+        return self._unwrap(resp)
+
+    def delete_hindsight_mental_model(self, model_id: str) -> dict:
+        """删除心智模型
+        DELETE /web/hindsight/mental-models/:id → {success, data: {...}}
+        """
+        resp = self.delete(f"/web/hindsight/mental-models/{model_id}")
+        return self._unwrap(resp)
+
+    def list_hindsight_entities(self, params: dict | None = None) -> dict:
+        """列出实体
+        GET /web/hindsight/entities → {success, data: {items, total, ...}}
+        """
+        resp = self.get("/web/hindsight/entities", params=params)
+        return self._unwrap(resp)
+
+    def get_hindsight_entity(self, entity_id: str) -> dict:
+        """获取实体详情
+        GET /web/hindsight/entities/:id → {success, data: {...}}
+        """
+        resp = self.get(f"/web/hindsight/entities/{entity_id}")
+        return self._unwrap(resp)
+
+    def get_hindsight_entities_graph(self) -> dict:
+        """获取实体关系图谱
+        GET /web/hindsight/entities/graph → {success, data: {...}}
+        """
+        resp = self.get("/web/hindsight/entities/graph")
+        return self._unwrap(resp)
+
     # ── 只读配置模块 ──
 
     def get_branding(self) -> dict:
@@ -616,6 +756,34 @@ class WebClient(BaseClient):
         DELETE /web/agent-sites/apps/:id → {success, data: null}
         """
         resp = self.delete(f"/web/agent-sites/apps/{app_id}")
+        return self._unwrap(resp)
+
+    def get_agent_site_by_remote(self, remote_app_id: str) -> dict:
+        """通过远程 App ID 获取 Agent Site
+        GET /web/agent-sites/apps/by-remote/:remoteAppId → {success, data: {app}}
+        """
+        resp = self.get(f"/web/agent-sites/apps/by-remote/{remote_app_id}")
+        return self._unwrap(resp)
+
+    def rotate_agent_site_token(self, app_id: str) -> dict:
+        """轮转 Agent Site Token
+        POST /web/agent-sites/apps/:id/rotate-token → {success, data: {...}}
+        """
+        resp = self.post(f"/web/agent-sites/apps/{app_id}/rotate-token")
+        return self._unwrap(resp)
+
+    def deploy_agent_site(self, app_id: str) -> dict:
+        """部署 Agent Site
+        POST /web/agent-sites/apps/:id/deploy → {success, data: {...}}
+        """
+        resp = self.post(f"/web/agent-sites/apps/{app_id}/deploy")
+        return self._unwrap(resp)
+
+    def list_agent_config_sites(self, agent_config_id: str) -> dict:
+        """获取 Agent 配置关联的 Sites
+        GET /web/agent-configs/:agentConfigId/sites → {success, data: [...]}
+        """
+        resp = self.get(f"/web/agent-configs/{agent_config_id}/sites")
         return self._unwrap(resp)
 
     # ── Organization 模块（RESTful /:id） ──
@@ -801,6 +969,41 @@ class WebClient(BaseClient):
         GET /web/workflow-runs/:runId/approvals → {success, data: [...]}
         """
         resp = self.get(f"/web/workflow-runs/{run_id}/approvals")
+        return self._unwrap(resp)
+
+    def get_workflow_run_node_output(self, run_id: str, node_id: str) -> dict:
+        """获取节点输出
+        GET /web/workflow-runs/:runId/nodes/:nodeId/output → {success, data: {...}}
+        """
+        resp = self.get(f"/web/workflow-runs/{run_id}/nodes/{node_id}/output")
+        return self._unwrap(resp)
+
+    def cancel_workflow_run(self, run_id: str, body: dict | None = None) -> dict:
+        """取消运行
+        POST /web/workflow-runs/:runId/cancel → {success, data: null}
+        """
+        resp = self.post(f"/web/workflow-runs/{run_id}/cancel", json=body or {})
+        return self._unwrap(resp)
+
+    def dry_run_workflow(self, body: dict) -> dict:
+        """干运行校验
+        POST /web/workflow-runs/dry → {success, data: {valid, issues}}
+        """
+        resp = self.post("/web/workflow-runs/dry", json=body)
+        return self._unwrap(resp)
+
+    def recover_workflow_run(self, run_id: str, body: dict | None = None) -> dict:
+        """从快照恢复运行
+        POST /web/workflow-runs/:runId/recover → {success, data: {...}}
+        """
+        resp = self.post(f"/web/workflow-runs/{run_id}/recover", json=body or {})
+        return self._unwrap(resp)
+
+    def rerun_workflow_run(self, run_id: str, body: dict | None = None) -> dict:
+        """从指定节点重新运行
+        POST /web/workflow-runs/:runId/rerun → {success, data: {...}}
+        """
+        resp = self.post(f"/web/workflow-runs/{run_id}/rerun", json=body or {})
         return self._unwrap(resp)
 
     # ── Knowledge Base 模块（RESTful /:id） ──

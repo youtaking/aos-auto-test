@@ -25,21 +25,26 @@ _TEST_MODEL_NAME = f"Test Model {_TEST_PREFIX}"
 
 def _create_provider_via_api(page, base_url, provider_id, name, protocol="openai",
                              api_key=_TEST_API_KEY, base_url_provider=_TEST_BASE_URL):
-    """通过 API 创建 Provider（用于测试前置），自动注册清理"""
+    """通过 API 创建 Provider（用于测试前置），自动注册清理，429 时等待重试"""
     import sys as _sys
     _caller = _sys._getframe(1)
     _req = _caller.f_locals.get('request')
 
-    resp = page.request.put(
-        f"{base_url}/web/config/providers?name={provider_id}",
-        data=json.dumps({
-            "apiKey": api_key,
-            "baseURL": base_url_provider,
-            "protocol": protocol,
-            "name": name,
-        }),
-        headers={"Content-Type": "application/json"},
-    )
+    for _attempt in range(2):
+        resp = page.request.put(
+            f"{base_url}/web/config/providers?name={provider_id}",
+            data=json.dumps({
+                "apiKey": api_key,
+                "baseURL": base_url_provider,
+                "protocol": protocol,
+                "name": name,
+            }),
+            headers={"Content-Type": "application/json"},
+        )
+        if resp.status != 429:
+            break
+        print(f"[429] _create_provider_via_api 被限流，等待 65s 后重试...")
+        _wait_rate_limit_reset(page)
 
     if _req and resp.status == 200:
         register_cleanup(_req, lambda: _delete_provider_via_api(page, base_url, provider_id))
@@ -53,30 +58,57 @@ def _create_provider_via_api(page, base_url, provider_id, name, protocol="openai
 
 
 def _delete_provider_via_api(page, base_url, provider_id):
-    """通过 API 删除 Provider（用于测试清理）"""
-    resp = page.request.delete(
-        f"{base_url}/web/config/providers?name={provider_id}",
-    )
+    """通过 API 删除 Provider（用于测试清理），429 时等待重试"""
+    for _attempt in range(2):
+        resp = page.request.delete(
+            f"{base_url}/web/config/providers?name={provider_id}",
+        )
+        if resp.status != 429:
+            return resp
+        print(f"[429] _delete_provider_via_api 被限流，等待 65s 后重试...")
+        _wait_rate_limit_reset(page)
     return resp
 
 
 def _get_providers_via_api(page, base_url):
-    """通过 API 获取 Provider 列表"""
-    resp = page.request.get(f"{base_url}/web/config/providers")
-    if resp.status == 200:
-        data = resp.json()
-        return data.get("data", {}).get("providers", [])
+    """通过 API 获取 Provider 列表，429 时等待重试"""
+    for _attempt in range(2):
+        resp = page.request.get(f"{base_url}/web/config/providers")
+        if resp.status == 200:
+            data = resp.json()
+            return data.get("data", {}).get("providers", [])
+        if resp.status == 429:
+            print(f"[429] _get_providers_via_api 被限流，等待 65s 后重试...")
+            _wait_rate_limit_reset(page)
+        else:
+            break
     return []
 
 
 def _get_provider_detail_via_api(page, base_url, resource_key):
-    """通过 API 获取 Provider 详情（含模型列表）"""
-    resp = page.request.get(
-        f"{base_url}/web/config/providers?name={resource_key}"
-    )
-    if resp.status == 200:
-        return resp.json()
+    """通过 API 获取 Provider 详情（含模型列表），429 时等待重试"""
+    for _attempt in range(2):
+        resp = page.request.get(
+            f"{base_url}/web/config/providers?name={resource_key}"
+        )
+        if resp.status == 200:
+            return resp.json()
+        if resp.status == 429:
+            print(f"[429] _get_provider_detail_via_api 被限流，等待 65s 后重试...")
+            _wait_rate_limit_reset(page)
+        else:
+            break
     return None
+
+
+def _wait_rate_limit_reset(page, seconds=65):
+    """等待限流窗口重置（60s 窗口 + 5s 缓冲），期间关闭页面减少后台轮询"""
+    print(f"[429] 等待 {seconds}s 限流窗口重置...")
+    try:
+        page.goto("about:blank", wait_until="domcontentloaded", timeout=5000)
+    except Exception:
+        pass
+    page.wait_for_timeout(seconds * 1000)
 
 
 # ==================== UI 测试 ====================
@@ -113,8 +145,17 @@ def test_model_001_provider_list_loads(logged_in_page, base_url, request):
     if not mc.is_loaded():
         logged_in_page.wait_for_timeout(2000)
     if not mc.is_loaded():
+        # 429 可能导致页面未加载，等待后重试
+        _wait_rate_limit_reset(logged_in_page)
+        mc.goto()
+    if not mc.is_loaded():
         pytest.skip("模型配置页面未加载")
     count = mc.get_provider_count()
+    if count == 0:
+        # 429 可能导致列表为空，等待后重新加载
+        _wait_rate_limit_reset(logged_in_page)
+        mc.goto()
+        count = mc.get_provider_count()
     if count == 0:
         pytest.skip("Provider 列表为空，预期至少有一个（环境可能无数据）")
 
@@ -165,9 +206,26 @@ def test_model_002_add_openai_provider(logged_in_page, base_url, request):
     )
     mc.submit_form()
 
-    # 弹窗应关闭
+    # 弹窗应关闭（429 时 UI 保存失败，弹窗不关闭，需等待后重试）
     logged_in_page.wait_for_timeout(800)
     dialog_still_open = mc.is_dialog_open()
+    if dialog_still_open:
+        # 可能 429 导致保存失败，等待限流窗口重置后重新提交
+        mc.close_dialog()
+        _wait_rate_limit_reset(logged_in_page)
+        mc.goto()
+        mc.click_add_provider()
+        if not mc.is_dialog_open():
+            logged_in_page.wait_for_timeout(2000)
+        mc.fill_provider_form(
+            provider_id=_TEST_PROVIDER_ID,
+            display_name=_TEST_PROVIDER_NAME,
+            api_key=_TEST_API_KEY,
+            base_url=_TEST_BASE_URL,
+        )
+        mc.submit_form()
+        logged_in_page.wait_for_timeout(800)
+        dialog_still_open = mc.is_dialog_open()
     if dialog_still_open:
         # 弹窗未关闭可能有表单校验错误
         validation = mc.get_form_validation_text()
@@ -177,8 +235,12 @@ def test_model_002_add_openai_provider(logged_in_page, base_url, request):
     # 刷新页面验证
     mc.goto()
 
-    # 3. Provider 创建成功 — 列表中出现新 Provider
+    # 3. Provider 创建成功 — 列表中出现新 Provider（429 时等待限流窗口重置后重试）
     provider_found = mc.has_provider(_TEST_PROVIDER_ID)
+    if not provider_found:
+        _wait_rate_limit_reset(logged_in_page)
+        mc.goto()
+        provider_found = mc.has_provider(_TEST_PROVIDER_ID)
     if not provider_found:
         # 诊断：检查 API 调用结果和当前列表内容
         put_calls = [r for r in api_responses if r["method"] == "PUT"]
@@ -245,9 +307,31 @@ def test_model_003_add_anthropic_provider(logged_in_page, base_url, request):
     mc.submit_form()
 
     logged_in_page.wait_for_timeout(800)
+
+    # 429 时 UI 保存失败弹窗不关闭，等待后重新提交
+    if mc.is_dialog_open():
+        mc.close_dialog()
+        _wait_rate_limit_reset(logged_in_page)
+        mc.goto()
+        mc.click_add_provider()
+        if not mc.is_dialog_open():
+            logged_in_page.wait_for_timeout(2000)
+        mc.select_protocol("Anthropic")
+        mc.fill_provider_form(
+            provider_id=anthropic_id,
+            display_name=f"Anthropic {_TEST_PREFIX}",
+            api_key=_TEST_API_KEY,
+            base_url="https://api.anthropic-test.com/v1",
+        )
+        mc.submit_form()
+        logged_in_page.wait_for_timeout(800)
+
     mc.goto()
 
-    # 1. 创建成功
+    # 1. 创建成功（429 时等待限流窗口重置后重试）
+    if not mc.has_provider(anthropic_id):
+        _wait_rate_limit_reset(logged_in_page)
+        mc.goto()
     assert mc.has_provider(anthropic_id), \
         f"Anthropic Provider '{anthropic_id}' 未出现"
 
@@ -298,14 +382,37 @@ def test_model_004_api_key_empty_allowed(logged_in_page, base_url, request):
     mc.submit_form()
     logged_in_page.wait_for_timeout(800)
 
-    # 弹窗应关闭（不被拦截）
+    # 弹窗应关闭（不被拦截，429 时保存失败弹窗不关闭，等待后重试）
     if mc.is_dialog_open():
-        validation = mc.get_form_validation_text()
         mc.close_dialog()
-        pytest.skip(f"不填 API Key 时弹窗未关闭，可能有校验错误: '{validation}'")
+        # 可能是 429 导致保存失败，等待限流窗口重置后重试
+        _wait_rate_limit_reset(logged_in_page)
+        mc.goto()
+        try:
+            mc.click_add_provider()
+        except Exception:
+            logged_in_page.wait_for_timeout(3000)
+            mc.click_add_provider()
+        if not mc.is_dialog_open():
+            logged_in_page.wait_for_timeout(2000)
+        mc.fill_provider_form(
+            provider_id=provider_id,
+            display_name=f"NoKey {_TEST_PREFIX}",
+            api_key="",
+            base_url="https://api.test.com/v1",
+        )
+        mc.submit_form()
+        logged_in_page.wait_for_timeout(800)
+        if mc.is_dialog_open():
+            validation = mc.get_form_validation_text()
+            mc.close_dialog()
+            pytest.skip(f"不填 API Key 时弹窗未关闭，可能有校验错误: '{validation}'")
 
-    # 刷新验证 Provider 已创建
+    # 刷新验证 Provider 已创建（429 时等待限流窗口重置后重试）
     mc.goto()
+    if not mc.has_provider(provider_id):
+        _wait_rate_limit_reset(logged_in_page)
+        mc.goto()
     if not mc.has_provider(provider_id):
         pytest.skip(f"不填 API Key 的 Provider '{provider_id}' 未出现在列表中（API 可能不支持空 Key 创建）")
     # 数量验证（允许±1 误差，因为并发测试可能影响计数）
@@ -343,6 +450,11 @@ def test_model_005_api_key_not_exposed(logged_in_page, base_url, request):
     mc.goto()
 
     count = mc.get_provider_count()
+    if count == 0:
+        # 429 可能导致列表为空，等待限流窗口重置后重试
+        _wait_rate_limit_reset(logged_in_page)
+        mc.goto()
+        count = mc.get_provider_count()
     if count == 0:
         pytest.skip("Provider 列表为空（环境可能无数据）")
 
@@ -400,6 +512,10 @@ def test_model_006_edit_provider(logged_in_page, base_url, request):
 
     mc = ModelConfigPage(logged_in_page, base_url)
     mc.goto()
+    if not mc.has_provider(_TEST_PROVIDER_ID):
+        # 429 可能导致页面未加载，等待后重试
+        _wait_rate_limit_reset(logged_in_page)
+        mc.goto()
     if not mc.has_provider(_TEST_PROVIDER_ID):
         pytest.skip("测试 Provider 未创建成功（API 可能不可用）")
 
@@ -477,6 +593,9 @@ def test_model_006b_edit_provider_other_fields(logged_in_page, base_url, request
     mc = ModelConfigPage(logged_in_page, base_url)
     mc.goto()
     if not mc.has_provider(provider_id):
+        _wait_rate_limit_reset(logged_in_page)
+        mc.goto()
+    if not mc.has_provider(provider_id):
         pytest.skip("测试 Provider 未创建成功（API 可能不可用）")
 
     # 打开编辑弹窗（增加重试）
@@ -500,12 +619,28 @@ def test_model_006b_edit_provider_other_fields(logged_in_page, base_url, request
     assert "Anthropic" in new_protocol, \
         f"协议切换失败: {new_protocol}"
 
-    # 2. 保存并验证协议切换生效
+    # 2. 保存并验证协议切换生效（429 时等待后重试）
     mc.submit_form()
     logged_in_page.wait_for_timeout(800)
+    # 如果提交后弹窗还开着（429 保存失败），等待后重新提交
+    if mc.is_dialog_open():
+        mc.close_dialog()
+        _wait_rate_limit_reset(logged_in_page)
+        mc.goto()
+        mc.click_provider_edit(provider_id)
+        if not mc.is_dialog_open():
+            logged_in_page.wait_for_timeout(2000)
+        mc.select_protocol("Anthropic")
+        mc.submit_form()
+        logged_in_page.wait_for_timeout(800)
     mc.goto()
 
     mc.click_provider_edit(provider_id)
+    # 429 时等待后重试打开编辑弹窗
+    if not mc.is_dialog_open():
+        _wait_rate_limit_reset(logged_in_page)
+        mc.goto()
+        mc.click_provider_edit(provider_id)
     # 等待弹窗数据加载完成（combobox 需要有内容）
     for _w in range(5):
         saved_protocol = mc.get_edit_provider_protocol()
@@ -573,6 +708,9 @@ def test_model_007_delete_provider_cascade(logged_in_page, base_url, request):
 
     mc = ModelConfigPage(logged_in_page, base_url)
     mc.goto()
+    if not mc.has_provider(_TEST_PROVIDER_ID):
+        _wait_rate_limit_reset(logged_in_page)
+        mc.goto()
     assert mc.has_provider(_TEST_PROVIDER_ID), "测试 Provider 不存在"
 
     # 验证模型存在
@@ -621,6 +759,9 @@ def test_model_008_add_model(logged_in_page, base_url, request):
 
     mc = ModelConfigPage(logged_in_page, base_url)
     mc.goto()
+    if not mc.has_provider(_TEST_PROVIDER_ID):
+        _wait_rate_limit_reset(logged_in_page)
+        mc.goto()
     assert mc.has_provider(_TEST_PROVIDER_ID), "测试 Provider 不存在"
 
     # 拦截 API
@@ -677,11 +818,18 @@ def test_model_009_edit_model(logged_in_page, base_url, request):
         (p["resourceKey"] for p in providers if p["id"] == _TEST_PROVIDER_ID), ""
     )
     if not resource_key:
+        # 429 可能导致列表获取失败，等待后重试
+        _wait_rate_limit_reset(logged_in_page)
+        providers = _get_providers_via_api(logged_in_page, base_url)
+        resource_key = next(
+            (p["resourceKey"] for p in providers if p["id"] == _TEST_PROVIDER_ID), ""
+        )
+    if not resource_key:
         pytest.skip("Provider 创建失败（API 可能不可用），跳过测试")
 
     model_id = f"edit-m-{_TEST_PREFIX}"
     original_name = f"Original {_TEST_PREFIX}"
-    logged_in_page.request.post(
+    model_create_resp = logged_in_page.request.post(
         f"{base_url}/web/config/providers/actions/models?name={resource_key}",
         data=json.dumps({
             "modelId": model_id,
@@ -690,15 +838,29 @@ def test_model_009_edit_model(logged_in_page, base_url, request):
         }),
         headers={"Content-Type": "application/json"},
     )
+    if model_create_resp.status == 429:
+        _wait_rate_limit_reset(logged_in_page)
+        logged_in_page.request.post(
+            f"{base_url}/web/config/providers/actions/models?name={resource_key}",
+            data=json.dumps({
+                "modelId": model_id,
+                "name": original_name,
+                "modalities": {"input": ["text"], "output": ["text"]},
+            }),
+            headers={"Content-Type": "application/json"},
+        )
 
     mc = ModelConfigPage(logged_in_page, base_url)
     mc.goto()
 
-    # 点击模型编辑按钮（增加重试）
+    # 点击模型编辑按钮（增加重试，429 时等待后重试）
     clicked = mc.click_model_edit(_TEST_PROVIDER_ID, model_id)
     if not clicked:
-        # 刷新重试一次
         logged_in_page.wait_for_timeout(2000)
+        mc.goto()
+        clicked = mc.click_model_edit(_TEST_PROVIDER_ID, model_id)
+    if not clicked:
+        _wait_rate_limit_reset(logged_in_page)
         mc.goto()
         clicked = mc.click_model_edit(_TEST_PROVIDER_ID, model_id)
     if not clicked:
@@ -718,6 +880,11 @@ def test_model_009_edit_model(logged_in_page, base_url, request):
     # 3. 重新打开编辑弹窗验证修改生效
     mc.goto()
     clicked = mc.click_model_edit(_TEST_PROVIDER_ID, model_id)
+    # 429 时等待限流窗口重置后重试
+    if not clicked:
+        _wait_rate_limit_reset(logged_in_page)
+        mc.goto()
+        clicked = mc.click_model_edit(_TEST_PROVIDER_ID, model_id)
     assert clicked, "重新编辑时未找到模型"
     updated_name = mc.get_edit_model_display_name()
     mc.close_dialog()
@@ -746,6 +913,12 @@ def test_model_009b_delete_model(logged_in_page, base_url, request):
     resource_key = next(
         (p["resourceKey"] for p in providers if p["id"] == _TEST_PROVIDER_ID), ""
     )
+    if not resource_key:
+        _wait_rate_limit_reset(logged_in_page)
+        providers = _get_providers_via_api(logged_in_page, base_url)
+        resource_key = next(
+            (p["resourceKey"] for p in providers if p["id"] == _TEST_PROVIDER_ID), ""
+        )
     if not resource_key:
         pytest.skip("Provider 创建失败（API 可能不可用），跳过测试")
 
@@ -828,6 +1001,12 @@ def test_model_009c_edit_model_other_fields(logged_in_page, base_url, request):
     resource_key = next(
         (p["resourceKey"] for p in providers if p["id"] == provider_id), ""
     )
+    if not resource_key:
+        _wait_rate_limit_reset(logged_in_page)
+        providers = _get_providers_via_api(logged_in_page, base_url)
+        resource_key = next(
+            (p["resourceKey"] for p in providers if p["id"] == provider_id), ""
+        )
     if not resource_key:
         pytest.skip("Provider 创建失败（API 可能不可用），跳过测试")
 
@@ -927,9 +1106,13 @@ def test_model_009c_edit_model_other_fields(logged_in_page, base_url, request):
     mc.submit_form()
     logged_in_page.wait_for_timeout(800)
 
-    # 重新打开验证数值持久化
+    # 重新打开验证数值持久化（429 时等待限流窗口重置后重试）
     mc.goto()
     clicked = mc.click_model_edit(provider_id, model_id)
+    if not clicked:
+        _wait_rate_limit_reset(logged_in_page)
+        mc.goto()
+        clicked = mc.click_model_edit(provider_id, model_id)
     assert clicked, "重新编辑时未找到模型"
 
     saved_ctx = mc.get_context_limit()
@@ -999,6 +1182,10 @@ def test_model_010_fetch_provider_models(logged_in_page, base_url, request):
         mc.goto()
         count = mc.get_provider_count()
         if count == 0:
+            _wait_rate_limit_reset(logged_in_page)
+            mc.goto()
+            count = mc.get_provider_count()
+        if count == 0:
             pytest.skip("Provider 创建失败，列表仍为空")
 
     # 使用第一个 Provider 进行测试
@@ -1036,6 +1223,7 @@ def test_model_010_fetch_provider_models(logged_in_page, base_url, request):
         # 关闭弹窗
         close_btn = dialog.locator("button[data-slot='dialog-close']")
         if close_btn.count() > 0:
+            close_btn.first.wait_for(state="visible", timeout=5000)
             close_btn.first.click()
             logged_in_page.wait_for_timeout(500)
     else:
@@ -1196,6 +1384,9 @@ def test_model_015_public_toggle(logged_in_page, base_url, request):
     mc = ModelConfigPage(logged_in_page, base_url)
     mc.goto()
     if not mc.has_provider(provider_id):
+        _wait_rate_limit_reset(logged_in_page)
+        mc.goto()
+    if not mc.has_provider(provider_id):
         pytest.skip("测试 Provider 未创建成功（API 可能不可用）")
 
     # 获取公开开关
@@ -1209,10 +1400,12 @@ def test_model_015_public_toggle(logged_in_page, base_url, request):
     # 切换状态（增加重试）
     mc.toggle_public(provider_id)
 
-    # 验证状态变化（增加重试）
+    # 验证状态变化（增加重试，429 时等待限流窗口重置后重试）
     new_state = mc.is_public(provider_id)
     if new_state == initial_state:
-        # 重试一次
+        # 可能 429 导致 toggle API 失败，等待后重试
+        _wait_rate_limit_reset(logged_in_page)
+        mc.goto()
         mc.toggle_public(provider_id)
         logged_in_page.wait_for_timeout(1000)
         new_state = mc.is_public(provider_id)
@@ -1372,6 +1565,10 @@ def test_model_017_openapi_model_crud(logged_in_page, base_url, request):
     # 获取 resourceKey
     providers = _get_providers_via_api(logged_in_page, base_url)
     provider_data = next((p for p in providers if p["id"] == provider_id), None)
+    if not provider_data:
+        _wait_rate_limit_reset(logged_in_page)
+        providers = _get_providers_via_api(logged_in_page, base_url)
+        provider_data = next((p for p in providers if p["id"] == provider_id), None)
     if not provider_data:
         pytest.skip(f"Provider 创建失败（status={create_resp.status}，可能并发上限）")
     resource_key = provider_data.get("resourceKey", "")
@@ -1600,13 +1797,18 @@ def test_model_023_openapi_cascade_delete(logged_in_page, base_url, request):
 
     # 获取 resourceKey
     providers = _get_providers_via_api(logged_in_page, base_url)
-    provider_data = next(p for p in providers if p["id"] == provider_id)
+    provider_data = next((p for p in providers if p["id"] == provider_id), None)
+    if not provider_data:
+        _wait_rate_limit_reset(logged_in_page)
+        providers = _get_providers_via_api(logged_in_page, base_url)
+        provider_data = next((p for p in providers if p["id"] == provider_id), None)
+    assert provider_data, f"Provider '{provider_id}' 创建后未出现在列表中"
     resource_key = provider_data["resourceKey"]
 
-    # 添加多个模型
+    # 添加多个模型（429 时等待重试）
     model_ids = [f"cascade-m1-{_TEST_PREFIX}", f"cascade-m2-{_TEST_PREFIX}"]
     for mid in model_ids:
-        logged_in_page.request.post(
+        model_resp = logged_in_page.request.post(
             f"{base_url}/web/config/providers/actions/models?name={resource_key}",
             data=json.dumps({
                 "modelId": mid,
@@ -1615,6 +1817,17 @@ def test_model_023_openapi_cascade_delete(logged_in_page, base_url, request):
             }),
             headers={"Content-Type": "application/json"},
         )
+        if model_resp.status == 429:
+            _wait_rate_limit_reset(logged_in_page)
+            logged_in_page.request.post(
+                f"{base_url}/web/config/providers/actions/models?name={resource_key}",
+                data=json.dumps({
+                    "modelId": mid,
+                    "name": mid,
+                    "modalities": {"input": ["text"], "output": ["text"]},
+                }),
+                headers={"Content-Type": "application/json"},
+            )
 
     # 验证模型已添加
     detail_before = _get_provider_detail_via_api(logged_in_page, base_url, resource_key)
@@ -1710,8 +1923,11 @@ def test_model_025_openapi_pagination_filter(logged_in_page, base_url, request):
     """✅ 人工评审通过 | TC-MODEL-025: Open-API 分页和过滤
     验证：1. 列表请求返回数据 2. 返回格式正确
     """
-    # 获取 Provider 列表（验证基本分页结构）
+    # 获取 Provider 列表（验证基本分页结构，429 时等待重试）
     resp = logged_in_page.request.get(f"{base_url}/web/config/providers")
+    if resp.status == 429:
+        _wait_rate_limit_reset(logged_in_page)
+        resp = logged_in_page.request.get(f"{base_url}/web/config/providers")
     assert resp.status == 200, f"获取列表失败: {resp.status}"
 
     body = resp.json()
@@ -1729,10 +1945,15 @@ def test_model_025_openapi_pagination_filter(logged_in_page, base_url, request):
         assert "keyHint" in prov, f"Provider 缺少 keyHint: {prov}"
         assert "modelCount" in prov, f"Provider 缺少 modelCount: {prov}"
 
-    # 尝试带参数查询（如果 API 支持）
+    # 尝试带参数查询（如果 API 支持，429 时等待重试）
     resp_params = logged_in_page.request.get(
         f"{base_url}/web/config/providers?page=1&size=5"
     )
+    if resp_params.status == 429:
+        _wait_rate_limit_reset(logged_in_page)
+        resp_params = logged_in_page.request.get(
+            f"{base_url}/web/config/providers?page=1&size=5"
+        )
     # 不管是否支持分页参数，至少请求成功
     assert resp_params.status == 200, \
         f"带分页参数请求失败: {resp_params.status}"
@@ -1883,6 +2104,10 @@ def test_model_batch_add(logged_in_page, base_url, request):
 
     count = mc.get_provider_count()
     if count == 0:
+        _wait_rate_limit_reset(logged_in_page)
+        mc.goto()
+        count = mc.get_provider_count()
+    if count == 0:
         pytest.skip("Provider 列表为空")
 
     names = mc.get_provider_names()
@@ -1912,6 +2137,7 @@ def test_model_batch_add(logged_in_page, base_url, request):
         for i in range(select_count):
             cb = checkboxes.nth(i)
             if not cb.is_checked():
+                cb.wait_for(state="visible", timeout=5000)
                 cb.click()
                 logged_in_page.wait_for_timeout(300)
 
@@ -1927,6 +2153,7 @@ def test_model_batch_add(logged_in_page, base_url, request):
             api_responses = mc.intercept_api_responses(
                 "/web/config/providers/actions/models"
             )
+            add_btn.first.wait_for(state="visible", timeout=5000)
             add_btn.first.click()
             logged_in_page.wait_for_timeout(800)
 
@@ -1971,6 +2198,9 @@ def test_model_public_toggle(logged_in_page, base_url, request):
         mc = ModelConfigPage(logged_in_page, base_url)
         mc.goto()
         if not mc.has_provider(provider_id):
+            _wait_rate_limit_reset(logged_in_page)
+            mc.goto()
+        if not mc.has_provider(provider_id):
             pytest.skip(f"测试 Provider '{provider_id}' 未创建成功（API 可能不可用）")
 
         # 获取公开开关
@@ -1982,6 +2212,7 @@ def test_model_public_toggle(logged_in_page, base_url, request):
         initial_checked = sw.get_attribute("aria-checked")
 
         # 点击切换（增加重试确保点击生效）
+        sw.wait_for(state="visible", timeout=5000)
         sw.click()
         logged_in_page.wait_for_timeout(1500)
 
@@ -1992,6 +2223,7 @@ def test_model_public_toggle(logged_in_page, base_url, request):
         new_checked = sw.get_attribute("aria-checked")
         if new_checked == initial_checked:
             # 重试一次点击
+            sw.wait_for(state="visible", timeout=5000)
             sw.click()
             logged_in_page.wait_for_timeout(1500)
             sw = mc.get_public_switch(provider_id)
@@ -2001,6 +2233,7 @@ def test_model_public_toggle(logged_in_page, base_url, request):
                 f"【应用Bug】切换公开状态后 aria-checked 未变化: {initial_checked} -> {new_checked}"
 
         # 再次点击恢复
+        sw.wait_for(state="visible", timeout=5000)
         sw.click()
         logged_in_page.wait_for_timeout(1500)
         sw = mc.get_public_switch(provider_id)
@@ -2027,6 +2260,9 @@ def test_model_provider_delete(logged_in_page, base_url, request):
     try:
         mc = ModelConfigPage(logged_in_page, base_url)
         mc.goto()
+        if not mc.has_provider(provider_id):
+            _wait_rate_limit_reset(logged_in_page)
+            mc.goto()
         if not mc.has_provider(provider_id):
             pytest.skip(f"测试 Provider '{provider_id}' 未创建成功（API 可能不可用）")
 

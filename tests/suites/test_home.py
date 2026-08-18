@@ -74,9 +74,9 @@ def test_home_quick_create_template(logged_in_page, base_url):
         "div.absolute.inset-0.z-50"
     ).count() > 0
     has_url_changed = url_after != url_before
-    # 检查是否有任何 overlay/drawer/fullscreen 弹出
+    # 检查是否有弹窗/面板弹出（基于 Radix UI 的 data-state 属性）
     has_overlay = logged_in_page.locator(
-        "[class*='overlay'], [class*='drawer'], [class*='fullscreen']"
+        "[data-state='open'], [data-radix-dialog-content]"
     ).count() > 0
     # 检查 body 是否新增了表单元素
     body_text = logged_in_page.locator("body").inner_text()

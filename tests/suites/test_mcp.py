@@ -110,13 +110,15 @@ def test_create_stdio_server(logged_in_page, base_url):
     mcp.fill_create_form(name=TEST_STDIO_NAME, command=TEST_STDIO_CMD)
     mcp.save()
 
-    # 验证创建成功 — 列表中出现新服务器
-    mcp.goto()
-    assert mcp.has_server(TEST_STDIO_NAME), \
-        f"Stdio 服务器 '{TEST_STDIO_NAME}' 未出现在列表中"
-
-    # 清理
-    mcp.delete_server(TEST_STDIO_NAME)
+    try:
+        # 验证创建成功 — 列表中出现新服务器
+        mcp.goto()
+        assert mcp.has_server(TEST_STDIO_NAME), \
+            f"Stdio 服务器 '{TEST_STDIO_NAME}' 未出现在列表中"
+    finally:
+        # 清理
+        if mcp.has_server(TEST_STDIO_NAME):
+            mcp.delete_server(TEST_STDIO_NAME)
 
 
 # === TC-MCP-003: 创建远程 SSE MCP 服务器 ===
@@ -136,12 +138,69 @@ def test_create_sse_server(logged_in_page, base_url):
     mcp.fill_create_form(name=TEST_SSE_NAME, url=TEST_SSE_URL)
     mcp.save()
 
-    mcp.goto()
-    assert mcp.has_server(TEST_SSE_NAME), \
-        f"SSE 服务器 '{TEST_SSE_NAME}' 未出现在列表中"
+    try:
+        mcp.goto()
+        assert mcp.has_server(TEST_SSE_NAME), \
+            f"SSE 服务器 '{TEST_SSE_NAME}' 未出现在列表中"
+    finally:
+        # 清理
+        if mcp.has_server(TEST_SSE_NAME):
+            mcp.delete_server(TEST_SSE_NAME)
 
-    # 清理
-    mcp.delete_server(TEST_SSE_NAME)
+
+# === TC-MCP-003b: 编辑 MCP 服务器 ===
+
+@allure.epic("MCP服务器")
+@pytest.mark.order(82.1)
+@pytest.mark.p0
+def test_edit_server(logged_in_page, base_url):
+    """编辑 MCP 服务器 — 修改名称后保存验证"""
+    mcp = McpServerPage(logged_in_page, base_url)
+    mcp.goto()
+
+    # 前置：创建测试服务器
+    original_name = f"edit-test-{int(time.time())}"
+    _create_test_server(mcp, original_name, "SSE", url=TEST_SSE_URL)
+    assert mcp.has_server(original_name), f"测试服务器 '{original_name}' 创建失败"
+
+    try:
+        # 点击编辑按钮
+        edit_btn = mcp._get_server_row(original_name).get_by_role("button", name="编辑")
+        edit_btn.wait_for(state="visible", timeout=5000)
+        edit_btn.click()
+
+        # 等待编辑对话框打开
+        dialog = logged_in_page.locator("[role='dialog']")
+        dialog.first.wait_for(state="visible", timeout=5000)
+
+        # 修改名称
+        new_name = f"{original_name}-edited"
+        name_input = dialog.locator("input[name='name'], input[placeholder*='名称']").first
+        name_input.wait_for(state="visible", timeout=3000)
+        name_input.clear()
+        name_input.fill(new_name)
+
+        # 保存
+        save_btn = dialog.get_by_role("button", name="保存")
+        save_btn.wait_for(state="visible", timeout=3000)
+        save_btn.click()
+
+        # 等待对话框关闭
+        dialog.first.wait_for(state="hidden", timeout=5000)
+
+        # 验证新名称出现
+        mcp.goto()
+        assert mcp.has_server(new_name), \
+            f"编辑后新名称 '{new_name}' 未出现在列表中"
+        assert not mcp.has_server(original_name), \
+            f"编辑后旧名称 '{original_name}' 仍在列表中"
+
+        # 更新变量名以便 finally 清理
+        original_name = new_name
+    finally:
+        # 清理
+        if mcp.has_server(original_name):
+            mcp.delete_server(original_name)
 
 
 # === TC-MCP-004: 名称格式校验 - 合法名称 ===
@@ -162,6 +221,7 @@ def test_valid_name_format(logged_in_page, base_url):
     name_input = dialog.locator("input[name='name']").or_(
         dialog.locator("input").first
     )
+    name_input.first.wait_for(state="visible", timeout=5000)
     name_input.first.fill("my-mcp-server")
     logged_in_page.wait_for_timeout(500)
 
@@ -195,6 +255,7 @@ def test_invalid_name_format(logged_in_page, base_url):
 
         dialog = logged_in_page.locator("[role='dialog']")
         name_input = dialog.locator("input[name='name']").or_(dialog.locator("input").first)
+        name_input.first.wait_for(state="visible", timeout=5000)
         name_input.first.fill(name)
 
         # 尝试保存触发校验
@@ -242,6 +303,7 @@ def test_command_validation(logged_in_page, base_url):
     # 填写名称但不填命令
     dialog = logged_in_page.locator("[role='dialog']")
     name_input = dialog.locator("input[name='name']").or_(dialog.locator("input").first)
+    name_input.first.wait_for(state="visible", timeout=5000)
     name_input.first.fill(f"cmd-test-{int(time.time())}")
 
     mcp.save()
@@ -271,35 +333,37 @@ def test_enable_server(logged_in_page, base_url):
     _create_test_server(mcp, enable_name, "Stdio", "echo hello")
     assert mcp.has_server(enable_name), f"测试服务器 '{enable_name}' 创建失败"
 
-    # 记录初始状态
-    was_enabled = mcp.is_server_enabled(enable_name)
+    try:
+        # 记录初始状态
+        was_enabled = mcp.is_server_enabled(enable_name)
 
-    # 切换
-    mcp.toggle_enabled(enable_name)
+        # 切换
+        mcp.toggle_enabled(enable_name)
 
-    # 检查错误 toast
-    toast_texts = []
-    for _ in range(6):
-        logged_in_page.wait_for_timeout(500)
-        errors = mcp.get_validation_errors()
-        if errors:
-            toast_texts.extend(errors)
-            break
-    error_toasts = [t for t in toast_texts if any(kw in t for kw in ["失败", "错误", "Error", "Fail"])]
-    assert not error_toasts, f"切换启用状态后出现错误: {error_toasts}"
+        # 检查错误 toast
+        toast_texts = []
+        for _ in range(6):
+            logged_in_page.wait_for_timeout(500)
+            errors = mcp.get_validation_errors()
+            if errors:
+                toast_texts.extend(errors)
+                break
+        error_toasts = [t for t in toast_texts if any(kw in t for kw in ["失败", "错误", "Error", "Fail"])]
+        assert not error_toasts, f"切换启用状态后出现错误: {error_toasts}"
 
-    # 刷新验证持久化
-    mcp.goto()
-    now_enabled = mcp.is_server_enabled(enable_name)
-    assert now_enabled != was_enabled, \
-        f"切换后状态未变化: 启用={was_enabled} -> {now_enabled}"
+        # 刷新验证持久化
+        mcp.goto()
+        now_enabled = mcp.is_server_enabled(enable_name)
+        assert now_enabled != was_enabled, \
+            f"切换后状态未变化: 启用={was_enabled} -> {now_enabled}"
 
-    # 恢复原状态
-    mcp.toggle_enabled(enable_name)
-    logged_in_page.wait_for_timeout(800)
-
-    # 清理
-    mcp.delete_server(enable_name)
+        # 恢复原状态
+        mcp.toggle_enabled(enable_name)
+        logged_in_page.wait_for_timeout(800)
+    finally:
+        # 清理
+        if mcp.has_server(enable_name):
+            mcp.delete_server(enable_name)
 
 
 # === TC-MCP-007b: 启用 MCP 服务器（SSE） ===
@@ -316,35 +380,37 @@ def test_enable_sse_server(logged_in_page, base_url):
     _create_test_server(mcp, enable_sse_name, "SSE", url=TEST_SSE_URL)
     assert mcp.has_server(enable_sse_name), f"测试服务器 '{enable_sse_name}' 创建失败"
 
-    # 记录初始状态
-    was_enabled = mcp.is_server_enabled(enable_sse_name)
+    try:
+        # 记录初始状态
+        was_enabled = mcp.is_server_enabled(enable_sse_name)
 
-    # 切换
-    mcp.toggle_enabled(enable_sse_name)
+        # 切换
+        mcp.toggle_enabled(enable_sse_name)
 
-    # 检查错误 toast
-    toast_texts = []
-    for _ in range(6):
-        logged_in_page.wait_for_timeout(500)
-        errors = mcp.get_validation_errors()
-        if errors:
-            toast_texts.extend(errors)
-            break
-    error_toasts = [t for t in toast_texts if any(kw in t for kw in ["失败", "错误", "Error", "Fail"])]
-    assert not error_toasts, f"切换启用状态后出现错误: {error_toasts}"
+        # 检查错误 toast
+        toast_texts = []
+        for _ in range(6):
+            logged_in_page.wait_for_timeout(500)
+            errors = mcp.get_validation_errors()
+            if errors:
+                toast_texts.extend(errors)
+                break
+        error_toasts = [t for t in toast_texts if any(kw in t for kw in ["失败", "错误", "Error", "Fail"])]
+        assert not error_toasts, f"切换启用状态后出现错误: {error_toasts}"
 
-    # 刷新验证持久化
-    mcp.goto()
-    now_enabled = mcp.is_server_enabled(enable_sse_name)
-    assert now_enabled != was_enabled, \
-        f"切换后状态未变化: 启用={was_enabled} -> {now_enabled}"
+        # 刷新验证持久化
+        mcp.goto()
+        now_enabled = mcp.is_server_enabled(enable_sse_name)
+        assert now_enabled != was_enabled, \
+            f"切换后状态未变化: 启用={was_enabled} -> {now_enabled}"
 
-    # 恢复原状态
-    mcp.toggle_enabled(enable_sse_name)
-    logged_in_page.wait_for_timeout(800)
-
-    # 清理
-    mcp.delete_server(enable_sse_name)
+        # 恢复原状态
+        mcp.toggle_enabled(enable_sse_name)
+        logged_in_page.wait_for_timeout(800)
+    finally:
+        # 清理
+        if mcp.has_server(enable_sse_name):
+            mcp.delete_server(enable_sse_name)
 
 
 # === TC-MCP-008: 禁用 MCP 服务器（Stdio） ===
@@ -361,34 +427,36 @@ def test_disable_server(logged_in_page, base_url):
     _create_test_server(mcp, disable_name, "Stdio", "echo hello")
     assert mcp.has_server(disable_name), f"测试服务器 '{disable_name}' 创建失败"
 
-    # 确保为启用状态
-    if not mcp.is_server_enabled(disable_name):
+    try:
+        # 确保为启用状态
+        if not mcp.is_server_enabled(disable_name):
+            mcp.toggle_enabled(disable_name)
+            logged_in_page.wait_for_timeout(1500)
+            mcp.goto()
+
+        assert mcp.is_server_enabled(disable_name), "预设为启用失败"
+
+        # 禁用
         mcp.toggle_enabled(disable_name)
-        logged_in_page.wait_for_timeout(1500)
+
+        # 检查错误 toast
+        toast_texts = []
+        for _ in range(6):
+            logged_in_page.wait_for_timeout(500)
+            errors = mcp.get_validation_errors()
+            if errors:
+                toast_texts.extend(errors)
+                break
+        error_toasts = [t for t in toast_texts if any(kw in t for kw in ["失败", "错误", "Error", "Fail"])]
+        assert not error_toasts, f"禁用后出现错误: {error_toasts}"
+
+        # 刷新验证持久化
         mcp.goto()
-
-    assert mcp.is_server_enabled(disable_name), "预设为启用失败"
-
-    # 禁用
-    mcp.toggle_enabled(disable_name)
-
-    # 检查错误 toast
-    toast_texts = []
-    for _ in range(6):
-        logged_in_page.wait_for_timeout(500)
-        errors = mcp.get_validation_errors()
-        if errors:
-            toast_texts.extend(errors)
-            break
-    error_toasts = [t for t in toast_texts if any(kw in t for kw in ["失败", "错误", "Error", "Fail"])]
-    assert not error_toasts, f"禁用后出现错误: {error_toasts}"
-
-    # 刷新验证持久化
-    mcp.goto()
-    assert not mcp.is_server_enabled(disable_name), "禁用后仍显示「禁用」按钮"
-
-    # 清理
-    mcp.delete_server(disable_name)
+        assert not mcp.is_server_enabled(disable_name), "禁用后仍显示「禁用」按钮"
+    finally:
+        # 清理
+        if mcp.has_server(disable_name):
+            mcp.delete_server(disable_name)
 
 
 # === TC-MCP-008b: 禁用 MCP 服务器（SSE） ===
@@ -405,34 +473,36 @@ def test_disable_sse_server(logged_in_page, base_url):
     _create_test_server(mcp, disable_sse_name, "SSE", url=TEST_SSE_URL)
     assert mcp.has_server(disable_sse_name), f"测试服务器 '{disable_sse_name}' 创建失败"
 
-    # 确保为启用状态
-    if not mcp.is_server_enabled(disable_sse_name):
+    try:
+        # 确保为启用状态
+        if not mcp.is_server_enabled(disable_sse_name):
+            mcp.toggle_enabled(disable_sse_name)
+            logged_in_page.wait_for_timeout(1500)
+            mcp.goto()
+
+        assert mcp.is_server_enabled(disable_sse_name), "预设为启用失败"
+
+        # 禁用
         mcp.toggle_enabled(disable_sse_name)
-        logged_in_page.wait_for_timeout(1500)
+
+        # 检查错误 toast
+        toast_texts = []
+        for _ in range(6):
+            logged_in_page.wait_for_timeout(500)
+            errors = mcp.get_validation_errors()
+            if errors:
+                toast_texts.extend(errors)
+                break
+        error_toasts = [t for t in toast_texts if any(kw in t for kw in ["失败", "错误", "Error", "Fail"])]
+        assert not error_toasts, f"禁用后出现错误: {error_toasts}"
+
+        # 刷新验证持久化
         mcp.goto()
-
-    assert mcp.is_server_enabled(disable_sse_name), "预设为启用失败"
-
-    # 禁用
-    mcp.toggle_enabled(disable_sse_name)
-
-    # 检查错误 toast
-    toast_texts = []
-    for _ in range(6):
-        logged_in_page.wait_for_timeout(500)
-        errors = mcp.get_validation_errors()
-        if errors:
-            toast_texts.extend(errors)
-            break
-    error_toasts = [t for t in toast_texts if any(kw in t for kw in ["失败", "错误", "Error", "Fail"])]
-    assert not error_toasts, f"禁用后出现错误: {error_toasts}"
-
-    # 刷新验证持久化
-    mcp.goto()
-    assert not mcp.is_server_enabled(disable_sse_name), "禁用后仍显示「禁用」按钮"
-
-    # 清理
-    mcp.delete_server(disable_sse_name)
+        assert not mcp.is_server_enabled(disable_sse_name), "禁用后仍显示「禁用」按钮"
+    finally:
+        # 清理
+        if mcp.has_server(disable_sse_name):
+            mcp.delete_server(disable_sse_name)
 
 
 # === TC-MCP-009: 测试本地 MCP 服务器连接 ===
@@ -449,46 +519,49 @@ def test_local_connection(logged_in_page, base_url):
     _create_test_server(mcp, local_name, "Stdio", "echo hello")
     assert mcp.has_server(local_name), f"测试服务器 '{local_name}' 创建失败"
 
-    # 拦截控制台错误（系统会对 local 服务器返回 400）
-    console_errors = []
+    try:
+        # 拦截控制台错误（系统会对 local 服务器返回 400）
+        console_errors = []
 
-    def on_console(msg):
-        if msg.type == "error":
-            console_errors.append(msg.text)
+        def on_console(msg):
+            if msg.type == "error":
+                console_errors.append(msg.text)
 
-    logged_in_page.on("console", on_console)
+        logged_in_page.on("console", on_console)
 
-    # 点击「检测」按钮
-    mcp.click_inspect(local_name)
-    logged_in_page.wait_for_timeout(1500)
+        # 点击「检测」按钮
+        mcp.click_inspect(local_name)
+        logged_in_page.wait_for_timeout(1500)
 
-    # 验证：应提示"仅支持远程"或类似错误反馈
-    # 优先检查 toast / dialog
-    dialog = logged_in_page.locator("[role='dialog']")
-    errors = mcp.get_validation_errors()
-    body_text = logged_in_page.locator("div.agent-panel-body").inner_text()
-    dialog_text = dialog.first.inner_text() if dialog.count() > 0 and dialog.first.is_visible() else ""
-    combined = " ".join(errors) + " " + body_text + " " + dialog_text
+        # 验证：应提示"仅支持远程"或类似错误反馈
+        # 优先检查 toast / dialog
+        dialog = logged_in_page.locator("[role='dialog']")
+        errors = mcp.get_validation_errors()
+        body_text = logged_in_page.locator("div.agent-panel-body").inner_text()
+        dialog_text = dialog.first.inner_text() if dialog.count() > 0 and dialog.first.is_visible() else ""
+        combined = " ".join(errors) + " " + body_text + " " + dialog_text
 
-    # 也检查控制台错误
-    console_combined = " ".join(console_errors)
+        # 也检查控制台错误
+        console_combined = " ".join(console_errors)
 
-    has_error_feedback = (
-        any(kw in combined for kw in ["失败", "错误", "不支持", "仅支持", "Error", "remote", "Inspect"])
-        or any(kw in console_combined for kw in ["Inspect only supports remote", "失败", "Error"])
-    )
-    assert has_error_feedback, (
-        f"本地服务器检测未提示不支持错误（页面片段: {combined[:80]}，控制台: {console_combined[:80]}）"
-    )
+        has_error_feedback = (
+            any(kw in combined for kw in ["失败", "错误", "不支持", "仅支持", "Error", "remote", "Inspect"])
+            or any(kw in console_combined for kw in ["Inspect only supports remote", "失败", "Error"])
+        )
+        assert has_error_feedback, (
+            f"本地服务器检测未提示不支持错误（页面片段: {combined[:80]}，控制台: {console_combined[:80]}）"
+        )
 
-    # 关闭可能的 dialog
-    if dialog.count() > 0 and dialog.first.is_visible():
-        close_btn = loc.close_button(dialog)
-        if close_btn.count() > 0:
-            close_btn.first.click()
-
-    # 清理
-    mcp.delete_server(local_name)
+        # 关闭可能的 dialog
+        if dialog.count() > 0 and dialog.first.is_visible():
+            close_btn = loc.close_button(dialog)
+            if close_btn.count() > 0:
+                close_btn.first.wait_for(state="visible", timeout=5000)
+                close_btn.first.click()
+    finally:
+        # 清理
+        if mcp.has_server(local_name):
+            mcp.delete_server(local_name)
 
 
 # === TC-MCP-010: 测试远程 MCP 服务器 URL ===
@@ -505,51 +578,54 @@ def test_remote_url(logged_in_page, base_url):
     _create_test_server(mcp, remote_name, "SSE", url=TEST_SSE_URL)
     assert mcp.has_server(remote_name), f"测试服务器 '{remote_name}' 创建失败"
 
-    # 拦截 toast 通知和控制台错误
-    console_errors = []
-    toast_texts = []
+    try:
+        # 拦截 toast 通知和控制台错误
+        console_errors = []
+        toast_texts = []
 
-    def on_console(msg):
-        if msg.type == "error":
-            console_errors.append(msg.text)
+        def on_console(msg):
+            if msg.type == "error":
+                console_errors.append(msg.text)
 
-    logged_in_page.on("console", on_console)
+        logged_in_page.on("console", on_console)
 
-    # 点击「检测」按钮
-    mcp.click_inspect(remote_name)
+        # 点击「检测」按钮
+        mcp.click_inspect(remote_name)
 
-    # 快速轮询抓取 toast（toast 自动消失，需要尽快捕获）
-    for _ in range(10):
-        logged_in_page.wait_for_timeout(500)
-        errors = mcp.get_validation_errors()
-        if errors:
-            toast_texts.extend(errors)
-            break
+        # 快速轮询抓取 toast（toast 自动消失，需要尽快捕获）
+        for _ in range(10):
+            logged_in_page.wait_for_timeout(500)
+            errors = mcp.get_validation_errors()
+            if errors:
+                toast_texts.extend(errors)
+                break
 
-    logged_in_page.wait_for_load_state("domcontentloaded", timeout=10000)
+        logged_in_page.wait_for_load_state("domcontentloaded", timeout=10000)
 
-    # 验证有反馈
-    dialog = logged_in_page.locator("[role='dialog']")
-    body_text = logged_in_page.locator("div.agent-panel-body").inner_text()
-    dialog_text = dialog.first.inner_text() if dialog.count() > 0 and dialog.first.is_visible() else ""
-    combined = " ".join(toast_texts) + " " + body_text + " " + dialog_text
-    console_combined = " ".join(console_errors)
+        # 验证有反馈
+        dialog = logged_in_page.locator("[role='dialog']")
+        body_text = logged_in_page.locator("div.agent-panel-body").inner_text()
+        dialog_text = dialog.first.inner_text() if dialog.count() > 0 and dialog.first.is_visible() else ""
+        combined = " ".join(toast_texts) + " " + body_text + " " + dialog_text
+        console_combined = " ".join(console_errors)
 
-    has_feedback = any(kw in combined for kw in ["成功", "失败", "错误", "超时", "Success", "Error", "Timeout", "工具", "tool", "SSE", "Unable"])
-    has_console_feedback = any(kw in console_combined for kw in ["SSE error", "Unable to connect", "Error", "error", "失败"])
-    assert has_feedback or has_console_feedback, (
-        f"测试远程 URL 后无任何反馈: has_feedback={has_feedback}, has_console_feedback={has_console_feedback}"
-        f"（页面片段: {combined[:80]}，控制台: {console_combined[:80]}）"
-    )
+        has_feedback = any(kw in combined for kw in ["成功", "失败", "错误", "超时", "Success", "Error", "Timeout", "工具", "tool", "SSE", "Unable"])
+        has_console_feedback = any(kw in console_combined for kw in ["SSE error", "Unable to connect", "Error", "error", "失败"])
+        assert has_feedback or has_console_feedback, (
+            f"测试远程 URL 后无任何反馈: has_feedback={has_feedback}, has_console_feedback={has_console_feedback}"
+            f"（页面片段: {combined[:80]}，控制台: {console_combined[:80]}）"
+        )
 
-    # 关闭可能的 dialog
-    if dialog.count() > 0 and dialog.first.is_visible():
-        close_btn = loc.close_button(dialog)
-        if close_btn.count() > 0:
-            close_btn.first.click()
-
-    # 清理
-    mcp.delete_server(remote_name)
+        # 关闭可能的 dialog
+        if dialog.count() > 0 and dialog.first.is_visible():
+            close_btn = loc.close_button(dialog)
+            if close_btn.count() > 0:
+                close_btn.first.wait_for(state="visible", timeout=5000)
+                close_btn.first.click()
+    finally:
+        # 清理
+        if mcp.has_server(remote_name):
+            mcp.delete_server(remote_name)
 
 
 # === TC-MCP-011: 查看 MCP 工具列表 ===
@@ -643,6 +719,7 @@ def test_view_tools(logged_in_page, base_url):
     if dialog.count() > 0 and dialog.first.is_visible():
         close_btn = loc.close_button(dialog)
         if close_btn.count() > 0:
+            close_btn.first.wait_for(state="visible", timeout=5000)
             close_btn.first.click()
 
 
@@ -691,6 +768,7 @@ def test_inspect_server(logged_in_page, base_url):
     if dialog.count() > 0 and dialog.first.is_visible():
         close_btn = loc.close_button(dialog)
         if close_btn.count() > 0:
+            close_btn.first.wait_for(state="visible", timeout=5000)
             close_btn.first.click()
 
 
@@ -746,27 +824,80 @@ def test_delete_sse_server(logged_in_page, base_url):
     assert mcp.get_server_count() < initial, "删除后数量未减少"
 
 
-# === TC-MCP-014: 公开的 MCP 可读不可改 ===
+# === TC-MCP-014: 共享的 MCP 只读 ===
 
 @allure.epic("MCP服务器")
 @pytest.mark.order(93)
 @pytest.mark.p0
 def test_public_mcp_readonly(logged_in_page, base_url):
-    """⏭️ 跳过（需多账号） | TC-MCP-014: 公开的 MCP 可读不可改"""
+    """共享 MCP 只读 — 验证共享服务器只有查看权限，无编辑/删除/禁用按钮"""
     mcp = McpServerPage(logged_in_page, base_url)
     mcp.goto()
 
-    # 查找有公开开关的服务器
-    public_switches = logged_in_page.locator("button[role='switch'][aria-label='公开']")
-    if public_switches.count() == 0:
-        pytest.skip("当前页面没有公开开关")
+    # 等待 MCP 列表加载
+    cards = mcp.get_server_rows()
+    if cards.count() == 0:
+        for _ in range(5):
+            logged_in_page.wait_for_timeout(1000)
+            cards = mcp.get_server_rows()
+            if cards.count() > 0:
+                break
+    if cards.count() == 0:
+        pytest.skip("MCP 列表为空")
 
-    # 验证列表可见
-    count = mcp.get_server_count()
-    assert count > 0, "MCP 列表为空"
+    # 查找共享 MCP（显示"共享"标记的服务器）
+    shared_cards = mcp.get_server_rows().filter(has_text="共享")
+    if shared_cards.count() == 0:
+        pytest.skip("当前环境没有共享的 MCP 服务器")
 
-    # 跨用户验证编辑/删除按钮禁用需要多账号
-    # TODO: 多账号环境下补充跨用户权限验证
+    shared_card = shared_cards.first
+
+    # 1. 验证显示"只读"标记
+    readonly_text = shared_card.locator("text=只读")
+    assert readonly_text.count() > 0, \
+        "共享 MCP 未显示'只读'标记"
+
+    # 2. 验证没有"编辑"按钮
+    edit_btn = shared_card.locator("button").filter(has_text="编辑")
+    assert edit_btn.count() == 0, \
+        "共享 MCP 不应有'编辑'按钮"
+
+    # 3. 验证没有"删除"按钮
+    delete_btn = shared_card.locator("button").filter(has_text="删除")
+    assert delete_btn.count() == 0, \
+        "共享 MCP 不应有'删除'按钮"
+
+    # 4. 验证没有"禁用/启用"按钮
+    disable_btn = shared_card.locator("button").filter(has_text="禁用")
+    enable_btn = shared_card.locator("button").filter(has_text="启用")
+    assert disable_btn.count() == 0 and enable_btn.count() == 0, \
+        "共享 MCP 不应有'禁用/启用'按钮"
+
+    # 5. 验证没有"公开"开关
+    public_switch = shared_card.locator("button[role='switch']")
+    assert public_switch.count() == 0, \
+        "共享 MCP 不应有'公开'开关"
+
+    # 6. 验证有"查看"按钮
+    view_btn = shared_card.locator("button").filter(has_text="查看")
+    assert view_btn.count() > 0, \
+        "共享 MCP 应有'查看'按钮"
+
+    # 7. 点击"查看"按钮，验证打开详情面板/对话框
+    view_btn.first.wait_for(state="visible", timeout=5000)
+    view_btn.first.click()
+    logged_in_page.wait_for_timeout(1500)
+
+    # 验证弹出了查看面板（dialog 或展开的详情区域）
+    dialog = logged_in_page.locator("[role='dialog']")
+    body_text = logged_in_page.locator("body").inner_text()
+    assert dialog.count() > 0 or "查看" in body_text, \
+        "点击'查看'后未打开详情面板"
+
+    # 关闭弹窗
+    if dialog.count() > 0 and dialog.first.is_visible():
+        logged_in_page.keyboard.press("Escape")
+        logged_in_page.wait_for_timeout(500)
 
 
 # === TC-MCP-015: MCP 公开按钮 ===
@@ -783,58 +914,59 @@ def test_mcp_make_public(logged_in_page, base_url):
     _create_test_server(mcp, pub_name, "Stdio", "echo hello")
     assert mcp.has_server(pub_name), f"测试服务器 '{pub_name}' 创建失败"
 
-    # 获取该服务器的公开开关
-    pub_switch = mcp.get_public_switch(pub_name)
-    if pub_switch.count() == 0:
-        mcp.delete_server(pub_name)
-        pytest.skip("该服务器没有公开开关")
+    try:
+        # 获取该服务器的公开开关
+        pub_switch = mcp.get_public_switch(pub_name)
+        if pub_switch.count() == 0:
+            pytest.skip("该服务器没有公开开关")
 
-    # 记录当前状态
-    was_public = pub_switch.first.get_attribute("aria-checked") == "true"
+        # 记录当前状态
+        was_public = pub_switch.first.get_attribute("aria-checked") == "true"
 
-    # 切换
-    pub_switch.first.click()
+        # 切换
+        pub_switch.first.wait_for(state="visible", timeout=5000)
+        pub_switch.first.click()
 
-    # 快速轮询抓取 toast（检查是否有错误）
-    toast_texts = []
-    for _ in range(6):
-        logged_in_page.wait_for_timeout(500)
-        errors = mcp.get_validation_errors()
-        if errors:
-            toast_texts.extend(errors)
-            break
+        # 快速轮询抓取 toast（检查是否有错误）
+        toast_texts = []
+        for _ in range(6):
+            logged_in_page.wait_for_timeout(500)
+            errors = mcp.get_validation_errors()
+            if errors:
+                toast_texts.extend(errors)
+                break
 
-    # 不应有错误 toast
-    error_toasts = [t for t in toast_texts if any(kw in t for kw in ["失败", "错误", "Error", "Fail"])]
-    assert not error_toasts, f"切换公开开关后出现错误: {error_toasts}"
+        # 不应有错误 toast
+        error_toasts = [t for t in toast_texts if any(kw in t for kw in ["失败", "错误", "Error", "Fail"])]
+        assert not error_toasts, f"切换公开开关后出现错误: {error_toasts}"
 
-    # 验证前端状态变化
-    now_public = pub_switch.first.get_attribute("aria-checked") == "true"
-    if now_public == was_public:
-        # 可能需要更长时间响应，再等一轮
-        logged_in_page.wait_for_timeout(2000)
+        # 验证前端状态变化
         now_public = pub_switch.first.get_attribute("aria-checked") == "true"
-    if now_public == was_public:
-        # 产品问题：开关不响应点击，跳过后续验证
-        mcp.delete_server(pub_name)
-        pytest.skip(f"公开开关点击后状态未变化 ({was_public}→{now_public})，可能为产品 bug")
+        if now_public == was_public:
+            # 可能需要更长时间响应，再等一轮
+            logged_in_page.wait_for_timeout(2000)
+            now_public = pub_switch.first.get_attribute("aria-checked") == "true"
+        if now_public == was_public:
+            pytest.skip(f"公开开关点击后状态未变化 ({was_public}→{now_public})，可能为产品 bug")
 
-    # 刷新页面验证持久化
-    mcp.goto()
-    assert mcp.has_server(pub_name), "刷新后服务器消失"
-    refreshed_switch = mcp.get_public_switch(pub_name)
-    if refreshed_switch.count() > 0:
-        persisted = refreshed_switch.first.get_attribute("aria-checked") == "true"
-        assert persisted == now_public, \
-            f"公开状态未持久化: 切换后={now_public}, 刷新后={persisted}"
+        # 刷新页面验证持久化
+        mcp.goto()
+        assert mcp.has_server(pub_name), "刷新后服务器消失"
+        refreshed_switch = mcp.get_public_switch(pub_name)
+        if refreshed_switch.count() > 0:
+            persisted = refreshed_switch.first.get_attribute("aria-checked") == "true"
+            assert persisted == now_public, \
+                f"公开状态未持久化: 切换后={now_public}, 刷新后={persisted}"
 
-    # 切回原状态
-    if refreshed_switch.count() > 0:
-        refreshed_switch.first.click()
-        logged_in_page.wait_for_timeout(800)
-
-    # 清理
-    mcp.delete_server(pub_name)
+        # 切回原状态
+        if refreshed_switch.count() > 0:
+            refreshed_switch.first.wait_for(state="visible", timeout=5000)
+            refreshed_switch.first.click()
+            logged_in_page.wait_for_timeout(800)
+    finally:
+        # 清理
+        if mcp.has_server(pub_name):
+            mcp.delete_server(pub_name)
 
 
 # === TC-MCP-015b: SSE MCP 公开按钮 ===
@@ -851,58 +983,58 @@ def test_sse_mcp_make_public(logged_in_page, base_url):
     _create_test_server(mcp, pub_sse_name, "SSE", url=TEST_SSE_URL)
     assert mcp.has_server(pub_sse_name), f"测试服务器 '{pub_sse_name}' 创建失败"
 
-    # 获取该服务器的公开开关
-    pub_switch = mcp.get_public_switch(pub_sse_name)
-    if pub_switch.count() == 0:
-        mcp.delete_server(pub_sse_name)
-        pytest.skip("该服务器没有公开开关")
+    try:
+        # 获取该服务器的公开开关
+        pub_switch = mcp.get_public_switch(pub_sse_name)
+        if pub_switch.count() == 0:
+            pytest.skip("该服务器没有公开开关")
 
-    # 记录当前状态
-    was_public = pub_switch.first.get_attribute("aria-checked") == "true"
+        # 记录当前状态
+        was_public = pub_switch.first.get_attribute("aria-checked") == "true"
 
-    # 切换
-    pub_switch.first.click()
+        # 切换
+        pub_switch.first.wait_for(state="visible", timeout=5000)
+        pub_switch.first.click()
 
-    # 快速轮询抓取 toast（检查是否有错误）
-    toast_texts = []
-    for _ in range(6):
-        logged_in_page.wait_for_timeout(500)
-        errors = mcp.get_validation_errors()
-        if errors:
-            toast_texts.extend(errors)
-            break
+        # 快速轮询抓取 toast（检查是否有错误）
+        toast_texts = []
+        for _ in range(6):
+            logged_in_page.wait_for_timeout(500)
+            errors = mcp.get_validation_errors()
+            if errors:
+                toast_texts.extend(errors)
+                break
 
-    # 不应有错误 toast
-    error_toasts = [t for t in toast_texts if any(kw in t for kw in ["失败", "错误", "Error", "Fail"])]
-    assert not error_toasts, f"切换公开开关后出现错误: {error_toasts}"
+        # 不应有错误 toast
+        error_toasts = [t for t in toast_texts if any(kw in t for kw in ["失败", "错误", "Error", "Fail"])]
+        assert not error_toasts, f"切换公开开关后出现错误: {error_toasts}"
 
-    # 验证前端状态变化
-    now_public = pub_switch.first.get_attribute("aria-checked") == "true"
-    if now_public == was_public:
-        # 可能需要更长时间响应，再等一轮
-        logged_in_page.wait_for_timeout(2000)
+        # 验证前端状态变化
         now_public = pub_switch.first.get_attribute("aria-checked") == "true"
-    if now_public == was_public:
-        # 产品问题：开关不响应点击，跳过后续验证
-        mcp.delete_server(pub_name)
-        pytest.skip(f"公开开关点击后状态未变化 ({was_public}→{now_public})，可能为产品 bug")
+        if now_public == was_public:
+            logged_in_page.wait_for_timeout(2000)
+            now_public = pub_switch.first.get_attribute("aria-checked") == "true"
+        if now_public == was_public:
+            pytest.skip(f"公开开关点击后状态未变化 ({was_public}→{now_public})，可能为产品 bug")
 
-    # 刷新页面验证持久化
-    mcp.goto()
-    assert mcp.has_server(pub_sse_name), "刷新后服务器消失"
-    refreshed_switch = mcp.get_public_switch(pub_sse_name)
-    if refreshed_switch.count() > 0:
-        persisted = refreshed_switch.first.get_attribute("aria-checked") == "true"
-        assert persisted == now_public, \
-            f"公开状态未持久化: 切换后={now_public}, 刷新后={persisted}"
+        # 刷新页面验证持久化
+        mcp.goto()
+        assert mcp.has_server(pub_sse_name), "刷新后服务器消失"
+        refreshed_switch = mcp.get_public_switch(pub_sse_name)
+        if refreshed_switch.count() > 0:
+            persisted = refreshed_switch.first.get_attribute("aria-checked") == "true"
+            assert persisted == now_public, \
+                f"公开状态未持久化: 切换后={now_public}, 刷新后={persisted}"
 
-    # 切回原状态
-    if refreshed_switch.count() > 0:
-        refreshed_switch.first.click()
-        logged_in_page.wait_for_timeout(800)
-
-    # 清理
-    mcp.delete_server(pub_sse_name)
+        # 切回原状态
+        if refreshed_switch.count() > 0:
+            refreshed_switch.first.wait_for(state="visible", timeout=5000)
+            refreshed_switch.first.click()
+            logged_in_page.wait_for_timeout(800)
+    finally:
+        # 清理
+        if mcp.has_server(pub_sse_name):
+            mcp.delete_server(pub_sse_name)
 
 
 # === TC-MCP-016: MCP CRUD API 验证 ===
@@ -961,6 +1093,7 @@ def test_mcp_api_validation(logged_in_page, base_url):
     mcp.open_create_dialog()
     dialog = logged_in_page.locator("[role='dialog']")
     name_input = dialog.locator("input[name='name']").or_(dialog.locator("input").first)
+    name_input.first.wait_for(state="visible", timeout=5000)
     name_input.first.fill("INVALID_NAME!!")
     mcp.save()
 
@@ -1162,6 +1295,7 @@ def test_mcp_api_tools(logged_in_page, base_url):
     if dialog.count() > 0 and dialog.first.is_visible():
         close_btn = loc.close_button(dialog)
         if close_btn.count() > 0:
+            close_btn.first.wait_for(state="visible", timeout=5000)
             close_btn.first.click()
 
 

@@ -32,10 +32,8 @@ class TestWorkspaceOpenAPI:
             logging.getLogger("cleanup").warning(f"Cleanup failed: {e}")
         return None
 
-    def test_upload_to_nonexistent_environment(self, api_client, api_test_config):
+    def test_upload_to_nonexistent_environment(self, api_client, _openapi_access):
         """上传到不存在的环境：应返回 404"""
-        if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
-            pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
 
         # 构造 multipart 请求
         files = {"files": ("test.txt", io.BytesIO(b"hello"), "text/plain")}
@@ -45,10 +43,8 @@ class TestWorkspaceOpenAPI:
                 files=files,
             ).raise_for_status()
 
-    def test_upload_without_files(self, api_client, api_test_config):
+    def test_upload_without_files(self, api_client, _openapi_access):
         """上传不含 files 字段：应返回 400"""
-        if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
-            pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
 
         # 使用假 env_id 验证缺少 files 字段时的服务端处理
         with pytest.raises(httpx.HTTPStatusError, match=r"(400|404)"):

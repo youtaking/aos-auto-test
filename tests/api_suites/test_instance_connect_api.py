@@ -28,18 +28,14 @@ class TestInstanceConnectOpenAPI:
             return None
         return resp["items"][0]["id"]
 
-    def test_connect_nonexistent_agent(self, api_client, api_test_config):
+    def test_connect_nonexistent_agent(self, api_client, _openapi_access):
         """连接不存在的 Agent：应返回 404"""
-        if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
-            pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
 
         with pytest.raises(httpx.HTTPStatusError, match=r"(404|400|500)"):
             api_client.connect_instance("nonexistent-agent-id-99999")
 
-    def test_connect_agent_without_machine(self, api_client, api_test_config):
+    def test_connect_agent_without_machine(self, api_client, _openapi_access):
         """连接无 machine 配置的 Agent：可能返回 404 或 500"""
-        if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
-            pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
 
         agent_id = self._get_first_agent_id(api_client)
         if agent_id is None:

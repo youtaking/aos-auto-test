@@ -101,20 +101,61 @@ class ChatTestPage:
                     # 第三次也失败：检查是否卡在 "Agent 未连接" 状态
                     connecting = self.page.locator(".agent-welcome-empty, [class*='connecting']")
                     if connecting.count() > 0:
-                        # 点击"重连"按钮恢复 WebSocket 连接
+                        # 第一层：点击"重连"按钮
                         reconnect_btn = self.page.locator(
                             "div.agent-welcome-empty button"
                         )
                         if reconnect_btn.count() > 0:
                             reconnect_btn.first.click()
+                            self.page.wait_for_timeout(5000)
+                            if self.page.locator("textarea").count() > 0:
+                                self._collapse_artifacts_if_open()
+                                return
+
+                        # 间隔等待，让连接充分恢复
+                        self.page.wait_for_timeout(3000)
+
+                        # 第二层：再点击 agent 卡片重新连接
+                        card2 = self.page.locator("button.agent-sidebar-agent-card").filter(has_text=agent_name)
+                        if card2.count() > 0:
+                            card2.first.click()
+                            try:
+                                self.page.locator("textarea").first.wait_for(
+                                    state="visible", timeout=10000
+                                )
+                                self._collapse_artifacts_if_open()
+                                return
+                            except Exception:
+                                pass
+
+                        # 间隔等待
+                        self.page.wait_for_timeout(3000)
+
+                        # 第三层：跳回 home 再重新进入
                         try:
-                            self.page.locator("textarea").first.wait_for(
-                                state="visible", timeout=20000
+                            self.page.goto(
+                                f"{self.base_url}/ctrl/agent/home",
+                                wait_until="domcontentloaded"
                             )
-                            self._collapse_artifacts_if_open()
-                            return
                         except Exception:
                             pass
+                        self.page.wait_for_load_state("domcontentloaded")
+                        self.page.wait_for_timeout(3000)
+                        for _w in range(5):
+                            if self.page.locator("button.agent-sidebar-agent-card").count() > 0:
+                                break
+                            self.page.wait_for_timeout(1000)
+                        card3 = self.page.locator("button.agent-sidebar-agent-card").filter(has_text=agent_name)
+                        if card3.count() > 0:
+                            card3.first.click()
+                            try:
+                                self.page.locator("textarea").first.wait_for(
+                                    state="visible", timeout=20000
+                                )
+                                self._collapse_artifacts_if_open()
+                                return
+                            except Exception:
+                                pass
         # 最终回退
         self.page.wait_for_timeout(2000)
 
@@ -520,6 +561,342 @@ class ChatTestPage:
         """是否有文件错误提示"""
         error = self.page.locator("[role='alert'], p.text-red-500, p.text-destructive")
         return error.count() > 0
+
+    # === 文件树操作 ===
+
+    def get_file_tree_item(self, file_name: str):
+        """获取文件树中的指定文件项"""
+        return self.page.locator(
+            f"div[role='treeitem'][data-node-id='{file_name}']"
+        )
+
+    def has_file_in_tree(self, file_name: str) -> bool:
+        """检查文件是否在文件树中"""
+        item = self.get_file_tree_item(file_name)
+        return item.count() > 0
+
+    def wait_for_file_in_tree(self, file_name: str, timeout_ms: int = 10000) -> bool:
+        """等待文件出现在文件树中"""
+        for _ in range(timeout_ms // 800):
+            if self.has_file_in_tree(file_name):
+                return True
+            self.page.wait_for_timeout(800)
+        return self.has_file_in_tree(file_name)
+
+    def delete_file(self, file_name: str) -> bool:
+        """删除文件树中的文件
+
+        操作流程：hover 文件项 → 点击删除按钮 → 确认对话框 → 点击确认
+
+        Returns:
+            True 如果删除成功，False 如果文件不存在或删除失败
+        """
+        file_item = self.get_file_tree_item(file_name)
+        if file_item.count() == 0:
+            return False
+
+        # hover 文件项以显示操作按钮
+        file_item.first.scroll_into_view_if_needed()
+        file_item.first.hover()
+        self.page.wait_for_timeout(300)
+
+        # 找到删除按钮（文件项内的第二个 button，有 hover:text-status-error 样式）
+        # 使用 CSS 选择器精确定位：文件项内 actions 区域的最后一个按钮
+        delete_btn = file_item.first.locator("button").last
+        delete_btn.wait_for(state="visible", timeout=3000)
+        delete_btn.click()
+
+        # 等待确认对话框出现
+        confirm_dialog = self.page.locator("div[role='alertdialog']")
+        confirm_dialog.wait_for(state="visible", timeout=5000)
+
+        # 点击确认删除按钮
+        confirm_btn = confirm_dialog.locator("button").filter(has_text="删除").last
+        confirm_btn.wait_for(state="visible", timeout=3000)
+        confirm_btn.click()
+
+        # 等待对话框关闭
+        confirm_dialog.wait_for(state="hidden", timeout=5000)
+
+        # 等待文件从树中消失
+        for _ in range(10):
+            if not self.has_file_in_tree(file_name):
+                return True
+            self.page.wait_for_timeout(500)
+
+        return not self.has_file_in_tree(file_name)
+
+    def get_all_files_in_tree(self) -> list[str]:
+        """获取文件树中所有文件的名称列表"""
+        items = self.page.locator("div[role='treeitem'][data-node-id]")
+        count = items.count()
+        names = []
+        for i in range(count):
+            node_id = items.nth(i).get_attribute("data-node-id")
+            if node_id:
+                names.append(node_id)
+        return names
+
+    # === 模型操作 ===
+
+    def get_current_model_name(self) -> str:
+        """获取当前选中模型名称（从 composer meta 区域的 span[title] 读取）"""
+        composer_meta = self.page.locator("div.chat-composer-meta")
+        if composer_meta.count() == 0:
+            return ""
+        model_span = composer_meta.locator("span[title]")
+        if model_span.count() == 0:
+            return ""
+        return (model_span.first.get_attribute("title")
+                or model_span.first.inner_text().strip())
+
+    def open_model_selector(self) -> bool:
+        """打开模型选择器下拉列表，返回是否成功"""
+        composer_meta = self.page.locator("div.chat-composer-meta")
+        if composer_meta.count() == 0:
+            return False
+        model_span = composer_meta.locator("span[title]").first
+        if model_span.count() == 0:
+            return False
+        model_span.click()
+        self.page.wait_for_timeout(800)
+        return True
+
+    def get_model_options(self) -> list[str]:
+        """获取模型选择器下拉选项列表（需要先调用 open_model_selector）"""
+        # 常见的下拉容器选择器
+        options = self.page.locator(
+            "div[role='listbox'] [role='option'], "
+            "div[role='menu'] [role='menuitem'], "
+            "div[data-radix-select-content] [role='option']"
+        )
+        result = []
+        for i in range(options.count()):
+            text = options.nth(i).inner_text(timeout=2000).strip()
+            if text:
+                result.append(text)
+        return result
+
+    def select_model(self, model_name: str) -> bool:
+        """在已打开的模型选择器中选择指定模型"""
+        option = self.page.locator(
+            f"[role='option'], [role='menuitem']"
+        ).filter(has_text=model_name)
+        if option.count() > 0:
+            option.first.click()
+            self.page.wait_for_timeout(500)
+            return True
+        return False
+
+    def close_model_selector(self):
+        """关闭模型选择器（按 Escape）"""
+        self.page.keyboard.press("Escape")
+        self.page.wait_for_timeout(300)
+
+    # === Slash 命令 / @ 引用 ===
+
+    def type_slash_command(self) -> bool:
+        """在输入框输入 / 触发命令候选列表"""
+        textarea = self.page.locator("textarea").first
+        textarea.click()
+        textarea.fill("")
+        textarea.press_sequentially("/", delay=50)
+        self.page.wait_for_timeout(800)
+        return True
+
+    def has_slash_popup(self) -> bool:
+        """是否有 Slash 命令候选列表弹出"""
+        popup = self.page.locator(
+            "div[role='listbox'], div[role='menu'], "
+            "div[data-slot='command-list'], div[class*='slash']"
+        )
+        if popup.count() == 0:
+            return False
+        return popup.first.is_visible()
+
+    def type_at_reference(self) -> bool:
+        """在输入框输入 @ 触发文件引用候选列表"""
+        textarea = self.page.locator("textarea").first
+        textarea.click()
+        textarea.fill("")
+        textarea.press_sequentially("@", delay=50)
+        self.page.wait_for_timeout(800)
+        return True
+
+    def has_at_popup(self) -> bool:
+        """是否有 @ 文件引用候选列表弹出"""
+        popup = self.page.locator(
+            "div[role='listbox'], div[role='menu'], "
+            "div[data-slot='mention-list'], div[class*='mention']"
+        )
+        if popup.count() == 0:
+            return False
+        return popup.first.is_visible()
+
+    # === 工具栏按钮 ===
+
+    def click_skill_button(self):
+        """点击输入框左侧"技能"按钮"""
+        btn = self.page.get_by_role("button", name="技能")
+        if btn.count() > 0:
+            btn.first.click(force=True)
+            self.page.wait_for_timeout(800)
+
+    def click_file_button(self):
+        """点击输入框左侧"文件"按钮"""
+        btn = self.page.get_by_role("button", name="文件")
+        # 排除 Artifacts 面板中的"文件"Tab
+        input_area = self.page.locator("textarea").locator("xpath=../../..")
+        file_btns = input_area.locator("button").filter(has_text="文件")
+        if file_btns.count() > 0:
+            file_btns.first.click(force=True)
+            self.page.wait_for_timeout(800)
+        elif btn.count() > 0:
+            btn.first.click(force=True)
+            self.page.wait_for_timeout(800)
+
+    def has_popup_or_panel(self) -> bool:
+        """点击工具栏按钮后是否弹出了面板/列表"""
+        popup = self.page.locator(
+            "div[role='dialog'], div[role='listbox'], div[role='menu'], "
+            "div[data-slot='popover'], div[class*='popover']"
+        )
+        if popup.count() > 0:
+            return popup.first.is_visible()
+        return False
+
+    # === Artifacts 面板 Tabs ===
+
+    def click_artifacts_tab(self, tab_name: str):
+        """点击 Artifacts 面板中的 Tab（文件/站点/定时任务/发布视图）"""
+        tab = self.page.get_by_role("button", name=tab_name)
+        if tab.count() > 0:
+            tab.first.click(force=True)
+            self.page.wait_for_timeout(800)
+
+    def is_artifacts_tab_active(self, tab_name: str) -> bool:
+        """检查指定 Artifacts Tab 是否处于活跃状态"""
+        tab = self.page.get_by_role("button", name=tab_name)
+        if tab.count() == 0:
+            return False
+        # 检查 aria-selected 或 active 样式
+        selected = tab.first.get_attribute("aria-selected")
+        if selected == "true":
+            return True
+        # 回退：检查 data-state="active"
+        state = tab.first.get_attribute("data-state")
+        return state == "active"
+
+    def has_file_tree(self) -> bool:
+        """Artifacts 文件 Tab 中是否有文件树"""
+        tree = self.page.locator("div[role='tree']")
+        return tree.count() > 0 and tree.first.is_visible()
+
+    def has_scheduled_tasks_content(self) -> bool:
+        """定时任务 Tab 是否有内容（列表或空状态提示）"""
+        # 检查是否有定时任务相关的文本
+        body = self.page.locator("body").inner_text()
+        return "定时任务" in body or "暂无" in body or "创建" in body
+
+    # === 空状态 / 加载状态 ===
+
+    def has_empty_state(self) -> bool:
+        """新会话是否显示空状态（"开始对话"标题）"""
+        heading = self.page.get_by_role("heading", name="开始对话")
+        return heading.count() > 0 and heading.first.is_visible()
+
+    def has_hint_text(self) -> bool:
+        """是否有输入提示文字（Enter 发送，Shift+Enter 换行）"""
+        body = self.page.locator("body").inner_text()
+        return "Enter 发送" in body and "Shift+Enter" in body
+
+    def has_loading_spinner(self) -> bool:
+        """是否有加载中的 Spinner 或骨架屏"""
+        spinner = self.page.locator(
+            "[role='progressbar'], div.animate-spin, "
+            "[data-slot='spinner'], div[class*='connecting']"
+        )
+        return spinner.count() > 0
+
+    def has_reconnect_button(self) -> bool:
+        """是否有手动重连按钮"""
+        btn = self.page.locator(
+            "div.agent-welcome-empty button, "
+            "button:has-text('重新连接'), button:has-text('重连')"
+        )
+        return btn.count() > 0
+
+    # === Token 用量 ===
+
+    def get_token_usage_text(self) -> str:
+        """获取消息区域中的 Token 用量文本"""
+        log_area = self.page.locator("div[role='log']")
+        if log_area.count() == 0:
+            return ""
+        # Token 用量通常在最后一条消息的底部
+        text = log_area.first.inner_text()
+        # 查找包含 "token" 或 "tokens" 的行
+        for line in text.split("\n"):
+            line_lower = line.lower().strip()
+            if "token" in line_lower and any(c.isdigit() for c in line):
+                return line.strip()
+        return ""
+
+    def has_token_display(self) -> bool:
+        """消息区域是否显示 Token 用量信息"""
+        token_text = self.get_token_usage_text()
+        if token_text:
+            return True
+        # 回退：检查 DOM 中是否有 token 相关的元素
+        token_el = self.page.locator(
+            "[class*='token'], [data-slot*='token'], "
+            "span:has-text('tokens'), span:has-text('Tokens')"
+        )
+        return token_el.count() > 0
+
+    # === 侧边栏折叠/展开 ===
+
+    def collapse_sidebar(self) -> bool:
+        """折叠左侧侧边栏"""
+        collapse_btn = self.page.locator(
+            "button[title*='收起'], button[aria-label*='收起']"
+        )
+        if collapse_btn.count() > 0:
+            collapse_btn.first.click()
+            self.page.wait_for_timeout(800)
+            return True
+        return False
+
+    def expand_sidebar(self) -> bool:
+        """展开左侧侧边栏"""
+        expand_btn = self.page.locator(
+            "button[title*='展开'], button[aria-label*='展开'], "
+            "button.agent-sidebar-toggle"
+        )
+        if expand_btn.count() > 0:
+            expand_btn.first.click()
+            self.page.wait_for_timeout(800)
+            return True
+        return False
+
+    def is_sidebar_expanded(self) -> bool:
+        """左侧侧边栏是否处于展开状态"""
+        sidebar = self.page.locator("aside.agent-sidebar")
+        if sidebar.count() == 0:
+            return False
+        return sidebar.first.is_visible()
+
+    # === Action Error Banner ===
+
+    def has_action_error_banner(self) -> bool:
+        """是否有 Action Error 错误 Banner（排除 toast/notification 等非错误元素）"""
+        banner = self.page.locator(
+            "div[class*='error-banner'], div[class*='transient-error'], "
+            "div[class*='action-error'], div[class*='chat-error']"
+        )
+        if banner.count() > 0:
+            return banner.first.is_visible()
+        return False
 
     # === 刷新 ===
 

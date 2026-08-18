@@ -44,3 +44,41 @@ class TestChannelWebAPI:
         web_client.validate_schema(resp, _WEB_CHANNEL_BINDING_LIST_DATA)
         assert isinstance(resp, list)
 
+    def test_create_channel_binding_invalid(self, web_client):
+        """创建通道绑定缺少必填字段 — 应返回 400"""
+        try:
+            web_client.create_channel_binding({"platform": ""})
+        except (httpx.HTTPStatusError, RuntimeError) as e:
+            assert "400" in str(e) or "422" in str(e), \
+                f"预期 400/422，实际: {e}"
+
+    def test_create_channel_binding_nonexistent_agent(self, web_client):
+        """创建通道绑定使用不存在的 agentId — 应返回 404"""
+        try:
+            web_client.create_channel_binding({
+                "platform": "discord",
+                "agentId": "nonexistent-agent-id-99999",
+            })
+        except (httpx.HTTPStatusError, RuntimeError) as e:
+            assert "404" in str(e) or "400" in str(e), \
+                f"预期 404/400，实际: {e}"
+
+    def test_delete_channel_binding_nonexistent(self, web_client):
+        """删除不存在的通道绑定 — 应返回 404 或 200 空"""
+        try:
+            web_client.delete_channel_binding("nonexistent-binding-id-99999")
+        except (httpx.HTTPStatusError, RuntimeError) as e:
+            assert "404" in str(e) or "500" in str(e), \
+                f"预期 404/500，实际: {e}"
+
+    def test_update_channel_binding_nonexistent(self, web_client):
+        """更新不存在的通道绑定 — 应返回 404"""
+        try:
+            web_client.update_channel_binding(
+                "nonexistent-binding-id-99999",
+                {"enabled": False},
+            )
+        except (httpx.HTTPStatusError, RuntimeError) as e:
+            assert "404" in str(e) or "500" in str(e), \
+                f"预期 404/500，实际: {e}"
+

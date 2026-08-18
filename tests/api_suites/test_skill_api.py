@@ -163,19 +163,15 @@ class TestSkillOpenAPI:
     - 创建使用 multipart/form-data（此处仅测试 list/get/delete）
     """
 
-    def test_list_skills(self, api_client, api_test_config):
+    def test_list_skills(self, api_client, _openapi_access):
         """获取 Skill 列表：返回分页结构"""
-        if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
-            pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
 
         resp = api_client.list_skills()
         api_client.validate_schema(resp, API_SKILL_LIST_RESPONSE)
         assert isinstance(resp["items"], list)
 
-    def test_get_skill(self, api_client, api_test_config):
+    def test_get_skill(self, api_client, _openapi_access):
         """获取单个 Skill 详情：先拿列表取第一个 ID，再查详情"""
-        if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
-            pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
 
         list_resp = api_client.list_skills()
         if len(list_resp["items"]) == 0:
@@ -186,18 +182,14 @@ class TestSkillOpenAPI:
         api_client.validate_schema(resp, API_SKILL_DETAIL_RESPONSE)
         assert resp["id"] == skill_id
 
-    def test_get_nonexistent_skill(self, api_client, api_test_config):
+    def test_get_nonexistent_skill(self, api_client, _openapi_access):
         """获取不存在的 Skill：应返回 404"""
-        if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
-            pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
 
         with pytest.raises(httpx.HTTPStatusError, match=r"(404|500)"):
             api_client.get_skill("nonexistent-skill-id-99999")
 
-    def test_list_skills_pagination_page2(self, api_client, api_test_config):
+    def test_list_skills_pagination_page2(self, api_client, _openapi_access):
         """验证获取 Skill 第 2 页数据，不与第 1 页重复"""
-        if api_test_config["fenixagent"]["api_key"] == "test-api-key-placeholder":
-            pytest.skip("API Key 未配置，跳过 OpenAPI 测试")
 
         page1 = api_client.list_skills({"page": 1, "pageSize": 1})
         if page1["total"] <= 1:

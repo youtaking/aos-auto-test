@@ -29,11 +29,16 @@ class OrgPage:
                 pass
             if self.page.locator("div.agent-panel-content").count() > 0:
                 break
-            self.page.wait_for_timeout(3000)
+            try:
+                self.page.wait_for_load_state("networkidle", timeout=5000)
+            except Exception:
+                pass
+            self.page.wait_for_timeout(500)
         # 降级：侧边栏 SPA 导航
         if self.page.locator("div.agent-panel-content").count() == 0:
             nav_btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="组织")
             if nav_btn.count() > 0:
+                nav_btn.first.wait_for(state="visible", timeout=5000)
                 nav_btn.first.click()
                 try:
                     self.page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
@@ -49,6 +54,7 @@ class OrgPage:
     def goto_via_sidebar(self):
         """通过侧边栏按钮导航"""
         btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="组织")
+        btn.first.wait_for(state="visible", timeout=5000)
         btn.first.click()
         self.page.wait_for_load_state("domcontentloaded")
 
@@ -90,6 +96,7 @@ class OrgPage:
         body = self.page.locator("div.agent-panel-body")
         btn = body.locator("button").filter(has_text=name)
         if btn.count() > 0:
+            btn.first.wait_for(state="visible", timeout=5000)
             btn.first.click()
             self.page.wait_for_timeout(1000)
 
@@ -110,7 +117,9 @@ class OrgPage:
 
     def click_create_org(self):
         body = self.page.locator("div.agent-panel-body").first
-        body.get_by_role("button", name="创建组织").click()
+        btn = body.get_by_role("button", name="创建组织")
+        btn.wait_for(state="visible", timeout=5000)
+        btn.click()
         self.page.wait_for_timeout(1000)
 
     def has_create_button(self) -> bool:
@@ -134,29 +143,36 @@ class OrgPage:
         dialog = self.page.locator("[role=dialog]")
         inp = dialog.locator(f"input[placeholder*='{placeholder}']")
         if inp.count() > 0:
+            inp.first.wait_for(state="visible", timeout=5000)
             inp.first.fill(value)
         else:
             # 尝试不带 placeholder 的 input
             inputs = dialog.locator("input[type=text]")
             if inputs.count() > 0:
+                inputs.first.wait_for(state="visible", timeout=5000)
                 inputs.first.fill(value)
 
     def submit_dialog(self):
         dialog = self.page.locator("[role=dialog]")
-        loc.save_or_submit_button(dialog).or_(
+        btn = loc.save_or_submit_button(dialog).or_(
             dialog.get_by_role("button", name="确认")
-        ).first.click()
+        ).first
+        btn.wait_for(state="visible", timeout=5000)
+        btn.click()
         self.page.wait_for_timeout(1000)
 
     def cancel_dialog(self):
         dialog = self.page.locator("[role=dialog]")
-        dialog.get_by_role("button", name="取消").click()
+        btn = dialog.get_by_role("button", name="取消")
+        btn.wait_for(state="visible", timeout=5000)
+        btn.click()
         self.page.wait_for_timeout(500)
 
     def close_dialog(self):
         dialog = self.page.locator("[role=dialog]")
         close_btn = dialog.locator("button").filter(has_text="Close")
         if close_btn.count() > 0:
+            close_btn.first.wait_for(state="visible", timeout=5000)
             close_btn.first.click()
         else:
             self.page.keyboard.press("Escape")
@@ -184,7 +200,9 @@ class OrgPage:
 
     def click_edit(self):
         body = self.page.locator("div.agent-panel-body").first
-        body.get_by_role("button", name="编辑").click()
+        btn = body.get_by_role("button", name="编辑")
+        btn.wait_for(state="visible", timeout=5000)
+        btn.click()
         self.page.wait_for_timeout(1000)
 
     # ==================== 成员管理 ====================
@@ -207,7 +225,9 @@ class OrgPage:
 
     def click_add_member(self):
         body = self.page.locator("div.agent-panel-body").first
-        body.get_by_role("button", name="添加成员").click()
+        btn = body.get_by_role("button", name="添加成员")
+        btn.wait_for(state="visible", timeout=5000)
+        btn.click()
         self.page.wait_for_timeout(1000)
 
     # ==================== 危险区域 ====================
@@ -218,7 +238,9 @@ class OrgPage:
 
     def click_delete_org(self):
         body = self.page.locator("div.agent-panel-body").first
-        body.get_by_role("button", name="删除组织").click()
+        btn = body.get_by_role("button", name="删除组织")
+        btn.wait_for(state="visible", timeout=5000)
+        btn.click()
         self.page.wait_for_timeout(1000)
 
     def has_danger_zone(self) -> bool:
@@ -239,12 +261,16 @@ class OrgPage:
 
     def confirm_alert(self):
         dialog = self.page.locator("[role=alertdialog]")
-        loc.confirm_button(dialog).first.click()
+        btn = loc.confirm_button(dialog).first
+        btn.wait_for(state="visible", timeout=5000)
+        btn.click()
         self.page.wait_for_timeout(1000)
 
     def cancel_alert(self):
         dialog = self.page.locator("[role=alertdialog]")
-        dialog.get_by_role("button", name="取消").click()
+        btn = dialog.get_by_role("button", name="取消")
+        btn.wait_for(state="visible", timeout=5000)
+        btn.click()
         self.page.wait_for_timeout(500)
 
     # ==================== API 拦截 ====================

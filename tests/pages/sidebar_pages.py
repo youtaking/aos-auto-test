@@ -27,7 +27,11 @@ class WorkflowPage:
                 pass
             if self.is_loaded():
                 break
-            self.page.wait_for_timeout(3000)
+            try:
+                self.page.wait_for_load_state("networkidle", timeout=5000)
+            except Exception:
+                pass
+            self.page.wait_for_timeout(500)
         # 降级：侧边栏 SPA 导航
         if not self.is_loaded():
             nav_btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="智能体编排")
@@ -98,7 +102,11 @@ class MemoryPage:
                 pass
             if self.is_loaded():
                 break
-            self.page.wait_for_timeout(3000)
+            try:
+                self.page.wait_for_load_state("networkidle", timeout=5000)
+            except Exception:
+                pass
+            self.page.wait_for_timeout(500)
         # 降级：侧边栏 SPA 导航
         if not self.is_loaded():
             nav_btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="记忆")
@@ -168,7 +176,11 @@ class KnowledgeBasePage:
                 pass
             if self.is_loaded():
                 break
-            self.page.wait_for_timeout(3000)
+            try:
+                self.page.wait_for_load_state("networkidle", timeout=5000)
+            except Exception:
+                pass
+            self.page.wait_for_timeout(500)
         # 降级：侧边栏 SPA 导航
         if not self.is_loaded():
             nav_btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="知识库")
@@ -231,7 +243,11 @@ class TasksPage:
                 pass
             if self.is_loaded():
                 break
-            self.page.wait_for_timeout(3000)
+            try:
+                self.page.wait_for_load_state("networkidle", timeout=5000)
+            except Exception:
+                pass
+            self.page.wait_for_timeout(500)
 
     def is_loaded(self) -> bool:
         return "/ctrl/agent/tasks" in self.page.url and \
@@ -305,7 +321,11 @@ class OrganizationPage:
                 pass
             if self.is_loaded():
                 break
-            self.page.wait_for_timeout(3000)
+            try:
+                self.page.wait_for_load_state("networkidle", timeout=5000)
+            except Exception:
+                pass
+            self.page.wait_for_timeout(500)
         # 降级：侧边栏 SPA 导航
         if not self.is_loaded():
             nav_btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="组织")
@@ -363,7 +383,11 @@ class ApiKeyPage:
                 pass
             if self.is_loaded():
                 break
-            self.page.wait_for_timeout(3000)
+            try:
+                self.page.wait_for_load_state("networkidle", timeout=5000)
+            except Exception:
+                pass
+            self.page.wait_for_timeout(500)
         # 降级：侧边栏 SPA 导航
         if not self.is_loaded():
             nav_btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="API Key")

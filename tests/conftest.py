@@ -338,6 +338,14 @@ def _page_error_monitor(request):
             # 白名单：MCP 检测远程服务器连接失败的已知错误（假 URL）
             if "SSE error" in msg.text or "Unable to connect" in msg.text:
                 return
+            # 白名单：文件服务不可用（workspace 文件服务 503，环境限制）
+            if "file_service_unavailable" in msg.text or "文件服务不可用" in msg.text:
+                warnings.append(f"[console.error] {msg.text}")
+                return
+            # 白名单：文件树 revalidate 失败（文件服务 503 级联）
+            if "Failed to revalidate file tree" in msg.text or "Tree revalidate failed" in msg.text:
+                warnings.append(f"[console.error] {msg.text}")
+                return
             # 白名单：浏览器原生的 500/503 资源加载失败（测试用假 URL 或 workspace 服务不可用）
             if "Failed to load resource" in msg.text and ("500" in msg.text or "503" in msg.text):
                 return
@@ -373,6 +381,22 @@ def _page_error_monitor(request):
             if "并发上限" in msg.text:
                 warnings.append(f"[console.error] {msg.text}")
                 return
+            # 白名单：429 限流控制台日志
+            if "RATE_LIMITED" in msg.text or "Too many requests" in msg.text:
+                warnings.append(f"[console.error] {msg.text}")
+                return
+            # 白名单：浏览器级 429 资源加载失败
+            if "Failed to load resource" in msg.text and "429" in msg.text:
+                warnings.append(f"[console.error] {msg.text}")
+                return
+            # 白名单：429 限流导致的 JS 异常（ApiError 级联）
+            if "ApiError" in msg.text and "Too many requests" in msg.text:
+                warnings.append(f"[console.error] {msg.text}")
+                return
+            # 白名单：429 限流导致的前端网络异常（rate limit 拦截后 fetch 报网络错误）
+            if "网络异常" in msg.text and "[request]" in msg.text:
+                warnings.append(f"[console.error] {msg.text}")
+                return
             # 白名单：Failed to enter instance（并发限制导致环境无法进入）
             if "Failed to enter instance" in msg.text:
                 warnings.append(f"[console.error] {msg.text}")
@@ -389,6 +413,10 @@ def _page_error_monitor(request):
 
     def on_response(response):
         if response.status >= 400:
+            # 白名单：429 限流（后台轮询消耗配额，非测试代码问题）
+            if response.status == 429:
+                warnings.append(f"[API 429] {response.request.method} {response.url}")
+                return
             # 白名单：已知的非关键接口错误
             if "web/organizations" in response.url:
                 return
@@ -448,6 +476,10 @@ def _page_error_monitor(request):
         err_text = str(error)
         # 非致命：并发限制引发的 JS 异常，记为警告
         if "并发上限" in err_text or "WebSocket not connected" in err_text:
+            warnings.append(f"[JS] {err_text}")
+            return
+        # 非致命：429 限流引发的 JS 异常级联
+        if "Too many requests" in err_text or "RATE_LIMITED" in err_text:
             warnings.append(f"[JS] {err_text}")
             return
         # 非致命：React 路由/查询分组瞬态错误，记为警告

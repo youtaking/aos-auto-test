@@ -152,6 +152,7 @@ def test_artifacts_panel_with_bound_site(logged_in_page, base_url):
     styles = ["简约风", "清新风", "科技感", "文艺风", "极简风"]
     colors = ["蓝色", "绿色", "暖色调", "渐变色", "黑白配色"]
     msg = f"生成一个简单的个人主页，{random.choice(styles)}，主色调{random.choice(colors)}"
+    textarea.first.wait_for(state="visible", timeout=5000)
     textarea.first.fill(msg)
     textarea.first.press("Enter")
 
@@ -167,6 +168,7 @@ def test_artifacts_panel_with_bound_site(logged_in_page, base_url):
     # 2. 点击「查看站点」按钮，打开右侧预览
     view_btn = logged_in_page.get_by_role("button", name="查看站点")
     assert view_btn.count() > 0, "未找到「查看站点」按钮"
+    view_btn.first.wait_for(state="visible", timeout=5000)
     view_btn.first.click()
 
     # 3. 验证 iframe 预览区出现且 src 指向站点部署地址

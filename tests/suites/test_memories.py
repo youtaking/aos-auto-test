@@ -117,6 +117,7 @@ def test_memories_search_filter(logged_in_page, base_url, env_check):
             initial_count = int(match.group(1))
 
         first_name = cards.first.inner_text().strip()
+        search.first.wait_for(state="visible", timeout=5000)
         search.first.fill(first_name)
         logged_in_page.wait_for_timeout(500)
 
@@ -127,6 +128,7 @@ def test_memories_search_filter(logged_in_page, base_url, env_check):
                 f"搜索 '{first_name}' 后数量未变化（仍为 {initial_count}）"
 
         # 清空搜索，恢复
+        search.first.wait_for(state="visible", timeout=5000)
         search.first.fill("")
         logged_in_page.wait_for_timeout(500)
         restored = logged_in_page.locator("h3.truncate").count()
@@ -134,10 +136,12 @@ def test_memories_search_filter(logged_in_page, base_url, env_check):
             f"清空搜索后卡片数 {restored}，预期 {initial_count}"
     else:
         # 无数据：验证搜索框可交互
+        search.first.wait_for(state="visible", timeout=5000)
         search.first.fill("test")
         logged_in_page.wait_for_timeout(500)
         assert logged_in_page.locator("h3.truncate").count() == 0, \
             "无数据时搜索后不应出现卡片"
+        search.first.wait_for(state="visible", timeout=5000)
         search.first.fill("")
         logged_in_page.wait_for_timeout(500)
 
@@ -167,6 +171,7 @@ def test_memories_graph_visualization(logged_in_page, base_url, env_check):
         logged_in_page.get_by_role("button", name="星座图")
     )
     if graph_btn.count() > 0:
+        graph_btn.first.wait_for(state="visible", timeout=5000)
         graph_btn.first.click()
         logged_in_page.wait_for_timeout(1500)
 
@@ -202,6 +207,7 @@ def test_memories_detail_modal(logged_in_page, base_url, env_check):
         return  # 无数据，空状态验证通过
 
     # 点击第一个记忆项
+    items.first.wait_for(state="visible", timeout=5000)
     items.first.click()
     logged_in_page.wait_for_timeout(800)
 
@@ -222,6 +228,7 @@ def test_memories_detail_modal(logged_in_page, base_url, env_check):
             dialog.get_by_role("button", name="Close")
         )
         if close_btn.count() > 0:
+            close_btn.first.wait_for(state="visible", timeout=5000)
             close_btn.first.click()
     elif detail_panel.count() > 0:
         detail_text = detail_panel.first.inner_text()

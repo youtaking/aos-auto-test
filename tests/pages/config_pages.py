@@ -27,7 +27,11 @@ class ModelsPage:
                 pass
             if self.is_loaded():
                 break
-            self.page.wait_for_timeout(3000)
+            try:
+                self.page.wait_for_load_state("networkidle", timeout=5000)
+            except Exception:
+                pass
+            self.page.wait_for_timeout(500)
         # 降级：侧边栏 SPA 导航
         if not self.is_loaded():
             nav_btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="模型库")
@@ -101,15 +105,19 @@ class SkillsPage:
                 pass
             if self.is_loaded():
                 break
-            self.page.wait_for_timeout(3000)
+            try:
+                self.page.wait_for_load_state("networkidle", timeout=5000)
+            except Exception:
+                pass
+            self.page.wait_for_timeout(500)
 
     def is_loaded(self) -> bool:
         return "/ctrl/agent/skills" in self.page.url and \
             self.page.locator(self._READY_SELECTOR).count() > 0
 
     def get_skill_count(self) -> int:
-        """获取技能列表项数量（通过技能卡片容器计数）"""
-        cards = self.page.locator("div.group.relative")
+        """获取技能列表项数量（通过技能卡片容器计数，排除侧边栏智能体卡片）"""
+        cards = self.page.locator("div.group.relative:not(.agent-sidebar-agent)")
         if cards.count() > 0:
             return cards.count()
         # fallback：搜索框存在说明页面已加载，用 API 返回数量
@@ -150,8 +158,8 @@ class SkillsPage:
             self.page.wait_for_timeout(500)
 
     def get_visible_skill_cards(self) -> int:
-        """获取当前可见的技能卡片数量（搜索过滤后，仅计可见元素）"""
-        cards = self.page.locator("div.group.relative:visible")
+        """获取当前可见的技能卡片数量（搜索过滤后，仅计可见元素，排除侧边栏）"""
+        cards = self.page.locator("div.group.relative:not(.agent-sidebar-agent):visible")
         if cards.count() > 0:
             return cards.count()
         return 0
@@ -192,7 +200,11 @@ class McpPage:
                 pass
             if self.is_loaded():
                 break
-            self.page.wait_for_timeout(3000)
+            try:
+                self.page.wait_for_load_state("networkidle", timeout=5000)
+            except Exception:
+                pass
+            self.page.wait_for_timeout(500)
         # 降级：侧边栏 SPA 导航
         if not self.is_loaded():
             nav_btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="MCP")
@@ -252,7 +264,11 @@ class SitesPage:
                 pass
             if self.is_loaded():
                 break
-            self.page.wait_for_timeout(3000)
+            try:
+                self.page.wait_for_load_state("networkidle", timeout=5000)
+            except Exception:
+                pass
+            self.page.wait_for_timeout(500)
         # 降级：侧边栏 SPA 导航
         if not self.is_loaded():
             nav_btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="AOS应用部署")

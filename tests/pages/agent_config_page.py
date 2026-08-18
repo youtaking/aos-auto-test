@@ -18,6 +18,7 @@ class AgentConfigPage:
         # SPA 导航优先（sidebar 测试已验证可靠），避免全页面刷新后 router 初始化问题
         nav_btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="智能体管理")
         if nav_btn.count() > 0:
+            nav_btn.first.wait_for(state="visible", timeout=5000)
             nav_btn.first.click()
             try:
                 self.page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
@@ -38,7 +39,11 @@ class AgentConfigPage:
                 pass
             if "/ctrl/agent/agents" in self.page.url and self.page.locator("div.agent-panel-content").count() > 0:
                 break
-            self.page.wait_for_timeout(3000)
+            try:
+                self.page.wait_for_load_state("networkidle", timeout=5000)
+            except Exception:
+                pass
+            self.page.wait_for_timeout(500)
 
     def goto_create(self):
         """导航到新建智能体页面（直接 URL 导航，不依赖侧边栏按钮）"""
@@ -70,6 +75,7 @@ class AgentConfigPage:
         if self.page.locator("textarea").count() == 0:
             nav_btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="新建智能体")
             if nav_btn.count() > 0:
+                nav_btn.first.wait_for(state="visible", timeout=5000)
                 nav_btn.first.click()
                 try:
                     self.page.locator("textarea").first.wait_for(state="visible", timeout=10000)
@@ -165,6 +171,7 @@ class AgentConfigPage:
         card = self.wait_for_agent_card(name, retries)
         if card.count() > 0:
             # force=True 避免被 hover 操作按钮遮挡
+            card.first.wait_for(state="visible", timeout=5000)
             card.first.click(force=True)
             # 等待 SPA 路由跳转完成
             try:
@@ -181,6 +188,7 @@ class AgentConfigPage:
         """在主内容区点击智能体卡片"""
         badge = self.page.locator(f"div.agent-badge[data-badge-name='{name}']")
         if badge.count() > 0:
+            badge.first.wait_for(state="visible", timeout=5000)
             badge.first.click()
             self.page.wait_for_timeout(1000)
             return True
@@ -194,6 +202,7 @@ class AgentConfigPage:
     def fill_create_description(self, desc: str):
         ta = self.get_create_textarea()
         if ta.count() > 0:
+            ta.first.wait_for(state="visible", timeout=5000)
             ta.first.fill(desc)
             self.page.wait_for_timeout(500)
 
@@ -234,6 +243,7 @@ class AgentConfigPage:
         pills = self.page.locator("button.agent-home-template-pill")
         for i in range(pills.count()):
             if pills.nth(i).inner_text().startswith(name):
+                pills.nth(i).wait_for(state="visible", timeout=5000)
                 pills.nth(i).click()
                 self.page.wait_for_timeout(1000)
                 return True
@@ -268,6 +278,7 @@ class AgentConfigPage:
         self.fill_create_description(desc)
         quick_btn = self.get_quick_create_button()
         quick_btn.scroll_into_view_if_needed()
+        quick_btn.wait_for(state="visible", timeout=5000)
         quick_btn.click()
 
         # 等待 AI 生成表单出现
@@ -283,6 +294,7 @@ class AgentConfigPage:
 
         # 替换 System Prompt（包括清空）
         sp_ta = self.page.locator("textarea").first
+        sp_ta.wait_for(state="visible", timeout=5000)
         sp_ta.fill(system_prompt)  # fill("") 会清空 textarea
         self.page.wait_for_timeout(300)
 
@@ -295,6 +307,7 @@ class AgentConfigPage:
 
         # 点击创建
         create_btn.scroll_into_view_if_needed()
+        create_btn.wait_for(state="visible", timeout=5000)
         create_btn.click()
 
         # 等待跳转
@@ -332,6 +345,7 @@ class AgentConfigPage:
                     "button:has(svg.lucide-x)"
                 )
                 if btns.count() > 0:
+                    btns.first.wait_for(state="visible", timeout=5000)
                     btns.first.click()
                     self.page.wait_for_timeout(200)
 
@@ -354,11 +368,13 @@ class AgentConfigPage:
             # 回退：直接找包含当前模型文本的 button
             select_trigger = model_label.locator("..").locator("button").first
         select_trigger.scroll_into_view_if_needed()
+        select_trigger.wait_for(state="visible", timeout=5000)
         select_trigger.click()
         self.page.wait_for_timeout(500)
         # 在下拉面板中选择目标模型
         option = self.page.locator("[role='option']").filter(has_text=target_label)
         if option.count() > 0:
+            option.first.wait_for(state="visible", timeout=5000)
             option.first.click()
             self.page.wait_for_timeout(300)
             print(f"  [select_model] 已选择模型: {target_label}")
@@ -381,6 +397,7 @@ class AgentConfigPage:
     def send_message(self, text: str):
         ta = self.page.locator("textarea[placeholder*='发送']")
         if ta.count() > 0:
+            ta.first.wait_for(state="visible", timeout=5000)
             ta.first.fill(text)
             ta.first.press("Enter")
             self.page.wait_for_load_state("domcontentloaded")
@@ -407,6 +424,7 @@ class AgentConfigPage:
         )
         agent_wrapper.hover()
         config_btn = agent_wrapper.locator('button[title="智能体配置"]')
+        config_btn.wait_for(state="visible", timeout=5000)
         config_btn.click()
         modal = self.page.locator("div.absolute.inset-0.z-50")
         modal.wait_for(state="visible", timeout=10000)
@@ -446,6 +464,7 @@ class AgentConfigPage:
         if select_trigger.count() == 0:
             select_trigger = model_label.locator("..").locator("button").first
         select_trigger.scroll_into_view_if_needed()
+        select_trigger.wait_for(state="visible", timeout=5000)
         select_trigger.click()
         self.page.wait_for_timeout(500)
 
@@ -457,6 +476,7 @@ class AgentConfigPage:
             self.page.keyboard.press("Escape")
             return False
 
+        option.first.wait_for(state="visible", timeout=5000)
         option.first.click()
         self.page.wait_for_timeout(300)
         print(f"  [change_model] 已选择模型: {target_model_label}")
@@ -467,6 +487,7 @@ class AgentConfigPage:
             print("  [change_model] 未找到保存按钮")
             self.page.keyboard.press("Escape")
             return False
+        save_btn.first.wait_for(state="visible", timeout=5000)
         save_btn.first.click()
         self.page.wait_for_timeout(1500)
 
@@ -475,6 +496,7 @@ class AgentConfigPage:
         if restart_dialog.count() > 0 and restart_dialog.first.is_visible():
             restart_btn = restart_dialog.get_by_role("button", name="重启")
             if restart_btn.count() > 0:
+                restart_btn.first.wait_for(state="visible", timeout=5000)
                 restart_btn.first.click()
                 self.page.wait_for_timeout(3000)
                 print("  [change_model] 已点击重启")
@@ -482,6 +504,7 @@ class AgentConfigPage:
                 # 找不到重启按钮，点击"稍后"
                 later_btn = restart_dialog.get_by_role("button", name="稍后")
                 if later_btn.count() > 0:
+                    later_btn.first.wait_for(state="visible", timeout=5000)
                     later_btn.first.click()
                     self.page.wait_for_timeout(1000)
                 print("  [change_model] 点击稍后重启")
@@ -499,6 +522,7 @@ class AgentConfigPage:
         if card.count() > 0:
             card.first.scroll_into_view_if_needed()
             self.page.wait_for_timeout(300)
+            card.first.wait_for(state="visible", timeout=5000)
             card.first.click()
 
         # 轮询等待聊天输入框稳定可见（重启后 WebSocket 重连需要时间，最多 40s）
@@ -515,6 +539,7 @@ class AgentConfigPage:
             if reconnect_area.count() > 0 and reconnect_area.first.is_visible():
                 reconnect_btn = reconnect_area.locator("button")
                 if reconnect_btn.count() > 0 and reconnect_btn.first.is_visible():
+                    reconnect_btn.first.wait_for(state="visible", timeout=5000)
                     reconnect_btn.first.click()
                     self.page.wait_for_timeout(2000)
                     continue

@@ -4,6 +4,7 @@
 使用已有 WorkflowPage from sidebar_pages
 """
 import json
+import re
 import uuid
 import pytest
 import allure
@@ -115,8 +116,8 @@ class TestWorkflow:
         # 如果页面返回 404（路由未注册），跳过而非失败
         if "404" in text and "页面未找到" in text:
             pytest.skip("工作流页面返回 404，路由可能未注册")
-        assert count > 0 or "暂无" in text or "空" in text or "workflow" in text.lower() or len(text) > 50, \
-            "工作流列表无数据且无空状态提示"
+        assert count > 0 or "暂无" in text or "空" in text or "workflow" in text.lower(), \
+            f"工作流列表无数据且无空状态提示 (count={count}, text片段={text[:80]})"
 
     # === 创建工作流 ===
 
@@ -205,8 +206,8 @@ class TestWorkflow:
             nodes = logged_in_page.locator(
                 ".react-flow__node, [data-slot='flow-node']"
             )
-            assert has_add_ui or nodes.count() >= 0, \
-                "编辑器中无节点相关 UI"
+            assert has_add_ui or nodes.count() > 0, \
+                f"编辑器中无节点相关 UI: has_add_ui={has_add_ui}, nodes={nodes.count()}"
         finally:
             if created:
                 _delete_workflow_api(logged_in_page, base_url, wf_id)
@@ -238,7 +239,11 @@ class TestWorkflow:
                     state="visible", timeout=15000
                 )
             except Exception:
-                logged_in_page.wait_for_timeout(3000)
+                try:
+                    logged_in_page.wait_for_load_state("networkidle", timeout=5000)
+                except Exception:
+                    pass
+                logged_in_page.wait_for_timeout(1000)
             # 查找保存/草稿按钮
             save_btn = logged_in_page.get_by_role("button", name="保存").or_(
                 logged_in_page.get_by_role("button", name="保存草稿")
@@ -289,37 +294,151 @@ class TestWorkflow:
 
     @pytest.mark.order(77)
     @pytest.mark.p1
-    def test_workflow_versions(self, logged_in_page, base_url):
-        """TC-WF-008: 工作流版本管理 — 版本 API 可访问"""
-        wf_id, created = _get_or_create_workflow(logged_in_page, base_url)
+    @allure.epic("工作流")
+    def test_workflow_versions(self, logged_in_page, base_url, request):
+        """TC-WF-008: 工作流版本管理 — 版本列表、版本详情查看、恢复到草稿全流程"""
+        # Step 1: 创建工作流（自创建自清理）
+        wf_name = f"e2e-wf-ver-{_PREFIX}"
+        wf = _create_workflow_api(logged_in_page, base_url, name=wf_name)
+        wf_id = wf.get("id")
         if not wf_id:
-            pytest.skip("无法获取或创建工作流 ID")
+            pytest.skip("无法创建工作流用于版本管理测试")
+
         try:
-            # 通过 API 验证版本端点可访问
-            r = logged_in_page.request.get(
-                f"{base_url}/web/workflow-defs/{wf_id}/versions"
+            # Step 2: 通过 API 发布一个版本，确保版本历史有数据
+            publish_resp = logged_in_page.request.post(
+                f"{base_url}/web/workflow-defs/{wf_id}/publish"
             )
-            assert r.status < 400 or r.status == 404, \
-                f"版本 API 返回异常状态码: {r.status}"
-            # 或通过 UI 查看版本 tab
+            if publish_resp.status >= 400:
+                pytest.skip(f"发布工作流版本失败: HTTP {publish_resp.status}")
+
+            # 等待发布完成
+            logged_in_page.wait_for_timeout(1000)
+
+            # Step 3: 导航到版本历史页面
             try:
-                logged_in_page.goto(f"{base_url}/ctrl/agent/workflow/{wf_id}/edit", wait_until="domcontentloaded")
+                logged_in_page.goto(
+                    f"{base_url}/ctrl/agent/workflow/{wf_id}/versions",
+                    wait_until="domcontentloaded"
+                )
             except Exception:
                 pass  # SPA 路由可能中断初始导航
+
             logged_in_page.wait_for_load_state("domcontentloaded")
+
+            # 等待版本页面加载完成
             try:
-                logged_in_page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+                logged_in_page.locator("div.agent-panel-content").first.wait_for(
+                    state="attached", timeout=10000
+                )
             except Exception:
                 pass
-            version_link = logged_in_page.get_by_role("link", name="版本").or_(
-                logged_in_page.locator("button").filter(has_text="版本")
+
+            # 验证 URL 正确
+            assert "/workflow/" in logged_in_page.url and "/versions" in logged_in_page.url, \
+                f"未跳转到版本历史页: {logged_in_page.url}"
+
+            # Step 4: 等待版本列表加载（检查是否有版本卡片或空状态）
+            logged_in_page.wait_for_timeout(1500)  # 等待 API 响应
+
+            # 检查是否有"暂无发布版本"的空状态提示
+            empty_state = logged_in_page.get_by_text("暂无发布版本")
+            if empty_state.count() > 0 and empty_state.first.is_visible():
+                pytest.skip("版本列表为空，发布可能未成功")
+
+            # Step 5: 验证版本卡片存在
+            # 版本标签文本格式为 "v{number}"，用正则精确匹配避免误匹配
+            version_label = logged_in_page.get_by_text(re.compile(r'^v\d+$')).first
+            version_label.wait_for(state="visible", timeout=8000)
+            assert version_label.count() > 0, "版本列表中未找到版本卡片"
+            version_text = version_label.inner_text()
+            assert version_text.startswith("v"), f"版本标签格式异常: {version_text}"
+
+            # Step 6: 验证"latest"标记存在（最新发布版本应有此标记）
+            latest_badge = logged_in_page.get_by_text("latest")
+            assert latest_badge.count() > 0, "最新版本未显示 'latest' 标记"
+
+            # Step 7: 点击版本卡片查看 YAML 详情
+            # 版本标签的父元素是带 cursor-pointer 的 header 行，点击可展开 YAML
+            version_header = version_label.locator("xpath=..")
+            version_header.wait_for(state="visible", timeout=5000)
+            version_header.click()
+            logged_in_page.wait_for_timeout(1000)
+
+            # 验证 YAML 详情面板展开（应有 <pre> 标签显示 YAML 内容）
+            yaml_panel = logged_in_page.locator("pre")
+            yaml_panel.wait_for(state="visible", timeout=5000)
+            assert yaml_panel.count() > 0, "点击版本后 YAML 详情面板未展开"
+
+            yaml_content = yaml_panel.first.inner_text()
+            assert len(yaml_content) > 0, "版本 YAML 内容为空"
+
+            # Step 8: 再次点击收起 YAML 面板
+            version_header.click()
+            logged_in_page.wait_for_timeout(500)
+
+            # Step 9: 找到"恢复到草稿"按钮并点击
+            restore_btn = logged_in_page.get_by_role("button", name="恢复到草稿")
+            restore_btn.wait_for(state="visible", timeout=5000)
+            assert restore_btn.count() > 0, "未找到'恢复到草稿'按钮"
+
+            restore_btn.first.click()
+            logged_in_page.wait_for_timeout(800)
+
+            # Step 10: 验证确认对话框弹出
+            dialog = logged_in_page.locator("[role='alertdialog']")
+            dialog.wait_for(state="visible", timeout=5000)
+            assert dialog.count() > 0, "恢复到草稿确认对话框未弹出"
+
+            # 验证对话框内容包含确认提示
+            dialog_text = dialog.first.inner_text()
+            assert "恢复到草稿" in dialog_text or "v1" in dialog_text, \
+                f"确认对话框内容异常: {dialog_text[:100]}"
+
+            # Step 11: 点击"确认"按钮执行恢复
+            confirm_btn = dialog.get_by_role("button", name="确认")
+            confirm_btn.wait_for(state="visible", timeout=3000)
+            confirm_btn.click()
+
+            # Step 12: 等待恢复操作完成并验证成功提示（toast）
+            logged_in_page.wait_for_timeout(1500)
+
+            # 检查 toast 成功消息："已恢复到草稿"
+            toast_success = logged_in_page.get_by_text("已恢复到草稿")
+            try:
+                toast_success.wait_for(state="visible", timeout=5000)
+                assert toast_success.count() > 0, "恢复成功后未显示 toast 提示"
+            except Exception:
+                # toast 可能消失较快，检查是否有错误提示
+                toast_error = logged_in_page.get_by_text("恢复失败")
+                if toast_error.count() > 0 and toast_error.first.is_visible():
+                    pytest.fail("恢复到草稿操作失败")
+                # 如果既无成功也无错误提示，可能是 toast 已消失，继续验证
+
+            # Step 13: 通过 API 验证草稿确实被更新（获取工作流详情检查 draftYaml）
+            verify_resp = logged_in_page.request.get(
+                f"{base_url}/web/workflow-defs/{wf_id}"
             )
-            # 版本 UI 存在或 API 可访问均可
-            assert version_link.count() > 0 or r.status < 500, \
-                "版本管理功能不可用"
+            if verify_resp.status == 200:
+                wf_data = verify_resp.json().get("data", {})
+                # 草稿应该存在（恢复后草稿被覆盖为版本内容）
+                assert wf_data.get("draftYaml") is not None or wf_data.get("id") == wf_id, \
+                    "恢复后工作流草稿状态异常"
+
+            # Step 14: 刷新版本页面，验证版本列表仍然正常显示
+            refresh_btn = logged_in_page.get_by_role("button", name="刷新")
+            if refresh_btn.count() > 0:
+                refresh_btn.wait_for(state="visible", timeout=3000)
+                refresh_btn.click()
+                logged_in_page.wait_for_timeout(1000)
+
+                # 验证版本列表仍然可见
+                version_label_after = logged_in_page.get_by_text(re.compile(r'^v\d+$')).first
+                assert version_label_after.count() > 0, "刷新后版本列表未显示"
+
         finally:
-            if created:
-                _delete_workflow_api(logged_in_page, base_url, wf_id)
+            # 自清理：删除创建的工作流
+            _delete_workflow_api(logged_in_page, base_url, wf_id)
 
     # === 运行执行 ===
 
@@ -381,33 +500,202 @@ class TestWorkflow:
     @pytest.mark.order(80)
     @pytest.mark.p1
     def test_workflow_triggers_crud(self, logged_in_page, base_url):
-        """TC-WF-011: 工作流触发器 — 触发器 API 或 UI 可访问"""
+        """TC-WF-011: 工作流触发器 — Webhook/Cron 触发器创建、列表、删除全流程
+
+        测试策略：
+        1. 通过 API 创建 Webhook 触发器并验证
+        2. 尝试通过 API 创建 Cron 触发器（如不支持则跳过）
+        3. 验证触发器列表包含已创建的触发器
+        4. 检查 UI 触发器入口（触发器按钮已从 toolbar 移除，Sheet 组件保留）
+        5. 清理所有创建的触发器
+        """
         wf_id, created = _get_or_create_workflow(logged_in_page, base_url)
         if not wf_id:
             pytest.skip("无法获取或创建工作流 ID")
+
+        # 记录本测试创建的触发器 ID，用于清理
+        created_trigger_ids: list[str] = []
+
         try:
-            # 通过 API 验证触发器端点
+            # ── Step 1: 验证触发器 API 端点可访问 ──
             r = logged_in_page.request.get(
                 f"{base_url}/web/workflow-defs/{wf_id}/triggers"
             )
-            assert r.status < 500, \
-                f"触发器 API 返回异常状态码: {r.status}"
-            # 通过 UI 查看触发器
+            if r.status >= 500:
+                pytest.skip(f"触发器 API 不可用: HTTP {r.status}")
+            if r.status == 404:
+                pytest.skip("触发器 API 路由未注册 (404)")
+
+            # 记录初始触发器数量
+            initial_body = r.json()
+            initial_triggers = initial_body.get("data", [])
+            initial_count = len(initial_triggers) if isinstance(initial_triggers, list) else 0
+
+            # ── Step 2: 通过 API 创建 Webhook 触发器 ──
+            webhook_resp = logged_in_page.request.post(
+                f"{base_url}/web/workflow-defs/{wf_id}/triggers",
+                data=json.dumps({"type": "webhook"}),
+                headers={"Content-Type": "application/json"},
+            )
+            if webhook_resp.status >= 400:
+                pytest.skip(f"创建 Webhook 触发器失败: HTTP {webhook_resp.status}")
+
+            webhook_body = webhook_resp.json()
+            webhook_trigger = webhook_body.get("data", {})
+            webhook_id = webhook_trigger.get("id")
+            assert webhook_id, "创建 Webhook 触发器成功但未返回 ID"
+            created_trigger_ids.append(webhook_id)
+
+            # 验证触发器字段
+            assert webhook_trigger.get("type") == "webhook", \
+                f"触发器类型不匹配: 期望 webhook, 实际 {webhook_trigger.get('type')}"
+            assert webhook_trigger.get("enabled") is True, \
+                "新创建的触发器应默认启用"
+            assert webhook_trigger.get("workflowId") == wf_id, \
+                "触发器 workflowId 与工作流 ID 不匹配"
+
+            # ── Step 3: 尝试创建 Cron 触发器 ──
+            cron_supported = False
+            cron_trigger_id = None
+            cron_resp = logged_in_page.request.post(
+                f"{base_url}/web/workflow-defs/{wf_id}/triggers",
+                data=json.dumps({"type": "cron", "config": {"schedule": "0 * * * *"}}),
+                headers={"Content-Type": "application/json"},
+            )
+            if cron_resp.status < 400:
+                cron_body = cron_resp.json()
+                cron_trigger = cron_body.get("data", {})
+                cron_trigger_id = cron_trigger.get("id")
+                if cron_trigger_id:
+                    cron_supported = True
+                    created_trigger_ids.append(cron_trigger_id)
+            # Cron 不支持不算失败，仅记录
+
+            # ── Step 4: 验证触发器列表 ──
+            list_resp = logged_in_page.request.get(
+                f"{base_url}/web/workflow-defs/{wf_id}/triggers"
+            )
+            assert list_resp.status == 200, \
+                f"获取触发器列表失败: HTTP {list_resp.status}"
+
+            list_body = list_resp.json()
+            current_triggers = list_body.get("data", [])
+            assert isinstance(current_triggers, list), "触发器列表格式异常"
+
+            # 至少有刚创建的 webhook 触发器
+            current_count = len(current_triggers)
+            expected_min = initial_count + 1  # 至少有 webhook
+            if cron_supported:
+                expected_min += 1
+            assert current_count >= expected_min, \
+                f"触发器数量不足: 期望至少 {expected_min}, 实际 {current_count}"
+
+            # 验证 webhook 触发器在列表中
+            ids_in_list = [t.get("id") for t in current_triggers]
+            assert webhook_id in ids_in_list, \
+                f"Webhook 触发器 {webhook_id} 未出现在列表中"
+
+            if cron_supported and cron_trigger_id:
+                assert cron_trigger_id in ids_in_list, \
+                    f"Cron 触发器 {cron_trigger_id} 未出现在列表中"
+
+            # ── Step 5: 检查 UI 触发器入口 ──
             try:
-                logged_in_page.goto(f"{base_url}/ctrl/agent/workflow/{wf_id}/edit", wait_until="domcontentloaded")
+                logged_in_page.goto(
+                    f"{base_url}/ctrl/agent/workflow/{wf_id}/edit",
+                    wait_until="domcontentloaded",
+                )
             except Exception:
                 pass  # SPA 路由可能中断初始导航
             logged_in_page.wait_for_load_state("domcontentloaded")
             try:
-                logged_in_page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+                logged_in_page.locator("div.agent-panel-content").first.wait_for(
+                    state="attached", timeout=8000
+                )
             except Exception:
                 pass
-            trigger_ui = loc.button_by_name_or_title(logged_in_page, "触发器").or_(
-                logged_in_page.locator('[role="tab"]').filter(has_text="触发器")
+
+            # 等待编辑器加载完成
+            try:
+                logged_in_page.locator(".react-flow").first.wait_for(
+                    state="visible", timeout=15000
+                )
+            except Exception:
+                logged_in_page.wait_for_timeout(2000)
+
+            # 查找触发器 UI 入口（按钮或 Tab）
+            trigger_btn = loc.button_by_name_or_title(logged_in_page, "触发器").or_(
+                logged_in_page.get_by_role("tab", name="触发器")
             )
-            assert trigger_ui.count() > 0 or r.status < 400, \
-                "触发器功能不可用"
+            has_trigger_ui = trigger_btn.count() > 0
+
+            if has_trigger_ui:
+                # UI 入口存在：点击打开触发器面板
+                trigger_btn.first.wait_for(state="visible", timeout=5000)
+                trigger_btn.first.click()
+                logged_in_page.wait_for_timeout(1500)
+
+                # 验证触发器 Sheet/面板出现
+                trigger_panel = logged_in_page.get_by_text("Webhook 触发器").or_(
+                    logged_in_page.get_by_text("Webhook Triggers")
+                )
+                assert trigger_panel.count() > 0, \
+                    "点击触发器按钮后，触发器面板未打开"
+
+                # 在面板中查找"创建 Webhook"按钮
+                create_btn = logged_in_page.get_by_role("button", name="创建 Webhook").or_(
+                    logged_in_page.get_by_role("button", name="Create Webhook")
+                )
+                if create_btn.count() > 0:
+                    create_btn.first.wait_for(state="visible", timeout=5000)
+                    create_btn.first.click()
+                    logged_in_page.wait_for_timeout(2000)
+
+                    # 验证新触发器被创建（列表刷新）
+                    list_resp2 = logged_in_page.request.get(
+                        f"{base_url}/web/workflow-defs/{wf_id}/triggers"
+                    )
+                    if list_resp2.status == 200:
+                        new_triggers = list_resp2.json().get("data", [])
+                        assert len(new_triggers) > current_count, \
+                            "通过 UI 创建触发器后，数量未增加"
+                        # 记录新创建的触发器 ID 用于清理
+                        new_ids = {t.get("id") for t in new_triggers} - set(ids_in_list)
+                        created_trigger_ids.extend(new_ids)
+
+                # 关闭触发器面板
+                logged_in_page.keyboard.press("Escape")
+                logged_in_page.wait_for_timeout(500)
+            # 如果 UI 入口不存在，API 测试已覆盖核心功能，不做 skip
+
+            # ── Step 6: 删除单个触发器验证 ──
+            del_resp = logged_in_page.request.delete(
+                f"{base_url}/web/workflow-defs/{wf_id}/triggers/{webhook_id}"
+            )
+            assert del_resp.status < 400, \
+                f"删除 Webhook 触发器失败: HTTP {del_resp.status}"
+            created_trigger_ids.remove(webhook_id)
+
+            # 验证删除后列表中不再包含该触发器
+            list_resp3 = logged_in_page.request.get(
+                f"{base_url}/web/workflow-defs/{wf_id}/triggers"
+            )
+            if list_resp3.status == 200:
+                after_del = list_resp3.json().get("data", [])
+                after_ids = [t.get("id") for t in after_del]
+                assert webhook_id not in after_ids, \
+                    "Webhook 触发器删除后仍出现在列表中"
+
         finally:
+            # ── 清理：删除本测试创建的所有触发器 ──
+            for tid in list(created_trigger_ids):
+                try:
+                    logged_in_page.request.delete(
+                        f"{base_url}/web/workflow-defs/{wf_id}/triggers/{tid}"
+                    )
+                except Exception:
+                    pass
+            # 清理工作流
             if created:
                 _delete_workflow_api(logged_in_page, base_url, wf_id)
 
@@ -661,17 +949,18 @@ class TestWorkflow:
 
             if has_dialog:
                 logged_in_page.keyboard.press("Escape")
-            assert has_dialog or has_params or True, \
-                "运行参数对话框未检测到"
+            assert has_dialog or has_params, \
+                f"运行参数对话框未检测到: has_dialog={has_dialog}, has_params={has_params}"
         finally:
             if created:
                 _delete_workflow_api(logged_in_page, base_url, wf_id)
 
 
     @pytest.mark.order(426)
-    @pytest.mark.p2
+    @pytest.mark.p1
+    @allure.epic("工作流")
     def test_workflow_yaml_side_panel(self, logged_in_page, base_url):
-        """TC-WF-018: YAML 侧滑面板 — 编辑器中 YAML 按钮打开 YAML 编辑面板"""
+        """TC-WF-018: YAML 侧滑面板 — 编辑器中 YAML 面板打开、编辑、应用 YAML 全流程"""
         wf_id, created = _get_or_create_workflow(logged_in_page, base_url)
         if not wf_id:
             pytest.skip("无法获取或创建工作流 ID")
@@ -686,18 +975,86 @@ class TestWorkflow:
             except Exception:
                 pass
 
-            yaml_btn = logged_in_page.locator("button[data-tooltip*='YAML']")
-            if yaml_btn.count() == 0:
-                pytest.skip("编辑器中无 YAML 按钮")
+            # Step 1: 打开 YAML 面板（如果已打开则跳过切换）
+            yaml_toggle = logged_in_page.locator("button[data-tooltip*='打开 / 关闭 YAML']")
+            yaml_toggle.wait_for(state="visible", timeout=8000)
+            if yaml_toggle.count() == 0:
+                pytest.skip("编辑器中无 YAML 面板切换按钮")
 
-            yaml_btn.first.click()
+            yaml_textarea = logged_in_page.get_by_role("textbox", name="# YAML 内容")
+            if yaml_textarea.count() == 0 or not yaml_textarea.first.is_visible():
+                # 面板未打开，点击切换按钮打开
+                yaml_toggle.first.click()
+                logged_in_page.wait_for_timeout(800)
+
+            # Step 2: 等待 YAML textarea 出现
+            yaml_textarea = logged_in_page.get_by_role("textbox", name="# YAML 内容")
+            yaml_textarea.wait_for(state="visible", timeout=8000)
+            assert yaml_textarea.count() > 0, \
+                "YAML 面板未打开（textarea[placeholder='# YAML 内容'] 不存在）"
+
+            # Step 3: 读取当前 YAML 内容
+            original_yaml = yaml_textarea.input_value()
+
+            # Step 4: 编辑 YAML —插入 description 字段
+            desc_marker = f"e2e-yaml-edit-{uuid.uuid4().hex[:6]}"
+            if "description:" in original_yaml:
+                # 已有 description 行，替换其值
+                modified_yaml = re.sub(
+                    r'description:\s*["\']?[^"\n]*["\']?',
+                    f'description: "{desc_marker}"',
+                    original_yaml,
+                    count=1,
+                )
+            else:
+                # 在 name 行后插入 description 行
+                modified_yaml = original_yaml.replace(
+                    "\ntimeout:",
+                    f'\ndescription: "{desc_marker}"\ntimeout:',
+                    1,
+                )
+                if "description:" not in modified_yaml:
+                    # fallback: 追加到末尾
+                    modified_yaml = original_yaml.rstrip() + f'\ndescription: "{desc_marker}"\n'
+
+            yaml_textarea.fill(modified_yaml)
+            logged_in_page.wait_for_timeout(500)
+
+            # Step 5: 点击"应用 YAML"按钮
+            apply_btn = logged_in_page.locator("button[data-tooltip='应用 YAML']")
+            apply_btn.wait_for(state="visible", timeout=5000)
+            # Apply YAML 按钮可能被 react-flow 画布遮挡，需要 force 点击
+            apply_btn.first.click(force=True)
+            logged_in_page.wait_for_timeout(1000)
+
+            # Step 6: 验证 Apply 后 textarea 内容保留（未被清空或重置）
+            applied_yaml = yaml_textarea.input_value()
+            assert desc_marker in applied_yaml, \
+                f"应用 YAML 后 textarea 内容丢失: 期望包含 '{desc_marker}', 实际: '{applied_yaml[:100]}'"
+
+            # Step 7: 验证修改生效 — 打开工作流设置弹窗查看 description
+            settings_btn = logged_in_page.get_by_role("button", name="工作流设置")
+            settings_btn.wait_for(state="visible", timeout=5000)
+            settings_btn.click()
             logged_in_page.wait_for_timeout(800)
 
-            yaml_textarea = logged_in_page.locator(
-                "textarea[placeholder*='YAML']"
-            )
-            assert yaml_textarea.count() > 0 or True, \
-                "YAML 面板未打开"
+            desc_input = logged_in_page.get_by_role("textbox", name="工作流描述...")
+            if desc_input.count() > 0:
+                desc_input.wait_for(state="visible", timeout=5000)
+                actual_desc = desc_input.input_value()
+                assert desc_marker in actual_desc, \
+                    f"YAML 编辑未生效: 期望描述包含 '{desc_marker}', 实际: '{actual_desc}'"
+                # 关闭设置弹窗
+                logged_in_page.keyboard.press("Escape")
+                logged_in_page.wait_for_timeout(300)
+            else:
+                pytest.skip("工作流设置弹窗中无描述输入框")
+
+            # Step 8: 保存草稿以持久化（避免影响后续测试）
+            save_btn = logged_in_page.locator("button[data-tooltip*='未保存']")
+            if save_btn.count() > 0:
+                save_btn.first.click(force=True)
+                logged_in_page.wait_for_timeout(1000)
         finally:
             if created:
                 _delete_workflow_api(logged_in_page, base_url, wf_id)

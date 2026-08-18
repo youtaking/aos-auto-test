@@ -145,6 +145,8 @@ async def _execute_tests(
             failed = 0
             skipped = 0
             last_result_time = datetime.utcnow()  # 追踪每条用例的耗时
+            # 追踪已见 case_name → outcome，防止 teardown 失败产生重复记录
+            seen_cases: dict[str, str] = {}
 
             LOG_DIR.mkdir(parents=True, exist_ok=True)
             log_path = LOG_DIR / f"{run_id}.log"
@@ -172,29 +174,49 @@ async def _execute_tests(
                     estimated_ms = int((now - last_result_time).total_seconds() * 1000)
                     last_result_time = now
 
-                    case_query = await db.execute(
-                        select(TestCase).where(TestCase.function_name == func_name)
-                    )
-                    case = case_query.scalars().first()
+                    status = outcome if outcome in ("passed", "failed", "skipped") else "error"
 
-                    result = TestResult(
-                        run_id=run_id,
-                        case_id=case.id if case else None,
-                        case_name=func_name,
-                        suite_name=parsed["suite_name"],
-                        status=outcome if outcome in ("passed", "failed", "skipped") else "error",
-                        duration_ms=estimated_ms,
-                        started_at=now,
-                        finished_at=now,
-                    )
-                    db.add(result)
-
-                    if outcome == "passed":
-                        passed += 1
-                    elif outcome in ("failed", "error"):
-                        failed += 1
+                    if func_name in seen_cases:
+                        # 同一测试的第二行输出（teardown 阶段），更新已有记录
+                        existing_result = await db.execute(
+                            select(TestResult).where(
+                                TestResult.run_id == run_id,
+                                TestResult.case_name == func_name,
+                            )
+                        )
+                        r = existing_result.scalars().first()
+                        if r:
+                            # teardown 失败时，将状态降级为 error（如果 call 阶段原本是 passed）
+                            if r.status == "passed" and status == "error":
+                                r.status = "error"
+                            # 不覆盖 duration_ms（保留 call 阶段的真实耗时）
+                        # 不更新计数（同一测试不重复计数）
                     else:
-                        skipped += 1
+                        # 新测试用例
+                        case_query = await db.execute(
+                            select(TestCase).where(TestCase.function_name == func_name)
+                        )
+                        case = case_query.scalars().first()
+
+                        result = TestResult(
+                            run_id=run_id,
+                            case_id=case.id if case else None,
+                            case_name=func_name,
+                            suite_name=parsed["suite_name"],
+                            status=status,
+                            duration_ms=estimated_ms,
+                            started_at=now,
+                            finished_at=now,
+                        )
+                        db.add(result)
+
+                        seen_cases[func_name] = outcome
+                        if outcome == "passed":
+                            passed += 1
+                        elif outcome in ("failed", "error"):
+                            failed += 1
+                        else:
+                            skipped += 1
 
                     run.total = passed + failed + skipped
                     run.passed = passed

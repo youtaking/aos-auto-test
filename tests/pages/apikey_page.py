@@ -29,11 +29,16 @@ class ApiKeyPage:
                 pass
             if self.is_loaded():
                 break
-            self.page.wait_for_timeout(3000)
+            try:
+                self.page.wait_for_load_state("networkidle", timeout=5000)
+            except Exception:
+                pass
+            self.page.wait_for_timeout(500)
         # 降级：侧边栏 SPA 导航
         if not self.is_loaded():
             nav_btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="API Key")
             if nav_btn.count() > 0:
+                nav_btn.first.wait_for(state="visible", timeout=5000)
                 nav_btn.first.click()
                 try:
                     self.page.locator(self._READY_SELECTOR).first.wait_for(state="attached", timeout=15000)
@@ -42,6 +47,7 @@ class ApiKeyPage:
 
     def goto_via_sidebar(self):
         btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="API Key")
+        btn.first.wait_for(state="visible", timeout=5000)
         btn.first.click()
         try:
             self.page.locator(self._READY_SELECTOR).first.wait_for(state="attached", timeout=15000)
@@ -60,6 +66,7 @@ class ApiKeyPage:
         body = self._body()
         inp = body.locator("input[placeholder*='搜索密钥']")
         if inp.count() > 0:
+            inp.first.wait_for(state="visible", timeout=5000)
             inp.first.fill(keyword)
             self.page.wait_for_timeout(500)
 
@@ -67,6 +74,7 @@ class ApiKeyPage:
         body = self._body()
         inp = body.locator("input[placeholder*='搜索密钥']")
         if inp.count() > 0:
+            inp.first.wait_for(state="visible", timeout=5000)
             inp.first.fill("")
             self.page.wait_for_timeout(500)
 
@@ -106,6 +114,7 @@ class ApiKeyPage:
 
     def click_create_key(self):
         body = self._body()
+        body.get_by_role("button", name="创建密钥").wait_for(state="visible", timeout=5000)
         body.get_by_role("button", name="创建密钥").click()
         self.page.wait_for_timeout(1000)
 
@@ -136,17 +145,21 @@ class ApiKeyPage:
         dialog = self.page.locator("[role=dialog]")
         inp = dialog.locator("input[data-slot='input']").or_(dialog.locator("input[type=text]"))
         if inp.count() > 0:
+            inp.first.wait_for(state="visible", timeout=5000)
             inp.first.fill(name)
 
     def submit_dialog(self):
         dialog = self.page.locator("[role=dialog]")
-        dialog.get_by_role("button", name="创建").or_(
+        submit_btn = dialog.get_by_role("button", name="创建").or_(
             dialog.get_by_role("button", name="保存")
-        ).first.click()
+        )
+        submit_btn.first.wait_for(state="visible", timeout=5000)
+        submit_btn.first.click()
         self.page.wait_for_timeout(1000)
 
     def cancel_dialog(self):
         dialog = self.page.locator("[role=dialog]")
+        dialog.get_by_role("button", name="取消").wait_for(state="visible", timeout=5000)
         dialog.get_by_role("button", name="取消").click()
         self.page.wait_for_timeout(500)
 
@@ -188,9 +201,11 @@ class ApiKeyPage:
 
     def click_copy(self):
         dialog = self.page.locator("[role=dialog]")
-        dialog.get_by_role("button", name="复制").or_(
+        copy_btn = dialog.get_by_role("button", name="复制").or_(
             dialog.locator("button[aria-label*='copy' i], button[aria-label*='复制']")
-        ).first.click()
+        )
+        copy_btn.first.wait_for(state="visible", timeout=5000)
+        copy_btn.first.click()
         self.page.wait_for_timeout(500)
 
     def has_security_warning(self) -> bool:
@@ -215,6 +230,7 @@ class ApiKeyPage:
             for i in range(cards.count()):
                 revoke_btn = cards.nth(i).get_by_role("button", name="吊销")
                 if revoke_btn.count() > 0:
+                    revoke_btn.first.wait_for(state="visible", timeout=5000)
                     revoke_btn.first.click()
                     self.page.wait_for_timeout(500)
                     return True
@@ -222,6 +238,7 @@ class ApiKeyPage:
             # 点击第一个吊销按钮
             revoke_btns = body.get_by_role("button", name="吊销")
             if revoke_btns.count() > 0:
+                revoke_btns.first.wait_for(state="visible", timeout=5000)
                 revoke_btns.first.click()
                 self.page.wait_for_timeout(500)
                 return True
@@ -241,13 +258,16 @@ class ApiKeyPage:
 
     def confirm_alert(self):
         dialog = self.page.locator("[role=alertdialog]")
-        dialog.get_by_role("button", name="确认").or_(
+        confirm_btn = dialog.get_by_role("button", name="确认").or_(
             dialog.get_by_role("button", name="吊销")
-        ).first.click()
+        )
+        confirm_btn.first.wait_for(state="visible", timeout=5000)
+        confirm_btn.first.click()
         self.page.wait_for_timeout(1000)
 
     def cancel_alert(self):
         dialog = self.page.locator("[role=alertdialog]")
+        dialog.get_by_role("button", name="取消").wait_for(state="visible", timeout=5000)
         dialog.get_by_role("button", name="取消").click()
         self.page.wait_for_timeout(500)
 
