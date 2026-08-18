@@ -8,7 +8,18 @@ import httpx
 import pytest
 from tests.api_contracts.registry_schemas import (
     MACHINE_ITEM,
+    MACHINE_EVENT_ITEM,
 )
+
+# unwrapped schema (data portion after _unwrap)
+_WEB_MACHINE_EVENT_LIST_DATA = {
+    "type": "object",
+    "properties": {
+        "items": {"type": "array", "items": MACHINE_EVENT_ITEM},
+        "total": {"type": "integer"},
+    },
+    "additionalProperties": True,
+}
 
 # unwrapped schema (data portion after _unwrap)
 _WEB_MACHINE_LIST_DATA = {
@@ -58,6 +69,7 @@ class TestRegistryWebAPI:
         machine_id = list_resp["items"][0]["id"]
 
         resp = web_client.list_machine_events(machine_id)
+        web_client.validate_schema(resp, _WEB_MACHINE_EVENT_LIST_DATA)
         assert "items" in resp
         assert isinstance(resp["items"], list)
 

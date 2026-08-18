@@ -39,6 +39,7 @@ WORKFLOW_RUN_DETAIL = {
 
 WORKFLOW_RUN_EVENT = {
     "type": "object",
+    "required": ["event_id", "type"],
     "properties": {
         "event_id": {"type": ["string", "null"]},
         "type": {"type": ["string", "null"]},
@@ -50,6 +51,7 @@ WORKFLOW_RUN_EVENT = {
 
 WORKFLOW_RUN_APPROVAL = {
     "type": "object",
+    "required": ["approval_id", "status"],
     "properties": {
         "approval_id": {"type": ["string", "null"]},
         "status": {"type": ["string", "null"]},

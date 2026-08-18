@@ -43,7 +43,7 @@ class TestProdViewWebAPI:
 
     def test_get_nonexistent_prod_view(self, web_client):
         """获取不存在的 ProdView：应抛出 404 异常"""
-        with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(404|500)"):
+        with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"404"):
             web_client.get_prod_view("nonexistent-prod-view-id-99999")
 
     def test_prod_view_crud_lifecycle(self, web_client):
@@ -68,6 +68,7 @@ class TestProdViewWebAPI:
             raise
 
         assert "id" in create_resp
+        web_client.validate_schema(create_resp, PROD_VIEW_ITEM)
         view_id = create_resp["id"]
 
         try:
