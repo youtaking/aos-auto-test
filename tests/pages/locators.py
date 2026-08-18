@@ -109,7 +109,12 @@ def tab_by_name(page, name):
 
 
 def button_by_name_or_title(page, name):
-    """按 name/title/has_text 查找按钮"""
+    """按 name/title/has_text 查找按钮
+
+    ⚠️ 安全警告：has_text 是子串匹配，搜索 "删除" 会匹配 "删除智能体"。
+    对通用按钮名（删除/编辑/添加等），调用方应将 page 替换为限定容器，
+    避免侧边栏等区域同名按钮的误匹配。
+    """
     return page.get_by_role("button", name=name).or_(
         page.locator(f"button[title='{name}']").or_(
             page.locator("button").filter(has_text=name)
