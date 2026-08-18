@@ -129,7 +129,9 @@ class TestWorkflow:
         wf.goto()
         if not wf.has_create_button():
             pytest.skip("当前无新建工作流按钮")
-        logged_in_page.get_by_role("button", name="新建工作流").first.click()
+        new_wf_btn = logged_in_page.get_by_role("button", name="新建工作流").first
+        new_wf_btn.wait_for(state="visible", timeout=5000)
+        new_wf_btn.click()
         logged_in_page.wait_for_timeout(800)
         dialog = logged_in_page.locator('[role="dialog"]')
         assert dialog.count() > 0, "新建工作流弹窗未打开"
@@ -374,6 +376,7 @@ class TestWorkflow:
             assert len(yaml_content) > 0, "版本 YAML 内容为空"
 
             # Step 8: 再次点击收起 YAML 面板
+            version_header.wait_for(state="visible", timeout=5000)
             version_header.click()
             logged_in_page.wait_for_timeout(500)
 
@@ -1017,6 +1020,7 @@ class TestWorkflow:
                     # fallback: 追加到末尾
                     modified_yaml = original_yaml.rstrip() + f'\ndescription: "{desc_marker}"\n'
 
+            yaml_textarea.wait_for(state="visible", timeout=5000)
             yaml_textarea.fill(modified_yaml)
             logged_in_page.wait_for_timeout(500)
 

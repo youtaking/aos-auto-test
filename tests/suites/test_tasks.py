@@ -1059,6 +1059,7 @@ def test_search_task(logged_in_page, base_url):
             f"搜索 '{search_name}' 后未找到目标任务"
 
         # 搜索一个不存在的关键词
+        search_input.wait_for(state="visible", timeout=5000)
         search_input.fill("")
         search_input.press_sequentially("zzz-notexist-99", delay=80)
 
@@ -1073,6 +1074,7 @@ def test_search_task(logged_in_page, base_url):
             "搜索不存在的关键词后目标任务仍在列表中"
 
         # 清空搜索，验证列表恢复
+        search_input.wait_for(state="visible", timeout=5000)
         search_input.fill("")
         logged_in_page.wait_for_timeout(500)
         # 轮询等待行数恢复

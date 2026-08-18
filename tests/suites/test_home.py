@@ -56,6 +56,7 @@ def test_home_quick_create_template(logged_in_page, base_url):
 
     # 点击第一个模板
     first_pill_text = pills.first.inner_text().strip()
+    pills.first.wait_for(state="visible", timeout=5000)
     pills.first.click()
     logged_in_page.wait_for_timeout(2000)
 

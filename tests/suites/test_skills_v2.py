@@ -624,6 +624,7 @@ def test_skill_public_toggle(logged_in_page, base_url):
             f"切换公开状态后 aria-checked 未变化: {initial_checked} -> {new_checked}"
 
         # 恢复原始状态
+        sw.wait_for(state="visible", timeout=5000)
         sw.click()
         logged_in_page.wait_for_timeout(1500)
 
@@ -786,6 +787,7 @@ def test_skill_upload_conflict_handling(logged_in_page, base_url):
                 logged_in_page.wait_for_timeout(800)
             else:
                 with logged_in_page.expect_file_chooser() as fc_info:
+                    dropzone.wait_for(state="visible", timeout=5000)
                     dropzone.click()
                 fc_info.value.set_files(test_dir)
                 logged_in_page.wait_for_timeout(800)

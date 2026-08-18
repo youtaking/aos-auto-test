@@ -480,6 +480,7 @@ class TestViews:
                 f"开关切换后状态未变化: {initial_state} → {new_state}"
 
             # 切回原状态
+            switches.first.wait_for(state="visible", timeout=5000)
             switches.first.click()
             logged_in_page.wait_for_timeout(500)
 

@@ -75,6 +75,7 @@ class ChatTestPage:
         card.first.scroll_into_view_if_needed()
         self.page.wait_for_timeout(300)
         # 点击 agent 卡片，期望导航到 chat 页
+        card.first.wait_for(state="visible", timeout=5000)
         card.first.click()
         # 等待 URL 变化（离开 home 页）+ textarea 出现
         for _attempt in range(3):
@@ -377,6 +378,7 @@ class ChatTestPage:
     def send_message(self, text: str):
         """发送文本消息"""
         textarea = self.page.locator("textarea").first
+        textarea.wait_for(state="visible", timeout=10000)
         textarea.fill(text)
         textarea.press("Enter")
         self.page.wait_for_load_state("domcontentloaded")
@@ -384,6 +386,7 @@ class ChatTestPage:
     def send_message_with_shift_enter(self, lines: list[str]):
         """用 Shift+Enter 输入多行消息并发送"""
         textarea = self.page.locator("textarea").first
+        textarea.wait_for(state="visible", timeout=10000)
         textarea.click()
         for i, line in enumerate(lines):
             textarea.press_sequentially(line, delay=20)
@@ -431,6 +434,7 @@ class ChatTestPage:
     def try_send_empty(self):
         """尝试发送空消息"""
         textarea = self.page.locator("textarea").first
+        textarea.wait_for(state="visible", timeout=10000)
         textarea.fill("")
         textarea.press("Enter")
         self.page.wait_for_timeout(1000)
@@ -438,6 +442,7 @@ class ChatTestPage:
     def double_send(self, text: str):
         """快速连续发送两次（防重复测试）"""
         textarea = self.page.locator("textarea").first
+        textarea.wait_for(state="visible", timeout=10000)
         textarea.fill(text)
         textarea.press("Enter")
         self.page.wait_for_timeout(200)
@@ -698,6 +703,7 @@ class ChatTestPage:
     def type_slash_command(self) -> bool:
         """在输入框输入 / 触发命令候选列表"""
         textarea = self.page.locator("textarea").first
+        textarea.wait_for(state="visible", timeout=10000)
         textarea.click()
         textarea.fill("")
         textarea.press_sequentially("/", delay=50)
@@ -717,6 +723,7 @@ class ChatTestPage:
     def type_at_reference(self) -> bool:
         """在输入框输入 @ 触发文件引用候选列表"""
         textarea = self.page.locator("textarea").first
+        textarea.wait_for(state="visible", timeout=10000)
         textarea.click()
         textarea.fill("")
         textarea.press_sequentially("@", delay=50)

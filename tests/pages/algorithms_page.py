@@ -82,9 +82,11 @@ class AlgorithmsPage:
 
     def filter_by_category(self, category: str):
         """按分类筛选"""
-        self.page.locator("div.flex.items-center.gap-1\\.5").get_by_role(
+        btn = self.page.locator("div.flex.items-center.gap-1\\.5").get_by_role(
             "button", name=category
-        ).click()
+        )
+        btn.wait_for(state="visible", timeout=5000)
+        btn.click()
         self.page.wait_for_timeout(500)
 
     # === 列表 ===

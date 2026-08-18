@@ -29,12 +29,15 @@ class AuthPage:
     # ==================== 登录表单 ====================
 
     def fill_email(self, email: str):
+        self.page.locator("#auth-email").wait_for(state="visible", timeout=5000)
         self.page.fill("#auth-email", email)
 
     def fill_password(self, password: str):
+        self.page.locator("#auth-password").wait_for(state="visible", timeout=5000)
         self.page.fill("#auth-password", password)
 
     def click_login(self):
+        self.page.locator("button.auth-light-submit").wait_for(state="visible", timeout=5000)
         self.page.click("button.auth-light-submit")
 
     def login(self, email: str, password: str):

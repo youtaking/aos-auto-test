@@ -139,6 +139,7 @@ def test_create_new_agent(logged_in_page, base_url, request):
     # 4. 滚动到一键创建按钮并点击，等待 AI 生成表单
     quick_btn = ac.get_quick_create_button()
     quick_btn.scroll_into_view_if_needed()
+    quick_btn.wait_for(state="visible", timeout=5000)
     quick_btn.click()
     create_btn = logged_in_page.get_by_role("button", name="创建 Agent")
     create_btn.wait_for(state="visible", timeout=90000)
@@ -172,6 +173,7 @@ def test_create_new_agent(logged_in_page, base_url, request):
 
     # 8. 滚动到创建 Agent 按钮并点击
     create_btn.scroll_into_view_if_needed()
+    create_btn.wait_for(state="visible", timeout=5000)
     create_btn.click()
 
     # 9. 验证跳转到对话页面
@@ -311,6 +313,7 @@ def test_click_all_templates(logged_in_page, base_url, request):
 
         # 滚动到创建 Agent 按钮并点击
         create_btn.scroll_into_view_if_needed()
+        create_btn.wait_for(state="visible", timeout=5000)
         create_btn.click()
 
         # 验证跳转到对话页面
@@ -920,6 +923,7 @@ def test_agent_030_select_model(logged_in_page, base_url):
 
             # 7. 保存
             save_btn = modal.get_by_role("button", name="保存")
+            save_btn.wait_for(state="visible", timeout=5000)
             save_btn.click()
             logged_in_page.wait_for_timeout(500)
 
@@ -1605,7 +1609,9 @@ def test_edit_description(logged_in_page, base_url):
         desc_input2b.wait_for(state="visible", timeout=5000)
         desc_input2b.fill(old_desc)
     logged_in_page.wait_for_timeout(500)
-    modal2b.get_by_role("button", name="保存").click()
+    save_2b = modal2b.get_by_role("button", name="保存")
+    save_2b.wait_for(state="visible", timeout=5000)
+    save_2b.click()
     logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启").wait_for(state="visible", timeout=15000)
     logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启").click()
     logged_in_page.wait_for_timeout(1000)
@@ -1685,7 +1691,9 @@ def test_edit_prompt(logged_in_page, base_url):
     else:
         prompt_ta2b.press("Backspace")
     logged_in_page.wait_for_timeout(500)
-    modal2b.get_by_role("button", name="保存").click()
+    save_2b = modal2b.get_by_role("button", name="保存")
+    save_2b.wait_for(state="visible", timeout=5000)
+    save_2b.click()
     logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启").wait_for(state="visible", timeout=15000)
     logged_in_page.locator("[role='alertdialog']").get_by_role("button", name="重启").click()
     logged_in_page.wait_for_timeout(1000)

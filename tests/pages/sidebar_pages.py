@@ -128,7 +128,9 @@ class MemoryPage:
 
     def click_tab(self, name: str):
         """点击某个分类 Tab"""
-        self.page.locator("[role='tab']").filter(has_text=name).first.click()
+        tab = self.page.locator("[role='tab']").filter(has_text=name).first
+        tab.wait_for(state="visible", timeout=5000)
+        tab.click()
         self.page.wait_for_timeout(500)
 
     def is_tab_active(self, name: str) -> bool:
@@ -258,7 +260,9 @@ class TasksPage:
         return [t.strip() for t in tabs.all_text_contents() if t.strip()]
 
     def click_tab(self, name: str):
-        self.page.locator("[role='tab']").filter(has_text=name).first.click()
+        tab = self.page.locator("[role='tab']").filter(has_text=name).first
+        tab.wait_for(state="visible", timeout=5000)
+        tab.click()
         self.page.wait_for_timeout(500)
 
     def get_task_count(self) -> int:
