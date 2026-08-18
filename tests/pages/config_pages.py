@@ -290,7 +290,9 @@ class SitesPage:
 
     def click_filter_tab(self, tab_name: str):
         """点击筛选 Tab"""
-        self.page.get_by_text(tab_name, exact=True).click()
+        tab = self.page.get_by_text(tab_name, exact=True)
+        tab.wait_for(state="visible", timeout=5000)
+        tab.click()
         self.page.wait_for_timeout(500)
 
     def search(self, keyword: str):

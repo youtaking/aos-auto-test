@@ -45,15 +45,16 @@ def test_vertical_models_search_no_result(logged_in_page, base_url):
     logged_in_page.wait_for_timeout(1500)
 
     # 列表应过滤为空
-    body_text = logged_in_page.locator("div.agent-panel-content, main").first.inner_text()
+    body_text = logged_in_page.locator("main").first.inner_text()
     assert "zzz_不存在" not in body_text or "暂无" in body_text or "无" in body_text or \
            len([l for l in body_text.split('\n') if l.strip()]) < 10, \
         "搜索不存在的模型后，列表应显示空状态或过滤结果"
 
     # 清空恢复
+    search.first.wait_for(state="visible", timeout=5000)
     search.first.fill("")
     logged_in_page.wait_for_timeout(1500)
-    body_after = logged_in_page.locator("div.agent-panel-content, main").first.inner_text()
+    body_after = logged_in_page.locator("main").first.inner_text()
     assert len(body_after.strip()) > 20, "清空搜索后列表未恢复"
 
 
@@ -72,12 +73,13 @@ def test_algorithms_search_no_result(logged_in_page, base_url):
     search.first.fill("zzz_不存在_99999")
     logged_in_page.wait_for_timeout(1500)
 
-    body_text = logged_in_page.locator("div.agent-panel-content, main").first.inner_text()
+    body_text = logged_in_page.locator("main").first.inner_text()
     has_empty = "暂无" in body_text or "无" in body_text or "empty" in body_text.lower()
     # 清空恢复
+    search.first.wait_for(state="visible", timeout=5000)
     search.first.fill("")
     logged_in_page.wait_for_timeout(1500)
-    body_after = logged_in_page.locator("div.agent-panel-content, main").first.inner_text()
+    body_after = logged_in_page.locator("main").first.inner_text()
     assert len(body_after.strip()) > len(body_text.strip()) or has_empty, \
         "清空搜索后列表应恢复"
 
@@ -100,6 +102,7 @@ def test_mcp_search_no_result(logged_in_page, base_url):
     logged_in_page.wait_for_timeout(1500)
 
     # 列表应过滤
+    search.first.wait_for(state="visible", timeout=5000)
     search.first.fill("")
     logged_in_page.wait_for_timeout(1500)
 
@@ -121,6 +124,7 @@ def test_knowledge_search_no_result(logged_in_page, base_url):
     search.first.fill("zzz_不存在_99999")
     logged_in_page.wait_for_timeout(1500)
 
+    search.first.wait_for(state="visible", timeout=5000)
     search.first.fill("")
     logged_in_page.wait_for_timeout(1500)
 

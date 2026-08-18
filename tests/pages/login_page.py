@@ -17,8 +17,11 @@ class LoginPage:
         self.page.wait_for_load_state("domcontentloaded")
 
     def login(self, email: str, password: str):
+        self.page.locator("#auth-email").wait_for(state="visible", timeout=5000)
         self.page.fill("#auth-email", email)
+        self.page.locator("#auth-password").wait_for(state="visible", timeout=5000)
         self.page.fill("#auth-password", password)
+        self.page.locator("button.auth-light-submit").wait_for(state="visible", timeout=5000)
         self.page.click("button.auth-light-submit")
         # 等待 SPA 导航完成，URL 不再是登录页
         try:

@@ -241,17 +241,21 @@ class SitesListPage:
         """在编辑对话框中修改名称"""
         dialog = self.page.locator("[role='dialog']")
         name_input = dialog.locator("input").first
+        name_input.wait_for(state="visible", timeout=5000)
         name_input.fill(new_name)
 
     def edit_app_description(self, desc: str):
         """在编辑对话框中修改描述"""
         dialog = self.page.locator("[role='dialog']")
         textarea = dialog.locator("textarea").first
+        textarea.wait_for(state="visible", timeout=5000)
         textarea.fill(desc)
 
     def save_edit(self):
         dialog = self.page.locator("[role='dialog']")
-        dialog.get_by_role("button", name="保存").click()
+        save_btn = dialog.get_by_role("button", name="保存")
+        save_btn.wait_for(state="visible", timeout=5000)
+        save_btn.click()
         self.page.wait_for_timeout(1500)
 
     def cancel_edit(self):

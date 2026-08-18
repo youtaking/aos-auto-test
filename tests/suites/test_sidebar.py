@@ -144,6 +144,7 @@ def test_workflow_create_and_return(logged_in_page, base_url):
         pass  # 兜底：即使超时也尝试点击
 
     # ── Step 3: 用 expect_response 精确拦截创建 API ──
+    create_btn.first.wait_for(state="visible", timeout=5000)
     with logged_in_page.expect_response(
         lambda r: "workflow-defs" in r.url and r.request.method == "POST",
         timeout=15000,
