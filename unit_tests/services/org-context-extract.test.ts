@@ -1,6 +1,16 @@
 import { describe, test, expect } from "bun:test";
 
 // ── Pure function copy from src/services/org-context.ts ──
+// Source version: FenixAgent/src/services/org-context.ts (commit f5ac00e, 2025-08)
+//
+// Test adaptation (function signature):
+//   Source: `extractActiveOrgId(request: Request): string | null` — takes a Request object
+//   Test:   `extractActiveOrgId(requestUrl: string, headers: Record<string, string | undefined>): string | null`
+//   Rationale: Avoids constructing Request objects in unit tests. The extraction logic
+//   (header > query param > cookie) is identical — only the data source differs.
+//   Source reads `request.headers.get("x-active-org-id")` → test reads `headers["x-active-org-id"]`.
+//   Source reads `request.headers.get("cookie")` → test reads `headers["cookie"]`.
+//   Source reads `new URL(request.url)` → test reads `new URL(requestUrl)`.
 
 /**
  * Extracts the active organization ID from request headers/URL.
@@ -112,5 +122,29 @@ describe("extractActiveOrgId", () => {
       "x-active-org-id": " org-spaces ",
     };
     expect(extractActiveOrgId(baseUrl, headers)).toBe(" org-spaces ");
+  });
+
+  // ── Boundary tests ──
+
+  test("query param with empty string falls through to cookie", () => {
+    const url = `${baseUrl}?activeOrganizationId=`;
+    const headers = {
+      cookie: "active_org_id=from-cookie",
+    };
+    // Empty query param is falsy, so cookie takes precedence
+    expect(extractActiveOrgId(url, headers)).toBe("from-cookie");
+  });
+
+  test("multiple activeOrganizationId query params returns first", () => {
+    const url = `${baseUrl}?activeOrganizationId=first&activeOrganizationId=second`;
+    expect(extractActiveOrgId(url, {})).toBe("first");
+  });
+
+  test("cookie value with encoded characters", () => {
+    const headers = {
+      cookie: "active_org_id=org%2D123",
+    };
+    // Cookie regex captures raw value (no URL decoding)
+    expect(extractActiveOrgId(baseUrl, headers)).toBe("org%2D123");
   });
 });

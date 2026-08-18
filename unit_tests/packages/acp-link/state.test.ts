@@ -287,6 +287,23 @@ describe("ACPState", () => {
     test("supportsSessionHistory combines loadSession and resumeSession", () => {
       expect(state.supportsSessionHistory).toBe(false);
     });
+
+    test("supportsSessionHistory 当 loadSession 为 true 时返回 true", () => {
+      (state as any).setCapabilities({ loadSession: true });
+      expect(state.supportsSessionHistory).toBe(true);
+    });
+
+    test("supportsSessionHistory 当 resumeSession 为 true 时返回 true", () => {
+      (state as any).setCapabilities({ sessionCapabilities: { resume: {} } });
+      expect(state.supportsSessionHistory).toBe(true);
+    });
+
+    test("supportsSessionHistory 当两者都为 false 时返回 false", () => {
+      (state as any).setCapabilities({ loadSession: false, sessionCapabilities: {} });
+      expect(state.supportsLoadSession).toBe(false);
+      expect(state.supportsResumeSession).toBe(false);
+      expect(state.supportsSessionHistory).toBe(false);
+    });
   });
 
   describe("initSession", () => {
@@ -329,6 +346,26 @@ describe("ACPState", () => {
       expect(state.promptCapabilities).toBeNull();
       expect(state.modelState).toBeNull();
       expect(state.modeState).toBeNull();
+    });
+
+    test("initSession 重复调用覆盖旧值", () => {
+      state.initSession({
+        sessionId: "session-first",
+        promptCapabilities: { image: true },
+        models: { currentModelId: "m1", availableModels: [{ modelId: "m1" }] },
+      });
+      expect(state.sessionId).toBe("session-first");
+      expect(state.supportsImages).toBe(true);
+      expect(state.modelState?.currentModelId).toBe("m1");
+
+      // 第二次调用覆盖 sessionId 和 promptCapabilities，models 缺省为 null
+      state.initSession({
+        sessionId: "session-second",
+        promptCapabilities: { image: false },
+      });
+      expect(state.sessionId).toBe("session-second");
+      expect(state.supportsImages).toBe(false);
+      expect(state.modelState).toBeNull();
     });
   });
 

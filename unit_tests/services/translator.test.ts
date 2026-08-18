@@ -444,6 +444,18 @@ describe("respond_question", () => {
     expect(result.approved).toBe(false);
     expect(result.extra).toEqual({ outcome: { optionId: "" } });
   });
+
+  // optionIds 含非 string 元素时被过滤
+  test("respond_question optionIds 含非 string 元素时被过滤", () => {
+    const result = translateSimpleAction(
+      { action: "respond_question", questionId: "q_mixed", optionIds: [123, null, "Valid"] },
+      null,
+      0,
+    );
+    // 123 (number) 和 null 被 typeof v === "string" 过滤，只保留 "Valid"
+    expect(result.approved).toBe(true);
+    expect(result.extra).toEqual({ answers: ["Valid"] });
+  });
 });
 
 // ── default（未知 action）──

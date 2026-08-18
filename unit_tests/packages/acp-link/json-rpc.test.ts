@@ -182,6 +182,13 @@ describe("createRequest", () => {
     const req = createRequest("test");
     expect(req.params).toEqual({});
   });
+
+  test("createRequest params 为 null 时 fallback 为空对象（?? 对 null 生效）", () => {
+    // null ?? {} 返回 {}（?? 在左侧为 null/undefined 时返回右侧值）
+    // 因此 createRequest 使用 params ?? {}，null 会触发 fallback
+    const req = createRequest("method", null);
+    expect(req.params).toEqual({});
+  });
 });
 
 describe("createNotification", () => {

@@ -26,7 +26,22 @@ function getPendingSpawnReservations(): ReadonlySet<SpawnReservation> {
   return pendingReservations;
 }
 
-function beginSpawnReservation(userId: string, source: InstanceSpawnSource): SpawnReservation {
+function beginSpawnReservation(
+  userId: string,
+  source: InstanceSpawnSource,
+  limits?: { agentMaxConcurrency?: number; userAgentMaxConcurrency?: number; scheduledAgentMaxConcurrency?: number },
+  listInstances?: () => Array<{ instanceId: string; status: string }>,
+  registryGet?: (id: string) => { userId?: string; spawnSource?: string } | undefined,
+): SpawnReservation {
+  // 源码中 beginSpawnReservation 会先调用 assertAgentConcurrencyAvailable
+  // 测试版注入 limits 参数替代 config 依赖
+  if (limits) {
+    assertAgentConcurrencyAvailable(
+      userId, source, limits,
+      listInstances ?? (() => []),
+      registryGet ?? (() => undefined),
+    );
+  }
   const reservation: SpawnReservation = { token: ++reservationTokenSeq, userId, source };
   pendingReservations.add(reservation);
   return reservation;
@@ -451,6 +466,42 @@ describe("Agent 并发统计", () => {
           () => instances, registryGet,
         ),
       ).not.toThrow();
+    });
+  });
+
+  // ── beginSpawnReservation 集成 assertAgentConcurrencyAvailable ──
+
+  describe("beginSpawnReservation 集成并发检查", () => {
+    test("达限时 beginSpawnReservation 抛出且不登记预留", () => {
+      const instances = [
+        { instanceId: "a", status: "running" },
+        { instanceId: "b", status: "running" },
+      ];
+      expect(() =>
+        beginSpawnReservation(
+          "user-1", "interactive",
+          { agentMaxConcurrency: 2 },
+          () => instances,
+        ),
+      ).toThrow("AGENT_CONCURRENCY_LIMIT_REACHED");
+      // 检查失败时不应登记预留
+      expect(getPendingSpawnReservations().size).toBe(0);
+    });
+
+    test("未达限时 beginSpawnReservation 正常登记", () => {
+      const r = beginSpawnReservation(
+        "user-1", "interactive",
+        { agentMaxConcurrency: 10 },
+      );
+      expect(r.userId).toBe("user-1");
+      expect(getPendingSpawnReservations().size).toBe(1);
+    });
+
+    test("不传 limits 时跳过检查（向后兼容）", () => {
+      // 即使已有大量实例也不抛错
+      const r = beginSpawnReservation("user-1", "interactive");
+      expect(r.userId).toBe("user-1");
+      expect(getPendingSpawnReservations().size).toBe(1);
     });
   });
 });

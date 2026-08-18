@@ -505,7 +505,7 @@ describe("validateDAG", () => {
     expect(inputIssues.length).toBe(0);
   });
 
-  test("reports inputs reference missing dependency", () => {
+  test("auto-dependency 自动补全 inputs 缺失的依赖", () => {
     const def: WorkflowDef = {
       schema_version: "1.0",
       name: "inputs-missing",
@@ -548,7 +548,7 @@ describe("validateDAG", () => {
     expect(bNode?.depends_on).toContain("a");
   });
 
-  test("loop node does not auto-add deps from body/condition", () => {
+  test("loop node body 和 condition 都不扫描自动依赖", () => {
     const def: WorkflowDef = {
       schema_version: "1.0",
       name: "loop-test",
@@ -614,6 +614,50 @@ describe("validateDAG", () => {
     const result = validateDAG(def);
     expect(result.valid).toBe(true);
     expect(result.def.nodes.length).toBe(5);
+  });
+
+  test("自引用节点检测为 CYCLE_DETECTED", () => {
+    const def: WorkflowDef = {
+      schema_version: "1.0",
+      name: "self-ref",
+      nodes: [
+        { id: "self", type: "shell", command: "echo", depends_on: ["self"] },
+      ],
+    };
+    expect(() => validateDAG(def)).toThrow("Cycle detected");
+    try {
+      validateDAG(def);
+    } catch (e: any) {
+      expect(e.code).toBe("CYCLE_DETECTED");
+      expect(e.details?.nodeIds).toContain("self");
+    }
+  });
+
+  test("INPUTS_MISSING_DEPENDENCY 错误码可达", () => {
+    // 触发条件：inputs 中的 nodes.X 引用没有使用 ${{ }} 模板语法，
+    // 所以 auto-dependency (step 4) 不会扫描到，但 inputs 校验 (step 6) 会发现
+    const def: WorkflowDef = {
+      schema_version: "1.0",
+      name: "inputs-missing-reachable",
+      nodes: [
+        { id: "leak", type: "shell", command: "echo" },
+        {
+          id: "consumer",
+          type: "shell",
+          command: "echo",
+          inputs: { data: "leaked: nodes.leak.output" },
+          // depends_on 不包含 leak，且 inputs 值无 ${{ }}，auto-dep 无法自动补全
+        },
+      ],
+    };
+    const result = validateDAG(def);
+    expect(result.valid).toBe(false);
+    const inputIssues = result.issues.filter(
+      (i) => i.code === "INPUTS_MISSING_DEPENDENCY",
+    );
+    expect(inputIssues.length).toBeGreaterThanOrEqual(1);
+    expect(inputIssues[0].message).toContain("leak");
+    expect(inputIssues[0].type).toBe("error");
   });
 });
 

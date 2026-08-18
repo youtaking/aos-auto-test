@@ -1,7 +1,12 @@
 import { describe, expect, it } from "bun:test";
 
-// 验证 capabilities 的 ?? 语义：
+// 验证 capabilities 的 ?? 语义（对齐 src/__tests__/capabilities-coalescing.test.ts）：
 // ?? 仅对 null/undefined 生效，|| 还会吞掉 falsy 值（0, "", false）
+// 项目代码使用场景：
+//   - src/services/environment-acp.ts: `capabilities: patch.capabilities ?? undefined`
+//   - src/repositories/environment.ts: `capabilities: params.capabilities ?? null`
+// 对于 capabilities: Record<string, unknown> | null 类型，两者实际等价，
+// 但 ?? 更精确表达意图"null 或 undefined 时返回 null"
 
 describe("capabilities nullish coalescing", () => {
   it("capabilities 为 null 时返回 null", () => {

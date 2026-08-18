@@ -1,7 +1,10 @@
 import { describe, test, expect } from "bun:test";
 
 // ── Pure function copies from packages/workflow-engine/src/parser/inputs-resolver.ts ──
+// Source version: FenixAgent/packages/workflow-engine/src/parser/inputs-resolver.ts (commit f5ac00e, 2025-08)
 // Only pure functions that don't depend on expression-parser are copied.
+// Test adaptation: Uses string error codes (e.g. "INVALID_EXPRESSION") instead of
+//   WorkflowErrorCode enum — values are identical, enum import avoided for test isolation.
 
 /**
  * Detects if a string is entirely wrapped in a single `${{ expr }}` template.
@@ -124,6 +127,20 @@ describe("matchSingleTemplate", () => {
   test("returns null when inner contains nested ${{ }}", () => {
     expect(matchSingleTemplate("${{ ${{ inner }} }}")).toBeNull();
   });
+
+  // ── Boundary tests ──
+
+  test("returns null for empty template ${{}}", () => {
+    // Empty inner expression — regex requires [\s\S]+ (1+ chars), so empty fails
+    expect(matchSingleTemplate("${{}}")).toBeNull();
+  });
+
+  test("returns null for whitespace-only template ${{   }}", () => {
+    // Whitespace-only inner — regex matches but trim() yields "", which is a valid match
+    // Actually [\s\S]+ matches spaces, inner = "   ", trimmed to ""
+    const result = matchSingleTemplate("${{   }}");
+    expect(result).toBe("");
+  });
 });
 
 describe("generateShellEnvVars", () => {
@@ -193,6 +210,22 @@ describe("generateShellEnvVars", () => {
       FLAG: "false",
       DATA: "",
     });
+  });
+
+  // ── Boundary tests ──
+
+  test("converts falsy number 0 to '0'", () => {
+    const resolved: Record<string, ResolvedInput> = {
+      ZERO: { value: 0, rawExpression: "0" },
+    };
+    expect(generateShellEnvVars(resolved)).toEqual({ ZERO: "0" });
+  });
+
+  test("converts empty string value", () => {
+    const resolved: Record<string, ResolvedInput> = {
+      EMPTY_STR: { value: "", rawExpression: "''" },
+    };
+    expect(generateShellEnvVars(resolved)).toEqual({ EMPTY_STR: "" });
   });
 });
 
@@ -285,9 +318,60 @@ describe("generatePythonPreamble", () => {
     const result = generatePythonPreamble(resolved);
     expect(result).not.toContain("import json");
   });
+
+  // ── Boundary tests ──
+
+  test("generates 0 for falsy number value", () => {
+    const resolved: Record<string, ResolvedInput> = {
+      zero: { value: 0, rawExpression: "0" },
+    };
+    expect(generatePythonPreamble(resolved)).toBe("zero = 0");
+  });
+
+  test("generates empty string literal for empty string value", () => {
+    const resolved: Record<string, ResolvedInput> = {
+      empty: { value: "", rawExpression: "''" },
+    };
+    expect(generatePythonPreamble(resolved)).toBe('empty = ""');
+  });
+
+  test("generates False for false boolean", () => {
+    const resolved: Record<string, ResolvedInput> = {
+      off: { value: false, rawExpression: "false" },
+    };
+    expect(generatePythonPreamble(resolved)).toBe("off = False");
+  });
+
+  test("Python preamble 特殊字符转义（反斜杠和单引号）", () => {
+    // 字符串值：JSON.stringify 处理转义，输出双引号 Python 字符串
+    const resolvedStr: Record<string, ResolvedInput> = {
+      path: { value: "C:\\Users\\test", rawExpression: "path" },
+    };
+    // JSON.stringify("C:\\Users\\test") → '"C:\\Users\\test"'
+    expect(generatePythonPreamble(resolvedStr)).toBe('path = "C:\\\\Users\\\\test"');
+
+    // 字符串值含单引号：JSON.stringify 不转义单引号，直接输出
+    const resolvedQuote: Record<string, ResolvedInput> = {
+      msg: { value: "it's here", rawExpression: "msg" },
+    };
+    expect(generatePythonPreamble(resolvedQuote)).toBe('msg = "it\'s here"');
+
+    // 对象值：JSON.stringify 后对反斜杠和单引号进行二次转义，包裹在单引号 json.loads 中
+    const resolvedObj: Record<string, ResolvedInput> = {
+      config: { value: { key: "val'ue" }, rawExpression: "config" },
+    };
+    const result = generatePythonPreamble(resolvedObj);
+    expect(result).toContain("import json");
+    // JSON.stringify({key:"val'ue"}) → '{"key":"val\'ue"}' 然后 \' → \\'
+    expect(result).toContain("config = json.loads('{\"key\":\"val\\'ue\"}')");
+  });
 });
 
 // ── resolveInputs dependencies (copied from expression-parser.ts) ──
+// Source: packages/workflow-engine/src/parser/expression-parser.ts
+// Test adaptation: Renamed symbols to avoid collisions (ExprLexer vs Lexer, EXPR_MAX_LENGTH vs MAX_EXPR_LENGTH,
+//   EXPR_BLOCKED vs BLOCKED_KEYS, EXPR_ROOTS vs ALLOWED_ROOTS, exprIsObject vs isObject).
+// Logic is identical — only naming differs for test-file isolation.
 
 class WorkflowError extends Error {
   readonly code: string;
@@ -534,6 +618,13 @@ function exprResolveTemplate(template: string, ctx: ExprEvalContext): string {
 }
 
 // ── resolveInputs (copied from inputs-resolver.ts) ──
+// Source: packages/workflow-engine/src/parser/inputs-resolver.ts (resolveInputs export)
+// Test adaptation: Uses local expression-parser copies (exprParse/exprEval/exprResolveTemplate)
+//   and WorkflowError with string error codes instead of WorkflowErrorCode enum.
+// Logic is structurally identical to source — three-way dispatch:
+//   1. Single template → parseExpression + evaluateExpression (preserves type)
+//   2. Concatenation template → resolveTemplate (result is string)
+//   3. Pure expression or literal fallback
 
 interface ResolvedInputFull {
   value: unknown;
@@ -724,5 +815,31 @@ describe("resolveInputs", () => {
     );
     // params.missing → member_access on null params returns null
     expect(result.val.value).toBeNull();
+  });
+
+  // ── Boundary tests ──
+
+  test("ternary expression resolves correctly", () => {
+    const result = resolveInputs(
+      { val: "${{ params.flag ? 'yes' : 'no' }}" },
+      { params: { flag: true } },
+    );
+    expect(result.val.value).toBe("yes");
+  });
+
+  test("secrets namespace resolves correctly", () => {
+    const result = resolveInputs(
+      { key: "${{ secrets.API_KEY }}" },
+      { secrets: { API_KEY: "sk-123" } },
+    );
+    expect(result.key.value).toBe("sk-123");
+  });
+
+  test("nodes namespace resolves correctly", () => {
+    const result = resolveInputs(
+      { out: "${{ nodes.step1.output.result }}" },
+      { nodes: { step1: { output: { result: 42 } } } },
+    );
+    expect(result.out.value).toBe(42);
   });
 });
