@@ -38,7 +38,7 @@ def test_skill_search_filter(logged_in_page, base_url):
     skills = SkillsPage(logged_in_page, base_url)
     skills.goto()
 
-    initial_count = skills.get_skill_count()
+    initial_count = skills.get_visible_skill_cards()
     if initial_count == 0:
         pytest.skip("技能列表为空，无法测试搜索")
 
