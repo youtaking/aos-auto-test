@@ -122,23 +122,30 @@ def test_org_002_create_org(logged_in_page, base_url):
         create_btn.click(force=True)
         logged_in_page.wait_for_timeout(800)
 
-    # 刷新验证
-    org.goto()
-
-    # 创建成功
-    assert org.has_org(f"测试组织{_PREFIX}"), \
-        f"新组织未出现在列表中"
-
-    # POST 请求验证
-    post_calls = [r for r in api_resp if r["method"] == "POST"
-                  and "/web/organizations" in r["url"]]
-    assert len(post_calls) > 0, "未检测到创建组织的 POST 请求"
-
-    # 清理
-    orgs = _get_orgs_api(logged_in_page, base_url)
-    for o in orgs:
+    # 获取创建后的 org_id，供 finally 清理使用
+    _created_org_id = None
+    orgs_after = _get_orgs_api(logged_in_page, base_url)
+    for o in orgs_after:
         if f"测试组织{_PREFIX}" in o.get("name", ""):
-            _delete_org_api(logged_in_page, base_url, o["id"])
+            _created_org_id = o["id"]
+            break
+
+    try:
+        # 刷新验证
+        org.goto()
+
+        # 创建成功
+        assert org.has_org(f"测试组织{_PREFIX}"), \
+            f"新组织未出现在列表中"
+
+        # POST 请求验证
+        post_calls = [r for r in api_resp if r["method"] == "POST"
+                      and "/web/organizations" in r["url"]]
+        assert len(post_calls) > 0, "未检测到创建组织的 POST 请求"
+    finally:
+        # 清理：用 org_id 删除
+        if _created_org_id:
+            _delete_org_api(logged_in_page, base_url, _created_org_id)
 
 
 @allure.epic("组织管理")
@@ -526,50 +533,51 @@ def test_org_012_edit_org(logged_in_page, base_url):
     assert create_resp.status == 200, "创建测试组织失败"
     org_id = create_resp.json()["data"]["id"]
 
-    org = OrgPage(logged_in_page, base_url)
-    org.goto()
+    try:
+        org = OrgPage(logged_in_page, base_url)
+        org.goto()
 
-    # 选择组织
-    org.click_org(org_name)
-    logged_in_page.wait_for_timeout(800)
+        # 选择组织
+        org.click_org(org_name)
+        logged_in_page.wait_for_timeout(800)
 
-    # 1. 编辑按钮存在
-    assert org.has_edit_button(), "未找到编辑按钮"
+        # 1. 编辑按钮存在
+        assert org.has_edit_button(), "未找到编辑按钮"
 
-    # 2. 点击编辑 → 进入内联编辑模式
-    org.click_edit()
-    logged_in_page.wait_for_timeout(800)
+        # 2. 点击编辑 → 进入内联编辑模式
+        org.click_edit()
+        logged_in_page.wait_for_timeout(800)
 
-    body = logged_in_page.locator("div.agent-panel-body")
+        body = logged_in_page.locator("div.agent-panel-body")
 
-    # 3. 验证编辑模式：名称 input 出现 + 保存/取消按钮替代编辑按钮
-    name_input = body.locator("input[placeholder='组织名称']")
-    assert name_input.count() > 0 and name_input.first.is_visible(), \
-        "编辑模式下名称输入框未出现"
+        # 3. 验证编辑模式：名称 input 出现 + 保存/取消按钮替代编辑按钮
+        name_input = body.locator("input[placeholder='组织名称']")
+        assert name_input.count() > 0 and name_input.first.is_visible(), \
+            "编辑模式下名称输入框未出现"
 
-    save_btn = body.first.get_by_role("button", name="保存")
-    cancel_btn = body.first.get_by_role("button", name="取消")
-    assert save_btn.count() > 0, "编辑模式下未出现「保存」按钮"
-    assert cancel_btn.count() > 0, "编辑模式下未出现「取消」按钮"
+        save_btn = body.first.get_by_role("button", name="保存")
+        cancel_btn = body.first.get_by_role("button", name="取消")
+        assert save_btn.count() > 0, "编辑模式下未出现「保存」按钮"
+        assert cancel_btn.count() > 0, "编辑模式下未出现「取消」按钮"
 
-    # 4. 修改名称
-    new_name = f"{org_name}-edited"
-    name_input.first.wait_for(state="visible", timeout=5000)
-    name_input.first.fill("")
-    name_input.first.fill(new_name)
+        # 4. 修改名称
+        new_name = f"{org_name}-edited"
+        name_input.first.wait_for(state="visible", timeout=5000)
+        name_input.first.fill("")
+        name_input.first.fill(new_name)
 
-    # 5. 点击保存
-    save_btn.first.wait_for(state="visible", timeout=5000)
-    save_btn.first.click()
-    logged_in_page.wait_for_timeout(800)
+        # 5. 点击保存
+        save_btn.first.wait_for(state="visible", timeout=5000)
+        save_btn.first.click()
+        logged_in_page.wait_for_timeout(800)
 
-    # 6. 验证名称已更新（刷新页面确认持久化）
-    org.goto()
-    assert org.has_org(new_name), \
-        f"编辑保存后新名称 {new_name} 未出现在列表中"
-
-    # 7. 清理
-    _delete_org_api(logged_in_page, base_url, org_id)
+        # 6. 验证名称已更新（刷新页面确认持久化）
+        org.goto()
+        assert org.has_org(new_name), \
+            f"编辑保存后新名称 {new_name} 未出现在列表中"
+    finally:
+        # 7. 清理：用 org_id 删除（改名不影响 ID）
+        _delete_org_api(logged_in_page, base_url, org_id)
 
 
 @allure.epic("组织管理")
