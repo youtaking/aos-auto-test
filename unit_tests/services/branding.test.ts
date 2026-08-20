@@ -20,6 +20,13 @@ function getBrandingConfig(): BrandingConfig {
   };
 }
 
+/** 解析品牌 logo 文件路径：未配置或文件不存在时返回 null */
+function resolveBrandLogoFile(existsSync: (path: string) => boolean): string | null {
+  const { logoPath } = getBrandingConfig();
+  if (!logoPath) return null;
+  return existsSync(logoPath) ? logoPath : null;
+}
+
 // --- Helper ---
 
 function withEnv(overrides: Record<string, string | undefined>, fn: () => void) {
@@ -144,6 +151,54 @@ describe("getBrandingConfig", () => {
         logoPath: "/images/acme.svg",
         logoUrl: "/web/branding/logo",
       });
+    });
+  });
+});
+
+describe("resolveBrandLogoFile", () => {
+  test("未配置 logoPath 时返回 null", () => {
+    withEnv({ APP_LOGO_PATH: undefined }, () => {
+      expect(resolveBrandLogoFile(() => true)).toBeNull();
+    });
+  });
+
+  test("空白 logoPath 返回 null", () => {
+    withEnv({ APP_BRAND_NAME: undefined, APP_LOGO_PATH: "   " }, () => {
+      expect(resolveBrandLogoFile(() => true)).toBeNull();
+    });
+  });
+
+  test("logoPath 存在且文件在磁盘上存在时返回路径", () => {
+    withEnv({ APP_LOGO_PATH: "/var/assets/logo.png" }, () => {
+      expect(resolveBrandLogoFile((p) => p === "/var/assets/logo.png")).toBe("/var/assets/logo.png");
+    });
+  });
+
+  test("logoPath 配置但文件不存在时返回 null", () => {
+    withEnv({ APP_LOGO_PATH: "/missing/logo.png" }, () => {
+      expect(resolveBrandLogoFile(() => false)).toBeNull();
+    });
+  });
+
+  test("将已解析的 logoPath 传递给 existsSync（已 trim）", () => {
+    withEnv({ APP_LOGO_PATH: "  /trimmed/path.svg  " }, () => {
+      const checkedPaths: string[] = [];
+      resolveBrandLogoFile((p) => {
+        checkedPaths.push(p);
+        return true;
+      });
+      expect(checkedPaths).toEqual(["/trimmed/path.svg"]);
+    });
+  });
+
+  test("existsSync 不被调用当 logoPath 为 null", () => {
+    withEnv({ APP_LOGO_PATH: undefined }, () => {
+      let called = false;
+      resolveBrandLogoFile(() => {
+        called = true;
+        return true;
+      });
+      expect(called).toBe(false);
     });
   });
 });
