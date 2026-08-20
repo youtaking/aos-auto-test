@@ -22,7 +22,8 @@ def _register_cleanup_bindings(request, page, base_url, name_prefix):
                 data = r.json()
                 bindings = data if isinstance(data, list) else data.get("data", [])
                 for b in bindings:
-                    if name_prefix in b.get("platform", ""):
+                    name = b.get("platformName", "") or b.get("platform", "")
+                    if name_prefix in name:
                         page.request.delete(
                             f"{base_url}/web/channels/bindings/{b['id']}"
                         )
@@ -54,6 +55,22 @@ def test_channels_page_loads(logged_in_page, base_url):
 def test_channels_empty_state(logged_in_page, base_url):
     """TC-CH-002: 无绑定时显示空状态"""
     ch = ChannelsPage(logged_in_page, base_url)
+
+    # 先清理所有 ch-e2e- 前缀的残留绑定（上次运行可能没清理干净）
+    try:
+        r = logged_in_page.request.get(f"{base_url}/web/channels/bindings")
+        if r.status == 200:
+            data = r.json()
+            bindings = data if isinstance(data, list) else data.get("data", [])
+            for b in bindings:
+                name = b.get("platformName", "") or b.get("platform", "")
+                if name.startswith("ch-e2e-"):
+                    logged_in_page.request.delete(
+                        f"{base_url}/web/channels/bindings/{b['id']}"
+                    )
+    except Exception:
+        pass
+
     ch.goto()
     assert ch.is_loaded(), "频道页面未加载"
 
