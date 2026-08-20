@@ -396,11 +396,13 @@ class AgentConfigPage:
 
     def send_message(self, text: str):
         ta = self.page.locator("textarea[placeholder*='发送']")
-        if ta.count() > 0:
-            ta.first.wait_for(state="visible", timeout=5000)
-            ta.first.fill(text)
-            ta.first.press("Enter")
-            self.page.wait_for_load_state("domcontentloaded")
+        if ta.count() == 0:
+            # fallback: 任意 textarea
+            ta = self.page.locator("textarea")
+        ta.first.wait_for(state="visible", timeout=15000)
+        ta.first.fill(text)
+        ta.first.press("Enter")
+        self.page.wait_for_load_state("domcontentloaded")
 
     def get_last_message(self) -> str:
         """获取最后一条 AI 回复"""
@@ -408,7 +410,10 @@ class AgentConfigPage:
         if messages.count() == 0:
             messages = self.page.locator("div.agent-chat-area > div")
         if messages.count() > 0:
-            return messages.last.text_content().strip()
+            try:
+                return messages.last.text_content(timeout=5000).strip()
+            except Exception:
+                return ""
         return ""
 
     # ==================== 右侧面板（技能/文件/配置） ====================
@@ -451,18 +456,19 @@ class AgentConfigPage:
             print(f"  [change_model] 无法打开配置 modal: {agent_name}")
             return False
 
-        # 在 modal 中找到模型 Select（Label "模型" + Radix SelectTrigger）
-        model_label = modal.locator("label", has_text="模型")
+        # 在 modal 中找到模型字段（真实 DOM: "模型" 是 div，不是 label）
+        model_label = modal.get_by_text("模型", exact=True)
         if model_label.count() == 0:
             print("  [change_model] modal 中未找到模型 Label")
             # 关闭 modal
             self.page.keyboard.press("Escape")
             return False
 
-        # SelectTrigger 是 Label 所在 div 内的 combobox button
-        select_trigger = model_label.locator("..").locator("button[role='combobox']")
+        # SelectTrigger 是"模型"文本父容器内的 combobox
+        model_field = model_label.first.locator("xpath=..")
+        select_trigger = model_field.locator("button[role='combobox']")
         if select_trigger.count() == 0:
-            select_trigger = model_label.locator("..").locator("button").first
+            select_trigger = model_field.locator("button").first
         select_trigger.scroll_into_view_if_needed()
         select_trigger.wait_for(state="visible", timeout=5000)
         select_trigger.click()
