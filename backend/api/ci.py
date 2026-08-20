@@ -2,7 +2,7 @@
 """Pipeline + CI 配置 API：供 Jenkins 调用和前端看板使用"""
 import asyncio
 import secrets
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Header, HTTPException
@@ -145,6 +145,16 @@ async def submit_results(
     skipped = summary.get("skipped", summary.get("num_skipped", 0))
     duration = report.get("duration", 0)
 
+    # 从 report 的 created（Unix 时间戳）推算实际起止时间（转为 CST 与数据库 _now() 一致）
+    _CST = timezone(timedelta(hours=8))
+    created_ts = report.get("created", 0)
+    if created_ts and duration:
+        actual_finished = datetime.fromtimestamp(created_ts, tz=_CST).replace(tzinfo=None)
+        actual_started = datetime.fromtimestamp(created_ts - duration, tz=_CST).replace(tzinfo=None)
+    else:
+        actual_finished = datetime.now(_CST).replace(tzinfo=None)
+        actual_started = datetime.fromtimestamp(actual_finished.timestamp() - duration, tz=_CST).replace(tzinfo=None) if duration else actual_finished
+
     # 创建或更新 TestRun
     if pipeline.run_id:
         run = await db.get(TestRun, pipeline.run_id)
@@ -156,7 +166,7 @@ async def submit_results(
             git_branch=pipeline.branch,
             pr_id=pipeline.pr_id,
             pipeline_id=pipeline.id,
-            started_at=datetime.utcnow(),
+            started_at=actual_started,
         )
         db.add(run)
         await db.flush()
@@ -168,7 +178,8 @@ async def submit_results(
         run.skipped = skipped
         run.duration_ms = int(duration * 1000)
         run.status = "passed" if failed == 0 else "failed"
-        run.finished_at = datetime.utcnow()
+        run.started_at = actual_started
+        run.finished_at = actual_finished
         pipeline.run_id = run.id
 
         # 创建 TestResult 记录（逐条测试结果）
