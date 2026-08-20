@@ -739,15 +739,19 @@ def test_view_tools(logged_in_page, base_url):
 
     logged_in_page.on("response", on_tools_resp)
 
-    def _poll_for_result(max_rounds=20):
+    def _poll_for_result(max_rounds=30):
         """轮询抓取 toast/dialog，返回 (toast_texts, combined, has_tools_info)"""
         _toast_texts = []
         for _ in range(max_rounds):
             logged_in_page.wait_for_timeout(500)
             errors = mcp.get_validation_errors()
             if errors:
+                # "检测中" 是中间状态，继续等最终结果
+                all_text = " ".join(errors)
+                if "检测中" in all_text:
+                    continue
                 _toast_texts.extend(errors)
-                # 检测到 toast 后再等一轮确保抓全
+                # 检测到最终 toast 后再等一轮确保抓全
                 logged_in_page.wait_for_timeout(500)
                 more = mcp.get_validation_errors()
                 if more:
