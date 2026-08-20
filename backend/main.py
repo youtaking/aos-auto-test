@@ -1,5 +1,8 @@
 # backend/main.py
 """FastAPI 应用入口"""
+import asyncio
+import logging
+import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,6 +13,44 @@ from backend.api import (
     ci, collections, unit_tests, settings, branches,
 )
 from backend import ws as ws_module
+
+logger = logging.getLogger(__name__)
+
+
+async def _branch_poll_loop():
+    """后台定时轮询 GitHub PR"""
+    from backend.services.branch_poller import BranchPoller
+    from backend.db.config import async_session
+    from backend.db.models import Setting
+    from sqlalchemy import select
+
+    poller = BranchPoller()
+    logger.info("[BranchPoller] 后台轮询任务已启动")
+
+    while True:
+        try:
+            async with async_session() as db:
+                result = await db.execute(select(Setting))
+                cfg = {s.key: s.value for s in result.scalars().all()}
+
+            enabled = cfg.get("branch_poll_enabled", "false") == "true"
+            if not enabled:
+                await asyncio.sleep(60)
+                continue
+
+            interval = int(cfg.get("branch_poll_interval", "300"))
+            interval = max(interval, 30)  # 最小 30 秒
+
+            res = await poller.poll_once()
+            logger.info("[BranchPoller] poll result: %s", res)
+
+            await asyncio.sleep(interval)
+        except asyncio.CancelledError:
+            logger.info("[BranchPoller] 后台轮询任务已取消")
+            break
+        except Exception as e:
+            logger.error("[BranchPoller] poll error: %s", e)
+            await asyncio.sleep(60)
 
 
 @asynccontextmanager
@@ -114,7 +155,21 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[AutoDiscover] Unit test discovery failed: {e}")
 
+    # 启动分支轮询后台任务（仅在实际服务进程中启动）
+    poll_task = None
+    is_reload_child = os.environ.get("UVICORN_RELOADING") == "true" or os.environ.get("WERKZEUG_RUN_MAIN") == "true"
+    if not os.environ.get("UVICORN_RELOADING") or is_reload_child:
+        poll_task = asyncio.create_task(_branch_poll_loop())
+
     yield
+
+    if poll_task:
+        poll_task.cancel()
+        try:
+            await poll_task
+        except asyncio.CancelledError:
+            pass
+
     await close_db()
 
 
