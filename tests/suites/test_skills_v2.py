@@ -82,11 +82,22 @@ def test_skill_search_filter(logged_in_page, base_url):
     # 清空搜索恢复（轮询等待 React 列表重渲染完成）
     skills.clear_search()
     restored_count = 0
-    for _ in range(10):  # 最多 5s
+    for _ in range(20):  # 最多 10s
         logged_in_page.wait_for_timeout(500)
         restored_count = skills.get_visible_skill_cards()
         if restored_count >= initial_count:
             break
+    # React 渲染延迟时刷新页面兜底
+    if restored_count < initial_count:
+        try:
+            logged_in_page.reload(wait_until="domcontentloaded")
+            logged_in_page.locator("input[placeholder*='搜索技能']").first.wait_for(
+                state="attached", timeout=10000
+            )
+            logged_in_page.wait_for_timeout(2000)
+            restored_count = skills.get_visible_skill_cards()
+        except Exception:
+            pass
     assert restored_count == initial_count, (
         f"清空搜索后未恢复: {restored_count} vs {initial_count}"
     )

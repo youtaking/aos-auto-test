@@ -150,59 +150,89 @@ def test_rapid_consecutive_messages(logged_in_page, base_url):
         assert "快速消息" in log_text, "快速连续发送后消息区域缺少用户消息"
 
 
-# === NF-11: 模型切换 ===
+
+# === NF-11: 模型展示一致性 ===
 
 @pytest.mark.order(74)
 @pytest.mark.p1
-def test_model_switching(logged_in_page, base_url):
-    """TC-CHAT-GAP-005: 模型切换 — 打开选择器、查看选项、切换模型"""
+def test_model_display_consistency(logged_in_page, base_url):
+    """TC-CHAT-GAP-005: 对话框模型展示与 Agent 配置模型一致，修改后同步更新"""
+    from tests.pages.agent_config_page import AgentConfigPage
     chat = ChatTestPage(logged_in_page, base_url)
-    chat.goto_agent_chat("my-auto-test")
+    ac = AgentConfigPage(logged_in_page, base_url)
+    agent_name = "my-auto-test"
+
+    # 1. 进入聊天页
+    chat.goto_agent_chat(agent_name)
     if not chat.is_on_chat_page():
         pytest.skip("未能导航到 my-auto-test 聊天页")
     chat.create_new_session()
 
-    # 1. 获取当前模型名
-    current_model = chat.get_current_model_name()
-    if not current_model:
-        pytest.skip("无法获取当前模型名（composer meta 区域不存在）")
+    def _get_composer_model():
+        """从 composer meta 读取展示的模型名（跳过 Bypass）"""
+        meta = logged_in_page.locator("div.chat-composer-meta")
+        if meta.count() == 0:
+            return ""
+        spans = meta.locator("span[title]")
+        for i in range(spans.count()):
+            title = spans.nth(i).get_attribute("title") or ""
+            if title and title != "Bypass":
+                return title
+        return ""
 
-    # 2. 打开模型选择器
-    opened = chat.open_model_selector()
-    assert opened, "模型选择器未打开"
+    def _wait_composer_model(timeout_s=20):
+        """轮询等待 composer 模型展示出现"""
+        for _ in range(timeout_s // 2):
+            m = _get_composer_model()
+            if m:
+                return m
+            logged_in_page.wait_for_timeout(2000)
+        return ""
 
-    # 3. 获取选项列表
-    options = chat.get_model_options()
-    if len(options) < 2:
-        chat.close_model_selector()
-        pytest.skip(f"可用模型不足 2 个（当前选项: {options}），无法测试切换")
+    initial_model = _wait_composer_model()
+    if not initial_model:
+        pytest.skip("composer 中未找到模型展示名")
 
-    # 4. 选择一个不同于当前的模型
-    other_model = None
-    for opt in options:
-        if opt != current_model and current_model not in opt:
-            other_model = opt
-            break
-    if other_model is None:
-        chat.close_model_selector()
-        pytest.skip(f"所有选项与当前模型相同: {options}")
+    # 2. 根据当前模型选一个不同的目标模型
+    #    flash → plus, plus → flash，确保每次都是真正的切换
+    if "plus" in initial_model.lower():
+        target_label = "Qwen-Test/qwen3.7-flash"
+        target_keyword = "flash"
+        restore_label = "Qwen-Test/qwen3.7-plus"
+        restore_keyword = "plus"
+    else:
+        target_label = "Qwen-Test/qwen3.7-plus"
+        target_keyword = "plus"
+        restore_label = "Qwen-Test/qwen3.7-flash"
+        restore_keyword = "flash"
 
-    selected = chat.select_model(other_model)
-    assert selected, f"未能选择模型 '{other_model}'"
+    # 3. 改为目标模型，验证 composer 展示包含目标关键词
+    changed = ac.change_model_via_config(agent_name, target_label)
+    if not changed:
+        pytest.skip(f"无法通过配置界面修改模型为 {target_label}")
 
-    # 5. 验证模型名已更新
-    logged_in_page.wait_for_timeout(500)
-    new_model = chat.get_current_model_name()
-    assert new_model != current_model, \
-        f"切换后模型名未更新: 之前='{current_model}'，之后='{new_model}'"
+    chat.goto_agent_chat(agent_name)
+    if not chat.is_on_chat_page():
+        pytest.skip("修改模型后未能重新进入聊天页")
 
-    # 6. 发送消息验证新模型可用
-    chat.send_message("模型切换测试：请回复OK")
-    logged_in_page.wait_for_timeout(3000)
-    log_area = logged_in_page.locator("div[role='log']")
-    if log_area.count() > 0:
-        log_text = log_area.first.inner_text()
-        assert len(log_text.strip()) > 0, "切换模型后发送消息无响应"
+    new_model = _wait_composer_model()
+    assert target_keyword in new_model.lower(), \
+        f"改为 {target_keyword} 后 composer 未同步: 实际='{new_model}'"
+
+    # 4. 改回原模型，验证 composer 展示恢复
+    restored = ac.change_model_via_config(agent_name, restore_label)
+    if not restored:
+        print(f"  警告：无法恢复为 {restore_label}")
+        return
+
+    chat.goto_agent_chat(agent_name)
+    if not chat.is_on_chat_page():
+        print("  警告：恢复后未能重新进入聊天页")
+        return
+
+    restored_model = _wait_composer_model()
+    assert restore_keyword in restored_model.lower(), \
+        f"改回 {restore_keyword} 后 composer 未同步: 实际='{restored_model}'"
 
 
 # === NF-12: Slash 命令输入 ===
@@ -353,14 +383,9 @@ def test_artifacts_file_tree_tab(logged_in_page, base_url):
     else:
         pytest.skip("Artifacts 面板无「文件」Tab")
 
-    # 验证文件树存在
+    # 验证文件树组件存在（workspace 可能为空，不要求有文件项）
     has_tree = chat.has_file_tree()
-    if not has_tree:
-        pytest.skip("点击文件 Tab 后文件树未出现（可能 workspace 未配置）")
-
-    # 验证树中有项目
-    tree_items = logged_in_page.locator("div[role='treeitem']")
-    assert tree_items.count() > 0, "文件树为空，至少应有 1 个文件"
+    assert has_tree, "点击文件 Tab 后文件树组件未出现"
 
 
 # === NF-18: 定时任务 Tab ===

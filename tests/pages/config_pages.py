@@ -154,7 +154,9 @@ class SkillsPage:
     def clear_search(self):
         inp = self.page.locator("input[placeholder*='搜索技能']")
         if inp.count() > 0:
-            inp.first.fill("")
+            inp.first.click()
+            self.page.keyboard.press("Control+a")
+            self.page.keyboard.press("Backspace")
             self.page.wait_for_timeout(500)
 
     def get_visible_skill_cards(self) -> int:

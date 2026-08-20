@@ -877,9 +877,15 @@ class ChatTestPage:
         return state == "active"
 
     def has_file_tree(self) -> bool:
-        """Artifacts 文件 Tab 中是否有文件树"""
+        """Artifacts 文件 Tab 是否已渲染（有文件树 或 空状态提示均视为成功）"""
         tree = self.page.locator("div[role='tree']")
-        return tree.count() > 0 and tree.first.is_visible()
+        if tree.count() > 0 and tree.first.is_visible():
+            return True
+        # 空 workspace 时显示"工作区暂无文件"提示
+        empty_msg = self.page.locator("text=工作区暂无文件")
+        if empty_msg.count() > 0 and empty_msg.first.is_visible():
+            return True
+        return False
 
     def has_scheduled_tasks_content(self) -> bool:
         """定时任务 Tab 是否有内容（列表或空状态提示）"""

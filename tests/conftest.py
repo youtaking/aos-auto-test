@@ -177,6 +177,38 @@ def _step_pause(step_delay):
 
 
 @pytest.fixture(autouse=True)
+def _pre_test_cleanup(request):
+    """每条用例开始前轻量清理：关闭残留弹窗、停止 AI 回复，确保页面处于干净状态。"""
+    markers = [m.name for m in request.node.iter_markers()]
+    is_api_test = "no_browser" in markers or "api_suites" in str(request.fspath)
+    if is_api_test:
+        yield
+        return
+    try:
+        page = request.getfixturevalue("page")
+    except Exception:
+        yield
+        return
+    if page.is_closed():
+        yield
+        return
+    try:
+        # 1. 按 Escape 关闭可能的残留弹窗
+        dialog = page.locator("[role='dialog'], [role='alertdialog']")
+        if dialog.count() > 0 and dialog.first.is_visible():
+            page.keyboard.press("Escape")
+            page.wait_for_timeout(300)
+        # 2. 停止正在进行的 AI 回复（lucide-square = 停止图标）
+        stop_btn = page.locator("button:has(svg.lucide-square)")
+        if stop_btn.count() > 0 and stop_btn.first.is_visible():
+            stop_btn.first.click()
+            page.wait_for_timeout(500)
+    except Exception:
+        pass
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _cleanup_modal(request):
     """每条用例结束后关闭残留的 modal / dialog / overlay，避免遮挡后续测试。"""
     yield
