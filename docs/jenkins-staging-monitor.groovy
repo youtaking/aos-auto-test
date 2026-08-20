@@ -268,7 +268,7 @@ pipeline {
                             \\"branch\\": \\"staging\\",
                             \\"author\\": \\"system\\",
                             \\"target_url\\": \\"__TARGET_URL__\\",
-                            \\"build_info\\": {\\"version\\": \\"${CURRENT_VERSION}\\", \\"startedAt\\": \\"${STARTED_AT}\\", \\"commitId\\": \\"${CURRENT_COMMIT}\\"}
+                            \\"build_info\\": {\\"version\\": \\"${CURRENT_VERSION}\\", \\"startedAt\\": \\"${STARTED_AT}\\", \\"commitId\\": \\"${CURRENT_COMMIT}\\", \\"jenkins_url\\": \\"${BUILD_URL}\\", \\"build_number\\": ${BUILD_NUMBER}}
                           }" \\
                           "__AUTOTEST_URL__/api/pipelines" 2>/dev/null || echo "")
 

@@ -3,7 +3,7 @@ import { listPipelines, deletePipeline, batchDeletePipelines } from "../api/pipe
 import type { Pipeline } from "../api/types";
 import PipelineDetail from "../components/PipelineDetail";
 import CIConfigModal from "../components/CIConfigModal";
-import { Settings, RefreshCw, ChevronLeft, ChevronRight, Trash2 } from "lucide-react";
+import { Settings, RefreshCw, ChevronLeft, ChevronRight, Trash2, ExternalLink } from "lucide-react";
 
 const statusIcons: Record<string, string> = {
   building: "🔨", deploying: "🚀", running: "🔄",
@@ -18,6 +18,13 @@ const statusLabels: Record<string, string> = {
 const PAGE_SIZE = 20;
 
 const activeStatuses = new Set(["building", "deploying", "running"]);
+
+const getJenkinsInfo = (p: Pipeline) => {
+  const bi = p.build_info as Record<string, unknown> | null;
+  const url = (bi?.jenkins_url as string) || "";
+  const num = (bi?.build_number as number) || 0;
+  return { url, num };
+};
 
 const statusFilters = [
   { key: "", label: "全部" },
@@ -233,12 +240,14 @@ export default function PRPipeline() {
                     className="rounded border-gray-300"
                   />
                 </th>
+                <th className="px-4 py-3 w-16">ID</th>
                 <th className="px-4 py-3">PR</th>
                 <th className="px-4 py-3">Commit</th>
                 <th className="px-4 py-3">分支</th>
                 <th className="px-4 py-3">状态</th>
                 <th className="px-4 py-3">测试</th>
                 <th className="px-4 py-3">耗时</th>
+                <th className="px-4 py-3">Jenkins</th>
                 <th className="px-4 py-3 w-16 text-center">操作</th>
               </tr>
             </thead>
@@ -260,6 +269,9 @@ export default function PRPipeline() {
                       onClick={(e) => toggleCheck(e, p.id)}
                       className="rounded border-gray-300"
                     />
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className="text-xs text-gray-500 font-mono">#{p.id}</span>
                   </td>
                   <td className="px-4 py-3">
                     {p.branch === "staging" ? (
@@ -297,6 +309,23 @@ export default function PRPipeline() {
                     ) : "-"}
                   </td>
                   <td className="px-4 py-3 text-gray-500">{calcDuration(p)}</td>
+                  <td className="px-4 py-3">
+                    {(() => {
+                      const { url, num } = getJenkinsInfo(p);
+                      if (!url || !num) return <span className="text-gray-300">-</span>;
+                      return (
+                        <a
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 hover:underline"
+                        >
+                          Build #{num} <ExternalLink className="w-3 h-3" />
+                        </a>
+                      );
+                    })()}
+                  </td>
                   <td className="px-4 py-3 text-center">
                       <button
                         onClick={(e) => requestDelete(e, [p.id], `Pipeline #${p.id}`)}
@@ -312,7 +341,7 @@ export default function PRPipeline() {
               })}
               {filteredPipelines.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-gray-400">
+                  <td colSpan={10} className="px-4 py-8 text-center text-gray-400">
                     暂无 Pipeline 记录
                   </td>
                 </tr>
