@@ -368,7 +368,11 @@ class ModelConfigPage:
         """编辑弹窗中是否有「获取模型列表」按钮"""
         dialog = self.page.locator("[role=dialog]")
         btn = dialog.get_by_role("button", name="获取模型列表")
-        return btn.count() > 0
+        try:
+            btn.first.wait_for(state="visible", timeout=5000)
+            return True
+        except Exception:
+            return False
 
     def click_fetch_models_in_dialog(self):
         """点击编辑弹窗中的「获取模型列表」按钮"""

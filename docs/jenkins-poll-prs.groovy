@@ -139,6 +139,7 @@ def pollPRs(state) {
     def newState = [:]
     def triggered = 0
     def skipped = 0
+    def triggeredPRs = []
 
     for (pr in prs) {
         def prId = pr.number.toString()
@@ -175,6 +176,7 @@ def pollPRs(state) {
 
         if (ok) {
             triggered++
+            triggeredPRs << "#${prId} ${title.take(40)}"
             println "    Build queued."
         } else {
             println "    Build trigger FAILED."
@@ -183,7 +185,7 @@ def pollPRs(state) {
         sleep(3000)
     }
 
-    return [newState: newState, triggered: triggered, skipped: skipped]
+    return [newState: newState, triggered: triggered, skipped: skipped, triggeredPRs: triggeredPRs]
 }
 
 // ===================== Branch 模式 =====================
@@ -210,7 +212,7 @@ def pollBranch(state) {
     def prevSha = state[branchKey]
     if (prevSha == sha) {
         println "    No change."
-        return [newState: [(branchKey): sha], triggered: 0, skipped: 1]
+        return [newState: [(branchKey): sha], triggered: 0, skipped: 1, triggeredPRs: []]
     }
 
     println ""
@@ -228,13 +230,14 @@ def pollBranch(state) {
     ])
 
     def triggered = ok ? 1 : 0
+    def triggeredPRs = ok ? ["branch:${MONITOR_BRANCH} ${sha.substring(0, Math.min(8, sha.size()))}"] : []
     if (ok) {
         println "    Build queued."
     } else {
         println "    Build trigger FAILED."
     }
 
-    return [newState: [(branchKey): sha], triggered: triggered, skipped: 0]
+    return [newState: [(branchKey): sha], triggered: triggered, skipped: 0, triggeredPRs: triggeredPRs]
 }
 
 // ===================== 主逻辑 =====================
@@ -284,3 +287,19 @@ println "=" * 60
 println "Poll complete: triggered=${result.triggered}, skipped=${result.skipped}"
 println "State saved: ${result.newState.size()} entries"
 println "=" * 60
+
+// 4. 设置构建显示名，方便区分是否触发了测试
+if (result.triggered > 0) {
+    def firstPR = result.triggeredPRs ? result.triggeredPRs[0] : ""
+    if (result.triggered == 1) {
+        build.displayName = "#${build.number} [TRIGGER] ${firstPR}"
+    } else {
+        build.displayName = "#${build.number} [TRIGGER] ${result.triggered} PRs (${firstPR}...)"
+    }
+} else {
+    if (MONITOR_TYPE == "branch") {
+        build.displayName = "#${build.number} [SKIP] branch:${MONITOR_BRANCH} no change"
+    } else {
+        build.displayName = "#${build.number} [SKIP] ${result.skipped} PR(s) no change"
+    }
+}

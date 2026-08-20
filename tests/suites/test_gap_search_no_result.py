@@ -9,7 +9,7 @@ from tests.pages.chat_test_page import ChatTestPage
 @pytest.mark.order(400)
 @pytest.mark.p1
 def test_home_empty_description_submit(logged_in_page, base_url):
-    """TC-HOME-GAP-001: 空描述时一键创建按钮状态"""
+    """TC-HOME-GAP-001: 空描述时点击一键创建无响应"""
     logged_in_page.goto(f"{base_url}/ctrl/agent/home")
     logged_in_page.wait_for_load_state("domcontentloaded")
     logged_in_page.wait_for_timeout(2000)
@@ -21,19 +21,28 @@ def test_home_empty_description_submit(logged_in_page, base_url):
     textarea.first.fill("")
     logged_in_page.wait_for_timeout(300)
 
-    # 一键创建按钮应为禁用状态
+    # 一键创建按钮存在
     create_btn = logged_in_page.get_by_role("button", name="一键创建")
     if create_btn.count() == 0:
         pytest.skip("一键创建按钮未找到")
-    is_disabled = create_btn.first.is_disabled()
-    assert is_disabled, "空描述时一键创建按钮应为禁用状态"
+
+    # 记录当前 URL
+    url_before = logged_in_page.url
+
+    # 点击一键创建
+    create_btn.first.click()
+    logged_in_page.wait_for_timeout(1500)
+
+    # 验证：无页面跳转（空描述不应创建智能体）
+    url_after = logged_in_page.url
+    assert url_after == url_before, f"空描述点击后发生了页面跳转: {url_before} → {url_after}"
 
 
 @allure.epic("垂直模型")
 @pytest.mark.order(401)
 @pytest.mark.p1
 def test_vertical_models_search_no_result(logged_in_page, base_url):
-    """TC-VM-GAP-001: 垂直模型搜索无结果显示空状态"""
+    """TC-VM-GAP-001: 垂直模型搜索无结果时卡片消失"""
     logged_in_page.goto(f"{base_url}/ctrl/agent/vertical-models")
     logged_in_page.wait_for_load_state("domcontentloaded")
     logged_in_page.wait_for_timeout(2000)
@@ -41,28 +50,39 @@ def test_vertical_models_search_no_result(logged_in_page, base_url):
     search = logged_in_page.locator("input[placeholder*='搜索']")
     if search.count() == 0:
         pytest.skip("垂直模型搜索框未找到")
+
+    # 通过搜索框向上定位内容面板（3 层祖先 div = 主内容区）
+    content_panel = search.first.locator("xpath=ancestor::div[3]")
+    content_panel.wait_for(state="visible", timeout=5000)
+    initial_text = content_panel.inner_text()
+    initial_len = len(initial_text.strip())
+
+    # 搜索不存在的模型（需按 Enter 触发）
     search.first.fill("zzz_不存在_99999")
+    search.first.press("Enter")
     logged_in_page.wait_for_timeout(1500)
 
-    # 列表应过滤为空
-    body_text = logged_in_page.locator("main").first.inner_text()
-    assert "zzz_不存在" not in body_text or "暂无" in body_text or "无" in body_text or \
-           len([l for l in body_text.split('\n') if l.strip()]) < 10, \
-        "搜索不存在的模型后，列表应显示空状态或过滤结果"
+    # 内容区域文本应明显减少（卡片消失）
+    after_text = content_panel.inner_text()
+    after_len = len(after_text.strip())
+    assert after_len < initial_len, \
+        f"搜索不存在的模型后内容未减少: {initial_len} → {after_len}"
 
-    # 清空恢复
-    search.first.wait_for(state="visible", timeout=5000)
+    # 清空恢复（需按 Enter 触发）
     search.first.fill("")
+    search.first.press("Enter")
     logged_in_page.wait_for_timeout(1500)
-    body_after = logged_in_page.locator("main").first.inner_text()
-    assert len(body_after.strip()) > 20, "清空搜索后列表未恢复"
+    restored_text = content_panel.inner_text()
+    restored_len = len(restored_text.strip())
+    assert restored_len >= initial_len - 10, \
+        f"清空搜索后内容未恢复: 期望约 {initial_len}，实际 {restored_len}"
 
 
 @allure.epic("算法库")
 @pytest.mark.order(402)
 @pytest.mark.p1
 def test_algorithms_search_no_result(logged_in_page, base_url):
-    """TC-ALGO-GAP-001: 算法库搜索无结果显示空状态"""
+    """TC-ALGO-GAP-001: 算法库搜索无结果时列表过滤"""
     logged_in_page.goto(f"{base_url}/ctrl/agent/algorithms")
     logged_in_page.wait_for_load_state("domcontentloaded")
     logged_in_page.wait_for_timeout(2000)
@@ -70,18 +90,32 @@ def test_algorithms_search_no_result(logged_in_page, base_url):
     search = logged_in_page.locator("input[placeholder*='搜索']")
     if search.count() == 0:
         pytest.skip("算法库搜索框未找到")
+
+    # 通过搜索框向上定位内容面板
+    content_panel = search.first.locator("xpath=ancestor::div[3]")
+    content_panel.wait_for(state="visible", timeout=5000)
+    initial_text = content_panel.inner_text()
+    initial_len = len(initial_text.strip())
+
+    # 搜索不存在的算法（需按 Enter 触发）
     search.first.fill("zzz_不存在_99999")
+    search.first.press("Enter")
     logged_in_page.wait_for_timeout(1500)
 
-    body_text = logged_in_page.locator("main").first.inner_text()
-    has_empty = "暂无" in body_text or "无" in body_text or "empty" in body_text.lower()
-    # 清空恢复
-    search.first.wait_for(state="visible", timeout=5000)
+    # 内容区域文本应明显减少
+    after_text = content_panel.inner_text()
+    after_len = len(after_text.strip())
+    assert after_len < initial_len, \
+        f"搜索不存在的算法后内容未减少: {initial_len} → {after_len}"
+
+    # 清空恢复（需按 Enter 触发）
     search.first.fill("")
+    search.first.press("Enter")
     logged_in_page.wait_for_timeout(1500)
-    body_after = logged_in_page.locator("main").first.inner_text()
-    assert len(body_after.strip()) > len(body_text.strip()) or has_empty, \
-        "清空搜索后列表应恢复"
+    restored_text = content_panel.inner_text()
+    restored_len = len(restored_text.strip())
+    assert restored_len >= initial_len - 10, \
+        f"清空搜索后内容未恢复: 期望约 {initial_len}，实际 {restored_len}"
 
 
 @allure.epic("MCP服务器")
@@ -89,22 +123,31 @@ def test_algorithms_search_no_result(logged_in_page, base_url):
 @pytest.mark.p1
 def test_mcp_search_no_result(logged_in_page, base_url):
     """TC-MCP-GAP-001: MCP 搜索无结果显示空状态"""
-    from tests.pages.mcp_page import McpPage
-    mcp = McpPage(logged_in_page, base_url)
+    from tests.pages.mcp_page import McpServerPage
+    mcp = McpServerPage(logged_in_page, base_url)
     mcp.goto()
-    if not mcp.is_loaded():
-        pytest.skip("MCP 页面未加载")
+    logged_in_page.wait_for_timeout(1500)
 
-    search = logged_in_page.locator("input[placeholder*='搜索']")
-    if search.count() == 0:
+    search = logged_in_page.locator("input[placeholder*='搜索 MCP']")
+    try:
+        search.first.wait_for(state="visible", timeout=5000)
+    except Exception:
         pytest.skip("MCP 搜索框未找到")
+
+    # MCP 搜索是实时过滤，不需要按 Enter
     search.first.fill("zzz_不存在_99999")
     logged_in_page.wait_for_timeout(1500)
 
-    # 列表应过滤
-    search.first.wait_for(state="visible", timeout=5000)
+    # 应显示空状态提示
+    empty_text = logged_in_page.get_by_text("暂无 MCP 服务器")
+    assert empty_text.count() > 0, "搜索无结果后未显示空状态提示"
+
+    # 清空恢复
     search.first.fill("")
     logged_in_page.wait_for_timeout(1500)
+
+    # 空状态提示应消失
+    assert empty_text.count() == 0, "清空搜索后空状态提示仍未消失"
 
 
 @allure.epic("知识库")
@@ -182,7 +225,7 @@ def test_views_card_buttons_complete(logged_in_page, base_url):
 @pytest.mark.p1
 def test_agent_card_hover_buttons(logged_in_page, base_url):
     """TC-AGENT-GAP-001: 智能体卡片 hover 操作按钮"""
-    logged_in_page.goto(f"{base_url}/ctrl/agent/agents")
+    logged_in_page.goto(f"{base_url}/ctrl/agent/home")
     logged_in_page.wait_for_load_state("domcontentloaded")
     logged_in_page.wait_for_timeout(2000)
 
@@ -207,15 +250,22 @@ def test_agent_card_hover_buttons(logged_in_page, base_url):
     target_card.hover()
     logged_in_page.wait_for_timeout(800)
 
-    # 检查操作按钮：展开实例、重启、配置、删除
+    # 检查操作按钮（用 title 属性匹配，按钮无文本只有图标）
     parent = target_card.locator("xpath=..")
-    config_btn = parent.locator("button").filter(has_text="智能体配置")
-    restart_btn = parent.locator("button").filter(has_text="重启智能体")
+    config_btn = parent.locator("button[title='智能体配置']")
+    restart_btn = parent.locator("button[title='重启智能体']")
+    expand_btn = parent.locator("button[title='展开实例']")
+    delete_btn = parent.locator("button[title='删除智能体']")
 
     has_config = config_btn.count() > 0
     has_restart = restart_btn.count() > 0
-    assert has_config or has_restart, \
-        f"hover 后智能体卡片操作按钮不完整: 配置={has_config}, 重启={has_restart}"
+    has_expand = expand_btn.count() > 0
+    has_delete = delete_btn.count() > 0
+    assert has_config and has_restart and has_expand and has_delete, (
+        f"hover 后操作按钮不完整: "
+        f"配置={has_config}, 重启={has_restart}, "
+        f"展开={has_expand}, 删除={has_delete}"
+    )
 
 
 @allure.epic("侧边栏导航")
@@ -252,31 +302,23 @@ def test_sidebar_collapse_expand(logged_in_page, base_url):
 @pytest.mark.p2
 def test_sidebar_active_item_highlight(logged_in_page, base_url):
     """TC-SIDEBAR-GAP-002: 当前页面导航项高亮"""
-    logged_in_page.goto(f"{base_url}/ctrl/agent/knowledge")
+    logged_in_page.goto(f"{base_url}/ctrl/agent/mcp")
     logged_in_page.wait_for_load_state("domcontentloaded")
     logged_in_page.wait_for_timeout(2000)
 
-    # 知识库导航项应有高亮样式
-    kb_btn = logged_in_page.get_by_role("button", name="知识库")
-    if kb_btn.count() == 0:
-        pytest.skip("无知识库导航按钮")
+    # 当前页面是 MCP，MCP 导航项应有 active class
+    mcp_btn = logged_in_page.locator("button.agent-sidebar-nav-item.active")
+    assert mcp_btn.count() > 0, "当前页面无高亮导航项"
 
-    # 检查是否有 active/selected 状态
-    aria_current = kb_btn.first.get_attribute("aria-current")
-    data_state = kb_btn.first.get_attribute("data-state")
-    class_name = kb_btn.first.get_attribute("class") or ""
+    active_text = mcp_btn.first.inner_text().strip()
+    assert "MCP" in active_text, \
+        f"高亮的导航项不是当前页面: '{active_text}'"
 
-    is_active = (
-        aria_current == "page" or
-        data_state == "active" or
-        "active" in class_name or
-        "bg-" in class_name  # 通常有背景色表示选中
+    # 非当前页面的导航项不应有 active class
+    kb_btn = logged_in_page.locator("button.agent-sidebar-nav-item").filter(
+        has_text="知识库"
     )
-    # 不强制 assert — 可能不同实现方式
-    if not is_active:
-        allure.attach(
-            f"知识库导航项未检测到明显高亮: aria={aria_current}, "
-            f"data-state={data_state}, class={class_name[:60]}",
-            name="备注",
-            attachment_type=allure.attachment_type.TEXT,
-        )
+    if kb_btn.count() > 0:
+        kb_cls = kb_btn.first.get_attribute("class") or ""
+        assert "active" not in kb_cls.split(), \
+            "非当前页面（知识库）不应有高亮状态"

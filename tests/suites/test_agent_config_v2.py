@@ -18,6 +18,22 @@ _TOPICS = ["Python 编程", "数据分析", "前端开发", "数据库优化",
 _ROLES = ["助手", "专家", "顾问", "教练"]
 
 
+def _wait_textarea_width(page, timeout_ms=5000):
+    """等 textarea 宽度从 0 恢复（Artifacts 面板收起后 CSS 过渡）"""
+    import time
+    deadline = time.time() + timeout_ms / 1000
+    while time.time() < deadline:
+        ta = page.locator("textarea.chat-composer-textarea")
+        if ta.count() == 0:
+            ta = page.locator("textarea")
+        if ta.count() > 0:
+            box = ta.first.bounding_box()
+            if box and box["width"] > 0:
+                return True
+        page.wait_for_timeout(300)
+    return False
+
+
 def _collapse_artifacts_panel(page, timeout_ms=10000):
     """轮询检测并折叠 Artifacts 面板（展开态: .open class / title='隐藏内容面板'）
 
@@ -31,12 +47,15 @@ def _collapse_artifacts_panel(page, timeout_ms=10000):
         if btn.count() > 0 and btn.first.is_visible():
             btn.first.click()
             page.wait_for_timeout(800)
+            # 等 textarea 宽度恢复（收起后面板 CSS 过渡需要时间）
+            _wait_textarea_width(page)
             return True
         # 备选：title 属性
         btn2 = page.locator("button.agent-artifacts-expand-btn[title='隐藏内容面板']")
         if btn2.count() > 0 and btn2.first.is_visible():
             btn2.first.click()
             page.wait_for_timeout(800)
+            _wait_textarea_width(page)
             return True
         # 检查是否已收起（title='显示内容面板' 存在 = 已收起）
         collapsed_btn = page.locator("button.agent-artifacts-expand-btn[title='显示内容面板']")

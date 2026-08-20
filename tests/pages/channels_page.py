@@ -99,14 +99,13 @@ class ChannelsPage:
     # ── 列表操作 ──
 
     def get_binding_count(self) -> int:
-        """获取绑定卡片数量"""
-        # 每个绑定是一个带 hover 效果的卡片，包含 Badge(platform) + agentName
-        return self.page.locator("div.group").count()
+        """获取绑定卡片数量（排除侧边栏的 agent-sidebar-agent）"""
+        return self.page.locator("div.group:not(.agent-sidebar-agent)").count()
 
     def has_binding(self, platform: str) -> bool:
         """列表中是否有指定平台的绑定"""
         return (
-            self.page.locator("div.group")
+            self.page.locator("div.group:not(.agent-sidebar-agent)")
             .filter(has_text=platform)
             .count()
             > 0
@@ -114,7 +113,7 @@ class ChannelsPage:
 
     def delete_binding(self, platform: str):
         """删除指定平台的绑定（点击删除按钮）"""
-        card = self.page.locator("div.group").filter(has_text=platform).first
+        card = self.page.locator("div.group:not(.agent-sidebar-agent)").filter(has_text=platform).first
         card.hover()  # 删除按钮 hover 时才显示
         delete_btn = card.get_by_role("button", name="btn.delete").or_(
             card.get_by_role("button", name="删除")

@@ -2120,7 +2120,7 @@ def test_model_batch_add(logged_in_page, base_url, request):
     # 检查是否有获取模型列表按钮
     if not mc.has_fetch_models_in_dialog():
         mc.close_dialog()
-        assert False, "【应用Bug】编辑弹窗中无获取模型列表按钮"
+        assert False, "编辑弹窗中未找到获取模型列表按钮（等待 5s 超时）"
 
     # 点击获取远端模型列表
     mc.click_fetch_models_in_dialog()

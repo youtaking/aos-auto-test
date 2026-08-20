@@ -124,9 +124,9 @@ class TestViews:
 
         # 全量回归：发布视图 tab 内容可能未加载，重新点击 tab 激活（最多 4 轮）
         for _retry in range(4):
-            has_title = logged_in_page.get_by_text("发布视图").count() > 0
+            has_title = logged_in_page.get_by_role("button", name="发布视图").count() > 0
             has_views = v.get_view_count() > 0
-            has_empty = logged_in_page.get_by_text("暂无发布视图").count() > 0
+            has_empty = logged_in_page.get_by_text("点击 + 创建发布视图").count() > 0
             if has_title and (has_views or has_empty):
                 break
             # 重新点击「发布视图」tab
@@ -139,8 +139,8 @@ class TestViews:
                 v.goto()
                 logged_in_page.wait_for_timeout(1000)
 
-        assert has_title, "缺少「发布视图」标题"
-        assert has_views or has_empty, "既没有视图也没有空状态提示"
+        assert has_title, "缺少「发布视图」Tab"
+        assert has_views or has_empty, "既没有视图列表也没有空状态提示"
 
     # === 创建视图 ===
 
