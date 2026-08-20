@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from "react";
+import { useSearchParams } from "react-router-dom";
 import { listPipelines, deletePipeline, batchDeletePipelines } from "../api/pipelines";
 import type { Pipeline } from "../api/types";
 import PipelineDetail from "../components/PipelineDetail";
@@ -41,6 +42,7 @@ const typeFilters = [
 ];
 
 export default function PRPipeline() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [selected, setSelected] = useState<Pipeline | null>(null);
   const [showConfig, setShowConfig] = useState(false);
@@ -53,6 +55,7 @@ export default function PRPipeline() {
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<{ ids: number[]; label: string } | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const highlightedRef = useRef<number | null>(null);
 
   const load = async (p?: number, sf?: string) => {
     const curPage = p ?? page;
@@ -80,6 +83,22 @@ export default function PRPipeline() {
   };
 
   useEffect(() => { load(1, ""); }, []);
+
+  // 从 URL ?highlight=ID 自动选中对应 Pipeline
+  useEffect(() => {
+    const highlightId = searchParams.get("highlight");
+    if (!highlightId || !pipelines.length) return;
+    const id = Number(highlightId);
+    const target = pipelines.find(p => p.id === id);
+    if (target) {
+      setSelected(target);
+      highlightedRef.current = id;
+      // 清除 URL 参数，避免刷新重复选中
+      const next = new URLSearchParams(searchParams);
+      next.delete("highlight");
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, pipelines]);
 
   useEffect(() => {
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
