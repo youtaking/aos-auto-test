@@ -32,8 +32,8 @@ DEFAULT_SETTINGS = {
         "description": "是否启用 Fenix 分支轮询",
     },
     "branch_poll_interval": {
-        "default": "30",
-        "description": "分支轮询间隔（分钟）",
+        "default": "300",
+        "description": "分支轮询间隔（秒）",
     },
     "branch_poll_repo": {
         "default": "https://github.com/HuangPuStar/FenixAgent",
