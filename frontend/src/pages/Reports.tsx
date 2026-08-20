@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { listRuns, getRunMdReport } from "../api/runs";
 import { get } from "../api/client";
 import ReactMarkdown from "react-markdown";
@@ -17,6 +18,7 @@ interface UnitTestRun {
 }
 
 export default function Reports() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState<"integration" | "unit">("integration");
 
   // 集成测试
@@ -69,6 +71,21 @@ export default function Reports() {
       .catch((e) => setUnitMarkdown(`报告加载失败: ${e.message}`))
       .finally(() => setUnitLoading(false));
   }, [unitSelectedId]);
+
+  // 从 URL ?runId=ID 自动选中对应的集成测试运行记录
+  useEffect(() => {
+    const runIdParam = searchParams.get("runId");
+    if (!runIdParam || !runs.length) return;
+    const targetId = Number(runIdParam);
+    const target = runs.find((r) => r.id === targetId);
+    if (target) {
+      setSelectedId(targetId);
+      setActiveTab("integration");
+      const next = new URLSearchParams(searchParams);
+      next.delete("runId");
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, runs]);
 
   const handleDownload = () => {
     const md = activeTab === "integration" ? markdown : unitMarkdown;
