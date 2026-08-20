@@ -393,7 +393,7 @@ services:
       HEADLESS: "true"
       PYTHONUNBUFFERED: "1"
       PYTHONPATH: /app
-    command: 'pytest __TEST_TARGETS__ -v --tb=short --base-url=http://rcs:3001 --json-report --json-report-file=/app/tests/results/report.json'
+    command: 'pytest __TEST_TARGETS__ -v --tb=short --base-url=http://rcs:3001 --json-report --json-report-file=/app/tests/results/report.json --alluredir=/app/tests/results/allure-results'
 
   unit-runner:
     image: unit-runner:latest
@@ -838,6 +838,14 @@ except:
                     fi
                     [ -f report.json ] && echo "    report.json: $(wc -c < report.json) bytes" || echo "    report.json: not found"
 
+                    # 复制 Allure 原始结果
+                    if [ ! -d autotest/tests/results/allure-results ]; then
+                        TEST_CONTAINER=$(docker-compose -p __PROJECT_NAME__ ps -q test-runner 2>/dev/null || true)
+                        [ -n "$TEST_CONTAINER" ] && docker cp "$TEST_CONTAINER":/app/tests/results/allure-results autotest/tests/results/allure-results 2>/dev/null || true
+                    fi
+                    ALLURE_COUNT=$(find autotest/tests/results/allure-results -type f 2>/dev/null | wc -l)
+                    echo "    allure-results: ${ALLURE_COUNT} files"
+
                     echo ""
                     echo "<<< Collect Results (local) — DONE"
                     echo ">>> Results will be uploaded in post { always } block."
@@ -1020,6 +1028,23 @@ open('logs_upload.json', 'w', encoding='utf-8').write(json.dumps(payload))
                     fi
                 '''.replace('__PROJECT_NAME__', PROJECT_NAME)
                   .replace('__AUTOTEST_URL__', AUTOTEST_URL)
+            }
+
+            // 生成 Allure HTML 报告并归档
+            script {
+                if (fileExists('autotest/tests/results/allure-results')) {
+                    try {
+                        allure includeProperties: false,
+                               jdk: '',
+                               results: [[path: 'autotest/tests/results/allure-results']]
+                    } catch (Exception e) {
+                        echo "Allure report generation failed: ${e.message}"
+                    }
+                    sh 'zip -r allure-report.zip allure-report 2>/dev/null || true'
+                    if (fileExists('allure-report.zip')) {
+                        archiveArtifacts artifacts: 'allure-report.zip', allowEmptyArchive: true
+                    }
+                }
             }
 
             sh '''

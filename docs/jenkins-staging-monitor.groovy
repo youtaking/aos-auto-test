@@ -159,6 +159,22 @@ pipeline {
                 '''.replace('__HEALTH_URL__', params.HEALTH_URL)
                   .replace('__FORCE_RESET__', params.FORCE_RESET ? 'true' : 'false')
             }
+            post {
+                always {
+                    script {
+                        def result = readFile('.poll_result').trim()
+                        if (result == 'SKIP') {
+                            currentBuild.displayName = "#${env.BUILD_NUMBER} [SKIP] no change"
+                        } else if (result == 'CHANGED') {
+                            def commit = readFile('.current_commit').trim()
+                            def version = readFile('.current_version').trim()
+                            currentBuild.displayName = "#${env.BUILD_NUMBER} [TEST] ${commit} v${version}"
+                        } else {
+                            currentBuild.displayName = "#${env.BUILD_NUMBER} [SKIP] ${result}"
+                        }
+                    }
+                }
+            }
         }
 
         stage('Clone Test Code') {
@@ -411,7 +427,8 @@ except:
                           test-runner:latest \\
                           pytest ${TEST_TARGETS} -v --tb=short \\
                             --base-url=__TARGET_URL__ \\
-                            --json-report --json-report-file=/app/tests/results/report.json
+                            --json-report --json-report-file=/app/tests/results/report.json \\
+                            --alluredir=/app/tests/results/allure-results
                         TEST_EXIT=$?
                         set -e
 
@@ -472,6 +489,27 @@ open('/tmp/unit-upload.json', 'w', encoding='utf-8').write(json.dumps(payload))
                         exit 0
                     '''.replace('__TARGET_URL__', params.TARGET_URL)
                       .replace('__AUTOTEST_URL__', params.AUTOTEST_URL)
+                }
+            }
+        }
+
+        stage('Generate Allure Report') {
+            when {
+                expression { fileExists('autotest/tests/results/allure-results') }
+            }
+            steps {
+                script {
+                    try {
+                        allure includeProperties: false,
+                               jdk: '',
+                               results: [[path: 'autotest/tests/results/allure-results']]
+                    } catch (Exception e) {
+                        echo "Allure report generation failed: ${e.message}"
+                    }
+                    sh 'zip -r allure-report.zip allure-report 2>/dev/null || true'
+                    if (fileExists('allure-report.zip')) {
+                        archiveArtifacts artifacts: 'allure-report.zip', allowEmptyArchive: true
+                    }
                 }
             }
         }
