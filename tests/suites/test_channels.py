@@ -104,7 +104,19 @@ def test_channels_create_binding(logged_in_page, base_url, request):
 
     # 保存
     ch.click_save()
-    logged_in_page.wait_for_load_state("networkidle")
+
+    # 等待弹窗关闭（保存完成）
+    dialog = logged_in_page.get_by_role("dialog")
+    try:
+        dialog.first.wait_for(state="hidden", timeout=8000)
+    except Exception:
+        pass
+
+    # 等待绑定出现在列表中（轮询）
+    for _poll in range(8):
+        if ch.has_binding(platform_name):
+            break
+        logged_in_page.wait_for_timeout(1000)
 
     # 验证绑定出现在列表中
     assert ch.has_binding(platform_name), \
@@ -287,18 +299,26 @@ def test_channels_agent_dropdown(logged_in_page, base_url):
     ch.click_create_button()
     assert ch.is_dialog_open(), "创建弹窗未打开"
 
-    # 打开 Agent 下拉
+    # 等待弹窗完全渲染
     dialog = logged_in_page.get_by_role("dialog")
+    dialog.first.wait_for(state="visible", timeout=5000)
+    logged_in_page.wait_for_timeout(500)
+
+    # 打开 Agent 下拉
     combobox = dialog.get_by_role("combobox").first
     combobox.wait_for(state="visible", timeout=5000)
     combobox.click()
-    logged_in_page.wait_for_timeout(500)
+    logged_in_page.wait_for_timeout(800)
 
     # 应有至少一个选项
     options = logged_in_page.locator("[role='option']")
+    try:
+        options.first.wait_for(state="visible", timeout=5000)
+    except Exception:
+        pytest.fail("Agent 下拉列表为空（应至少有一个可用 Agent）")
     option_count = options.count()
     assert option_count > 0, "Agent 下拉列表为空（应至少有一个可用 Agent）"
 
-    # 关闭
-    combobox.press("Escape")
-    ch.click_cancel()
+    # 关闭（点击 option 后弹窗可能已自动关闭）
+    if ch.is_dialog_open():
+        ch.close_dialog()

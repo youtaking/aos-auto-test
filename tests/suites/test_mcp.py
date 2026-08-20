@@ -154,7 +154,7 @@ def test_create_sse_server(logged_in_page, base_url):
 @pytest.mark.order(82.1)
 @pytest.mark.p0
 def test_edit_server(logged_in_page, base_url):
-    """编辑 MCP 服务器 — 修改名称后保存验证"""
+    """编辑 MCP 服务器 — 验证名称字段不可修改（disabled + 提示文案）"""
     mcp = McpServerPage(logged_in_page, base_url)
     mcp.goto()
 
@@ -173,12 +173,74 @@ def test_edit_server(logged_in_page, base_url):
         dialog = logged_in_page.locator("[role='dialog']")
         dialog.first.wait_for(state="visible", timeout=5000)
 
-        # 修改名称
-        new_name = f"{original_name}-edited"
-        name_input = dialog.locator("input[name='name'], input[placeholder*='名称']").first
-        name_input.wait_for(state="visible", timeout=3000)
-        name_input.clear()
-        name_input.fill(new_name)
+        # 验证名称字段不可编辑（disabled）
+        name_input = dialog.locator("input[placeholder='my-mcp-server'], input[name='name']").first
+        name_input.wait_for(state="visible", timeout=5000)
+        is_disabled = name_input.get_attribute("disabled")
+        assert is_disabled is not None, "名称字段应该被 disabled（不可编辑），但实际可编辑"
+
+        # 验证"名称创建后不可修改"提示文案
+        hint = dialog.locator("text=名称创建后不可修改")
+        assert hint.count() > 0, "应显示'名称创建后不可修改'提示"
+
+        # 关闭对话框
+        cancel_btn = dialog.get_by_role("button", name="取消").or_(
+            dialog.locator("button").filter(has_text="Close")
+        )
+        if cancel_btn.count() > 0:
+            cancel_btn.first.click()
+            dialog.first.wait_for(state="hidden", timeout=5000)
+    finally:
+        # 清理
+        if mcp.has_server(original_name):
+            mcp.delete_server(original_name)
+
+
+# === TC-MCP-003c: 编辑 MCP 服务器 — 修改可编辑字段 ===
+
+@allure.epic("MCP服务器")
+@pytest.mark.order(82.2)
+@pytest.mark.p0
+def test_edit_server_fields(logged_in_page, base_url):
+    """编辑 MCP 服务器 — 修改 URL、超时时间、请求头后保存验证"""
+    mcp = McpServerPage(logged_in_page, base_url)
+    mcp.goto()
+
+    # 前置：创建测试服务器
+    server_name = f"edit-fields-{int(time.time())}"
+    original_url = "http://localhost:3001/sse"
+    _create_test_server(mcp, server_name, "SSE", url=original_url)
+    assert mcp.has_server(server_name), f"测试服务器 '{server_name}' 创建失败"
+
+    try:
+        # 打开编辑弹窗
+        mcp.click_edit(server_name)
+        dialog = logged_in_page.locator("[role='dialog']")
+        dialog.first.wait_for(state="visible", timeout=5000)
+
+        # 1. 修改 URL
+        new_url = "http://localhost:3002/sse"
+        url_input = dialog.locator("input[placeholder*='example.com']")
+        url_input.wait_for(state="visible", timeout=5000)
+        url_input.clear()
+        url_input.fill(new_url)
+
+        # 2. 修改超时时间（清空后填入新值）
+        timeout_input = dialog.locator("input[type='number']")
+        if timeout_input.count() > 0:
+            timeout_input.first.click(click_count=3)  # 全选
+            timeout_input.first.fill("8000")
+
+        # 3. 添加请求头
+        add_header_btn = dialog.get_by_role("button", name="+ 添加")
+        if add_header_btn.count() > 0:
+            add_header_btn.first.click()
+            logged_in_page.wait_for_timeout(500)
+            header_name = dialog.locator("input[placeholder*='Header 名称'], input[placeholder*='header']").first
+            header_value = dialog.locator("input[placeholder*='Header 值'], input[placeholder*='value']").first
+            if header_name.count() > 0 and header_value.count() > 0:
+                header_name.fill("X-Test-Auth")
+                header_value.fill("test-token-123")
 
         # 保存
         save_btn = dialog.get_by_role("button", name="保存")
@@ -188,19 +250,40 @@ def test_edit_server(logged_in_page, base_url):
         # 等待对话框关闭
         dialog.first.wait_for(state="hidden", timeout=5000)
 
-        # 验证新名称出现
-        mcp.goto()
-        assert mcp.has_server(new_name), \
-            f"编辑后新名称 '{new_name}' 未出现在列表中"
-        assert not mcp.has_server(original_name), \
-            f"编辑后旧名称 '{original_name}' 仍在列表中"
+        # 重新打开编辑弹窗验证修改生效
+        mcp.click_edit(server_name)
+        dialog.first.wait_for(state="visible", timeout=5000)
 
-        # 更新变量名以便 finally 清理
-        original_name = new_name
+        # 验证 URL 已更新
+        url_val = dialog.locator("input[placeholder*='example.com']").input_value()
+        assert url_val == new_url, f"URL 未更新，期望 '{new_url}'，实际 '{url_val}'"
+
+        # 验证超时时间已更新
+        if timeout_input.count() > 0:
+            timeout_val = dialog.locator("input[type='number']").input_value()
+            assert timeout_val == "8000", f"超时时间未更新，期望 '8000'，实际 '{timeout_val}'"
+
+        # 验证请求头已添加
+        header_names = dialog.locator("input[placeholder*='Header 名称'], input[placeholder*='header']")
+        if header_names.count() > 0:
+            found = False
+            for i in range(header_names.count()):
+                if header_names.nth(i).input_value() == "X-Test-Auth":
+                    found = True
+                    break
+            assert found, "请求头 X-Test-Auth 未找到"
+
+        # 关闭弹窗
+        cancel_btn = dialog.get_by_role("button", name="取消").or_(
+            dialog.locator("button").filter(has_text="Close")
+        )
+        if cancel_btn.count() > 0:
+            cancel_btn.first.click()
+            dialog.first.wait_for(state="hidden", timeout=5000)
     finally:
         # 清理
-        if mcp.has_server(original_name):
-            mcp.delete_server(original_name)
+        if mcp.has_server(server_name):
+            mcp.delete_server(server_name)
 
 
 # === TC-MCP-004: 名称格式校验 - 合法名称 ===

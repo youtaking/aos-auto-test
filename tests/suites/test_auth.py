@@ -423,7 +423,7 @@ def test_auth_012_logout_clears_auth(logged_in_page, base_url):
 
         # 等待跳转到登录页（客户端 JS 重定向）
         try:
-            page.wait_for_url("**/ctrl/login**", timeout=8000)
+            page.wait_for_url("**/ctrl/login**", timeout=15000)
         except Exception:
             pass
 

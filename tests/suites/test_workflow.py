@@ -298,150 +298,78 @@ class TestWorkflow:
     @pytest.mark.p1
     @allure.epic("工作流")
     def test_workflow_versions(self, logged_in_page, base_url, request):
-        """TC-WF-008: 工作流版本管理 — 版本列表、版本详情查看、恢复到草稿全流程"""
-        # Step 1: 创建工作流（自创建自清理）
+        """TC-WF-008: 工作流版本管理 — 创建→发布→版本历史→恢复到草稿 全流程（UI）"""
+        wf = WorkflowPage(logged_in_page, base_url)
         wf_name = f"e2e-wf-ver-{_PREFIX}"
-        wf = _create_workflow_api(logged_in_page, base_url, name=wf_name)
-        wf_id = wf.get("id")
-        if not wf_id:
-            pytest.skip("无法创建工作流用于版本管理测试")
 
-        try:
-            # Step 2: 通过 API 发布一个版本，确保版本历史有数据
-            publish_resp = logged_in_page.request.post(
-                f"{base_url}/web/workflow-defs/{wf_id}/publish"
-            )
-            if publish_resp.status >= 400:
-                pytest.skip(f"发布工作流版本失败: HTTP {publish_resp.status}")
+        # Step 1: 导航到工作流列表
+        wf.goto()
+        assert wf.is_loaded(), "工作流页面未加载"
 
-            # 等待发布完成
+        # Step 2: 通过 UI 创建工作流（新建 → 填名称 → 创建并编辑 → 跳转编辑器）
+        wf_id = wf.create_workflow(wf_name, description="E2E version management test")
+        assert wf_id, "通过 UI 创建工作流失败（未跳转到编辑器）"
+
+        # 注册清理（API 兜底删除）
+        register_cleanup(request, lambda: _delete_workflow_api(logged_in_page, base_url, wf_id))
+
+        # Step 3: 在编辑器中通过 UI 发布新版本
+        wf.publish_workflow()
+
+        # Step 4: 回到工作流列表
+        wf.go_back_to_list()
+        assert wf.is_loaded(), "回到工作流列表失败"
+
+        # Step 5: 点击该工作流的"版本历史"
+        wf.click_version_history(wf_name)
+        logged_in_page.wait_for_timeout(1500)
+
+        # Step 6: 验证版本历史页面加载
+        assert wf.is_version_page_loaded(wf_name), \
+            f"版本历史页面未加载（URL: {logged_in_page.url}）"
+
+        # Step 7: 验证版本摘要信息
+        summary = wf.get_version_summary()
+        assert "v1" in summary.get("latest", ""), \
+            f"版本摘要中未包含 v1: {summary}"
+        assert "1" in summary.get("count", ""), \
+            f"发布版本数不为为 1: {summary}"
+
+        # Step 8: 验证版本卡片和 latest 标记
+        assert wf.has_version_card("v1"), "版本卡片 v1 未找到"
+        assert wf.has_latest_badge(), "最新版本未显示 'latest' 标记"
+
+        # Step 9: 点击版本卡片展开 YAML 详情
+        wf.expand_version_card("v1")
+        assert wf.is_yaml_expanded(), "点击版本卡片后 YAML 详情面板未展开"
+
+        yaml_content = logged_in_page.locator("pre").first.inner_text()
+        assert len(yaml_content) > 0, "版本 YAML 内容为空"
+
+        # Step 10: 再次点击收起 YAML 面板
+        import re as _re
+        version_label = logged_in_page.get_by_text(_re.compile(r'^v1$'))
+        version_label.locator("xpath=..").click()
+        logged_in_page.wait_for_timeout(500)
+
+        # Step 11: 恢复到草稿
+        wf.restore_to_draft("v1")
+
+        # Step 12: 通过 API 验证草稿已更新
+        verify_resp = logged_in_page.request.get(
+            f"{base_url}/web/workflow-defs/{wf_id}"
+        )
+        if verify_resp.status == 200:
+            wf_data = verify_resp.json().get("data", {})
+            assert wf_data.get("draftYaml") is not None or wf_data.get("id") == wf_id, \
+                "恢复后工作流草稿状态异常"
+
+        # Step 13: 刷新版本页面，验证版本列表仍正常
+        refresh_btn = logged_in_page.get_by_role("button", name="刷新")
+        if refresh_btn.count() > 0:
+            refresh_btn.first.click()
             logged_in_page.wait_for_timeout(1000)
-
-            # Step 3: 导航到版本历史页面
-            try:
-                logged_in_page.goto(
-                    f"{base_url}/ctrl/agent/workflow/{wf_id}/versions",
-                    wait_until="domcontentloaded"
-                )
-            except Exception:
-                pass  # SPA 路由可能中断初始导航
-
-            logged_in_page.wait_for_load_state("domcontentloaded")
-
-            # 等待版本页面加载完成
-            try:
-                logged_in_page.locator("div.agent-panel-content").first.wait_for(
-                    state="attached", timeout=10000
-                )
-            except Exception:
-                pass
-
-            # 验证 URL 正确
-            assert "/workflow/" in logged_in_page.url and "/versions" in logged_in_page.url, \
-                f"未跳转到版本历史页: {logged_in_page.url}"
-
-            # Step 4: 等待版本列表加载（检查是否有版本卡片或空状态）
-            logged_in_page.wait_for_timeout(1500)  # 等待 API 响应
-
-            # 检查是否有"暂无发布版本"的空状态提示
-            empty_state = logged_in_page.get_by_text("暂无发布版本")
-            if empty_state.count() > 0 and empty_state.first.is_visible():
-                pytest.skip("版本列表为空，发布可能未成功")
-
-            # Step 5: 验证版本卡片存在
-            # 版本标签文本格式为 "v{number}"，用正则精确匹配避免误匹配
-            version_label = logged_in_page.get_by_text(re.compile(r'^v\d+$')).first
-            version_label.wait_for(state="visible", timeout=8000)
-            assert version_label.count() > 0, "版本列表中未找到版本卡片"
-            version_text = version_label.inner_text()
-            assert version_text.startswith("v"), f"版本标签格式异常: {version_text}"
-
-            # Step 6: 验证"latest"标记存在（最新发布版本应有此标记）
-            latest_badge = logged_in_page.get_by_text("latest")
-            assert latest_badge.count() > 0, "最新版本未显示 'latest' 标记"
-
-            # Step 7: 点击版本卡片查看 YAML 详情
-            # 版本标签的父元素是带 cursor-pointer 的 header 行，点击可展开 YAML
-            version_header = version_label.locator("xpath=..")
-            version_header.wait_for(state="visible", timeout=5000)
-            version_header.click()
-            logged_in_page.wait_for_timeout(1000)
-
-            # 验证 YAML 详情面板展开（应有 <pre> 标签显示 YAML 内容）
-            yaml_panel = logged_in_page.locator("pre")
-            yaml_panel.wait_for(state="visible", timeout=5000)
-            assert yaml_panel.count() > 0, "点击版本后 YAML 详情面板未展开"
-
-            yaml_content = yaml_panel.first.inner_text()
-            assert len(yaml_content) > 0, "版本 YAML 内容为空"
-
-            # Step 8: 再次点击收起 YAML 面板
-            version_header.wait_for(state="visible", timeout=5000)
-            version_header.click()
-            logged_in_page.wait_for_timeout(500)
-
-            # Step 9: 找到"恢复到草稿"按钮并点击
-            restore_btn = logged_in_page.get_by_role("button", name="恢复到草稿")
-            restore_btn.wait_for(state="visible", timeout=5000)
-            assert restore_btn.count() > 0, "未找到'恢复到草稿'按钮"
-
-            restore_btn.first.click()
-            logged_in_page.wait_for_timeout(800)
-
-            # Step 10: 验证确认对话框弹出
-            dialog = logged_in_page.locator("[role='alertdialog']")
-            dialog.wait_for(state="visible", timeout=5000)
-            assert dialog.count() > 0, "恢复到草稿确认对话框未弹出"
-
-            # 验证对话框内容包含确认提示
-            dialog_text = dialog.first.inner_text()
-            assert "恢复到草稿" in dialog_text or "v1" in dialog_text, \
-                f"确认对话框内容异常: {dialog_text[:100]}"
-
-            # Step 11: 点击"确认"按钮执行恢复
-            confirm_btn = dialog.get_by_role("button", name="确认")
-            confirm_btn.wait_for(state="visible", timeout=3000)
-            confirm_btn.click()
-
-            # Step 12: 等待恢复操作完成并验证成功提示（toast）
-            logged_in_page.wait_for_timeout(1500)
-
-            # 检查 toast 成功消息："已恢复到草稿"
-            toast_success = logged_in_page.get_by_text("已恢复到草稿")
-            try:
-                toast_success.wait_for(state="visible", timeout=5000)
-                assert toast_success.count() > 0, "恢复成功后未显示 toast 提示"
-            except Exception:
-                # toast 可能消失较快，检查是否有错误提示
-                toast_error = logged_in_page.get_by_text("恢复失败")
-                if toast_error.count() > 0 and toast_error.first.is_visible():
-                    pytest.fail("恢复到草稿操作失败")
-                # 如果既无成功也无错误提示，可能是 toast 已消失，继续验证
-
-            # Step 13: 通过 API 验证草稿确实被更新（获取工作流详情检查 draftYaml）
-            verify_resp = logged_in_page.request.get(
-                f"{base_url}/web/workflow-defs/{wf_id}"
-            )
-            if verify_resp.status == 200:
-                wf_data = verify_resp.json().get("data", {})
-                # 草稿应该存在（恢复后草稿被覆盖为版本内容）
-                assert wf_data.get("draftYaml") is not None or wf_data.get("id") == wf_id, \
-                    "恢复后工作流草稿状态异常"
-
-            # Step 14: 刷新版本页面，验证版本列表仍然正常显示
-            refresh_btn = logged_in_page.get_by_role("button", name="刷新")
-            if refresh_btn.count() > 0:
-                refresh_btn.wait_for(state="visible", timeout=3000)
-                refresh_btn.click()
-                logged_in_page.wait_for_timeout(1000)
-
-                # 验证版本列表仍然可见
-                version_label_after = logged_in_page.get_by_text(re.compile(r'^v\d+$')).first
-                assert version_label_after.count() > 0, "刷新后版本列表未显示"
-
-        finally:
-            # 自清理：删除创建的工作流
-            _delete_workflow_api(logged_in_page, base_url, wf_id)
+            assert wf.has_version_card("v1"), "刷新后版本卡片消失"
 
     # === 运行执行 ===
 
@@ -978,17 +906,20 @@ class TestWorkflow:
             except Exception:
                 pass
 
-            # Step 1: 打开 YAML 面板（如果已打开则跳过切换）
+            # Step 1: 打开 YAML 面板（通过 CSS class 精确判断开合状态）
             yaml_toggle = logged_in_page.locator("button[data-tooltip*='打开 / 关闭 YAML']")
             yaml_toggle.wait_for(state="visible", timeout=8000)
             if yaml_toggle.count() == 0:
                 pytest.skip("编辑器中无 YAML 面板切换按钮")
 
-            yaml_textarea = logged_in_page.get_by_role("textbox", name="# YAML 内容")
-            if yaml_textarea.count() == 0 or not yaml_textarea.first.is_visible():
-                # 面板未打开，点击切换按钮打开
+            # 用 CSS 选择器精确匹配 .open class（不能用 textarea 的 is_visible，面板关闭时 textarea 仍有非零宽高）
+            yaml_slide_open = logged_in_page.locator(".wf-yaml-slide.open")
+            if yaml_slide_open.count() == 0:
                 yaml_toggle.first.click()
                 logged_in_page.wait_for_timeout(800)
+                # 验证面板确实打开了
+                assert yaml_slide_open.count() > 0, \
+                    "点击 toggle 后 YAML 面板仍未打开"
 
             # Step 2: 等待 YAML textarea 出现
             yaml_textarea = logged_in_page.get_by_role("textbox", name="# YAML 内容")

@@ -77,6 +77,213 @@ class WorkflowPage:
         except Exception:
             return False
 
+    # ── 创建工作流（UI 全流程） ──
+
+    def create_workflow(self, name: str, description: str = "") -> str:
+        """通过 UI 创建工作流：点击新建 → 填表 → 创建并编辑
+        返回工作流 ID（从跳转后的 URL 中提取）
+        真实 DOM: dialog[role='dialog'] > heading "新建工作流"
+          textbox "名称 *" (placeholder='my-workflow')
+          textbox "描述" (placeholder='工作流描述（可选）')
+          button "创建并编辑"
+        """
+        btn = self.page.get_by_role("button", name="新建工作流")
+        btn.wait_for(state="visible", timeout=5000)
+        btn.click()
+
+        dialog = self.page.get_by_role("dialog")
+        dialog.wait_for(state="visible", timeout=5000)
+
+        # 填写名称
+        name_input = dialog.get_by_role("textbox", name="名称 *")
+        name_input.wait_for(state="visible", timeout=5000)
+        name_input.fill(name)
+
+        # 填写描述（可选）
+        if description:
+            desc_input = dialog.get_by_role("textbox", name="描述")
+            desc_input.fill(description)
+
+        # 点击"创建并编辑"
+        create_btn = dialog.get_by_role("button", name="创建并编辑")
+        create_btn.wait_for(state="visible", timeout=5000)
+        create_btn.click()
+
+        # 等待跳转到编辑器页面
+        self.page.wait_for_timeout(2000)
+        # 从 URL 中提取工作流 ID: /ctrl/agent/workflow/{id}/edit
+        url = self.page.url
+        if "/workflow/" in url and "/edit" in url:
+            parts = url.split("/workflow/")[1].split("/")
+            return parts[0]
+        return ""
+
+    # ── 发布工作流（UI） ──
+
+    def publish_workflow(self):
+        """在编辑器中发布新版本
+        真实 DOM: button "发布新版本" → alertdialog "发布新版本" → button "确认"
+        """
+        publish_btn = self.page.get_by_role("button", name="发布新版本")
+        publish_btn.wait_for(state="visible", timeout=8000)
+        publish_btn.click()
+
+        # 等待确认弹窗
+        dialog = self.page.get_by_role("alertdialog")
+        dialog.wait_for(state="visible", timeout=5000)
+
+        # 点击确认
+        confirm_btn = dialog.get_by_role("button", name="确认")
+        confirm_btn.wait_for(state="visible", timeout=5000)
+        confirm_btn.click()
+        self.page.wait_for_timeout(2000)
+
+    # ── 列表操作 ──
+
+    def click_version_history(self, workflow_name: str):
+        """在列表中点击指定工作流的"版本历史"按钮
+        真实 DOM: 每个工作流卡片有 button "编辑" / button "版本历史" / button(删除)
+        """
+        # 找到包含指定名称的工作流卡片
+        card = self.page.locator("div.group").filter(has_text=workflow_name).first
+        if card.count() == 0:
+            # 降级：在所有卡片中搜索
+            cards = self.page.locator("div[class*='rounded-lg'][class*='border']")
+            for i in range(cards.count()):
+                if workflow_name in (cards.nth(i).inner_text() or ""):
+                    card = cards.nth(i)
+                    break
+        card.wait_for(state="visible", timeout=5000)
+        version_btn = card.get_by_role("button", name="版本历史")
+        version_btn.wait_for(state="visible", timeout=5000)
+        version_btn.click()
+        self.page.wait_for_timeout(2000)
+
+    def delete_workflow(self, workflow_name: str):
+        """在列表中删除指定工作流
+        真实 DOM: 卡片中第三个 button（无 name，destructive 样式）→
+                  alertdialog "删除" → button "确认"
+        """
+        card = self.page.locator("div.group").filter(has_text=workflow_name).first
+        if card.count() == 0:
+            cards = self.page.locator("div[class*='rounded-lg'][class*='border']")
+            for i in range(cards.count()):
+                if workflow_name in (cards.nth(i).inner_text() or ""):
+                    card = cards.nth(i)
+                    break
+        card.wait_for(state="visible", timeout=5000)
+        # 卡片中有3个按钮：编辑、版本历史、删除（无名按钮，destructive 样式）
+        buttons = card.get_by_role("button")
+        # 删除按钮是最后一个（无名）
+        delete_btn = buttons.last
+        delete_btn.wait_for(state="visible", timeout=5000)
+        delete_btn.click()
+
+        # 确认删除弹窗
+        dialog = self.page.get_by_role("alertdialog")
+        dialog.wait_for(state="visible", timeout=5000)
+        confirm_btn = dialog.get_by_role("button", name="确认")
+        confirm_btn.wait_for(state="visible", timeout=5000)
+        confirm_btn.click()
+        self.page.wait_for_timeout(1500)
+
+    def has_workflow(self, workflow_name: str) -> bool:
+        """列表中是否存在指定名称的工作流"""
+        return (
+            self.page.locator("div.group")
+            .filter(has_text=workflow_name)
+            .count()
+            > 0
+        )
+
+    # ── 版本历史页面操作 ──
+
+    def is_version_page_loaded(self, workflow_name: str) -> bool:
+        """版本历史页面是否加载完成"""
+        return (
+            "/versions" in self.page.url
+            and self.page.get_by_role("heading", name=workflow_name).count() > 0
+        )
+
+    def get_version_summary(self) -> dict:
+        """获取版本摘要信息
+        真实 DOM: "latest: v1" + "发布版本数: 1"
+        """
+        result = {"latest": "", "count": ""}
+        latest_text = self.page.locator("text=latest:").first
+        if latest_text.count() > 0:
+            result["latest"] = latest_text.inner_text().strip()
+        count_text = self.page.locator("text=发布版本数:").first
+        if count_text.count() > 0:
+            result["count"] = count_text.inner_text().strip()
+        return result
+
+    def has_version_card(self, version: str) -> bool:
+        """是否有指定版本的卡片
+        真实 DOM: 版本卡片内有 "v1" 文本
+        """
+        import re
+        return (
+            self.page.get_by_text(re.compile(rf'^{version}$'))
+            .count()
+            > 0
+        )
+
+    def has_latest_badge(self) -> bool:
+        """是否有 'latest' 标记"""
+        return self.page.get_by_text("latest").count() > 0
+
+    def expand_version_card(self, version: str):
+        """点击版本卡片展开 YAML 详情
+        真实 DOM: 版本卡片的父容器 (cursor-pointer) 点击展开 <pre> YAML
+        """
+        import re
+        version_label = self.page.get_by_text(re.compile(rf'^{version}$'))
+        version_label.wait_for(state="visible", timeout=5000)
+        # 点击父容器（版本卡片的 header 行）
+        version_label.locator("xpath=..").click()
+        self.page.wait_for_timeout(1000)
+
+    def is_yaml_expanded(self) -> bool:
+        """YAML 详情面板是否展开"""
+        return self.page.locator("pre").count() > 0
+
+    def restore_to_draft(self, version: str):
+        """点击指定版本的"恢复到草稿"并确认
+        真实 DOM: button "恢复到草稿" → alertdialog "恢复到草稿" → button "确认"
+        """
+        # 找到包含指定版本的卡片中的恢复按钮
+        import re
+        version_label = self.page.get_by_text(re.compile(rf'^{version}$'))
+        version_label.wait_for(state="visible", timeout=5000)
+        # 版本卡片的父容器中找到"恢复到草稿"按钮
+        card_container = version_label.locator("xpath=ancestor::div[contains(@class, 'cursor-pointer') or contains(@class, 'group')]")
+        restore_btn = card_container.get_by_role("button", name="恢复到草稿")
+        if restore_btn.count() == 0:
+            # 降级：直接使用页面上的恢复按钮
+            restore_btn = self.page.get_by_role("button", name="恢复到草稿")
+        restore_btn.first.wait_for(state="visible", timeout=5000)
+        restore_btn.first.click()
+
+        # 确认弹窗
+        dialog = self.page.get_by_role("alertdialog")
+        dialog.wait_for(state="visible", timeout=5000)
+        confirm_btn = dialog.get_by_role("button", name="确认")
+        confirm_btn.wait_for(state="visible", timeout=5000)
+        confirm_btn.click()
+        self.page.wait_for_timeout(1500)
+
+    # ── 编辑器导航 ──
+
+    def go_back_to_list(self):
+        """从编辑器或版本页面回到工作流列表"""
+        breadcrumb = self.page.get_by_role("link", name="工作流")
+        if breadcrumb.count() > 0:
+            breadcrumb.first.click()
+            self.page.wait_for_timeout(1500)
+        else:
+            self.goto()
+
 
 class MemoryPage:
     """记忆页 /ctrl/agent/memories"""
