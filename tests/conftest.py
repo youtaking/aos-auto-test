@@ -359,6 +359,9 @@ def _page_error_monitor(request):
             # 白名单：测试 Provider 用假 URL 获取模型列表的已知错误
             if "CONFIG_TEST_REQUEST_FAILED" in msg.text or "fetch-models" in msg.text:
                 return
+            # 白名单：模型连通性测试 HTTP 错误（模型不可达是预期行为）
+            if "MODEL_TEST_MESSAGE_HTTP_ERROR" in msg.text or "test-model" in msg.text:
+                return
             # 白名单：MCP 检测本地服务器返回"仅支持远程"的已知错误
             if "Inspect only supports remote" in msg.text or "检测失败" in msg.text:
                 return
