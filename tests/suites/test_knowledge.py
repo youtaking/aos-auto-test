@@ -75,17 +75,33 @@ def _assert_kb_created(resp):
 
 
 def _delete_kb_api(page, base_url, kb_id):
-    """删除知识库，429 时等待限流窗口后重试"""
-    for attempt in range(2):
+    """删除知识库，429 时等待限流窗口后重试，5xx 时重试，非 2xx 时打印警告"""
+    resp = None
+    for attempt in range(3):
         resp = page.request.delete(f"{base_url}/web/knowledgeBases/{kb_id}")
-        if resp.status != 429:
-            return resp
-        print(f"[429] _delete_kb_api 被限流，等待 65s 后重试...")
-        try:
-            page.goto("about:blank", wait_until="domcontentloaded", timeout=5000)
-        except Exception:
-            pass
-        page.wait_for_timeout(65000)
+        if resp.status == 429:
+            print(f"[429] _delete_kb_api 被限流，等待 65s 后重试...")
+            try:
+                page.goto("about:blank", wait_until="domcontentloaded", timeout=5000)
+            except Exception:
+                pass
+            page.wait_for_timeout(65000)
+            continue
+        if resp.status >= 500:
+            print(f"[{resp.status}] _delete_kb_api 服务端错误，等待 5s 后重试...")
+            page.wait_for_timeout(5000)
+            continue
+        if resp.status not in (200, 204):
+            body = ""
+            try:
+                body = resp.text()[:200]
+            except Exception:
+                pass
+            print(f"[WARN] _delete_kb_api({kb_id}) 返回 {resp.status}，清理可能失败: {body}")
+        return resp
+    # 重试耗尽仍未成功
+    status = resp.status if resp else "N/A"
+    print(f"[WARN] _delete_kb_api({kb_id}) 重试 3 次后仍失败，最终状态: {status}")
     return resp
 
 

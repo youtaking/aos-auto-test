@@ -13,21 +13,19 @@ router = APIRouter()
 @router.get("/dashboard/summary", response_model=ApiResponse)
 async def dashboard_summary(db: AsyncSession = Depends(get_async_session)):
     """看板总览：用例总数、最近运行状态、通过率"""
-    total_cases = (await db.execute(select(func.count()).select_from(TestCase))).scalar() or 0
+    total_cases = (await db.execute(
+        select(func.count()).select_from(TestCase).where(TestCase.branch == "main")
+    )).scalar() or 0
 
     latest_run = (await db.execute(
         select(TestRun).order_by(TestRun.created_at.desc()).limit(1)
     )).scalar_one_or_none()
 
-    total_results = (await db.execute(
-        select(func.count()).select_from(TestResult)
-    )).scalar() or 0
-
-    passed_results = (await db.execute(
-        select(func.count()).select_from(TestResult).where(TestResult.status == "passed")
-    )).scalar() or 0
-
-    pass_rate = round(passed_results / total_results * 100, 1) if total_results > 0 else 0.0
+    # 通过率 = 最近一次运行的通过率
+    if latest_run and latest_run.total > 0:
+        pass_rate = round(latest_run.passed / latest_run.total * 100, 1)
+    else:
+        pass_rate = 0.0
 
     return ApiResponse(data={
         "total_cases": total_cases,
