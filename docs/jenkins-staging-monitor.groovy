@@ -495,7 +495,10 @@ open('/tmp/unit-upload.json', 'w', encoding='utf-8').write(json.dumps(payload))
 
         stage('Generate Allure Report') {
             when {
-                expression { fileExists('autotest/tests/results/allure-results') }
+                expression {
+                    readFile('.poll_result').trim() == 'CHANGED' &&
+                    fileExists('autotest/tests/results/allure-results')
+                }
             }
             steps {
                 script {
