@@ -186,13 +186,44 @@ class ChatTestPage:
         )
 
     def _get_new_session_button(self):
-        """获取"新会话"按钮（Plus 图标，title/aria-label='新会话'）"""
-        return self.page.locator(
-            "button[title='新会话'], button[aria-label='新会话']"
-        )
+        """获取"新会话"按钮（侧边栏会话列表上方的 + 图标按钮，title='新会话'）"""
+        return self.page.locator("button[title='新会话']")
+
+    def _stop_ai_if_responding(self):
+        """如果 AI 正在回复（停止按钮 lucide-square 可见），点击停止"""
+        stop_btn = self.page.locator("button:has(svg.lucide-square)")
+        if stop_btn.count() > 0 and stop_btn.first.is_visible():
+            stop_btn.first.click()
+            self.page.wait_for_timeout(1500)
+
+    def _ensure_session_panel_pinned(self):
+        """确保会话面板已钉住（左侧可见）。
+        新 UI 中会话面板有钉住/取消钉住两种状态：
+        - 钉住：nav[aria-label] 直接在页面中可见
+        - 未钉住：会话列表在 dialog 弹窗中，或 dialog 关闭后只有 chat-header-card
+        """
+        nav = self._get_session_nav()
+        if nav.count() > 0:
+            return  # 已钉住，无需操作
+
+        # 未钉住 → 先尝试打开 dialog（点击 chat-header-card 按钮）
+        dialog = self.page.locator("[role='dialog']")
+        if dialog.count() == 0:
+            header_btn = self.page.locator(".chat-header-card button")
+            if header_btn.count() > 0 and header_btn.first.is_visible():
+                header_btn.first.click()
+                self.page.wait_for_timeout(800)
+
+        # 在 dialog 中点击"钉住会话面板"按钮
+        pin_btn = self.page.locator("button[title='钉住会话面板']")
+        if pin_btn.count() > 0 and pin_btn.first.is_visible():
+            pin_btn.first.click()
+            self.page.wait_for_timeout(800)
 
     def create_new_session(self):
-        """点击侧边栏 + 按钮新建会话"""
+        """先停止 AI 回复（如有），确保面板钉住，再点击"新会话"按钮创建新会话"""
+        self._stop_ai_if_responding()
+        self._ensure_session_panel_pinned()
         new_btn = self._get_new_session_button()
         if new_btn.count() > 0 and new_btn.first.is_visible():
             new_btn.first.click()
@@ -201,8 +232,8 @@ class ChatTestPage:
             self.page.wait_for_timeout(1000)
 
     def get_session_header_title(self) -> str:
-        """获取当前活跃会话标题（侧边栏中 bg-brand/8 高亮的会话）"""
-        # 精确匹配：bg-brand/8 表示活跃会话（用属性子串选择器避免 CSS 转义问题）
+        """获取当前活跃会话标题"""
+        # 钉住状态：侧边栏中 bg-brand/8 高亮的会话
         active = self.page.locator("div[class*='bg-brand/8'] span.truncate")
         if active.count() > 0:
             title = active.first.inner_text().strip()
@@ -214,10 +245,17 @@ class ChatTestPage:
             first_span = nav.locator("button span.truncate").first
             if first_span.count() > 0:
                 return first_span.inner_text().strip()
+        # 未钉住状态：chat-header-card 中的按钮标题
+        header_btn = self.page.locator(".chat-header-card button")
+        if header_btn.count() > 0:
+            title = header_btn.first.get_attribute("title")
+            if title:
+                return title.strip()
         return ""
 
     def open_session_dialog(self):
-        """等待侧边栏会话列表可见（新 UI 侧边栏常驻，无需点击打开）"""
+        """确保会话列表面板可见（钉住或打开 dialog）"""
+        self._ensure_session_panel_pinned()
         try:
             self.page.locator("nav[aria-label] button span.truncate").first.wait_for(
                 state="visible", timeout=5000
@@ -226,12 +264,24 @@ class ChatTestPage:
             self.page.wait_for_timeout(1000)
 
     def is_session_dialog_open(self) -> bool:
-        """侧边栏会话列表是否可见（新 UI 始终可见）"""
-        return self.page.locator("nav[aria-label] button span.truncate").count() > 0
+        """会话列表是否可见（钉住状态 nav 可见，或未钉住但 dialog 打开）"""
+        if self.page.locator("nav[aria-label] button span.truncate").count() > 0:
+            return True
+        # 未钉住但 dialog 打开时也视为"会话对话框已打开"
+        dialog = self.page.locator("[role='dialog']")
+        if dialog.count() > 0 and dialog.first.is_visible():
+            return True
+        return False
 
     def close_session_dialog(self):
-        """关闭会话对话框（新 UI 侧边栏常驻，no-op）"""
-        pass
+        """关闭会话对话框（钉住状态 no-op；未钉住时按 Escape 关闭 dialog）"""
+        nav = self._get_session_nav()
+        if nav.count() > 0:
+            return  # 已钉住，无需关闭
+        dialog = self.page.locator("[role='dialog']")
+        if dialog.count() > 0 and dialog.first.is_visible():
+            self.page.keyboard.press("Escape")
+            self.page.wait_for_timeout(500)
 
     def get_session_titles(self) -> list[str]:
         """获取侧边栏会话列表中的所有标题（读取 DOM textContent，不受 CSS truncate 影响）"""
