@@ -30,7 +30,8 @@ def _list_tasks_api(page, base_url):
 
 
 def _create_task_api(page, base_url, name=None, cron="0 9 * * *",
-                      task_type="http", url="https://httpbin.org/get"):
+                      task_type="http", url="https://httpbin.org/get",
+                      request=None):
     """POST /web/tasks/v2 → created task（自动注册清理）
 
     源码 schema (CreateTaskV2RequestSchema):
@@ -38,17 +39,6 @@ def _create_task_api(page, base_url, name=None, cron="0 9 * * *",
       definition: { url, method } | { prompt },
       timeoutSeconds?, agentId?
     """
-    import sys as _sys
-    _req = None
-    _frame = _sys._getframe(1)
-    for _i in range(5):
-        _req = _frame.f_locals.get('request')
-        if _req:
-            break
-        _frame = _frame.f_back
-        if _frame is None:
-            break
-
     name = name or f"e2e-task-{uuid.uuid4().hex[:6]}"
     # Build definition based on task type
     if task_type == "agent":
@@ -72,9 +62,9 @@ def _create_task_api(page, base_url, name=None, cron="0 9 * * *",
     if r.status in (200, 201):
         task_data = r.json().get("data", {})
 
-    if _req and task_data.get("id"):
+    if request and task_data.get("id"):
         _tid = task_data["id"]
-        register_cleanup(_req, lambda: _delete_task_api(page, base_url, _tid))
+        register_cleanup(request, lambda: _delete_task_api(page, base_url, _tid))
 
     return task_data
 
@@ -85,12 +75,12 @@ def _delete_task_api(page, base_url, task_id):
         page.request.delete(f"{base_url}/web/tasks/v2/{task_id}")
 
 
-def _get_or_create_task(page, base_url):
+def _get_or_create_task(page, base_url, request=None):
     """获取第一个任务，若无则创建一个。返回 (task_dict, created_flag)"""
     tasks = _list_tasks_api(page, base_url)
     if tasks:
         return tasks[0], False
-    task = _create_task_api(page, base_url)
+    task = _create_task_api(page, base_url, request=request)
     return task, True
 
 
@@ -234,7 +224,7 @@ def test_cron_expression_config(logged_in_page, base_url):
 
 @pytest.mark.order(33)
 @pytest.mark.p0
-def test_manual_execute_task(logged_in_page, base_url):
+def test_manual_execute_task(logged_in_page, base_url, request):
     """手动触发执行任务（TC-TASK-004） | ✅ 人工评审通过 |"""
     tasks = TasksPage(logged_in_page, base_url)
     tasks.goto()
@@ -244,7 +234,8 @@ def test_manual_execute_task(logged_in_page, base_url):
     task_data = _create_task_api(
         logged_in_page, base_url,
         name=task_name, cron="0 9 * * *",
-        task_type="http", url="http://www.baidu.com"
+        task_type="http", url="http://www.baidu.com",
+        request=request
     )
     if not task_data:
         pytest.skip("无法创建测试任务")
@@ -302,7 +293,7 @@ def test_manual_execute_task(logged_in_page, base_url):
 
 @pytest.mark.order(34)
 @pytest.mark.p1
-def test_view_task_log(logged_in_page, base_url):
+def test_view_task_log(logged_in_page, base_url, request):
     """通过三点菜单查看执行日志（TC-TASK-007） | ✅ 人工评审通过 |"""
     tasks = TasksPage(logged_in_page, base_url)
     tasks.goto()
@@ -310,7 +301,7 @@ def test_view_task_log(logged_in_page, base_url):
     # 确保有任务可用
     names = tasks.get_task_names()
     if not names:
-        task_data, _ = _get_or_create_task(logged_in_page, base_url)
+        task_data, _ = _get_or_create_task(logged_in_page, base_url, request)
         if not task_data:
             pytest.skip("无法获取或创建任务")
         tasks.goto()
@@ -348,14 +339,14 @@ def test_view_task_log(logged_in_page, base_url):
 
 @pytest.mark.order(35)
 @pytest.mark.p1
-def test_edit_task(logged_in_page, base_url):
+def test_edit_task(logged_in_page, base_url, request):
     """编辑任务名称（TC-TASK-008） | ✅ 人工评审通过 |"""
     tasks = TasksPage(logged_in_page, base_url)
     tasks.goto()
 
     names = tasks.get_task_names()
     if not names:
-        task_data, _ = _get_or_create_task(logged_in_page, base_url)
+        task_data, _ = _get_or_create_task(logged_in_page, base_url, request)
         if not task_data:
             pytest.skip("无法获取或创建任务")
         tasks.goto()
@@ -444,7 +435,7 @@ def test_edit_task(logged_in_page, base_url):
 
 @pytest.mark.order(36)
 @pytest.mark.p1
-def test_delete_task(logged_in_page, base_url):
+def test_delete_task(logged_in_page, base_url, request):
     """删除任务（TC-TASK-009） | ✅ 人工评审通过 |"""
     tasks = TasksPage(logged_in_page, base_url)
     tasks.goto()
@@ -454,7 +445,8 @@ def test_delete_task(logged_in_page, base_url):
     task_data = _create_task_api(
         logged_in_page, base_url,
         name=del_name, cron="0 0 1 * *",
-        task_type="http", url="https://httpbin.org/get"
+        task_type="http", url="https://httpbin.org/get",
+        request=request
     )
     if not task_data:
         pytest.skip("无法创建待删除任务")
@@ -704,7 +696,7 @@ def test_chat_tasks_panel(logged_in_page, base_url):
 
 @pytest.mark.order(41)
 @pytest.mark.p1
-def test_tasks_filter_by_type(logged_in_page, base_url):
+def test_tasks_filter_by_type(logged_in_page, base_url, request):
     """按类型过滤任务列表（TC-TASK-017） | ✅ 人工评审通过 |"""
     tasks = TasksPage(logged_in_page, base_url)
     tasks.goto()
@@ -712,7 +704,7 @@ def test_tasks_filter_by_type(logged_in_page, base_url):
     total = tasks.get_task_count()
     if total == 0:
         # 尝试创建任务
-        task_data, _ = _get_or_create_task(logged_in_page, base_url)
+        task_data, _ = _get_or_create_task(logged_in_page, base_url, request)
         if not task_data:
             pytest.skip("任务列表为空且无法创建")
         tasks.goto()
@@ -748,14 +740,14 @@ def test_tasks_filter_by_type(logged_in_page, base_url):
 
 @pytest.mark.order(43)
 @pytest.mark.p0
-def test_toggle_task_enabled(logged_in_page, base_url):
+def test_toggle_task_enabled(logged_in_page, base_url, request):
     """启用/禁用任务开关（TC-TASK-006） | ✅ 人工评审通过 |"""
     tasks = TasksPage(logged_in_page, base_url)
     tasks.goto()
 
     names = tasks.get_task_names()
     if not names:
-        task_data, _ = _get_or_create_task(logged_in_page, base_url)
+        task_data, _ = _get_or_create_task(logged_in_page, base_url, request)
         if not task_data:
             pytest.skip("任务列表为空且无法创建")
         tasks.goto()
@@ -837,14 +829,14 @@ def test_task_cron_editor(logged_in_page, base_url):
 
 @pytest.mark.order(811)
 @pytest.mark.p1
-def test_task_log_view(logged_in_page, base_url):
+def test_task_log_view(logged_in_page, base_url, request):
     """TC-TASK-019: 任务日志查看 — 查看任务执行日志"""
     tasks = TasksPage(logged_in_page, base_url)
     tasks.goto()
 
     names = tasks.get_task_names()
     if not names:
-        task_data, _ = _get_or_create_task(logged_in_page, base_url)
+        task_data, _ = _get_or_create_task(logged_in_page, base_url, request)
         if not task_data:
             pytest.skip("无法获取或创建任务")
         tasks.goto()
@@ -896,7 +888,7 @@ def test_task_log_view(logged_in_page, base_url):
 
 @pytest.mark.order(812)
 @pytest.mark.p1
-def test_task_tab_filter(logged_in_page, base_url):
+def test_task_tab_filter(logged_in_page, base_url, request):
     """TC-TASK-020: Tab 过滤 — 全部/HTTP/Agent Tab 切换过滤任务"""
     tasks = TasksPage(logged_in_page, base_url)
     tasks.goto()
@@ -907,7 +899,7 @@ def test_task_tab_filter(logged_in_page, base_url):
 
     total = tasks.get_task_count()
     if total == 0:
-        task_data, _ = _get_or_create_task(logged_in_page, base_url)
+        task_data, _ = _get_or_create_task(logged_in_page, base_url, request)
         if not task_data:
             pytest.skip("任务列表为空且无法创建")
         tasks.goto()
@@ -938,14 +930,14 @@ def test_task_tab_filter(logged_in_page, base_url):
 
 @pytest.mark.order(813)
 @pytest.mark.p1
-def test_task_run_now_confirm(logged_in_page, base_url):
+def test_task_run_now_confirm(logged_in_page, base_url, request):
     """TC-TASK-021: 立即运行确认 — 点击立即运行弹出确认对话框"""
     tasks = TasksPage(logged_in_page, base_url)
     tasks.goto()
 
     names = tasks.get_task_names()
     if not names:
-        task_data, _ = _get_or_create_task(logged_in_page, base_url)
+        task_data, _ = _get_or_create_task(logged_in_page, base_url, request)
         if not task_data:
             pytest.skip("无法获取或创建任务")
         tasks.goto()
@@ -995,31 +987,22 @@ def test_task_run_now_confirm(logged_in_page, base_url):
 
 @pytest.mark.order(814)
 @pytest.mark.p1
-def test_search_task(logged_in_page, base_url):
+def test_search_task(logged_in_page, base_url, request):
     """TC-TASK-022: 搜索任务 — 输入关键词过滤任务列表，清空后恢复"""
     tasks = TasksPage(logged_in_page, base_url)
 
-    # 页面加载（多次重试应对 429 限流）
-    search_input = logged_in_page.locator(
-        "div.agent-panel-content input[placeholder*='搜索']"
-    ).first
-    for _attempt in range(3):
-        tasks.goto()
-        try:
-            search_input.wait_for(state="visible", timeout=10000)
-            break
-        except Exception:
-            if _attempt < 2:
-                _wait_rate_limit_reset(logged_in_page)
-            else:
-                pytest.skip("页面因 429 限流无法加载搜索框（等待 2 轮后仍失败）")
+    # 页面加载
+    tasks.goto()
+    search_input = logged_in_page.locator("input[placeholder*='搜索']").first
+    search_input.wait_for(state="visible", timeout=10000)
 
     # 创建一个可搜索的测试任务（unique name 确保搜索命中唯一）
     search_name = f"search-{uuid.uuid4().hex[:8]}"
     task_data = _create_task_api(
         logged_in_page, base_url,
         name=search_name, cron="0 0 * * *",
-        task_type="http", url="https://httpbin.org/get"
+        task_type="http", url="https://httpbin.org/get",
+        request=request
     )
     if not task_data:
         pytest.skip("无法创建测试任务")
@@ -1043,9 +1026,7 @@ def test_search_task(logged_in_page, base_url):
         assert total_before >= 1, "搜索前任务列表为空"
 
         # 搜索：逐字输入触发 debounce → 服务端过滤
-        search_input = logged_in_page.locator(
-            "div.agent-panel-content input[placeholder*='搜索']"
-        ).first
+        search_input = logged_in_page.locator("input[placeholder*='搜索']").first
         search_input.wait_for(state="visible", timeout=5000)
         search_input.click()
         search_input.fill("")
