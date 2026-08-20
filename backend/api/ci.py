@@ -184,7 +184,12 @@ async def submit_results(
             for t in tests:
                 nodeid = t.get("nodeid", "")
                 outcome = t.get("outcome", "unknown")
-                dur = t.get("duration", 0)
+                # pytest-json-report: duration 在 call/setup/teardown 子对象中
+                dur = t.get("duration", 0) or (
+                    t.get("call", {}).get("duration", 0)
+                    + t.get("setup", {}).get("duration", 0)
+                    + t.get("teardown", {}).get("duration", 0)
+                )
 
                 # 解析 nodeid: "tests/api_suites/test_agent_api.py::TestClass::test_name"
                 parts = nodeid.split("::")

@@ -211,7 +211,7 @@ export default function RunDetail() {
         {run.trigger_type === "ci" ? (
           <>
             {run.pipeline_id && (
-              <Link to="/ci" className="text-blue-600 hover:underline">Pipeline #{run.pipeline_id}</Link>
+              <Link to={`/pipelines?highlight=${run.pipeline_id}`} className="text-blue-600 hover:underline">Pipeline #{run.pipeline_id}</Link>
             )}
             {run.git_branch && (
               <span className="text-gray-500">分支: <code className="text-xs bg-gray-100 px-1 rounded">{run.git_branch}</code></span>
