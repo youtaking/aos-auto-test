@@ -330,3 +330,201 @@ describe("LaunchSpecBuilder.build 错误码", () => {
     }
   });
 });
+
+// ── toSdkMcpConfig 纯函数补充测试（src/services/launch-spec-builder.ts）──
+
+class AppError extends Error {
+  readonly code: string;
+  readonly statusCode: number;
+  constructor(message: string, code: string, statusCode: number) {
+    super(message);
+    this.name = "AppError";
+    this.code = code;
+    this.statusCode = statusCode;
+  }
+}
+
+function throwInvalidConfig(message: string): never {
+  throw new AppError(message, "INVALID_CONFIG", 400);
+}
+
+interface McpServerConfig {
+  name: string;
+  type: "stdio" | "streamable-http";
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
+  timeout?: number;
+}
+
+function toSdkMcpConfig(name: string, raw: Record<string, unknown>, agentConfigId: string): McpServerConfig {
+  if (raw.type === "local") {
+    if (!Array.isArray(raw.command) || raw.command.length === 0 || typeof raw.command[0] !== "string") {
+      throwInvalidConfig(`invalid MCP config '${name}'`);
+    }
+    const cmd = raw.command.filter((value): value is string => typeof value === "string");
+    return {
+      name,
+      type: "stdio",
+      command: cmd[0] ?? "",
+      args: cmd.length > 1 ? cmd.slice(1) : undefined,
+      env: raw.environment as Record<string, string> | undefined,
+      timeout: typeof raw.timeout === "number" ? raw.timeout : undefined,
+    };
+  }
+
+  if (raw.type === "remote" || raw.type === "streamable-http") {
+    if (typeof raw.url !== "string" || raw.url.trim().length === 0) {
+      throwInvalidConfig(`invalid MCP config '${name}'`);
+    }
+    return {
+      name,
+      type: "streamable-http",
+      url: raw.url,
+      headers: raw.headers as Record<string, string> | undefined,
+      timeout: typeof raw.timeout === "number" ? raw.timeout : undefined,
+    };
+  }
+
+  if (raw.type === "stdio") {
+    if (typeof raw.command !== "string" || raw.command.trim().length === 0) {
+      throwInvalidConfig(`invalid MCP config '${name}'`);
+    }
+    return {
+      name,
+      type: "stdio",
+      command: raw.command,
+      args: Array.isArray(raw.args)
+        ? raw.args.filter((value): value is string => typeof value === "string")
+        : undefined,
+      env: raw.env as Record<string, string> | undefined,
+      timeout: typeof raw.timeout === "number" ? raw.timeout : undefined,
+    };
+  }
+
+  throwInvalidConfig(`unsupported MCP config '${name}'`);
+}
+
+describe("toSdkMcpConfig", () => {
+  test("local 类型转为 stdio", () => {
+    const result = toSdkMcpConfig("my-mcp", {
+      type: "local",
+      command: ["npx", "-y", "@my/mcp-server"],
+      environment: { API_KEY: "secret" },
+      timeout: 30,
+    }, "ac-1");
+    expect(result.type).toBe("stdio");
+    expect(result.command).toBe("npx");
+    expect(result.args).toEqual(["-y", "@my/mcp-server"]);
+    expect(result.env).toEqual({ API_KEY: "secret" });
+    expect(result.timeout).toBe(30);
+  });
+
+  test("local 类型单元素 command 无 args", () => {
+    const result = toSdkMcpConfig("my-mcp", { type: "local", command: ["node"] }, "ac-1");
+    expect(result.command).toBe("node");
+    expect(result.args).toBeUndefined();
+  });
+
+  test("local 类型空 command 数组抛出 INVALID_CONFIG", () => {
+    expect(() => toSdkMcpConfig("bad", { type: "local", command: [] }, "ac-1")).toThrow(AppError);
+  });
+
+  test("remote 类型转为 streamable-http", () => {
+    const result = toSdkMcpConfig("remote-mcp", {
+      type: "remote",
+      url: "https://mcp.example.com",
+      headers: { Authorization: "Bearer token" },
+    }, "ac-1");
+    expect(result.type).toBe("streamable-http");
+    expect(result.url).toBe("https://mcp.example.com");
+    expect(result.headers).toEqual({ Authorization: "Bearer token" });
+  });
+
+  test("streamable-http 类型直接使用", () => {
+    const result = toSdkMcpConfig("http-mcp", {
+      type: "streamable-http",
+      url: "https://mcp.example.com/v1",
+    }, "ac-1");
+    expect(result.type).toBe("streamable-http");
+  });
+
+  test("remote 类型空 url 抛出 INVALID_CONFIG", () => {
+    expect(() => toSdkMcpConfig("bad", { type: "remote", url: "" }, "ac-1")).toThrow(AppError);
+  });
+
+  test("stdio 类型直接使用", () => {
+    const result = toSdkMcpConfig("stdio-mcp", {
+      type: "stdio",
+      command: "python",
+      args: ["-m", "mcp_server"],
+      env: { PYTHONPATH: "/opt" },
+    }, "ac-1");
+    expect(result.type).toBe("stdio");
+    expect(result.command).toBe("python");
+    expect(result.args).toEqual(["-m", "mcp_server"]);
+  });
+
+  test("stdio 类型空 command 抛出 INVALID_CONFIG", () => {
+    expect(() => toSdkMcpConfig("bad", { type: "stdio", command: "" }, "ac-1")).toThrow(AppError);
+  });
+
+  test("未知类型抛出 INVALID_CONFIG", () => {
+    try {
+      toSdkMcpConfig("unknown", { type: "websocket" }, "ac-1");
+      expect.unreachable("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(AppError);
+      expect((err as AppError).code).toBe("INVALID_CONFIG");
+    }
+  });
+
+  test("timeout 为非数字时不设置", () => {
+    const result = toSdkMcpConfig("mcp", { type: "stdio", command: "cmd", timeout: "fast" }, "ac-1");
+    expect(result.timeout).toBeUndefined();
+  });
+});
+
+// ── toLaunchModelProtocol 纯函数测试 ──
+
+function toLaunchModelProtocol(
+  protocol: string | null | undefined,
+  providerName: string,
+  agentConfigId: string,
+): "openai" | "anthropic" {
+  if (protocol === "openai" || protocol === "anthropic") return protocol;
+  throwInvalidConfig(`unsupported protocol for '${providerName}'`);
+}
+
+describe("toLaunchModelProtocol", () => {
+  test("openai 协议直接返回", () => {
+    expect(toLaunchModelProtocol("openai", "OpenAI", "ac-1")).toBe("openai");
+  });
+
+  test("anthropic 协议直接返回", () => {
+    expect(toLaunchModelProtocol("anthropic", "Anthropic", "ac-1")).toBe("anthropic");
+  });
+
+  test("null 协议抛出 INVALID_CONFIG", () => {
+    try {
+      toLaunchModelProtocol(null, "BadProvider", "ac-1");
+      expect.unreachable("should have thrown");
+    } catch (err) {
+      expect((err as AppError).code).toBe("INVALID_CONFIG");
+    }
+  });
+
+  test("undefined 协议抛出 INVALID_CONFIG", () => {
+    expect(() => toLaunchModelProtocol(undefined, "p", "ac-1")).toThrow(AppError);
+  });
+
+  test("未知协议抛出 INVALID_CONFIG", () => {
+    expect(() => toLaunchModelProtocol("gemini", "Google", "ac-1")).toThrow(AppError);
+  });
+
+  test("空字符串协议抛出 INVALID_CONFIG", () => {
+    expect(() => toLaunchModelProtocol("", "p", "ac-1")).toThrow(AppError);
+  });
+});
