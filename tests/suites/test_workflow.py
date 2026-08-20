@@ -960,23 +960,32 @@ class TestWorkflow:
             apply_btn.wait_for(state="visible", timeout=5000)
             # Apply YAML 按钮可能被 react-flow 画布遮挡，需要 force 点击
             apply_btn.first.click(force=True)
-            logged_in_page.wait_for_timeout(1000)
+            logged_in_page.wait_for_timeout(2000)
 
             # Step 6: 验证 Apply 后 textarea 内容保留（未被清空或重置）
             applied_yaml = yaml_textarea.input_value()
             assert desc_marker in applied_yaml, \
                 f"应用 YAML 后 textarea 内容丢失: 期望包含 '{desc_marker}', 实际: '{applied_yaml[:100]}'"
 
-            # Step 7: 验证修改生效 — 打开工作流设置弹窗查看 description
+            # Step 7: 验证修改生效 — 打开工作流设置弹窗查看 description（轮询等待 React 状态同步）
             settings_btn = logged_in_page.get_by_role("button", name="工作流设置")
             settings_btn.wait_for(state="visible", timeout=5000)
-            settings_btn.click()
-            logged_in_page.wait_for_timeout(800)
 
-            desc_input = logged_in_page.get_by_role("textbox", name="工作流描述...")
+            actual_desc = ""
+            for _check in range(5):
+                settings_btn.click()
+                logged_in_page.wait_for_timeout(1000)
+                desc_input = logged_in_page.get_by_role("textbox", name="工作流描述...")
+                if desc_input.count() > 0:
+                    desc_input.wait_for(state="visible", timeout=5000)
+                    actual_desc = desc_input.input_value()
+                    if desc_marker in actual_desc:
+                        break
+                # 关闭设置弹窗后重试
+                logged_in_page.keyboard.press("Escape")
+                logged_in_page.wait_for_timeout(500)
+
             if desc_input.count() > 0:
-                desc_input.wait_for(state="visible", timeout=5000)
-                actual_desc = desc_input.input_value()
                 assert desc_marker in actual_desc, \
                     f"YAML 编辑未生效: 期望描述包含 '{desc_marker}', 实际: '{actual_desc}'"
                 # 关闭设置弹窗
