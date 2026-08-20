@@ -1,5 +1,6 @@
 # tests/pages/chat_test_page.py
 """对话聊天测试 Page Object — 会话管理、消息交互、文件上传、Markdown 渲染"""
+import re
 from playwright.sync_api import Page
 
 
@@ -538,19 +539,47 @@ class ChatTestPage:
 
     # === 文件上传 ===
 
-    def get_file_input(self):
-        """获取文件上传 input"""
+    def _get_upload_button(self):
+        """获取文件树头部的"上传"按钮（lucide-upload 图标，无 title/aria-label）"""
+        return self.page.locator("svg.lucide-upload").locator("xpath=ancestor::button")
+
+    def _get_file_input(self):
+        """获取隐藏的文件上传 input[type=file]（通过上传按钮所在的 panel 内查找）"""
+        upload_btn = self._get_upload_button()
+        if upload_btn.count() == 0:
+            return None
+        # 在上传按钮的最近共同祖先中查找隐藏 file input
+        panel = upload_btn.first.locator("xpath=ancestor::div[@data-panel='true']")
+        if panel.count() == 0:
+            panel = upload_btn.first.locator("xpath=ancestor::div[contains(@class,'agent-panel')]")
+        if panel.count() > 0:
+            inp = panel.locator("input[type='file']")
+            if inp.count() > 0:
+                return inp.first
+        # fallback: 全局查找隐藏 file input
+        inp = self.page.locator("input[type='file'][style*='display: none'], input[type='file'][style*='display:none']")
+        if inp.count() > 0:
+            return inp.first
         return self.page.locator("input[type='file']").first
 
     def upload_file(self, file_path: str):
-        """上传文件"""
-        file_input = self.get_file_input()
+        """通过 UI 上传文件 — 直接操作隐藏 file input，避免点击被分隔条拦截
+        自动展开右侧面板（如果未展开）"""
+        upload_btn = self._get_upload_button()
+        if upload_btn.count() == 0 or not upload_btn.first.is_visible():
+            self.expand_artifacts_panel()
+        upload_btn.wait_for(state="visible", timeout=5000)
+        file_input = self._get_file_input()
         file_input.set_input_files(file_path)
         self.page.wait_for_timeout(2000)
 
     def upload_files(self, file_paths: list[str]):
-        """上传多个文件"""
-        file_input = self.get_file_input()
+        """通过 UI 上传多个文件 — 直接操作隐藏 file input"""
+        upload_btn = self._get_upload_button()
+        if upload_btn.count() == 0 or not upload_btn.first.is_visible():
+            self.expand_artifacts_panel()
+        upload_btn.wait_for(state="visible", timeout=5000)
+        file_input = self._get_file_input()
         file_input.set_input_files(file_paths)
         self.page.wait_for_timeout(2000)
 
@@ -570,10 +599,10 @@ class ChatTestPage:
     # === 文件树操作 ===
 
     def get_file_tree_item(self, file_name: str):
-        """获取文件树中的指定文件项"""
-        return self.page.locator(
-            f"div[role='treeitem'][data-node-id='{file_name}']"
-        )
+        """获取文件树中的指定文件项
+        真实 DOM: role='treeitem'，accessible name 为文件名
+        """
+        return self.page.get_by_role("treeitem", name=file_name)
 
     def has_file_in_tree(self, file_name: str) -> bool:
         """检查文件是否在文件树中"""
@@ -632,14 +661,16 @@ class ChatTestPage:
         return not self.has_file_in_tree(file_name)
 
     def get_all_files_in_tree(self) -> list[str]:
-        """获取文件树中所有文件的名称列表"""
-        items = self.page.locator("div[role='treeitem'][data-node-id]")
+        """获取文件树中所有文件的名称列表
+        真实 DOM: role='treeitem'，accessible name 为文件名
+        """
+        items = self.page.get_by_role("treeitem")
         count = items.count()
         names = []
         for i in range(count):
-            node_id = items.nth(i).get_attribute("data-node-id")
-            if node_id:
-                names.append(node_id)
+            name = items.nth(i).inner_text().strip()
+            if name:
+                names.append(name)
         return names
 
     # === 模型操作 ===
@@ -711,14 +742,14 @@ class ChatTestPage:
         return True
 
     def has_slash_popup(self) -> bool:
-        """是否有 Slash 命令候选列表弹出"""
-        popup = self.page.locator(
-            "div[role='listbox'], div[role='menu'], "
-            "div[data-slot='command-list'], div[class*='slash']"
-        )
-        if popup.count() == 0:
-            return False
-        return popup.first.is_visible()
+        """是否有 Slash 命令候选列表弹出
+        真实 DOM: div.rounded-xl 内包含 /commandName 按钮，无 role/data-slot 属性
+        """
+        # 检测方式：查找文本以 / 开头的按钮（命令候选项）
+        slash_buttons = self.page.locator(
+            "button:visible"
+        ).filter(has_text=re.compile(r"^/[a-z]"))
+        return slash_buttons.count() > 0
 
     def type_at_reference(self) -> bool:
         """在输入框输入 @ 触发文件引用候选列表"""
@@ -731,14 +762,15 @@ class ChatTestPage:
         return True
 
     def has_at_popup(self) -> bool:
-        """是否有 @ 文件引用候选列表弹出"""
-        popup = self.page.locator(
-            "div[role='listbox'], div[role='menu'], "
-            "div[data-slot='mention-list'], div[class*='mention']"
-        )
-        if popup.count() == 0:
+        """是否有 @ 文件引用候选列表弹出
+        真实 DOM: <dialog> 元素，标题为"选择文件"
+        """
+        dialog = self.page.get_by_role("dialog")
+        if dialog.count() == 0:
             return False
-        return popup.first.is_visible()
+        # 检查是否包含"选择文件"标题
+        heading = dialog.get_by_role("heading", name="选择文件")
+        return heading.count() > 0 and heading.first.is_visible()
 
     # === 工具栏按钮 ===
 

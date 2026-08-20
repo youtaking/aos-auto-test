@@ -454,11 +454,9 @@ def test_apikey_007_delete_key(logged_in_page, base_url, request):
     ak.goto()
     initial_count = ak.get_key_count()
 
-    # 点击吊销
+    # 点击吊销（只操作自己创建的密钥，找不到即 fail）
     clicked = ak.click_revoke(f"del-{_PREFIX}")
-    if not clicked:
-        # 尝试点击第一个吊销按钮
-        clicked = ak.click_revoke()
+    assert clicked, f"密钥 'del-{_PREFIX}' 创建成功但 UI 未显示吊销按钮"
 
     if clicked:
         logged_in_page.wait_for_timeout(500)

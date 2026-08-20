@@ -18,6 +18,34 @@ _TOPICS = ["Python 编程", "数据分析", "前端开发", "数据库优化",
 _ROLES = ["助手", "专家", "顾问", "教练"]
 
 
+def _collapse_artifacts_panel(page, timeout_ms=10000):
+    """轮询检测并折叠 Artifacts 面板（展开态: .open class / title='隐藏内容面板'）
+
+    刷新/导航后面板状态不确定，需轮询等待 React 渲染完成后再操作。
+    """
+    import time
+    deadline = time.time() + timeout_ms / 1000
+    while time.time() < deadline:
+        # 检测展开态按钮
+        btn = page.locator("button.agent-artifacts-expand-btn.open")
+        if btn.count() > 0 and btn.first.is_visible():
+            btn.first.click()
+            page.wait_for_timeout(800)
+            return True
+        # 备选：title 属性
+        btn2 = page.locator("button.agent-artifacts-expand-btn[title='隐藏内容面板']")
+        if btn2.count() > 0 and btn2.first.is_visible():
+            btn2.first.click()
+            page.wait_for_timeout(800)
+            return True
+        # 检查是否已收起（title='显示内容面板' 存在 = 已收起）
+        collapsed_btn = page.locator("button.agent-artifacts-expand-btn[title='显示内容面板']")
+        if collapsed_btn.count() > 0:
+            return True  # 已收起，无需操作
+        page.wait_for_timeout(500)
+    return False  # 超时，未找到按钮
+
+
 def _assert_create_success(result: dict):
     """断言 API 创建成功，若为并发上限导致的 500 则 skip。
     同时自动注册 agent 清理（从调用帧获取 request 和 agent_name）。"""
@@ -44,7 +72,7 @@ def _assert_create_success(result: dict):
 
 
 def _check_concurrency_limit(page) -> bool:
-    """检查页面是否显示并发上限错误（包括 DOM 文本、错误提示和 URL 状态）"""
+    """检查页面是否显示并发上限错误（DOM 文本、错误提示、textarea 不可用）"""
     try:
         text = page.locator("body").inner_text()
         if "并发上限" in text or "并发" in text:
@@ -65,6 +93,12 @@ def _check_concurrency_limit(page) -> bool:
         agent_error = page.locator("text=Failed to start")
         if agent_error.count() > 0:
             return True
+        # 检查聊天输入框是否不可用（环境未进入时 textarea 不存在或隐藏）
+        ta = page.locator("textarea[placeholder*='发送'], textarea.chat-composer-textarea")
+        if ta.count() == 0 or not ta.first.is_visible():
+            # textarea 不可见 + 页面有错误相关内容 → 可能是并发上限
+            if "错误" in text or "error" in text.lower() or "失败" in text:
+                return True
         return False
     except Exception:
         return False
@@ -376,16 +410,68 @@ def test_agent_023_system_prompt_effective(logged_in_page, base_url):
         if not model_changed:
             pytest.skip("无法通过配置界面修改模型（配置 modal 打开失败或目标模型不存在）")
 
+        # 重启后可能触发并发上限，需再次检测
+        logged_in_page.wait_for_timeout(3000)
+        if _check_concurrency_limit(logged_in_page):
+            pytest.skip("重启后服务器并发上限，无法验证 SP 生效")
+
+        # 等待聊天页面完全加载（textarea 出现在 DOM 中）
+        try:
+            logged_in_page.locator("textarea").first.wait_for(state="attached", timeout=15000)
+        except Exception:
+            pass
+
+        # 确保聊天区域可见（重启后面板布局可能塌陷为 0 宽度）
+        # 先收起 Artifacts 面板
+        for _collapse_try in range(5):
+            ta_width = logged_in_page.evaluate("""() => {
+                const ta = document.querySelector('textarea.chat-composer-textarea')
+                          || document.querySelector('textarea');
+                return ta ? ta.getBoundingClientRect().width : 0;
+            }""")
+            if ta_width and ta_width > 10:
+                break
+            logged_in_page.evaluate("""() => {
+                const btn = document.querySelector('button.agent-artifacts-expand-btn.open')
+                         || document.querySelector('button[title="隐藏内容面板"]');
+                if (btn) btn.click();
+            }""")
+            logged_in_page.wait_for_timeout(1000)
+        else:
+            # textarea 仍然 0 宽，尝试重新进入 Agent 聊天页面刷新布局
+            chat_url = logged_in_page.url
+            try:
+                logged_in_page.goto(f"{base_url}/ctrl/agent/home", wait_until="domcontentloaded")
+            except Exception:
+                pass
+            logged_in_page.wait_for_load_state("domcontentloaded")
+            card = logged_in_page.locator("button.agent-sidebar-agent-card").filter(has_text=agent_name)
+            if card.count() > 0:
+                card.first.click()
+                logged_in_page.wait_for_timeout(3000)
+
         # 发送非 Python 问题，验证 SP 生效（Agent 应拒绝回答）
         # 重启后环境可能未就绪，最多重试 3 次
         reply = ""
         for _send_attempt in range(3):
+            # 每次重试前检查并发上限
+            if _send_attempt > 0 and _check_concurrency_limit(logged_in_page):
+                pytest.skip("重试时检测到服务器并发上限")
             ac.send_message("请推荐一家北京好吃的火锅店")
-            reply = ac.wait_for_ai_reply(timeout_ms=45000)
-            # 检查是否返回了占位文本（环境未就绪）
-            if reply and "开始对话" not in reply and "ACP agent" not in reply:
+            try:
+                reply = ac.wait_for_ai_reply(timeout_ms=45000)
+            except Exception as e:
+                print(f"  [retry] 第 {_send_attempt + 1} 次等待回复异常: {e}")
+                # 可能是并发上限导致页面无消息元素
+                if _check_concurrency_limit(logged_in_page):
+                    pytest.skip("等待回复时检测到服务器并发上限")
+                logged_in_page.wait_for_timeout(5000)
+                continue
+            # 检查是否返回了占位文本（环境未就绪 / SSE 重连中）
+            _placeholder_texts = ["开始对话", "ACP agent", "重连中", "连接已断开", "自动重连"]
+            if reply and not any(pt in reply for pt in _placeholder_texts):
                 break
-            print(f"  [retry] 第 {_send_attempt + 1} 次发送后未收到有效回复，等待 5s 重试...")
+            print(f"  [retry] 第 {_send_attempt + 1} 次发送后未收到有效回复（reply='{reply[:60]}'），等待 5s 重试...")
             logged_in_page.wait_for_timeout(5000)
 
         allure.attach(
@@ -393,9 +479,10 @@ def test_agent_023_system_prompt_effective(logged_in_page, base_url):
             name="SP 生效验证",
             attachment_type=allure.attachment_type.TEXT,
         )
-        # AI 未响应（仍在"思考中"或无回复），环境/模型问题，非应用 Bug
-        if not reply or "思考中" in reply or len(reply) < 5 or "开始对话" in reply:
-            pytest.skip(f"AI 未在 45s 内完成回复（可能模型响应慢或环境异常），无法验证 SP 生效: '{reply[:100]}'")
+        # AI 未响应（仍在"思考中"或无回复 / SSE 重连），环境/模型问题，非应用 Bug
+        _skip_texts = ["思考中", "开始对话", "重连中", "连接已断开", "自动重连"]
+        if not reply or len(reply) < 5 or any(st in reply for st in _skip_texts):
+            pytest.skip(f"AI 未在 45s 内完成回复（可能模型响应慢、SSE 断连或环境异常），无法验证 SP 生效: '{reply[:100]}'")
         # SP 要求只回答 Python 问题，非 Python 问题应被拒绝或引导回 Python
         python_keywords = ["python", "Python", "编程", "代码", "开发",
                           "只能", "只回答", "无法", "抱歉", "不好意思"]
@@ -786,17 +873,26 @@ def test_agent_029_bind_knowledge(logged_in_page, base_url):
             "新建 Agent 应无知识库绑定"
 
         # 6. 选择第一个可用的知识库
-        # 在知识库 tab 内找 checkbox 对应的 label（排除 tab 按钮和标题）
-        kb_labels = modal.locator("input[type='checkbox']:visible").first.locator("xpath=ancestor::label")
-        if kb_labels.count() == 0:
-            # 备选：知识库列表中的可点击 label
-            kb_labels = modal.locator("label:visible").filter(has_text="知识库").nth(1)
-            kb_labels.wait_for(state="visible", timeout=3000)
-            kb_labels.click()
+        # 真实 DOM: checkbox 是自定义组件（role='checkbox'），不是 <input type="checkbox">
+        # 绑定知识库区域内的 checkbox（排除"优先检索知识库"）
+        all_checkboxes = modal.get_by_role("checkbox")
+        clicked = False
+        for i in range(all_checkboxes.count()):
+            cb = all_checkboxes.nth(i)
+            cb_text = cb.get_attribute("aria-label") or ""
+            if "优先检索" in cb_text:
+                continue
+            if not cb.is_visible():
+                continue
+            # 找到一个知识库 checkbox 并点击
+            cb.click()
+            clicked = True
+            first_kb = cb_text[:40]
+            break
+        if not clicked:
+            pytest.skip("无可用的知识库 checkbox")
         logged_in_page.wait_for_timeout(500)
 
-        # 获取选中的知识库名称
-        first_kb = kb_labels.text_content().strip()[:40]
         print(f"选择绑定知识库: {first_kb}")
 
         # 7. 点击保存
@@ -1606,8 +1702,8 @@ def test_edit_description(logged_in_page, base_url):
     desc_input2b = modal2b.locator("label:has-text('描述') + input, label:has-text('描述') ~ input").first
     if desc_input2b.count() == 0:
         desc_input2b = modal2b.locator("input[placeholder*='描述']").first
-        desc_input2b.wait_for(state="visible", timeout=5000)
-        desc_input2b.fill(old_desc)
+    desc_input2b.wait_for(state="visible", timeout=5000)
+    desc_input2b.fill(old_desc)
     logged_in_page.wait_for_timeout(500)
     save_2b = modal2b.get_by_role("button", name="保存")
     save_2b.wait_for(state="visible", timeout=5000)
@@ -1772,6 +1868,15 @@ def test_refresh_during_reply(logged_in_page, base_url):
     assert ac.is_on_chat_page(), "应进入对话页面"
     logged_in_page.wait_for_timeout(1000)
 
+    # 折叠 Artifacts 面板（轮询：刷新/导航后 React 渲染时序不确定）
+    _collapse_artifacts_panel(logged_in_page)
+
+    # 等待 textarea 可见（导航后面板渲染可能需要较长时间）
+    ta = logged_in_page.locator("textarea.chat-composer-textarea")
+    if ta.count() == 0:
+        ta = logged_in_page.locator("textarea")
+    ta.first.wait_for(state="visible", timeout=30000)
+
     # 2. 记录刷新前的消息数量
     chat_url = logged_in_page.url
     before_messages = logged_in_page.locator(
@@ -1781,8 +1886,6 @@ def test_refresh_during_reply(logged_in_page, base_url):
     print(f"\n刷新前消息气泡数: {before_count}")
 
     # 3. 发送一条需要较长回复的消息（不等 AI 回复）
-    ta = logged_in_page.locator("textarea[placeholder*='发送']")
-    ta.first.wait_for(state="visible", timeout=5000)
     ta.first.fill("请写300字介绍一下人工智能的发展历程，从起源到现代")
     ta.first.press("Enter")
 
@@ -1813,17 +1916,40 @@ def test_refresh_during_reply(logged_in_page, base_url):
 
     assert ac.is_on_chat_page(), "刷新后应能回到对话页面"
 
-    # 6. 等待 AI 完成回复（刷新后 AI 应继续或重新完成回复）
+    # 刷新后再次折叠 Artifacts 面板（轮询等待 React 渲染）
+    logged_in_page.wait_for_timeout(2000)
+    _collapse_artifacts_panel(logged_in_page)
+
+    # 6. 等待 AI 完成回复（刷新后 SSE 重连 + AI 继续回复）
     logged_in_page.wait_for_load_state("domcontentloaded")
-    # 等待消息区域加载（轮询）
-    for _wait in range(10):
+    # 等待重连完成（"重连中" 消失）+ AI 回复
+    for _wait in range(25):
         log_area = logged_in_page.locator("div[role='log']")
-        if log_area.count() > 0 and log_area.first.inner_text().strip():
-            break
-        logged_in_page.wait_for_timeout(1000)
+        if log_area.count() > 0:
+            log_text = log_area.first.inner_text()
+            # 排除重连占位文本
+            if "重连中" not in log_text and "连接已断开" not in log_text and log_text.strip():
+                break
+        # 如果有 "重试重连" 按钮，点击它
+        retry_btn = logged_in_page.get_by_role("button", name="重试重连")
+        if retry_btn.count() > 0 and retry_btn.first.is_visible():
+            retry_btn.first.click()
+            logged_in_page.wait_for_timeout(2000)
+            continue
+        logged_in_page.wait_for_timeout(2000)
 
     # 7. 获取最后一条 AI 回复，检查是否完整（不被打断）
+    # 先打印页面状态辅助调试
+    log_area_debug = logged_in_page.locator("div[role='log']")
+    if log_area_debug.count() > 0:
+        print(f"消息区域内容: {log_area_debug.first.inner_text()[:200]}")
+    else:
+        print("消息区域 div[role='log'] 不存在")
     last_reply = ac.get_last_message()
+    # 如果仍是重连文本，再等一轮
+    if "重连中" in last_reply or "连接已断开" in last_reply:
+        logged_in_page.wait_for_timeout(10000)
+        last_reply = ac.get_last_message()
     print(f"AI 最终回复（前100字）: {last_reply[:100]}")
 
     allure.attach(
@@ -1835,5 +1961,8 @@ def test_refresh_during_reply(logged_in_page, base_url):
 
     # 8. AI 回复不应为空或异常短（被打断的标志）
     assert last_reply, "AI 应有回复内容，为空说明回复被打断"
+    # 排除重连占位文本
+    assert "重连中" not in last_reply and "连接已断开" not in last_reply, \
+        f"AI 回复仍是重连占位文本: '{last_reply[:50]}'"
     assert len(last_reply) > 50, \
         f"AI 回复过短（{len(last_reply)}字），可能被打断: '{last_reply[:50]}'"

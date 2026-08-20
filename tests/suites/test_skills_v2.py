@@ -79,10 +79,14 @@ def test_skill_search_filter(logged_in_page, base_url):
         name="搜索不存在内容", attachment_type=allure.attachment_type.TEXT,
     )
 
-    # 清空搜索恢复
+    # 清空搜索恢复（轮询等待 React 列表重渲染完成）
     skills.clear_search()
-    logged_in_page.wait_for_timeout(1000)
-    restored_count = skills.get_visible_skill_cards()
+    restored_count = 0
+    for _ in range(10):  # 最多 5s
+        logged_in_page.wait_for_timeout(500)
+        restored_count = skills.get_visible_skill_cards()
+        if restored_count >= initial_count:
+            break
     assert restored_count == initial_count, (
         f"清空搜索后未恢复: {restored_count} vs {initial_count}"
     )

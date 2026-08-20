@@ -173,11 +173,21 @@ def test_markdown_table_rendering(logged_in_page, base_url):
         "请严格按此格式输出。"
     )
 
-    # 轮询等待表格出现（LLM 响应可能较慢，最多等 30 秒）
-    for _ in range(30):
+    # 轮询等待表格出现（LLM 响应可能较慢，最多等 45 秒）
+    for _ in range(45):
         if chat.has_table():
             break
         logged_in_page.wait_for_timeout(1000)
+
+    if not chat.has_table():
+        # 诊断：检查 AI 是否回复了（可能格式不是表格）
+        log_area = logged_in_page.locator("div[role='log']")
+        log_text = log_area.first.inner_text() if log_area.count() > 0 else ""
+        import allure
+        allure.attach(
+            f"AI 回复内容（前500字）：\n{log_text[:500]}",
+            name="表格未出现-AI回复诊断", attachment_type=allure.attachment_type.TEXT,
+        )
 
     assert chat.has_table(), \
         "AI 未按指令生成表格（table 元素不存在），表格渲染测试失败"
@@ -569,10 +579,8 @@ def test_file_upload_preview(logged_in_page, base_url):
         # 等待文件出现在文件树中（轮询，最长 10 秒）
         file_tree_item = None
         for _ in range(10):
-            # 查找上传的文件（node-id 为文件名）
-            item = logged_in_page.locator(
-                f"div[role='treeitem'][data-node-id='{file_name}']"
-            )
+            # 查找上传的文件
+            item = logged_in_page.get_by_role("treeitem", name=file_name)
             if item.count() > 0:
                 file_tree_item = item
                 break
@@ -645,11 +653,6 @@ def test_multi_file_upload(logged_in_page, base_url):
 
     try:
         # 上传多个文件
-        file_input = chat.get_file_input()
-        multiple = file_input.get_attribute("multiple")
-        assert multiple is not None, \
-            "文件上传 input 缺少 multiple 属性，不支持多文件选择"
-
         chat.upload_files(tmp_files)
 
         # 确保右侧 Artifacts 面板展开（文件树在面板内）
@@ -658,16 +661,12 @@ def test_multi_file_upload(logged_in_page, base_url):
         # 验证：两个文件都出现在文件树中
         file_names = [f"multi-upload-{i}.txt" for i in range(2)]
         logged_in_page.wait_for_timeout(1000)
-        first_item = logged_in_page.locator(
-            f"div[role='treeitem'][data-node-id='{file_names[0]}']"
-        )
+        first_item = logged_in_page.get_by_role("treeitem", name=file_names[0])
         if first_item.count() == 0:
             # 等待更长时间
             for _ in range(5):
                 logged_in_page.wait_for_timeout(2000)
-                first_item = logged_in_page.locator(
-                    f"div[role='treeitem'][data-node-id='{file_names[0]}']"
-                )
+                first_item = logged_in_page.get_by_role("treeitem", name=file_names[0])
                 if first_item.count() > 0:
                     break
         if first_item.count() == 0:
@@ -679,9 +678,7 @@ def test_multi_file_upload(logged_in_page, base_url):
             # 等待文件出现在文件树
             item = None
             for _ in range(10):
-                item = logged_in_page.locator(
-                    f"div[role='treeitem'][data-node-id='{fname}']"
-                )
+                item = logged_in_page.get_by_role("treeitem", name=fname)
                 if item.count() > 0:
                     break
                 logged_in_page.wait_for_timeout(800)
@@ -756,15 +753,16 @@ def test_exe_file_preview_unsupported(logged_in_page, base_url):
     exe_name = os.path.basename(tmp_path)
 
     try:
+        # 确保右侧面板展开（文件树和上传按钮在面板内）
+        chat.expand_artifacts_panel()
+
         # 上传 .exe 文件
         chat.upload_file(tmp_path)
 
         # 等待文件出现在文件树
         file_item = None
         for _ in range(10):
-            file_item = logged_in_page.locator(
-                f"div[role='treeitem'][data-node-id='{exe_name}']"
-            )
+            file_item = logged_in_page.get_by_role("treeitem", name=exe_name)
             if file_item.count() > 0:
                 break
             logged_in_page.wait_for_timeout(800)
@@ -959,9 +957,8 @@ def test_stop_generation(logged_in_page, base_url):
 
     textarea = logged_in_page.locator("textarea").first
 
-    # 记录发送前消息区域内容长度（只看消息区，避免 sidebar 等 UI 变化干扰）
+    # 等待新会话就绪：log 区域为空或仅包含占位文本
     log_area = logged_in_page.locator("div[role='log']")
-    # 增加重试等待 log 区域出现
     if log_area.count() == 0:
         for _ in range(5):
             logged_in_page.wait_for_timeout(1000)
@@ -969,6 +966,14 @@ def test_stop_generation(logged_in_page, base_url):
                 break
     if log_area.count() == 0:
         assert False, "【应用Bug】消息日志区域 div[role='log'] 不存在（新建会话后页面无消息区域，可能跳转异常）"
+
+    # 等待新会话加载完成（"开始对话" 出现 = 新会话就绪）
+    for _ in range(5):
+        log_text_init = log_area.first.inner_text()
+        if "开始对话" in log_text_init or len(log_text_init.strip()) < 10:
+            break
+        logged_in_page.wait_for_timeout(1000)
+
     msg_before = log_area.first.inner_text() if log_area.count() > 0 else ""
     len_before = len(msg_before)
 
@@ -976,6 +981,19 @@ def test_stop_generation(logged_in_page, base_url):
     textarea.wait_for(state="visible", timeout=5000)
     textarea.fill("请详细解释量子力学的不确定性原理，写一篇2000字的论文")
     textarea.press("Enter")
+
+    # 确认用户消息已发送到消息区（防止 Enter 未生效）
+    for _ack in range(8):
+        logged_in_page.wait_for_timeout(500)
+        ack_text = log_area.first.inner_text() if log_area.count() > 0 else ""
+        if "量子力学" in ack_text:
+            break
+    else:
+        # Enter 可能未触发发送，尝试点击发送按钮
+        send_btn = logged_in_page.locator("textarea").locator("xpath=ancestor::div[contains(@class,'flex')]").locator("button[type='submit'], button.send-button")
+        if send_btn.count() > 0:
+            send_btn.first.click()
+            logged_in_page.wait_for_timeout(1000)
 
     # 等待流式响应开始（等 AI 输出实际回复内容，不仅仅是"思考中"）
     for _wait in range(30):

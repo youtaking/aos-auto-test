@@ -133,8 +133,11 @@ def test_chat_delete_session(logged_in_page, base_url):
         # 2. 通过 client API 获取会话列表（绕过 UI 缓存），支持 YJS 异步加载重试
         titles_before = []
         matching = []
-        for _retry in range(15):
+        for _retry in range(25):  # 增加到 25 次（约 37.5s）
             titles_before = chat.get_session_titles_via_client()
+            # fallback: React fiber 失败时用 DOM 提取
+            if len(titles_before) == 0:
+                titles_before = chat.get_session_titles()
             if len(titles_before) > 0:
                 matching = [t for t in titles_before if unique_id in t]
                 if len(matching) > 0:
