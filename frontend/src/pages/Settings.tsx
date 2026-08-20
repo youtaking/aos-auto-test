@@ -46,11 +46,12 @@ export default function Settings() {
 
   // ── 分支轮询配置 ──
   const [bpEnabled, setBpEnabled] = useState(false);
-  const [bpInterval, setBpInterval] = useState(300);
+  const [bpInterval, setBpInterval] = useState(5);
   const [bpRepo, setBpRepo] = useState("");
   const [bpToken, setBpToken] = useState("");
   const [bpShowToken, setBpShowToken] = useState(false);
   const [bpSaving, setBpSaving] = useState(false);
+  const [bpSaveMsg, setBpSaveMsg] = useState("");
   const [bpTesting, setBpTesting] = useState(false);
   const [bpTestResult, setBpTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
   const [bpPolling, setBpPolling] = useState(false);
@@ -71,7 +72,7 @@ export default function Settings() {
         const m: Record<string, string> = {};
         items.forEach((s) => { m[s.key] = s.value; });
         setBpEnabled(m["branch_poll_enabled"] === "true");
-        if (m["branch_poll_interval"]) setBpInterval(Number(m["branch_poll_interval"]));
+        if (m["branch_poll_interval"]) setBpInterval(Math.round(Number(m["branch_poll_interval"]) / 60));
         if (m["branch_poll_repo"]) setBpRepo(m["branch_poll_repo"]);
         if (m["github_token"]) setBpToken(m["github_token"]);
       })
@@ -81,13 +82,17 @@ export default function Settings() {
   // ── 分支轮询操作 ──
   const bpSave = async () => {
     setBpSaving(true);
+    setBpSaveMsg("");
     try {
       await updateSetting("branch_poll_enabled", String(bpEnabled));
-      await updateSetting("branch_poll_interval", String(bpInterval));
+      await updateSetting("branch_poll_interval", String(bpInterval * 60));
       await updateSetting("branch_poll_repo", bpRepo);
       await updateSetting("github_token", bpToken);
-    } catch (e) {
-      console.error(e);
+      setBpSaveMsg("保存成功");
+      setTimeout(() => setBpSaveMsg(""), 3000);
+    } catch (e: any) {
+      setBpSaveMsg(e.message || "保存失败");
+      setTimeout(() => setBpSaveMsg(""), 3000);
     } finally {
       setBpSaving(false);
     }
@@ -98,8 +103,10 @@ export default function Settings() {
     try {
       await pollNow();
       setBpTestResult({ ok: true, msg: "连接成功，轮询已触发" });
+      setTimeout(() => setBpTestResult(null), 3000);
     } catch (e: any) {
       setBpTestResult({ ok: false, msg: e.message || "连接失败" });
+      setTimeout(() => setBpTestResult(null), 3000);
     } finally {
       setBpTesting(false);
     }
@@ -110,8 +117,10 @@ export default function Settings() {
     try {
       await pollNow();
       setBpPollMsg("轮询已触发");
+      setTimeout(() => setBpPollMsg(""), 3000);
     } catch (e: any) {
       setBpPollMsg(e.message || "轮询失败");
+      setTimeout(() => setBpPollMsg(""), 3000);
     } finally {
       setBpPolling(false);
     }
@@ -659,8 +668,8 @@ export default function Settings() {
 
           {/* 轮询间隔 */}
           <div>
-            <label className="block text-sm text-gray-600 mb-1">轮询间隔（秒）</label>
-            <input type="number" value={bpInterval} onChange={(e) => setBpInterval(Number(e.target.value))} min={60} className="w-full px-3 py-2 border rounded-lg" />
+            <label className="block text-sm text-gray-600 mb-1">轮询间隔（分钟）</label>
+            <input type="number" value={bpInterval} onChange={(e) => setBpInterval(Number(e.target.value))} min={1} step={1} className="w-full px-3 py-2 border rounded-lg" />
           </div>
 
           {/* 空占位 */}
@@ -705,6 +714,11 @@ export default function Settings() {
             <RefreshCw className={`w-4 h-4 ${bpPolling ? "animate-spin" : ""}`} />
             {bpPolling ? "轮询中..." : "立即轮询"}
           </button>
+          {bpSaveMsg && (
+            <span className={`text-sm ${bpSaveMsg.includes("失败") ? "text-red-600" : "text-green-600"}`}>
+              {bpSaveMsg}
+            </span>
+          )}
         </div>
       </div>
     </div>
