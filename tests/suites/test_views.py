@@ -122,22 +122,29 @@ class TestViews:
         v = ViewsPage(logged_in_page, base_url)
         v.goto()
 
-        # 全量回归：发布视图 tab 内容可能未加载，重新点击 tab 激活（最多 4 轮）
-        for _retry in range(4):
+        # 全量回归：发布视图 tab 内容可能未加载，重新点击 tab 激活（最多 6 轮）
+        for _retry in range(6):
             has_title = logged_in_page.get_by_role("button", name="发布视图").count() > 0
             has_views = v.get_view_count() > 0
             has_empty = logged_in_page.get_by_text("点击 + 创建发布视图").count() > 0
             if has_title and (has_views or has_empty):
                 break
+            # 检查 Artifacts 面板是否展开，折叠了则重新展开
+            expand_btn = logged_in_page.locator("button.agent-artifacts-expand-btn")
+            if expand_btn.count() > 0 and expand_btn.first.is_visible():
+                is_open = expand_btn.first.evaluate("el => el.classList.contains('open')")
+                if not is_open:
+                    expand_btn.first.click()
+                    logged_in_page.wait_for_timeout(1500)
             # 重新点击「发布视图」tab
             tab_btn = logged_in_page.get_by_role("button", name="发布视图")
             if tab_btn.count() > 0:
                 tab_btn.first.click(force=True)
-                logged_in_page.wait_for_timeout(1500)
+                logged_in_page.wait_for_timeout(2000)
             else:
                 # tab 按钮都找不到，面板可能折叠了，goto 重试
                 v.goto()
-                logged_in_page.wait_for_timeout(1000)
+                logged_in_page.wait_for_timeout(2000)
 
         assert has_title, "缺少「发布视图」Tab"
         assert has_views or has_empty, "既没有视图列表也没有空状态提示"
