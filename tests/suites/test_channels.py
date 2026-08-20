@@ -189,6 +189,12 @@ def test_channels_delete_binding(logged_in_page, base_url, request):
         confirm_btn.first.click()
     logged_in_page.wait_for_load_state("networkidle")
 
+    # 轮询等待绑定从列表中消失
+    for _poll in range(8):
+        if not ch.has_binding(platform_name):
+            break
+        logged_in_page.wait_for_timeout(1000)
+
     assert not ch.has_binding(platform_name), \
         f"删除后绑定 '{platform_name}' 仍然存在"
 
