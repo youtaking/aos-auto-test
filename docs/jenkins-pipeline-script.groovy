@@ -1042,7 +1042,12 @@ open('logs_upload.json', 'w', encoding='utf-8').write(json.dumps(payload))
             // ===== 企业微信群通知（NOTIFY_WECOM=false 时跳过） =====
             script {
                 if (params.NOTIFY_WECOM ?: true) {
-                    def PIPELINE_RESULT = currentBuild.currentResult
+                    // 标题只按执行异常判失败：测试退出码 >=2（引擎执行异常）或流程异常（FAILURE/ABORTED）→ ❌
+                    // 测试用例失败（退出码 1，只使 currentResult 变 UNSTABLE）不算失败 → ✅
+                    def unitExit = (env.UNIT_EXIT ?: "0") as int
+                    def intExit = (env.INTEGRATION_EXIT ?: "0") as int
+                    def CR = currentBuild.currentResult
+                    def PIPELINE_RESULT = (unitExit >= 2 || intExit >= 2 || CR == 'FAILURE' || CR == 'ABORTED') ? 'FAIL' : 'SUCCESS'
                     withCredentials([string(credentialsId: 'wecom-webhook', variable: 'WECOM_WEBHOOK')]) {
                         sh '''
                             set +x

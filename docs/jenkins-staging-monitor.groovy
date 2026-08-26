@@ -366,6 +366,7 @@ except:
                         set -e
 
                         echo ">>> Unit test exit code: $UNIT_EXIT"
+                        echo "$UNIT_EXIT" > .unit_exit
 
                         if [ -f autotest/unit_tests/results/unit-junit.xml ]; then
                             echo "    junit XML: $(wc -c < autotest/unit_tests/results/unit-junit.xml) bytes"
@@ -434,6 +435,7 @@ except:
                         set -e
 
                         echo ">>> Test exit code: $TEST_EXIT"
+                        echo "$TEST_EXIT" > .test_exit
 
                         # 上报集成测试结果
                         if [ -f autotest/tests/results/report.json ]; then
@@ -524,7 +526,12 @@ open('/tmp/unit-upload.json', 'w', encoding='utf-8').write(json.dumps(payload))
             steps {
                 script {
                     if (params.NOTIFY_WECOM ?: true) {
-                        def PIPELINE_RESULT = currentBuild.currentResult
+                        // 标题只按执行异常判失败：测试退出码 >=2（引擎执行异常）或流程异常（FAILURE/ABORTED）→ ❌
+                        // 测试用例失败（退出码 1，只使 currentResult 变 UNSTABLE）不算失败 → ✅
+                        def unitExit = (fileExists('.unit_exit') ? readFile('.unit_exit').trim() : '0') as int
+                        def testExit = (fileExists('.test_exit') ? readFile('.test_exit').trim() : '0') as int
+                        def CR = currentBuild.currentResult
+                        def PIPELINE_RESULT = (unitExit >= 2 || testExit >= 2 || CR == 'FAILURE' || CR == 'ABORTED') ? 'FAIL' : 'SUCCESS'
                         withCredentials([string(credentialsId: 'wecom-webhook', variable: 'WECOM_WEBHOOK')]) {
                             sh '''
                                 set +x
