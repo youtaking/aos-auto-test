@@ -11,6 +11,7 @@ pipeline {
         string(name: 'TEST_REPO',        defaultValue: 'https://github.com/youtaking/aos-auto-test.git', description: '测试代码仓库')
         string(name: 'TEST_REPO_BRANCH', defaultValue: 'master',               description: '测试代码分支')
         booleanParam(name: 'FORCE_RESET', defaultValue: false,                                description: '强制触发测试（清除上次 commitId 记录）')
+        booleanParam(name: 'NOTIFY_WECOM', defaultValue: true,                                 description: '测试完成后发送企业微信通知（手动触发时可取消勾选）')
     }
 
     environment {
@@ -496,8 +497,7 @@ open('/tmp/unit-upload.json', 'w', encoding='utf-8').write(json.dumps(payload))
         stage('Generate Allure Report') {
             when {
                 expression {
-                    readFile('.poll_result').trim() == 'CHANGED' &&
-                    fileExists('autotest/tests/results/allure-results')
+                    readFile('.poll_result').trim() == 'CHANGED'
                 }
             }
             steps {
@@ -512,6 +512,98 @@ open('/tmp/unit-upload.json', 'w', encoding='utf-8').write(json.dumps(payload))
                     sh 'zip -r allure-report.zip allure-report 2>/dev/null || true'
                     if (fileExists('allure-report.zip')) {
                         archiveArtifacts artifacts: 'allure-report.zip', allowEmptyArchive: true
+                    }
+                }
+            }
+        }
+
+        stage('Notify WeCom') {
+            when {
+                expression { readFile('.poll_result').trim() == 'CHANGED' }
+            }
+            steps {
+                script {
+                    if (params.NOTIFY_WECOM ?: true) {
+                        def PIPELINE_RESULT = currentBuild.currentResult
+                        withCredentials([string(credentialsId: 'wecom-webhook', variable: 'WECOM_WEBHOOK')]) {
+                            sh '''
+                                set +x
+                                RESULT="__RESULT__"
+                                if [ "$RESULT" = "SUCCESS" ]; then
+                                    ICON="✅"
+                                    STATUS="成功"
+                                else
+                                    ICON="❌"
+                                    STATUS="失败"
+                                fi
+                                python3 -c "
+import json, os
+import xml.etree.ElementTree as ET
+icon = os.environ.get('ICON', '')
+status = os.environ.get('STATUS', '')
+build_url = os.environ.get('BUILD_URL', '')
+
+def read_file(path):
+    try:
+        return open(path, 'r', encoding='utf-8').read().strip()
+    except Exception:
+        return ''
+
+commit = read_file('.current_commit')
+version = read_file('.current_version')
+
+def stat_line(name, passed, failed, skipped):
+    return '> **' + name + '**: ' + str(passed) + ' 通过 / ' + str(failed) + ' 失败 / ' + str(skipped) + ' 跳过'
+
+lines = [
+    '### ' + icon + ' Staging 环境测试' + status,
+    '> commit: ' + commit,
+    '> 版本: ' + version,
+    '> [Jenkins 构建日志](' + build_url + ')',
+]
+
+# 接口 / E2E 统计：按 nodeid 分类（先判 api_suites，避免被 suites/ 子串误命中）
+api = {'passed': 0, 'failed': 0, 'skipped': 0}
+e2e = {'passed': 0, 'failed': 0, 'skipped': 0}
+if os.path.exists('autotest/tests/results/report.json'):
+    data = json.load(open('autotest/tests/results/report.json', 'r', encoding='utf-8'))
+    for t in data.get('tests', []):
+        outcome = t.get('outcome', '')
+        if outcome not in ('passed', 'failed', 'skipped'):
+            continue
+        nodeid = t.get('nodeid', '')
+        if 'api_suites/' in nodeid:
+            api[outcome] += 1
+        elif 'suites/' in nodeid:
+            e2e[outcome] += 1
+
+# 单元统计：unit-junit.xml 顶层 <testsuites> 的 tests/failures/skipped 属性
+unit = {'passed': 0, 'failed': 0, 'skipped': 0}
+if os.path.exists('autotest/unit_tests/results/unit-junit.xml'):
+    root = ET.parse('autotest/unit_tests/results/unit-junit.xml').getroot()
+    total = int(root.get('tests', '0') or '0')
+    failed = int(root.get('failures', '0') or '0')
+    skipped = int(root.get('skipped', '0') or '0')
+    unit['failed'] = failed
+    unit['skipped'] = skipped
+    unit['passed'] = total - failed - skipped
+
+lines.append(stat_line('单元测试', unit['passed'], unit['failed'], unit['skipped']))
+lines.append(stat_line('接口测试', api['passed'], api['failed'], api['skipped']))
+lines.append(stat_line('E2E 测试', e2e['passed'], e2e['failed'], e2e['skipped']))
+
+if build_url:
+    lines.append('> [Allure 报告](' + build_url + 'allure/)')
+payload = {'msgtype': 'markdown', 'markdown': {'content': chr(10).join(lines)}}
+open('wecom_payload.json', 'w', encoding='utf-8').write(json.dumps(payload, ensure_ascii=False))
+                                "
+                                curl -s -X POST "$WECOM_WEBHOOK" \
+                                  -H "Content-Type: application/json" \
+                                  -d @wecom_payload.json
+                            '''.replace('__RESULT__', PIPELINE_RESULT)
+                        }
+                    } else {
+                        echo '>>> 企业微信通知已关闭（NOTIFY_WECOM=false）'
                     }
                 }
             }

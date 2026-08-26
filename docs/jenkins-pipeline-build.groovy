@@ -13,6 +13,7 @@ pipeline {
         string(name: 'TEST_REPO_BRANCH', description: '测试代码分支',                    defaultValue: 'master')
         string(name: 'AUTOTEST_URL', description: 'AutoTest 后端地址（用于上传测试结果和日志）', defaultValue: 'http://100.105.181.173:8111')
         string(name: 'HOST_IP', description: '宿主机 IP（RCS 服务对外地址，用于健康检查和 target_url）', defaultValue: '100.105.114.178')
+        booleanParam(name: 'NOTIFY_WECOM', defaultValue: true, description: '构建完成后发送企业微信通知（手动测试时可取消勾选）')
     }
 
     environment {
@@ -107,7 +108,7 @@ pipeline {
                             fi
                             echo "    Trying: ${full_url}"
                             for i in 1 2 3; do
-                                if curl --fail -SL --connect-timeout 10 --max-time 300 \\
+                                if curl --fail -SL --connect-timeout 10 --max-time 300 \
                                   "${full_url}" -o "${output}" 2>/dev/null; then
                                     if [ -s "${output}" ] && tar tzf "${output}" > /dev/null 2>&1; then
                                         echo "    OK (proxy: ${proxy:-direct})"
@@ -124,16 +125,16 @@ pipeline {
                     }
 
                     echo ">>> Downloading app (__APP_BRANCH__)..."
-                    download_repo \\
-                      "__APP_ARCHIVE_URL__" \\
+                    download_repo \
+                      "__APP_ARCHIVE_URL__" \
                       /tmp/fenix.tar.gz
                     tar xzf /tmp/fenix.tar.gz --strip-components=1 -C app
                     rm -f /tmp/fenix.tar.gz
                     echo "    App: $(ls app/ | wc -l) files/dirs in app/"
 
                     echo ">>> Downloading test code (__TEST_REPO_BRANCH__)..."
-                    download_repo \\
-                      "__TEST_ARCHIVE_URL__" \\
+                    download_repo \
+                      "__TEST_ARCHIVE_URL__" \
                       /tmp/autotest.tar.gz
                     tar xzf /tmp/autotest.tar.gz --strip-components=1 -C autotest
                     rm -f /tmp/autotest.tar.gz
@@ -238,7 +239,7 @@ pipeline {
                     set +x
                     set +e
                         echo ">>> Querying AutoTest API for test targets..."
-                        curl -s -H "Authorization: Bearer $TOKEN" \\
+                        curl -s -H "Authorization: Bearer $TOKEN" \
                           "__AUTOTEST_URL__/api/ci/resolve-tests?branch=__APP_BRANCH__" > resolve_resp.json
 
                         echo ">>> API response:"
@@ -263,7 +264,8 @@ except Exception as e:
                             echo "    Targets: $(cat test_targets.txt)"
                         elif [ -f autotest/tests/ci/cases.txt ]; then
                             echo "    Source: cases.txt (API unavailable)"
-                            grep -v '^#' autotest/tests/ci/cases.txt | grep -v '^$' | sed 's|^tests/|/app/tests/|' | tr '\\n' ' ' > test_targets.txt
+                            grep -v '^#' autotest/tests/ci/cases.txt | grep -v '^$' | sed 's|^tests/|/app/tests/|' | tr '
+' ' ' > test_targets.txt
                             echo "    Targets: $(cat test_targets.txt)"
                         else
                             echo "    Source: fallback (all tests)"
@@ -272,7 +274,7 @@ except Exception as e:
                         fi
 
                         echo ">>> Resolving unit tests..."
-                        curl -s -H "Authorization: Bearer $TOKEN" \\
+                        curl -s -H "Authorization: Bearer $TOKEN" \
                           "__AUTOTEST_URL__/api/ci/resolve-unit-tests?branch=__APP_BRANCH__" > unit_resolve_resp.json
 
                         python3 -c "
@@ -611,9 +613,10 @@ PYEOF
                     sh '''
                     set +x
                         echo ">>> Sending pipeline record to AutoTest API..."
-                        RESP=$(curl -s -w "\\n%{http_code}" -X POST __AUTOTEST_URL__/api/pipelines \\
-                          -H "Authorization: Bearer $TOKEN" \\
-                          -H "Content-Type: application/json" \\
+                        RESP=$(curl -s -w "
+%{http_code}" -X POST __AUTOTEST_URL__/api/pipelines \
+                          -H "Authorization: Bearer $TOKEN" \
+                          -H "Content-Type: application/json" \
                           -d '{
                             "pr_id": __PR_ID__,
                             "pr_title": "__PR_TITLE__",
@@ -711,10 +714,10 @@ except:
 
                         if [ -n "$PIPELINE_ID" ]; then
                             echo ">>> Notifying backend: unit tests starting (pipeline_id=$PIPELINE_ID)..."
-                            START_RESP=$(curl -s -X POST __AUTOTEST_URL__/api/unit-tests/runs/start \\
-                              -H "Authorization: Bearer $TOKEN" \\
-                              -H "Content-Type: application/json" \\
-                              -d "{\\"pipeline_id\\": $PIPELINE_ID}")
+                            START_RESP=$(curl -s -X POST __AUTOTEST_URL__/api/unit-tests/runs/start \
+                              -H "Authorization: Bearer $TOKEN" \
+                              -H "Content-Type: application/json" \
+                              -d "{\"pipeline_id\": $PIPELINE_ID}")
                             echo "$START_RESP"
                             UNIT_RUN_ID=$(echo "$START_RESP" | python3 -c "
 import sys, json
@@ -770,9 +773,9 @@ except:
                         PIPELINE_ID=$(cat .pipeline_id 2>/dev/null || echo "")
                         if [ -n "$PIPELINE_ID" ]; then
                             echo ">>> Notifying backend: integration tests starting (pipeline_id=$PIPELINE_ID)..."
-                            curl -s -X PUT __AUTOTEST_URL__/api/pipelines/${PIPELINE_ID}/status \\
-                              -H "Authorization: Bearer $TOKEN" \\
-                              -H "Content-Type: application/json" \\
+                            curl -s -X PUT __AUTOTEST_URL__/api/pipelines/${PIPELINE_ID}/status \
+                              -H "Authorization: Bearer $TOKEN" \
+                              -H "Content-Type: application/json" \
                               -d '{"status": "running"}'
                             echo ""
                         fi
@@ -802,11 +805,13 @@ except:
         stage('Check Results') {
             steps {
                 script {
-                    def unitExit = env.UNIT_EXIT ?: "0"
-                    def intExit = env.INTEGRATION_EXIT ?: "0"
+                    def unitExit = (env.UNIT_EXIT ?: "0") as int
+                    def intExit = (env.INTEGRATION_EXIT ?: "0") as int
                     echo "    Unit test exit: ${unitExit}, Integration test exit: ${intExit}"
-                    if (unitExit != "0" || intExit != "0") {
-                        error("Tests failed (unit=${unitExit}, integration=${intExit})")
+                    // 退出码 >=2 = 测试执行异常（收集错误/引擎崩溃），判流程失败
+                    // 退出码 1 = 有用例失败，属业务结果，不影响 pipeline 成败
+                    if (unitExit >= 2 || intExit >= 2) {
+                        error("Test execution failed (unit=${unitExit}, integration=${intExit})")
                     }
                 }
             }
@@ -875,9 +880,9 @@ except:
                     fi
                     if [ -n "$PIPELINE_ID" ]; then
                         echo ">>> Updating pipeline status to 'passed'..."
-                        curl -s -X PUT __AUTOTEST_URL__/api/pipelines/${PIPELINE_ID}/status \\
-                          -H "Authorization: Bearer $TOKEN" \\
-                          -H "Content-Type: application/json" \\
+                        curl -s -X PUT __AUTOTEST_URL__/api/pipelines/${PIPELINE_ID}/status \
+                          -H "Authorization: Bearer $TOKEN" \
+                          -H "Content-Type: application/json" \
                           -d '{"status": "passed"}'
                     else
                         echo "    No valid pipeline ID, skipping status update."
@@ -905,9 +910,9 @@ except:
                     fi
                     if [ -n "$PIPELINE_ID" ]; then
                         echo ">>> Updating pipeline status to 'failed'..."
-                        curl -s -X PUT __AUTOTEST_URL__/api/pipelines/${PIPELINE_ID}/status \\
-                          -H "Authorization: Bearer $TOKEN" \\
-                          -H "Content-Type: application/json" \\
+                        curl -s -X PUT __AUTOTEST_URL__/api/pipelines/${PIPELINE_ID}/status \
+                          -H "Authorization: Bearer $TOKEN" \
+                          -H "Content-Type: application/json" \
                           -d '{"status": "failed"}'
                     else
                         echo "    No valid pipeline ID, skipping status update."
@@ -967,9 +972,9 @@ if run_id:
     payload['run_id'] = int(run_id)
 open('unit-upload.json', 'w', encoding='utf-8').write(json.dumps(payload))
 "
-                        curl -s -X POST __AUTOTEST_URL__/api/unit-tests/results \\
-                          -H "Authorization: Bearer $TOKEN" \\
-                          -H "Content-Type: application/json" \\
+                        curl -s -X POST __AUTOTEST_URL__/api/unit-tests/results \
+                          -H "Authorization: Bearer $TOKEN" \
+                          -H "Content-Type: application/json" \
                           -d @unit-upload.json
                         echo ""
                         echo "    Unit test results uploaded."
@@ -981,9 +986,9 @@ open('unit-upload.json', 'w', encoding='utf-8').write(json.dumps(payload))
                     # ===== 3. 上传集成测试结果 =====
                     if [ -f report.json ] && [ -n "$PIPELINE_ID" ]; then
                         echo ">>> Uploading integration test results (pipeline_id=$PIPELINE_ID)..."
-                        curl -s -X POST __AUTOTEST_URL__/api/pipelines/${PIPELINE_ID}/results \\
-                          -H "Authorization: Bearer $TOKEN" \\
-                          -H "Content-Type: application/json" \\
+                        curl -s -X POST __AUTOTEST_URL__/api/pipelines/${PIPELINE_ID}/results \
+                          -H "Authorization: Bearer $TOKEN" \
+                          -H "Content-Type: application/json" \
                           -d @report.json
                         echo ""
                         echo "    Integration test results uploaded."
@@ -1019,9 +1024,9 @@ logs = open('pipeline_logs.txt', 'r', encoding='utf-8', errors='replace').read()
 payload = {'logs': logs}
 open('logs_upload.json', 'w', encoding='utf-8').write(json.dumps(payload))
 "
-                        curl -s -X POST __AUTOTEST_URL__/api/pipelines/${PIPELINE_ID}/upload-logs \\
-                          -H "Authorization: Bearer $TOKEN" \\
-                          -H "Content-Type: application/json" \\
+                        curl -s -X POST __AUTOTEST_URL__/api/pipelines/${PIPELINE_ID}/upload-logs \
+                          -H "Authorization: Bearer $TOKEN" \
+                          -H "Content-Type: application/json" \
                           -d @logs_upload.json
                         echo ""
                         echo "    Logs uploaded."
@@ -1063,6 +1068,92 @@ open('logs_upload.json', 'w', encoding='utf-8').write(json.dumps(payload))
             '''.replace('__PROJECT_NAME__', PROJECT_NAME)
               .replace('__IMAGE_TAG__', "${PROJECT_NAME}:${BUILD_NUMBER}")
               .replace('__MIGRATE_IMAGE_TAG__', "${PROJECT_NAME}-migrate:${BUILD_NUMBER}")
+
+            // ===== 企业微信群通知（NOTIFY_WECOM=false 时跳过） =====
+            script {
+                if (params.NOTIFY_WECOM ?: true) {
+                    def PIPELINE_RESULT = currentBuild.currentResult
+                    withCredentials([string(credentialsId: 'wecom-webhook', variable: 'WECOM_WEBHOOK')]) {
+                        sh '''
+                            set +x
+                            RESULT="__RESULT__"
+                            if [ "$RESULT" = "SUCCESS" ]; then
+                                ICON="✅"
+                                STATUS="成功"
+                            else
+                                ICON="❌"
+                                STATUS="失败"
+                            fi
+                            python3 -c "
+import json, os
+import xml.etree.ElementTree as ET
+icon = os.environ.get('ICON', '')
+status = os.environ.get('STATUS', '')
+pr_id = os.environ.get('PR_ID', '')
+title = os.environ.get('PR_TITLE', '')
+branch = os.environ.get('PR_BRANCH', '')
+author = os.environ.get('AUTHOR', '')
+build_url = os.environ.get('BUILD_URL', '')
+app_repo = os.environ.get('APP_REPO', '').rstrip('/').replace('.git', '')
+pr_link = (app_repo + '/pull/' + pr_id) if (app_repo and pr_id) else ''
+
+def stat_line(name, passed, failed, skipped):
+    return '> **' + name + '**: ' + str(passed) + ' 通过 / ' + str(failed) + ' 失败 / ' + str(skipped) + ' 跳过'
+
+lines = [
+    '### ' + icon + ' PR-Pipeline-build 构建' + status,
+    '> **PR #' + pr_id + '**: ' + title,
+    '> 分支: ' + branch,
+    '> 作者: ' + author,
+    '> [Jenkins 构建日志](' + build_url + ')',
+]
+
+# 接口 / E2E 统计：按 nodeid 分类（先判 api_suites，避免被 suites/ 子串误命中）
+api = {'passed': 0, 'failed': 0, 'skipped': 0}
+e2e = {'passed': 0, 'failed': 0, 'skipped': 0}
+if os.path.exists('report.json'):
+    data = json.load(open('report.json', 'r', encoding='utf-8'))
+    for t in data.get('tests', []):
+        outcome = t.get('outcome', '')
+        if outcome not in ('passed', 'failed', 'skipped'):
+            continue
+        nodeid = t.get('nodeid', '')
+        if 'api_suites/' in nodeid:
+            api[outcome] += 1
+        elif 'suites/' in nodeid:
+            e2e[outcome] += 1
+
+# 单元统计：unit-junit.xml 顶层 <testsuites> 的 tests/failures/skipped 属性
+unit = {'passed': 0, 'failed': 0, 'skipped': 0}
+if os.path.exists('unit-junit.xml'):
+    root = ET.parse('unit-junit.xml').getroot()
+    total = int(root.get('tests', '0') or '0')
+    failed = int(root.get('failures', '0') or '0')
+    skipped = int(root.get('skipped', '0') or '0')
+    unit['failed'] = failed
+    unit['skipped'] = skipped
+    unit['passed'] = total - failed - skipped
+
+lines.append(stat_line('单元测试', unit['passed'], unit['failed'], unit['skipped']))
+lines.append(stat_line('接口测试', api['passed'], api['failed'], api['skipped']))
+lines.append(stat_line('E2E 测试', e2e['passed'], e2e['failed'], e2e['skipped']))
+
+if pr_link:
+    lines.append('> [GitHub PR](' + pr_link + ')')
+if build_url:
+    lines.append('> [Allure 报告](' + build_url + 'allure/)')
+payload = {'msgtype': 'markdown', 'markdown': {'content': chr(10).join(lines)}}
+open('wecom_payload.json', 'w', encoding='utf-8').write(json.dumps(payload, ensure_ascii=False))
+    "
+                            curl -s -X POST "$WECOM_WEBHOOK" \
+                              -H "Content-Type: application/json" \
+                              -d @wecom_payload.json
+                        '''.replace('__RESULT__', PIPELINE_RESULT)
+                    }
+                } else {
+                    echo '>>> 企业微信通知已关闭（NOTIFY_WECOM=false）'
+                }
+            }
         }
     }
 }
