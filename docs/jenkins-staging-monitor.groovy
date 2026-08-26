@@ -525,7 +525,7 @@ open('/tmp/unit-upload.json', 'w', encoding='utf-8').write(json.dumps(payload))
             }
             steps {
                 script {
-                    if (params.NOTIFY_WECOM ?: true) {
+                    if (params.NOTIFY_WECOM != null ? params.NOTIFY_WECOM : true) {
                         // 标题只按执行异常判失败：测试退出码 >=2（引擎执行异常）或流程异常（FAILURE/ABORTED）→ ❌
                         // 测试用例失败（退出码 1，只使 currentResult 变 UNSTABLE）不算失败 → ✅
                         def unitExit = (fileExists('.unit_exit') ? readFile('.unit_exit').trim() : '0') as int
