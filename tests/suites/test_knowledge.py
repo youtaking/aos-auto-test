@@ -182,9 +182,14 @@ def test_kb_001_list_loads(logged_in_page, base_url):
 
     assert kb.is_loaded(), "知识库页面未加载"
 
-    # 1. 发起知识库列表请求
-    list_called = any("/web/knowledgeBases" in r["url"] and r["method"] == "GET"
-                      for r in api_resp)
+    # 1. 发起知识库列表请求（domcontentloaded 后请求可能未到达，轮询等待）
+    list_called = False
+    for _ in range(20):
+        if any("/web/knowledgeBases" in r["url"] and r["method"] == "GET"
+               for r in api_resp):
+            list_called = True
+            break
+        logged_in_page.wait_for_timeout(500)
     assert list_called, "未发起知识库列表 API 请求"
 
     # 2. 页面有内容（左侧面板包含知识库列表）
@@ -1191,7 +1196,7 @@ def test_kb_018_resource_preview(logged_in_page, base_url, request):
             if resp.status == 200:
                 resources = resp.json().get("data", [])
                 if resources and resources[0].get("status") in (
-                    "completed", "success", "done", "indexed"
+                    "ready", "completed", "success", "done", "indexed"
                 ):
                     break
             time.sleep(5)
@@ -1208,7 +1213,12 @@ def test_kb_018_resource_preview(logged_in_page, base_url, request):
             pass
 
         file_name = os.path.basename(test_file)
-        assert logged_in_page.locator(f"text={file_name}").count() > 0, \
+        file_loc = logged_in_page.locator(f"text={file_name}")
+        for _ in range(12):
+            if file_loc.count() > 0:
+                break
+            logged_in_page.wait_for_timeout(1000)
+        assert file_loc.count() > 0, \
             f"资源 {file_name} 未找到"
 
         # 查找预览按钮
