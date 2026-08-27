@@ -34,7 +34,7 @@ cd frontend && npm install && npm run dev
 docker compose up -d
 ```
 
-看板访问 http://localhost:3000
+看板访问 http://localhost:5173
 
 ### 3. 运行测试
 
