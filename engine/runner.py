@@ -70,6 +70,7 @@ class TestRunner:
         # 兼容 pytest 8.x 树形输出和旧版扁平输出
         current_file = ""
         current_class = ""
+        current_class_indent = -1
         for line in stdout.splitlines():
             line_stripped = line.strip()
 
@@ -78,15 +79,20 @@ class TestRunner:
                 module_name = line_stripped.split("<Module ")[-1].rstrip(">").strip()
                 current_file = f"tests/suites/{module_name}"
                 current_class = ""
+                current_class_indent = -1
                 continue
 
             # 树形格式：<Class TestXxx>
             if "<Class " in line_stripped:
                 current_class = line_stripped.split("<Class ")[-1].rstrip(">").strip()
+                current_class_indent = len(line) - len(line.lstrip())
                 continue
 
             # 树形格式：<Function test_xxx>
             if "<Function " in line_stripped and current_file:
+                # 模块级函数与类同级缩进，说明已离开类作用域，须重置类前缀
+                if current_class and len(line) - len(line.lstrip()) <= current_class_indent:
+                    current_class = ""
                 func_name = line_stripped.split("<Function ")[-1].rstrip(">").strip()
                 if current_class:
                     func_name = f"{current_class}::{func_name}"
@@ -129,6 +135,7 @@ class TestRunner:
         collected = []
         current_file = ""
         current_class = ""
+        current_class_indent = -1
 
         for line in stdout.splitlines():
             line_stripped = line.strip()
@@ -137,13 +144,18 @@ class TestRunner:
                 module_name = line_stripped.split("<Module ")[-1].rstrip(">").strip()
                 current_file = f"{test_dir}/{module_name}"
                 current_class = ""
+                current_class_indent = -1
                 continue
 
             if "<Class " in line_stripped:
                 current_class = line_stripped.split("<Class ")[-1].rstrip(">").strip()
+                current_class_indent = len(line) - len(line.lstrip())
                 continue
 
             if "<Function " in line_stripped and current_file:
+                # 模块级函数与类同级缩进，说明已离开类作用域，须重置类前缀
+                if current_class and len(line) - len(line.lstrip()) <= current_class_indent:
+                    current_class = ""
                 func_name = line_stripped.split("<Function ")[-1].rstrip(">").strip()
                 if current_class:
                     func_name = f"{current_class}::{func_name}"

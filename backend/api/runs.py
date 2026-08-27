@@ -275,7 +275,11 @@ async def _execute_tests(
             # 重新读取 run，避免覆盖 cancel 状态
             await db.refresh(run)
             if run.status != "cancelled":
-                run.status = "passed" if failed == 0 else "failed"
+                if run.total == 0:
+                    # 无用例执行（收集错误 / 0 条用例）——不能判定为通过
+                    run.status = "error"
+                else:
+                    run.status = "passed" if failed == 0 else "failed"
                 run.finished_at = finished
                 run.duration_ms = int((finished - run.started_at).total_seconds() * 1000)
                 await db.commit()
@@ -568,8 +572,9 @@ async def report_run(
         else:
             skipped_count += 1
 
-    run.status = "passed" if failed_count == 0 else "failed"
     run.total = len(body.results)
+    # 0 条结果（收集/上报异常）不能判定为通过
+    run.status = "error" if run.total == 0 else ("passed" if failed_count == 0 else "failed")
     run.passed = passed_count
     run.failed = failed_count
     run.skipped = skipped_count
