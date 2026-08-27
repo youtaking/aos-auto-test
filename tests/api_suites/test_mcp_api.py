@@ -97,7 +97,7 @@ class TestMcpWebAPI:
             assert detail["name"] == test_name
             # 删除并验证资源已消失
             web_client.delete_mcp_server(test_name)
-            with pytest.raises((httpx.HTTPStatusError, RuntimeError)):
+            with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"404"):
                 web_client.get_mcp_server(test_name)
         finally:
             _cleanup_web_mcp(web_client, test_name)
@@ -278,8 +278,9 @@ class TestMcpOpenAPI:
         finally:
             api_client.delete_mcp_server(server_id)
 
+    @pytest.mark.xfail(reason="应用 Bug：不存在 MCP Server 返回 500 而非 404（源码头 404，已确认）", strict=True)
     def test_get_nonexistent_mcp_server(self, api_client, _openapi_access):
-        """获取不存在的 MCP Server：应返回 404"""
+        """获取不存在的 MCP Server：契约应返回 404（当前 500，应用 Bug）"""
 
         with pytest.raises(httpx.HTTPStatusError, match=r"404"):
             api_client.get_mcp_server("nonexistent-mcp-id-99999")

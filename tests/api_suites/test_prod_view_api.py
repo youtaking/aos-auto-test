@@ -46,6 +46,7 @@ class TestProdViewWebAPI:
         with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"404"):
             web_client.get_prod_view("nonexistent-prod-view-id-99999")
 
+    @pytest.mark.xfail(reason="应用 Bug：删除 ProdView 后回读返回 400 而非 404（源码 prod-views.ts GET 路由缺 status(404) 映射，Elysia 校验失败转 400；重验 20+ 次确定性复现，非偶发）", strict=True)
     def test_prod_view_crud_lifecycle(self, web_client):
         """ProdView CRUD 生命周期：创建 → 读取 → 更新 → 删除"""
         # 获取第一个 agent 的 ID
@@ -85,7 +86,7 @@ class TestProdViewWebAPI:
 
             # 删除并验证
             web_client.delete_prod_view(view_id)
-            with pytest.raises((httpx.HTTPStatusError, RuntimeError)):
+            with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"404"):
                 web_client.get_prod_view(view_id)
         finally:
             try:

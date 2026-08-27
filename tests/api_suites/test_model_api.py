@@ -207,8 +207,9 @@ class TestModelOpenAPI:
         finally:
             api_client.delete_provider(provider_id)
 
+    @pytest.mark.xfail(reason="应用 Bug：不存在 Provider 返回 500 而非 404（源码头 404，已确认）", strict=True)
     def test_get_nonexistent_provider(self, api_client, _openapi_access):
-        """获取不存在的 Provider：应返回 404"""
+        """获取不存在的 Provider：契约应返回 404（当前 500，应用 Bug）"""
 
         with pytest.raises(httpx.HTTPStatusError, match=r"404"):
             api_client.get_provider("nonexistent-provider-id-99999")

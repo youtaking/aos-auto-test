@@ -107,7 +107,7 @@ class TestProviderWebAPI:
 
             # 删除并验证资源已消失
             web_client.delete_provider(test_name)
-            with pytest.raises((httpx.HTTPStatusError, RuntimeError)):
+            with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"404"):
                 web_client.get_provider(test_name)
         finally:
             try:
@@ -165,8 +165,9 @@ class TestProviderWebAPI:
         test_name = "test-idempotent-delete-provider"
         try:
             web_client.delete_provider(test_name)
-        except Exception:
-            pass
+        except Exception as e:
+            import logging
+            logging.getLogger("cleanup").warning(f"Cleanup failed: {e}")
         try:
             web_client.update_provider(test_name, {
                 "name": "Idempotent Test Provider",
@@ -316,8 +317,19 @@ class TestProviderModelActions:
         try:
             resp = web_client.fetch_provider_models(provider_name)
             assert isinstance(resp, (list, dict)), f"fetch-models 响应类型异常: {type(resp)}"
+            # 字段级断言：列表项应含模型标识字段（P1 补强）
+            if isinstance(resp, list):
+                for item in resp:
+                    assert isinstance(item, dict), f"模型项应为 dict，实际: {item!r}"
+                    assert any(k in item for k in ("id", "modelId", "name")), \
+                        f"模型项缺少标识字段: {list(item.keys())}"
+            elif isinstance(resp, dict):
+                assert any(k in resp for k in ("models", "items", "data", "list")), \
+                    f"fetch-models 对象响应缺少预期字段: {list(resp.keys())}"
         except (httpx.HTTPStatusError, RuntimeError) as e:
-            if "500" in str(e) or "503" in str(e):
+            err_str = str(e)
+            # 仅上游代理不可用 skip（502/503/504）；500 属应用 Bug 重新抛出
+            if any(code in err_str for code in ("502", "503", "504")):
                 pytest.skip(f"Provider 上游服务不可用: {e}")
             raise
 

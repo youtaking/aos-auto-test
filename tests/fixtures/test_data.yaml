@@ -3,10 +3,11 @@ fenixagent:
   admin:
     email: xiaochun@agent.com
     password: '12345678'
-  api_key: rcs_ArjxdvSFVgiBiCskVDckLrogiRTJXxALqkuYKhOlxEYDOEPsacnAoJzmXFOYlCNy
+  api_key: rcs_qMRJkRgbrhAjJPZrVgsMACSsIYaXoEjihZGVuoMhDEFFvAtXKYdsARPNKnrORluq
   system_api_key: 2d55d0927a4299e022f48b24963bb32b
   api_email: xiaochun@agent.com
   api_password: '12345678'
+  peri_task_env_id: env_239aaba8bf55273e4849f635
 test_users:
 - email: test@example.com
   password: test123

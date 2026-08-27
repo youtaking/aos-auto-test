@@ -77,7 +77,7 @@ class TestTaskV2WebAPI:
         # 无 entries/logs 字段时，仅验证响应为有效 dict（已在上方校验）
 
     def test_task_v2_toggle(self, web_client):
-        """切换任务 V2 启用状态"""
+        """切换任务 V2 启用状态（用后恢复原状态，避免污染共享环境）"""
         list_resp = web_client.list_tasks_v2()
         if len(list_resp["items"]) == 0:
             pytest.skip("任务列表为空，无法测试切换")
@@ -86,16 +86,27 @@ class TestTaskV2WebAPI:
         detail_before = web_client.get_task_v2(task_id)
         enabled_before = detail_before.get("enabled")
 
-        resp = web_client.toggle_task_v2(task_id)
-        assert isinstance(resp, dict)
-        assert "id" in resp, f"toggle 响应缺少 id 字段: {list(resp.keys())}"
+        try:
+            resp = web_client.toggle_task_v2(task_id)
+            assert isinstance(resp, dict)
+            assert "id" in resp, f"toggle 响应缺少 id 字段: {list(resp.keys())}"
 
-        if enabled_before is not None:
-            detail_after = web_client.get_task_v2(task_id)
-            enabled_after = detail_after.get("enabled")
-            if enabled_after is not None:
-                assert enabled_after != enabled_before, \
-                    f"toggle 后 enabled 未变化: {enabled_before} → {enabled_after}"
+            if enabled_before is not None:
+                detail_after = web_client.get_task_v2(task_id)
+                enabled_after = detail_after.get("enabled")
+                if enabled_after is not None:
+                    assert enabled_after != enabled_before, \
+                        f"toggle 后 enabled 未变化: {enabled_before} → {enabled_after}"
+        finally:
+            # 恢复原状态，避免共享环境污染（G7 修复）
+            if enabled_before is not None:
+                try:
+                    current = web_client.get_task_v2(task_id)
+                    if current.get("enabled") != enabled_before:
+                        web_client.toggle_task_v2(task_id)
+                except Exception as e:
+                    import logging
+                    logging.getLogger("cleanup").warning(f"Toggle restore failed: {e}")
 
     def test_task_v2_trigger(self, web_client):
         """手动触发任务 V2"""

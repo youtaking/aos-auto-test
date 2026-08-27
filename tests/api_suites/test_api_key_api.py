@@ -74,11 +74,13 @@ class TestApiKeyWebAPI:
             _cleanup_api_key(web_client, test_name)
 
 
+    @pytest.mark.xfail(reason="应用 Bug：删除不存在的 API Key 返回 500 而非 404（源码路由未做存在性检查，直接调用上游删除，已确认）", strict=True)
     def test_delete_nonexistent_api_key(self, web_client):
-        """删除不存在的 API Key：应抛出异常"""
-        with pytest.raises((httpx.HTTPStatusError, RuntimeError, ValueError)):
+        """删除不存在的 API Key：应返回 404（当前返回 500，属应用 Bug）"""
+        with pytest.raises(httpx.HTTPStatusError, match=r"404"):
             web_client.delete_api_key("nonexistent-api-key-id-99999")
 
+    @pytest.mark.xfail(reason="应用 Bug：二次删除已删除的 API Key 返回 500 而非 404（源码路由未做存在性检查，已确认）", strict=True)
     def test_delete_api_key_idempotent(self, web_client):
         """API Key DELETE 幂等性：第二次删除应抛出异常"""
         test_name = "test-idempotent-delete-apikey"
@@ -87,8 +89,8 @@ class TestApiKeyWebAPI:
             create_resp = web_client.create_api_key({"name": test_name})
             key_id = create_resp["id"]
             web_client.delete_api_key(key_id)
-            # 第二次删除应抛出异常（404/400/ValueError）
-            with pytest.raises((httpx.HTTPStatusError, RuntimeError, ValueError)):
+            # 第二次删除应返回 404（当前返回 500，属应用 Bug）
+            with pytest.raises(httpx.HTTPStatusError, match=r"404"):
                 web_client.delete_api_key(key_id)
         finally:
             _cleanup_api_key(web_client, test_name)

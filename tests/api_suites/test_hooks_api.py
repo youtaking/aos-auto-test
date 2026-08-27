@@ -29,10 +29,12 @@ def _get_trigger_hash(web_client) -> str | None:
                 triggers = data.get("triggers", data.get("items", []))
                 if triggers and len(triggers) > 0:
                     return triggers[0].get("publicHash") or triggers[0].get("hash") or triggers[0].get("id")
-        except Exception:
-            pass
-    except Exception:
-        pass
+        except Exception as e:
+            import logging
+            logging.getLogger("probe").warning(f"获取触发器失败: {e}")
+    except Exception as e:
+        import logging
+        logging.getLogger("probe").warning(f"获取 workflow defs 失败: {e}")
     return None
 
 
@@ -41,8 +43,9 @@ def _safe_parse_json(resp: httpx.Response) -> dict | None:
     try:
         if resp.content and len(resp.content) > 0:
             return resp.json()
-    except Exception:
-        pass
+    except Exception as e:
+        import logging
+        logging.getLogger("probe").warning(f"JSON 解析失败: {e}")
     return None
 
 
@@ -61,77 +64,81 @@ class TestHooksWebhookAPI:
     - result.accepted = true → 200 {received: true}
     """
 
+    @pytest.mark.xfail(reason="应用缺陷：/hooks/:publicHash 端点未挂载（index.ts 未注册 hooksRoutes，全局兜底 200 空 body），无效 hash 应返回 404（已确认）", strict=True)
     def test_webhook_invalid_hash(self, api_base_url):
-        """无效 hash 触发 webhook — 应返回 404（源码预期）或 200"""
+        """无效 hash 触发 webhook — 契约：应返回 404 {error: ...}"""
         with httpx.Client(base_url=api_base_url, timeout=30, verify=False) as client:
             resp = client.post(
                 "/hooks/nonexistent-hash-99999",
                 json={"test": "data"},
             )
-            # 源码预期 404，但当前实际返回 200（应用 Bug）
-            assert resp.status_code in (200, 404), \
-                f"无效 hash 预期 200/404，实际: {resp.status_code}"
-            if resp.status_code == 404:
-                body = _safe_parse_json(resp)
-                assert body is not None, "404 响应应有 JSON body"
-                assert "error" in body, f"404 响应缺少 error 字段: {list(body.keys())}"
+            assert resp.status_code == 404, \
+                f"无效 hash 契约应为 404，实际: {resp.status_code}"
+            body = _safe_parse_json(resp)
+            assert body is not None, "404 响应应有 JSON body"
+            assert "error" in body, f"404 响应缺少 error 字段: {list(body.keys())}"
 
+    @pytest.mark.xfail(reason="应用缺陷：/hooks/:publicHash 端点未挂载（index.ts 未注册 hooksRoutes，全局兜底 200 空 body），空 hash 应返回 404（已确认）", strict=True)
     def test_webhook_empty_hash(self, api_base_url):
-        """空 hash 触发 webhook — 应返回 404 或 200"""
+        """空 hash 触发 webhook — 契约：应返回 404"""
         with httpx.Client(base_url=api_base_url, timeout=30, verify=False) as client:
             resp = client.post(
                 "/hooks/",
                 json={"test": "data"},
             )
-            assert resp.status_code in (200, 400, 404, 405), \
-                f"空 hash 预期 200/400/404/405，实际: {resp.status_code}"
+            assert resp.status_code == 404, \
+                f"空 hash 契约应为 404，实际: {resp.status_code}"
 
+    @pytest.mark.xfail(reason="应用缺陷：/hooks/:publicHash 端点未挂载（index.ts 未注册 hooksRoutes，全局兜底 200 空 body），超大请求应返回 413（源码 1MB 限制）（已确认）", strict=True)
     def test_webhook_payload_too_large(self, api_base_url):
-        """超大请求体触发 webhook — 应返回 413（源码 1MB 限制）或 200"""
+        """超大请求体触发 webhook — 契约：应返回 413（源码 1MB 限制）"""
         large_body = {"data": "x" * (1024 * 1024 + 1)}
         with httpx.Client(base_url=api_base_url, timeout=30, verify=False) as client:
             resp = client.post(
                 "/hooks/test-hash",
                 json=large_body,
             )
-            # 源码预期 413，但当前可能返回 200
-            assert resp.status_code in (200, 413), \
-                f"超大请求预期 200/413，实际: {resp.status_code}"
+            assert resp.status_code == 413, \
+                f"超大请求契约应为 413，实际: {resp.status_code}"
 
+    @pytest.mark.xfail(reason="应用缺陷：/hooks/:publicHash 端点未挂载（index.ts 未注册 hooksRoutes，全局兜底 200 空 body），无 body 请求无效 hash 应返回 404（已确认）", strict=True)
     def test_webhook_no_body(self, api_base_url):
-        """无请求体触发 webhook — 应能正常处理"""
+        """无请求体触发 webhook — 契约：无效 hash 应返回 404"""
         with httpx.Client(base_url=api_base_url, timeout=30, verify=False) as client:
             resp = client.post(
                 "/hooks/nonexistent-hash-99999",
                 content=b"",
                 headers={"Content-Type": "application/json"},
             )
-            assert resp.status_code in (200, 404), \
-                f"无 body 预期 200/404，实际: {resp.status_code}"
+            assert resp.status_code == 404, \
+                f"无 body 契约应为 404，实际: {resp.status_code}"
 
+    @pytest.mark.xfail(reason="应用缺陷：/hooks/:publicHash 端点未挂载（index.ts 未注册 hooksRoutes，全局兜底 200 空 body），字符串 body 无效 hash 应返回 404（已确认）", strict=True)
     def test_webhook_string_body(self, api_base_url):
-        """字符串请求体触发 webhook — 应能正常处理"""
+        """字符串请求体触发 webhook — 契约：无效 hash 应返回 404"""
         with httpx.Client(base_url=api_base_url, timeout=30, verify=False) as client:
             resp = client.post(
                 "/hooks/nonexistent-hash-99999",
                 content="plain text body",
                 headers={"Content-Type": "text/plain"},
             )
-            assert resp.status_code in (200, 404), \
-                f"字符串 body 预期 200/404，实际: {resp.status_code}"
+            assert resp.status_code == 404, \
+                f"字符串 body 契约应为 404，实际: {resp.status_code}"
 
+    @pytest.mark.xfail(reason="应用缺陷：/hooks/:publicHash 端点未挂载（index.ts 未注册 hooksRoutes，全局兜底 200 空 body），带 query 的无效 hash 应返回 404（已确认）", strict=True)
     def test_webhook_with_query_params(self, api_base_url):
-        """带 query 参数触发 webhook — 应能正常处理"""
+        """带 query 参数触发 webhook — 契约：无效 hash 应返回 404"""
         with httpx.Client(base_url=api_base_url, timeout=30, verify=False) as client:
             resp = client.post(
                 "/hooks/nonexistent-hash-99999?key1=value1&key2=value2",
                 json={"test": "data"},
             )
-            assert resp.status_code in (200, 404), \
-                f"带 query 预期 200/404，实际: {resp.status_code}"
+            assert resp.status_code == 404, \
+                f"带 query 契约应为 404，实际: {resp.status_code}"
 
+    @pytest.mark.xfail(reason="应用缺陷：/hooks/:publicHash 端点未挂载（index.ts 未注册 hooksRoutes，全局兜底 200 空 body），有效 hash 应返回 {received: true}（已确认）", strict=True)
     def test_webhook_valid_trigger(self, web_client, api_base_url):
-        """有效触发器 hash 触发 webhook — 应返回 {received: true}"""
+        """有效触发器 hash 触发 webhook — 契约：应返回 {received: true}"""
         trigger_hash = _get_trigger_hash(web_client)
         if not trigger_hash:
             pytest.skip("无可用的触发器 hash，无法测试有效 webhook")
@@ -144,6 +151,6 @@ class TestHooksWebhookAPI:
             assert resp.status_code == 200, \
                 f"有效 webhook 预期 200，实际: {resp.status_code}"
             body = _safe_parse_json(resp)
-            if body is not None:
-                assert body.get("received") is True, \
-                    f"有效 webhook 应返回 received=true: {body}"
+            assert body is not None, "有效 webhook 响应应有 JSON body"
+            assert body.get("received") is True, \
+                f"有效 webhook 应返回 received=true: {body}"

@@ -105,8 +105,9 @@ class TestWorkflowRunWebAPI:
             assert "404" in str(e) or "400" in str(e), \
                 f"预期 404/400，实际: {e}"
 
+    @pytest.mark.xfail(reason="应用 Bug：dry-run 无效 YAML 返回 500 而非 400（源码应 400，已确认）", strict=True)
     def test_dry_run_workflow_invalid(self, web_client):
-        """干运行校验 — 无效 YAML 应返回错误"""
+        """干运行校验 — 无效 YAML 应返回 400（当前 500，应用 Bug）"""
         try:
             resp = web_client.dry_run_workflow({
                 "yaml": "invalid: yaml: content: [",
@@ -118,8 +119,8 @@ class TestWorkflowRunWebAPI:
             else:
                 pytest.fail("无效 YAML dry_run 应返回错误响应或抛异常")
         except (httpx.HTTPStatusError, RuntimeError) as e:
-            assert "400" in str(e) or "500" in str(e), \
-                f"预期 400/500，实际: {e}"
+            assert "400" in str(e) or "422" in str(e), \
+                f"无效 YAML 预期 400/422，实际: {e}"
 
     def test_recover_nonexistent_run(self, web_client):
         """恢复不存在的运行 — 应返回 400 或 404"""

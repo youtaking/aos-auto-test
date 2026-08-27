@@ -28,7 +28,7 @@ from tests.api_contracts.peri_task_detail_schemas import PERI_TASK_DETAIL_RESPON
 
 logger = logging.getLogger(__name__)
 
-# my-auto-test 环境 ID（固定，可从 test_data.yaml 获取）
+# my-auto-test 环境 ID（优先从 test_data.yaml 的 fenixagent.peri_task_env_id 读取，兜底默认）
 _PERI_TASK_ENV_ID = "env_239aaba8bf55273e4849f635"
 
 
@@ -51,7 +51,7 @@ def peri_task_seed(api_base_url, api_test_config):
 
     # 使用随机 session 号，避免与已有 session 冲突导致 Yjs doc 复用
     session_num = random.randint(100, 999)
-    env_id = _PERI_TASK_ENV_ID
+    env_id = api_test_config.get("fenixagent", {}).get("peri_task_env_id") or _PERI_TASK_ENV_ID
     session_id = f"ses_inst_{env_id}_{session_num}"
     chat_url = f"{api_base_url}/ctrl/agent/chat/{env_id}/{session_id}"
 

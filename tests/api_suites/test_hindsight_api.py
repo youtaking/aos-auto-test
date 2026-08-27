@@ -161,9 +161,14 @@ class TestHindsightWebAPI:
                 created_id = create_resp.get("id") or create_resp.get("memory_id")
             elif isinstance(create_resp, str):
                 created_id = create_resp
-        except (httpx.HTTPStatusError, Exception) as e:
-            logger.warning(f"Create hindsight memory failed: {e}")
-            pytest.skip("无法创建记忆，跳过生命周期测试")
+        except (httpx.HTTPStatusError, RuntimeError) as e:
+            err_str = str(e)
+            # 仅上游校验/代理不可用时 skip：422=请求体不满足上游 schema，
+            # 502/503/504=Hindsight 上游不可用；其余（含 500 应用 Bug）重新抛出
+            if any(code in err_str for code in ("400", "422", "502", "503", "504")):
+                logger.warning(f"Create hindsight memory skipped: {e}")
+                pytest.skip("无法创建记忆（上游校验或服务不可用），跳过生命周期测试")
+            raise
         finally:
             if created_id:
                 try:

@@ -63,7 +63,7 @@ class TestWorkflowDefWebAPI:
             assert detail["name"] == test_name
             # 删除并验证资源已消失
             web_client.delete_workflow_def(wf_id)
-            with pytest.raises((httpx.HTTPStatusError, RuntimeError)):
+            with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"404"):
                 web_client.get_workflow_def(wf_id)
         finally:
             _cleanup_workflow_def(web_client, wf_id)
@@ -127,8 +127,11 @@ class TestWorkflowDefWebAPI:
                     "name": updated_name,
                     "description": updated_desc,
                 })
-            except (httpx.HTTPStatusError, RuntimeError):
-                pytest.skip("工作流元数据更新接口不可用")
+            except (httpx.HTTPStatusError, RuntimeError) as e:
+                err_str = str(e)
+                if "502" in err_str or "503" in err_str or "504" in err_str:
+                    pytest.skip("工作流元数据更新接口上游代理不可用")
+                raise
 
             # 验证更新生效
             detail = web_client.get_workflow_def(wf_id)

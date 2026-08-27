@@ -94,7 +94,7 @@ class TestAgentWebAPI:
             assert detail["name"] == test_name
             # 删除并验证资源已消失
             web_client.delete_agent(test_name)
-            with pytest.raises((httpx.HTTPStatusError, RuntimeError)):
+            with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"404"):
                 web_client.get_agent(test_name)
         finally:
             # 清理：无论断言是否失败都要删除
@@ -244,10 +244,21 @@ class TestAgentOpenAPI:
         finally:
             api_client.delete_agent(agent_id)
 
+    @pytest.mark.xfail(reason="应用 Bug：不存在 Agent 返回 500 而非 404（源码头 404，已确认）", strict=True)
     def test_get_nonexistent_agent(self, api_client, _openapi_access):
-        """获取不存在的 Agent：应返回 404"""
+        """获取不存在的 Agent：契约应返回 404（当前 500，应用 Bug）"""
         with pytest.raises(httpx.HTTPStatusError, match=r"404"):
             api_client.get_agent("nonexistent-agent-id-99999")
+
+    def test_invalid_token_rejected(self, api_base_url, _openapi_access):
+        """无效 API Key 访问 OpenAPI：应显式返回 401（不被 _openapi_access 转 skip 掩盖）"""
+        from tests.api_clients.api_client import ApiClient
+        bad_client = ApiClient(api_base_url, "rcs_invalid-token-99999")
+        try:
+            with pytest.raises(httpx.HTTPStatusError, match=r"401"):
+                bad_client.list_agents(params={"page": 1, "pageSize": 1})
+        finally:
+            bad_client.close()
 
     def test_delete_idempotent(self, api_client, _openapi_access):
         """验证 DELETE 同一资源两次，第二次返回 404（幂等性）"""

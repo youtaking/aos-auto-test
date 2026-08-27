@@ -49,6 +49,19 @@ class ApiClient(BaseClient):
         resp.raise_for_status()
         return resp.content
 
+    def _system_request(self, method: str, path: str, params: dict | None = None, json: dict | None = None) -> dict:
+        """System API 通用请求：用 system_api_key 替代用户 Key，复用重试/节流逻辑
+
+        /api/system/* 端点需要 System API Key（RCS_SYSTEM_API_KEYS），普通 API Key 返回 401。
+        返回裸 JSON（无 {success, data} 包装），错误码由 _parse_response 抛 HTTPStatusError。
+        """
+        headers = {"Authorization": f"Bearer {self._system_api_key}"}
+        kwargs: dict = {"params": params, "headers": headers}
+        if json is not None:
+            kwargs["json"] = json
+        resp = self._request_with_retry(method, path, **kwargs)
+        return self._parse_response(resp)
+
     # ── Agent 模块 ──
 
     def list_agents(self, params: dict | None = None) -> dict:
@@ -211,85 +224,85 @@ class ApiClient(BaseClient):
         """获取用户列表
         GET /api/system/users → {items, total, page, pageSize}
         """
-        return self.get("/api/system/users", params=params)
+        return self._system_request("get", "/api/system/users", params=params)
 
     def get_user(self, user_id: str) -> dict:
         """获取用户详情
         GET /api/system/users/:id → user detail
         """
-        return self.get(f"/api/system/users/{user_id}")
+        return self._system_request("get", f"/api/system/users/{user_id}")
 
     def create_user(self, data: dict) -> dict:
         """创建用户
         POST /api/system/users body: {name, email, ...} → user detail
         """
-        return self.post("/api/system/users", json=data)
+        return self._system_request("post", "/api/system/users", json=data)
 
     def delete_user(self, user_id: str) -> dict:
         """删除用户
         DELETE /api/system/users/:id → {success: true}
         """
-        return self.delete(f"/api/system/users/{user_id}")
+        return self._system_request("delete", f"/api/system/users/{user_id}")
 
     def list_organizations(self, params: dict | None = None) -> dict:
         """获取组织列表
         GET /api/system/organizations → {items, total, page, pageSize}
         """
-        return self.get("/api/system/organizations", params=params)
+        return self._system_request("get", "/api/system/organizations", params=params)
 
     def get_organization(self, org_id: str) -> dict:
         """获取组织详情
         GET /api/system/organizations/:id → organization detail
         """
-        return self.get(f"/api/system/organizations/{org_id}")
+        return self._system_request("get", f"/api/system/organizations/{org_id}")
 
     def create_organization(self, data: dict) -> dict:
         """创建组织
         POST /api/system/organizations body: {name, ...} → organization detail
         """
-        return self.post("/api/system/organizations", json=data)
+        return self._system_request("post", "/api/system/organizations", json=data)
 
     def delete_organization(self, org_id: str) -> dict:
         """删除组织
         DELETE /api/system/organizations/:id → {success: true}
         """
-        return self.delete(f"/api/system/organizations/{org_id}")
+        return self._system_request("delete", f"/api/system/organizations/{org_id}")
 
     def list_user_api_keys(self, user_id: str, params: dict | None = None) -> dict:
         """获取用户 API Key 列表
         GET /api/system/users/:userId/api-keys → {items, total, page, pageSize}
         """
-        return self.get(f"/api/system/users/{user_id}/api-keys", params=params)
+        return self._system_request("get", f"/api/system/users/{user_id}/api-keys", params=params)
 
     def reset_user_password(self, data: dict) -> dict:
         """重置用户密码
         POST /api/system/users/reset-password body: {userId/email/phoneNumber, newPassword}
         """
-        return self.post("/api/system/users/reset-password", json=data)
+        return self._system_request("post", "/api/system/users/reset-password", json=data)
 
     def list_user_organizations(self, user_id: str, params: dict | None = None) -> dict:
         """获取用户所属组织列表
         GET /api/system/users/:userId/organizations → {items, total, page, pageSize}
         """
-        return self.get(f"/api/system/users/{user_id}/organizations", params=params)
+        return self._system_request("get", f"/api/system/users/{user_id}/organizations", params=params)
 
     def add_organization_member(self, org_id: str, data: dict) -> dict:
         """添加组织成员
         POST /api/system/organizations/:id/members body: {userId, role}
         """
-        return self.post(f"/api/system/organizations/{org_id}/members", json=data)
+        return self._system_request("post", f"/api/system/organizations/{org_id}/members", json=data)
 
     def create_api_key(self, data: dict) -> dict:
         """代用户创建 API Key
         POST /api/system/api-keys body: {userId, organizationId, role, expiresAt}
         """
-        return self.post("/api/system/api-keys", json=data)
+        return self._system_request("post", "/api/system/api-keys", json=data)
 
     def delete_api_key(self, key_id: str) -> dict:
         """删除用户 API Key
         DELETE /api/system/api-keys/:id → {id, deleted: true}
         """
-        return self.delete(f"/api/system/api-keys/{key_id}")
+        return self._system_request("delete", f"/api/system/api-keys/{key_id}")
 
     # ── Instance Connect 模块 ──
 
@@ -313,61 +326,61 @@ class ApiClient(BaseClient):
         """获取沙盒池列表
         GET /api/system/sandbox-pools → pool list
         """
-        return self.get("/api/system/sandbox-pools", params=params)
+        return self._system_request("get", "/api/system/sandbox-pools", params=params)
 
     def create_sandbox_pool(self, data: dict) -> dict:
         """创建沙盒池
         POST /api/system/sandbox-pools body: {name, template, ...} → pool detail
         """
-        return self.post("/api/system/sandbox-pools", json=data)
+        return self._system_request("post", "/api/system/sandbox-pools", json=data)
 
     def get_sandbox_pool(self, pool_id: str) -> dict:
         """获取沙盒池详情
         GET /api/system/sandbox-pools/:poolId → pool detail
         """
-        return self.get(f"/api/system/sandbox-pools/{pool_id}")
+        return self._system_request("get", f"/api/system/sandbox-pools/{pool_id}")
 
     def update_sandbox_pool(self, pool_id: str, data: dict) -> dict:
         """更新沙盒池
         PUT /api/system/sandbox-pools/:poolId body: {...} → pool detail
         """
-        return self.put(f"/api/system/sandbox-pools/{pool_id}", json=data)
+        return self._system_request("put", f"/api/system/sandbox-pools/{pool_id}", json=data)
 
     def delete_sandbox_pool(self, pool_id: str) -> dict:
         """删除沙盒池
         DELETE /api/system/sandbox-pools/:poolId → {deleted: true}
         """
-        return self.delete(f"/api/system/sandbox-pools/{pool_id}")
+        return self._system_request("delete", f"/api/system/sandbox-pools/{pool_id}")
 
     def list_sandbox_instances(self, params: dict | None = None) -> dict:
         """获取沙盒实例列表
         GET /api/system/sandbox-instances → instance list
         """
-        return self.get("/api/system/sandbox-instances", params=params)
+        return self._system_request("get", "/api/system/sandbox-instances", params=params)
 
     def get_sandbox_instance(self, instance_id: str) -> dict:
         """获取沙盒实例详情
         GET /api/system/sandbox-instances/:instanceId → instance detail
         """
-        return self.get(f"/api/system/sandbox-instances/{instance_id}")
+        return self._system_request("get", f"/api/system/sandbox-instances/{instance_id}")
 
     def update_sandbox_instance(self, instance_id: str, data: dict) -> dict:
         """更新沙盒实例
         PUT /api/system/sandbox-instances/:instanceId body: {resourceOverrides} → instance detail
         """
-        return self.put(f"/api/system/sandbox-instances/{instance_id}", json=data)
+        return self._system_request("put", f"/api/system/sandbox-instances/{instance_id}", json=data)
 
     def delete_sandbox_instance(self, instance_id: str) -> dict:
         """删除沙盒实例
         DELETE /api/system/sandbox-instances/:instanceId → {deleted: true}
         """
-        return self.delete(f"/api/system/sandbox-instances/{instance_id}")
+        return self._system_request("delete", f"/api/system/sandbox-instances/{instance_id}")
 
     def rebuild_sandbox_instances(self, data: dict) -> dict:
         """重建沙盒实例
         POST /api/system/sandbox-instances/rebuild body: {poolId, ...} → rebuild result
         """
-        return self.post("/api/system/sandbox-instances/rebuild", json=data)
+        return self._system_request("post", "/api/system/sandbox-instances/rebuild", json=data)
 
     # ── System Logs 模块（/api/system/logs，System API Key 认证） ──
 

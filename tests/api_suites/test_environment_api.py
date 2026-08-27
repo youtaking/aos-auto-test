@@ -114,7 +114,7 @@ class TestEnvironmentWebAPI:
 
             # 删除并验证资源已消失
             web_client.delete_environment(env_id)
-            with pytest.raises((httpx.HTTPStatusError, RuntimeError)):
+            with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"404"):
                 web_client.get_environment(env_id)
         finally:
             _cleanup_environment(web_client, test_name)

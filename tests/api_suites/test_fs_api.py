@@ -120,7 +120,7 @@ class TestFsWebAPI:
             assert isinstance(result["content"], str)
 
     def test_write_and_cleanup_fs_file(self, web_client):
-        """写入然后删除 workspace 文件"""
+        """写入然后删除 workspace 文件（清理在 finally 中，保证不残留）"""
         env_id = _get_test_env(web_client)
         if not env_id:
             pytest.skip("环境列表为空，无法测试 FS 接口")
@@ -129,35 +129,34 @@ class TestFsWebAPI:
         test_content = "fs-auto-test-" + str(id(self))
 
         try:
-            result = web_client.write_fs_file(env_id, test_path, test_content)
-        except (httpx.HTTPStatusError, RuntimeError) as e:
-            err_str = str(e)
-            if "503" in err_str or "remote_error" in err_str:
-                pytest.skip("远程文件写入不可用")
-            if "400" in err_str:
-                pytest.skip(f"写入路径受限: {e}")
-            raise
+            try:
+                result = web_client.write_fs_file(env_id, test_path, test_content)
+            except (httpx.HTTPStatusError, RuntimeError) as e:
+                err_str = str(e)
+                if "503" in err_str or "remote_error" in err_str:
+                    pytest.skip("远程文件写入不可用")
+                if "400" in err_str:
+                    pytest.skip(f"写入路径受限: {e}")
+                raise
 
-        assert isinstance(result, dict)
+            assert isinstance(result, dict)
 
-        # 回读验证写入内容
-        try:
+            # 回读验证写入内容
             read_back = web_client.read_fs_file(env_id, test_path)
             assert isinstance(read_back, dict)
             if "content" in read_back:
                 assert read_back["content"] == test_content, \
                     f"回读内容不匹配: 期望 {test_content!r}, 实际 {read_back['content']!r}"
-        except (httpx.HTTPStatusError, RuntimeError) as e:
-            pytest.fail(f"写入后回读验证失败: {e}")
-
-        # 清理
-        try:
-            web_client.delete_fs_file(env_id, test_path)
-        except (httpx.HTTPStatusError, RuntimeError):
-            pass
+        finally:
+            # 清理：无论断言是否失败都删除（G6 修复）
+            try:
+                web_client.delete_fs_file(env_id, test_path)
+            except Exception as e:
+                import logging
+                logging.getLogger("cleanup").warning(f"FS cleanup failed: {e}")
 
     def test_fs_mkdir(self, web_client):
-        """创建 workspace 目录"""
+        """创建 workspace 目录（清理在 finally 中）"""
         env_id = _get_test_env(web_client)
         if not env_id:
             pytest.skip("环境列表为空，无法测试 FS 接口")
@@ -165,24 +164,26 @@ class TestFsWebAPI:
         test_dir = "api-test-mkdir-dir"
 
         try:
-            result = web_client.fs_mkdir(env_id, test_dir)
-        except (httpx.HTTPStatusError, RuntimeError) as e:
-            err_str = str(e)
-            if "503" in err_str:
-                pytest.skip("远程 mkdir 不可用")
-            raise
+            try:
+                result = web_client.fs_mkdir(env_id, test_dir)
+            except (httpx.HTTPStatusError, RuntimeError) as e:
+                err_str = str(e)
+                if "503" in err_str:
+                    pytest.skip("远程 mkdir 不可用")
+                raise
 
-        assert isinstance(result, dict)
-        assert result.get("path") == test_dir
-
-        # 清理
-        try:
-            web_client.delete_fs_file(env_id, test_dir)
-        except (httpx.HTTPStatusError, RuntimeError):
-            pass
+            assert isinstance(result, dict)
+            assert result.get("path") == test_dir
+        finally:
+            # 清理：无论断言是否失败都删除（G6 修复）
+            try:
+                web_client.delete_fs_file(env_id, test_dir)
+            except Exception as e:
+                import logging
+                logging.getLogger("cleanup").warning(f"FS cleanup failed: {e}")
 
     def test_fs_rename(self, web_client):
-        """重命名 workspace 文件"""
+        """重命名 workspace 文件（双路径清理在 finally 中）"""
         env_id = _get_test_env(web_client)
         if not env_id:
             pytest.skip("环境列表为空，无法测试 FS 接口")
@@ -190,32 +191,35 @@ class TestFsWebAPI:
         old_path = "api-test-rename-old.txt"
         new_path = "api-test-rename-new.txt"
 
-        # 先创建
         try:
-            web_client.write_fs_file(env_id, old_path, "rename-test")
-        except (httpx.HTTPStatusError, RuntimeError):
-            pytest.skip("无法创建测试文件，跳过 rename 测试")
+            # 先创建
+            try:
+                web_client.write_fs_file(env_id, old_path, "rename-test")
+            except (httpx.HTTPStatusError, RuntimeError):
+                pytest.skip("无法创建测试文件，跳过 rename 测试")
 
-        try:
-            result = web_client.fs_rename(env_id, old_path, new_path)
-        except (httpx.HTTPStatusError, RuntimeError) as e:
-            err_str = str(e)
-            if "503" in err_str:
-                pytest.skip("远程 rename 不可用")
-            raise
+            try:
+                result = web_client.fs_rename(env_id, old_path, new_path)
+            except (httpx.HTTPStatusError, RuntimeError) as e:
+                err_str = str(e)
+                if "503" in err_str:
+                    pytest.skip("远程 rename 不可用")
+                raise
 
-        assert isinstance(result, dict)
-        assert result.get("oldPath") == old_path
-        assert result.get("newPath") == new_path
-
-        # 清理
-        try:
-            web_client.delete_fs_file(env_id, new_path)
-        except (httpx.HTTPStatusError, RuntimeError):
-            pass
+            assert isinstance(result, dict)
+            assert result.get("oldPath") == old_path
+            assert result.get("newPath") == new_path
+        finally:
+            # 双路径清理：rename 失败时 old 残留、成功时 new 存在（G6 修复）
+            for p in (new_path, old_path):
+                try:
+                    web_client.delete_fs_file(env_id, p)
+                except Exception as e:
+                    import logging
+                    logging.getLogger("cleanup").warning(f"FS cleanup failed: {e}")
 
     def test_fs_batch_delete(self, web_client):
-        """批量删除 workspace 文件"""
+        """批量删除 workspace 文件（创建失败记日志，兜底清理在 finally）"""
         env_id = _get_test_env(web_client)
         if not env_id:
             pytest.skip("环境列表为空，无法测试 FS 接口")
@@ -227,23 +231,33 @@ class TestFsWebAPI:
             try:
                 web_client.write_fs_file(env_id, p, "batch-test")
                 created.append(p)
-            except (httpx.HTTPStatusError, RuntimeError):
-                pass
+            except Exception as e:
+                import logging
+                logging.getLogger("setup").warning(f"FS setup create failed for {p}: {e}")
 
         if not created:
             pytest.skip("无法创建测试文件，跳过批量删除测试")
 
         try:
-            result = web_client.fs_batch_delete(env_id, created)
-        except (httpx.HTTPStatusError, RuntimeError) as e:
-            err_str = str(e)
-            if "503" in err_str:
-                pytest.skip("远程批量删除不可用")
-            raise
+            try:
+                result = web_client.fs_batch_delete(env_id, created)
+            except (httpx.HTTPStatusError, RuntimeError) as e:
+                err_str = str(e)
+                if "503" in err_str:
+                    pytest.skip("远程批量删除不可用")
+                raise
 
-        assert isinstance(result, dict)
-        assert "deleted" in result
-        assert isinstance(result["deleted"], list)
+            assert isinstance(result, dict)
+            assert "deleted" in result
+            assert isinstance(result["deleted"], list)
+        finally:
+            # 兜底清理：批量删除失败时逐个删除残留（G6 修复）
+            for p in created:
+                try:
+                    web_client.delete_fs_file(env_id, p)
+                except Exception as e:
+                    import logging
+                    logging.getLogger("cleanup").warning(f"FS cleanup failed: {e}")
 
     def test_delete_nonexistent_fs_file(self, web_client):
         """删除不存在的文件：幂等删除应返回 200 或 404"""

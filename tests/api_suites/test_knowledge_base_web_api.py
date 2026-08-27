@@ -90,8 +90,11 @@ class TestKnowledgeBaseWebAPI:
                 # 对象形式应包含 models 或 items 字段
                 assert "models" in resp or "items" in resp, \
                     f"rerank 响应缺少预期字段(models/items): {list(resp.keys())}"
-        except (httpx.HTTPStatusError, RuntimeError):
-            pytest.skip("rerank-models 端点不可用")
+        except (httpx.HTTPStatusError, RuntimeError) as e:
+            err_str = str(e)
+            if "502" in err_str or "503" in err_str or "504" in err_str:
+                pytest.skip("rerank-models 上游代理不可用")
+            raise
 
     def test_get_nonexistent_knowledge_base(self, web_client, _kb_service_access):
         """获取不存在的知识库：应抛出 404 异常"""
@@ -185,8 +188,9 @@ class TestKnowledgeBaseWebAPI:
         except httpx.HTTPStatusError as e:
             if e.response.status_code in (502, 503, 504):
                 pytest.skip("知识库服务不可用（502/503/504）")
-        except Exception:
-            pass
+        except Exception as e:
+            import logging
+            logging.getLogger("cleanup").warning(f"Cleanup failed: {e}")
         try:
             create_resp = web_client.create_knowledge_base({
                 "name": test_name,

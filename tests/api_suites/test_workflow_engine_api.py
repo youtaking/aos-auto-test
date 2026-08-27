@@ -73,8 +73,9 @@ class TestWorkflowEngineWebAPI:
             assert "404" in str(e) or "not_found" in str(e).lower(), \
                 f"预期 404/not_found，实际: {e}"
 
+    @pytest.mark.xfail(reason="应用 Bug：/web/workflow-engine dryRun 合法 YAML 返回 500（应返回 {valid:true}，已确认）", strict=True)
     def test_dry_run_with_simple_yaml(self, web_client):
-        """dryRun 简单 YAML：验证工作流定义合法性"""
+        """dryRun 简单 YAML：契约应返回 {valid: true}（当前 500，应用 Bug）"""
         simple_yaml = """
 version: "1.0"
 name: auto-test-dry-run
@@ -96,5 +97,5 @@ steps:
             raise
 
         assert isinstance(result, dict)
-        # dryRun 返回 valid 字段
-        assert "valid" in result
+        # 契约：合法 YAML 应返回 valid=true（评审建议补强）
+        assert result.get("valid") is True

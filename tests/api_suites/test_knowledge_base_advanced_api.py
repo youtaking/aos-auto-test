@@ -241,13 +241,27 @@ class TestKnowledgeGraphAPI:
             raise
 
     @pytest.mark.destructive
-    def test_delete_knowledge_graph(self, web_client):
-        """删除知识图谱 — 标记为 destructive，默认跳过以防破坏共享环境
+    def test_delete_knowledge_graph(self, web_client, request):
+        """删除知识图谱 — 仅在 pytest -m destructive 下真正执行删除并验证"""
+        markexpr = request.config.getoption("-m") or ""
+        if "destructive" not in markexpr:
+            pytest.skip("破坏性操作：删除共享环境图谱数据，需 pytest -m destructive 显式运行")
 
-        如需运行：pytest -m destructive
-        """
-        # 安全策略：直接操作共享环境的图谱数据是破坏性的，默认 skip
-        pytest.skip("破坏性操作：删除共享环境图谱数据，使用 pytest -m destructive 显式运行")
+        result = _get_kb_with_resources(web_client)
+        if result is None:
+            pytest.skip("没有包含资源的知识库，无图谱可删除")
+        kb_id, _ = result
+
+        try:
+            resp = web_client.delete(f"/web/knowledgeBases/{kb_id}/graph")
+            data = web_client._unwrap(resp)
+            # 契约：删除成功返回 null 或 dict
+            assert data is None or isinstance(data, dict)
+        except (httpx.HTTPStatusError, RuntimeError) as e:
+            err_str = str(e)
+            if "502" in err_str or "KNOWLEDGE_PROVIDER_ERROR" in err_str:
+                pytest.skip("知识库上游服务不可用，无法删除图谱")
+            raise
 
     def test_graph_nonexistent_kb(self, web_client):
         """查询不存在知识库的图谱：应返回 404 或 502"""

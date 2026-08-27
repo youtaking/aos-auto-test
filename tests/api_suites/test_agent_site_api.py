@@ -57,8 +57,9 @@ class TestAgentSiteWebAPI:
                 for app in apps:
                     if app.get("name") == test_name:
                         web_client.delete_agent_site_app(app["id"])
-            except Exception:
-                pass
+            except Exception as e:
+                import logging
+                logging.getLogger("cleanup").warning(f"Cleanup failed: {e}")
 
             create_resp = web_client.create_agent_site_app({
                 "name": test_name,

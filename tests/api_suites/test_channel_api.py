@@ -11,7 +11,17 @@ from tests.api_contracts.channel_schemas import (
 )
 
 # unwrapped schemas (data portion after _unwrap)
-_WEB_CHANNEL_PROVIDER_LIST_DATA = {"type": ["object", "array"]}
+_WEB_CHANNEL_PROVIDER_ITEM = {
+    "type": "object",
+    "properties": {
+        "type": {"type": "string"},
+        "label": {"type": "string"},
+        "status": {"type": "string"},
+    },
+    "required": ["type"],
+    "additionalProperties": True,
+}
+_WEB_CHANNEL_PROVIDER_LIST_DATA = {"type": "array", "items": _WEB_CHANNEL_PROVIDER_ITEM}
 _WEB_CHANNEL_BINDING_LIST_DATA = {"type": "array", "items": CHANNEL_BINDING_ITEM}
 
 
@@ -27,10 +37,13 @@ class TestChannelWebAPI:
     """
 
     def test_list_channel_providers(self, web_client):
-        """获取通道平台列表"""
+        """获取通道平台列表：每项含 type/label/status 字段"""
         resp = web_client.list_channel_providers()
         web_client.validate_schema(resp, _WEB_CHANNEL_PROVIDER_LIST_DATA)
-        assert isinstance(resp, (list, dict))
+        assert isinstance(resp, list)
+        for item in resp:
+            assert isinstance(item, dict), f"通道平台项应为 dict: {item!r}"
+            assert "type" in item, f"通道平台项缺少 type 字段: {list(item.keys())}"
 
     def test_get_hermes_status(self, web_client):
         """获取 Hermes 状态"""

@@ -121,8 +121,9 @@ class TestSystemUserAPI:
             # 清理：删除自建用户
             try:
                 api_client.delete_user(user_id)
-            except Exception:
-                pass
+            except Exception as e:
+                import logging
+                logging.getLogger("cleanup").warning(f"Cleanup failed: {e}")
 
     def test_get_nonexistent_user(self, api_client, _system_access):
         """获取不存在的用户：应返回 404"""
@@ -155,8 +156,9 @@ class TestSystemUserAPI:
         finally:
             try:
                 api_client.delete_user(user_id)
-            except Exception:
-                pass
+            except Exception as e:
+                import logging
+                logging.getLogger("cleanup").warning(f"Cleanup failed: {e}")
 
     def test_list_user_api_keys(self, api_client, _system_access):
         """获取用户 API Key 列表：先拿用户列表取第一个 ID"""
@@ -229,8 +231,9 @@ class TestSystemOrganizationAPI:
         finally:
             try:
                 api_client.delete_organization(org_id)
-            except Exception:
-                pass
+            except Exception as e:
+                import logging
+                logging.getLogger("cleanup").warning(f"Cleanup failed: {e}")
 
     def test_get_nonexistent_organization(self, api_client, _system_access):
         """获取不存在的组织：应返回 404"""
@@ -275,12 +278,14 @@ class TestSystemOrganizationAPI:
             # 清理：删除组织和用户
             try:
                 api_client.delete_organization(org_id)
-            except Exception:
-                pass
+            except Exception as e:
+                import logging
+                logging.getLogger("cleanup").warning(f"Cleanup failed: {e}")
             try:
                 api_client.delete_user(user_id)
-            except Exception:
-                pass
+            except Exception as e:
+                import logging
+                logging.getLogger("cleanup").warning(f"Cleanup failed: {e}")
 
 
 # ── API Key 管理测试 ──
@@ -331,8 +336,9 @@ class TestSystemApiKeyAPI:
         finally:
             try:
                 api_client.delete_user(user_id)
-            except Exception:
-                pass
+            except Exception as e:
+                import logging
+                logging.getLogger("cleanup").warning(f"Cleanup failed: {e}")
 
     def test_delete_nonexistent_api_key(self, api_client, _system_access):
         """删除不存在的 API Key：应返回 404"""

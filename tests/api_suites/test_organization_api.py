@@ -73,11 +73,13 @@ class TestOrganizationWebAPI:
             assert "id" in candidate or "email" in candidate or "name" in candidate, \
                 f"候选项缺少标识字段: {list(candidate.keys())}"
 
+    @pytest.mark.xfail(reason="应用 Bug：查询不存在的组织返回 500 而非 404（源码 schema 声明 404 但路由未做存在性检查，已确认）", strict=True)
     def test_get_nonexistent_organization(self, web_client):
-        """获取不存在的组织：应抛出异常"""
-        with pytest.raises((httpx.HTTPStatusError, RuntimeError, ValueError)):
+        """获取不存在的组织：应返回 404（当前返回 500，属应用 Bug）"""
+        with pytest.raises(httpx.HTTPStatusError, match=r"404"):
             web_client.get_organization("nonexistent-org-id-99999")
 
+    @pytest.mark.xfail(reason="应用 Bug：删除组织后回读返回 500 而非 404（源码 schema 声明 404 但路由未做存在性检查，已确认）", strict=True)
     def test_organization_crud_lifecycle(self, web_client):
         """组织 CRUD 生命周期：创建 → 读取 → 更新 → 删除"""
         test_name = "api-test-org-crud-001"
@@ -89,8 +91,9 @@ class TestOrganizationWebAPI:
             for org in existing:
                 if org.get("name") == test_name or org.get("slug") == test_slug:
                     web_client.delete_organization(org["id"])
-        except Exception:
-            pass
+        except Exception as e:
+            import logging
+            logging.getLogger("cleanup").warning(f"Cleanup failed: {e}")
 
         try:
             # 创建
@@ -120,15 +123,16 @@ class TestOrganizationWebAPI:
                 detail = web_client.get_organization(org_id)
                 assert detail.get("name") == updated_name
 
-                # 删除并验证
+                # 删除并验证（应返回 404，当前返回 500，属应用 Bug）
                 web_client.delete_organization(org_id)
-                with pytest.raises((httpx.HTTPStatusError, RuntimeError, ValueError)):
+                with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"404"):
                     web_client.get_organization(org_id)
             finally:
                 try:
                     web_client.delete_organization(org_id)
-                except Exception:
-                    pass
+                except Exception as e:
+                    import logging
+                    logging.getLogger("cleanup").warning(f"Cleanup failed: {e}")
         except (httpx.HTTPStatusError, RuntimeError, ValueError) as e:
             if "400" in str(e) or "403" in str(e) or "409" in str(e):
                 pytest.skip(f"组织创建接口不可用: {e}")
