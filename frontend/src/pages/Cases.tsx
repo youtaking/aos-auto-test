@@ -162,6 +162,11 @@ export default function Cases() {
   // 按 test_type 分组
   const uiSuites = suites.filter((s) => s.test_type !== "api");
   const apiSuites = suites.filter((s) => s.test_type === "api");
+  // 统一口径：套件数只统计当前分支下有用例的套件（main 视角 = 有 main 用例的套件，
+  // 纯分支套件 Agent_Expert_Api/Files_Api/Tasks_V1_Api/User_File_Api 不计入）
+  const hasCases = (s: TestSuite) => cases.some((c) => c.suite_id === s.id);
+  const uiSuitesShown = uiSuites.filter(hasCases);
+  const apiSuitesShown = apiSuites.filter(hasCases);
   const uiCases = cases.filter((c) => uiSuites.some((s) => s.id === c.suite_id));
   const apiCases = cases.filter((c) => apiSuites.some((s) => s.id === c.suite_id));
 
@@ -301,7 +306,7 @@ export default function Cases() {
         <div>
           <h1 className="text-2xl font-bold">用例管理</h1>
           <p className="text-gray-500 mt-1">
-            共 {cases.length} 个用例，{suites.length} 个套件
+            共 {cases.length} 个用例，{uiSuitesShown.length + apiSuitesShown.length} 个套件
           </p>
         </div>
         <div className="flex gap-2 items-center">
@@ -411,10 +416,10 @@ export default function Cases() {
           )}
 
           {/* UI 测试 */}
-          {renderSuiteSection("section-ui", "UI 测试", uiSuites, uiCases, "bg-blue-500")}
+          {renderSuiteSection("section-ui", "UI 测试", uiSuitesShown, uiCases, "bg-blue-500")}
 
           {/* Web API 测试 */}
-          {renderSuiteSection("section-api", "Web API 测试", apiSuites, apiCases, "bg-orange-500", apiBranch)}
+          {renderSuiteSection("section-api", "Web API 测试", apiSuitesShown, apiCases, "bg-orange-500", apiBranch)}
 
       {showCollections && (
         <CollectionManager
