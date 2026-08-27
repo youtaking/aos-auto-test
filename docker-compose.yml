@@ -29,6 +29,9 @@ services:
       SCREENSHOTS_DIR: /screenshots
     volumes:
       - screenshots:/screenshots
+      - ./tests:/app/tests
+      - ./unit_tests:/app/unit_tests
+      - ./branches:/app/branches
     depends_on:
       db:
         condition: service_healthy
