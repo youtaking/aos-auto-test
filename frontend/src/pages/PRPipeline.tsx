@@ -18,8 +18,6 @@ const statusLabels: Record<string, string> = {
 
 const PAGE_SIZE = 20;
 
-const activeStatuses = new Set(["building", "deploying", "running"]);
-
 const getJenkinsInfo = (p: Pipeline) => {
   const bi = p.build_info as Record<string, unknown> | null;
   const url = (bi?.jenkins_url as string) || "";

@@ -1,5 +1,6 @@
 import { get, post } from "./client";
 import type { UnitTestFile, UnitTestSummary } from "./types";
+export type { UnitTestFile, UnitTestSummary };
 
 export interface UnitTestRunResult {
   total: number;

@@ -1,9 +1,9 @@
 import { useEffect, useState, useCallback } from "react";
 import {
   RefreshCw, Plus, Trash2, ArrowUpCircle, Play, RotateCcw,
-  Settings, GitBranch, CheckCircle2, AlertCircle,
+  Settings, GitBranch, CheckCircle2,
   XCircle, Loader2, ExternalLink, FolderOpen, Clock,
-  Archive, FileCode, FileText, X, Eye,
+  Archive, FileCode, FileText, X,
 } from "lucide-react";
 import {
   listBranches, createBranch, deleteBranch, resetBranch, promoteBranch,

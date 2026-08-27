@@ -58,10 +58,6 @@ export default function PipelineDetail({ pipeline, onClose }: Props) {
     logEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [logs]);
 
-  const passRate = pipeline.test_total > 0
-    ? ((pipeline.test_passed / pipeline.test_total) * 100).toFixed(1)
-    : "-";
-
   return (
     <div className="bg-white rounded-xl shadow-lg border p-6 space-y-4">
       <div className="flex items-center justify-between">
