@@ -430,7 +430,7 @@ def test_agent_023_system_prompt_effective(logged_in_page, base_url):
             pytest.skip("无法通过配置界面修改模型（配置 modal 打开失败或目标模型不存在）")
 
         # 重启后可能触发并发上限，需再次检测
-        logged_in_page.wait_for_timeout(3000)
+        logged_in_page.wait_for_timeout(1000)
         if _check_concurrency_limit(logged_in_page):
             pytest.skip("重启后服务器并发上限，无法验证 SP 生效")
 
@@ -467,7 +467,8 @@ def test_agent_023_system_prompt_effective(logged_in_page, base_url):
             card = logged_in_page.locator("button.agent-sidebar-agent-card").filter(has_text=agent_name)
             if card.count() > 0:
                 card.first.click()
-                logged_in_page.wait_for_timeout(3000)
+                logged_in_page.wait_for_load_state("networkidle")
+                logged_in_page.wait_for_timeout(500)
 
         # 发送非 Python 问题，验证 SP 生效（Agent 应拒绝回答）
         # 重启后环境可能未就绪，最多重试 3 次
@@ -484,14 +485,14 @@ def test_agent_023_system_prompt_effective(logged_in_page, base_url):
                 # 可能是并发上限导致页面无消息元素
                 if _check_concurrency_limit(logged_in_page):
                     pytest.skip("等待回复时检测到服务器并发上限")
-                logged_in_page.wait_for_timeout(5000)
+                logged_in_page.wait_for_timeout(1000)
                 continue
             # 检查是否返回了占位文本（环境未就绪 / SSE 重连中）
             _placeholder_texts = ["开始对话", "ACP agent", "重连中", "连接已断开", "自动重连"]
             if reply and not any(pt in reply for pt in _placeholder_texts):
                 break
-            print(f"  [retry] 第 {_send_attempt + 1} 次发送后未收到有效回复（reply='{reply[:60]}'），等待 5s 重试...")
-            logged_in_page.wait_for_timeout(5000)
+            print(f"  [retry] 第 {_send_attempt + 1} 次发送后未收到有效回复（reply='{reply[:60]}'），等待后重试...")
+            logged_in_page.wait_for_timeout(1000)
 
         allure.attach(
             f"发送: 请推荐一家北京好吃的火锅店\nAI 回复: {reply[:200]}",
@@ -729,7 +730,7 @@ def test_agent_027_bind_skill(logged_in_page, base_url):
         try:
             modal.wait_for(state="visible", timeout=10000)
         except Exception:
-            logged_in_page.wait_for_timeout(2000)
+            logged_in_page.wait_for_timeout(1000)
         try:
             logged_in_page.wait_for_load_state("domcontentloaded", timeout=5000)
         except Exception:
@@ -1123,7 +1124,7 @@ def test_create_page_entries(logged_in_page, base_url):
     )
 
     assert has_meta or has_templates or has_quick, \
-        f"首页缺少元数据/模板/快捷入口，has_meta={has_meta}, has_templates={has_templates}, has_quick={has_quick}"
+        f"首页缺少智能体元数据、模板入口或快捷操作，has_meta={has_meta}, has_templates={has_templates}, has_quick={has_quick}"
 
 
 @allure.epic("智能体配置")
@@ -1890,11 +1891,29 @@ def test_refresh_during_reply(logged_in_page, base_url):
     # 折叠 Artifacts 面板（轮询：刷新/导航后 React 渲染时序不确定）
     _collapse_artifacts_panel(logged_in_page)
 
-    # 等待 textarea 可见（导航后面板渲染可能需要较长时间）
+    # 等待 textarea 可见（面板展开挤压时可能 hidden，若超时则再次折叠后重试）
     ta = logged_in_page.locator("textarea.chat-composer-textarea")
     if ta.count() == 0:
         ta = logged_in_page.locator("textarea")
-    ta.first.wait_for(state="visible", timeout=30000)
+    ta_first = ta.first
+    for _attempt in range(4):
+        try:
+            ta_first.wait_for(state="visible", timeout=8000)
+            break
+        except Exception:
+            _collapse_artifacts_panel(logged_in_page)
+            logged_in_page.wait_for_timeout(800)
+    if not ta_first.is_visible():
+        # 全量回归时会话连接/面板渲染可能卡死导致 textarea 保持 hidden，二次刷新强制重建 chat 页
+        print("  [重连] textarea 4 轮 8s 内不可见，二次刷新强制重建 chat 页...")
+        try:
+            logged_in_page.reload(wait_until="domcontentloaded")
+        except Exception:
+            pass
+        logged_in_page.wait_for_load_state("domcontentloaded")
+        logged_in_page.wait_for_timeout(2000)
+        _collapse_artifacts_panel(logged_in_page)
+    ta_first.wait_for(state="visible", timeout=15000)
 
     # 2. 记录刷新前的消息数量
     chat_url = logged_in_page.url
@@ -1909,7 +1928,7 @@ def test_refresh_during_reply(logged_in_page, base_url):
     ta.first.press("Enter")
 
     # 4. 等 AI 回复几秒再刷新（等待足够内容产出并持久化）
-    logged_in_page.wait_for_timeout(5000)
+    logged_in_page.wait_for_timeout(1000)
     print("AI 正在回复中，执行页面刷新...")
     try:
         logged_in_page.reload(wait_until="domcontentloaded")
@@ -1936,26 +1955,46 @@ def test_refresh_during_reply(logged_in_page, base_url):
     assert ac.is_on_chat_page(), "刷新后应能回到对话页面"
 
     # 刷新后再次折叠 Artifacts 面板（轮询等待 React 渲染）
-    logged_in_page.wait_for_timeout(2000)
+    logged_in_page.wait_for_load_state("networkidle")
+    logged_in_page.wait_for_timeout(500)
     _collapse_artifacts_panel(logged_in_page)
 
-    # 6. 等待 AI 完成回复（刷新后 SSE 重连 + AI 继续回复）
+    # 6. 等待 AI 完成回复（刷新后 SSE/Yjs 重连 + AI 继续回复）
     logged_in_page.wait_for_load_state("domcontentloaded")
-    # 等待重连完成（"重连中" 消失）+ AI 回复
-    for _wait in range(25):
-        log_area = logged_in_page.locator("div[role='log']")
-        if log_area.count() > 0:
-            log_text = log_area.first.inner_text()
-            # 排除重连占位文本
-            if "重连中" not in log_text and "连接已断开" not in log_text and log_text.strip():
-                break
-        # 如果有 "重试重连" 按钮，点击它
-        retry_btn = logged_in_page.get_by_role("button", name="重试重连")
-        if retry_btn.count() > 0 and retry_btn.first.is_visible():
-            retry_btn.first.click()
-            logged_in_page.wait_for_timeout(2000)
-            continue
+    # 等待历史恢复且最后一条 AI 回复完整（>50字、非"思考中"）。
+    # 实测：刷新后偶发 Yjs 同步卡死（JS 报 "Group _r_t_ not found"），UI 长时间停留在
+    # 空占位「开始对话」；此时二次刷新强制重连 Yjs 即可恢复。故分轮等待，每轮 60s，
+    # 最多 3 轮（含强制重连），同时覆盖回复生成时长。
+    sent_marker = "请写300字"
+    reply_ok = False
+    for _round in range(3):
+        for _wait in range(60):
+            log_area = logged_in_page.locator("div[role='log']")
+            if log_area.count() > 0:
+                log_text = log_area.first.inner_text()
+                if ("重连中" not in log_text and "连接已断开" not in log_text
+                        and sent_marker in log_text):
+                    last_reply = ac.get_last_message()
+                    if len(last_reply) > 50 and "思考中" not in last_reply:
+                        reply_ok = True
+                        break
+            # 如果有 "重试重连" 按钮，点击它
+            retry_btn = logged_in_page.get_by_role("button", name="重试重连")
+            if retry_btn.count() > 0 and retry_btn.first.is_visible():
+                retry_btn.first.click()
+                logged_in_page.wait_for_timeout(1000)
+                continue
+            logged_in_page.wait_for_timeout(1000)
+        if reply_ok:
+            break
+        print(f"  [重连] 第 {_round + 1} 轮 60s 内未就绪，二次刷新强制重连 Yjs...")
+        try:
+            logged_in_page.reload(wait_until="domcontentloaded")
+        except Exception:
+            pass
+        logged_in_page.wait_for_load_state("domcontentloaded")
         logged_in_page.wait_for_timeout(2000)
+        _collapse_artifacts_panel(logged_in_page)
 
     # 7. 获取最后一条 AI 回复，检查是否完整（不被打断）
     # 先打印页面状态辅助调试
@@ -1967,7 +2006,7 @@ def test_refresh_during_reply(logged_in_page, base_url):
     last_reply = ac.get_last_message()
     # 如果仍是重连文本，再等一轮
     if "重连中" in last_reply or "连接已断开" in last_reply:
-        logged_in_page.wait_for_timeout(10000)
+        logged_in_page.wait_for_timeout(1000)
         last_reply = ac.get_last_message()
     print(f"AI 最终回复（前100字）: {last_reply[:100]}")
 
@@ -1985,3 +2024,70 @@ def test_refresh_during_reply(logged_in_page, base_url):
         f"AI 回复仍是重连占位文本: '{last_reply[:50]}'"
     assert len(last_reply) > 50, \
         f"AI 回复过短（{len(last_reply)}字），可能被打断: '{last_reply[:50]}'"
+
+
+# ═══════════════════════════════════════════════════════
+# P2 补充: 智能体配置面板未覆盖字段
+# ═══════════════════════════════════════════════════════
+
+
+@allure.epic("智能体配置")
+@pytest.mark.order(135)
+@pytest.mark.p2
+def test_agent_config_uncovered_fields(logged_in_page, base_url):
+    """验证智能体配置面板的未覆盖字段 — 智能体记忆/公开 switch、知识库 Tab、高级配置 Tab"""
+    ac = AgentConfigPage(logged_in_page, base_url)
+    agent_name = "my-auto-test"
+    ac.goto_agents()
+
+    card = ac.wait_for_agent_card(agent_name)
+    if card.count() == 0:
+        pytest.skip(f"'{agent_name}' 不存在，跳过")
+
+    # 打开配置 modal
+    modal, _ = ac.open_agent_config_modal(agent_name)
+    assert modal is not None, "配置 modal 未打开"
+
+    # === 基础 Tab：验证 switch 字段 ===
+
+    # 1. "智能体记忆" switch
+    memory_switch = modal.get_by_role("switch", name="智能体记忆")
+    assert memory_switch.count() > 0, "智能体记忆 switch 不存在"
+    assert memory_switch.first.is_visible(), "智能体记忆 switch 不可见"
+
+    # 2. "公开" switch
+    public_switch = modal.get_by_role("switch", name="公开")
+    assert public_switch.count() > 0, "公开 switch 不存在"
+    assert public_switch.first.is_visible(), "公开 switch 不可见"
+
+    # === 知识库 Tab ===
+    kb_tab = modal.get_by_role("button", name="知识库")
+    kb_tab.wait_for(state="visible", timeout=3000)
+    kb_tab.click()
+    logged_in_page.wait_for_timeout(500)
+
+    # 3. "优先检索知识库" checkbox
+    priority_cb = modal.get_by_role("checkbox", name="优先检索知识库")
+    assert priority_cb.count() > 0, "优先检索知识库 checkbox 不存在"
+    assert priority_cb.first.is_visible(), "优先检索知识库 checkbox 不可见"
+
+    # 4. "最大返回条数" spinbutton
+    max_return_input = modal.locator("input[type='number']")
+    assert max_return_input.count() > 0, "最大返回条数输入框不存在"
+    assert max_return_input.first.is_visible(), "最大返回条数输入框不可见"
+
+    # === 高级配置 Tab ===
+    adv_tab = modal.get_by_role("button", name="高级配置")
+    adv_tab.wait_for(state="visible", timeout=3000)
+    adv_tab.click()
+    logged_in_page.wait_for_timeout(500)
+
+    # 5. "扩展配置" textarea（DOM: textarea[placeholder*='扩展配置']，非 input）
+    ext_config_input = modal.locator("textarea[placeholder*='扩展配置']")
+    assert ext_config_input.count() > 0, "扩展配置输入框不存在"
+    assert ext_config_input.first.is_visible(), "扩展配置输入框不可见"
+
+    # 关闭 modal
+    close_btn = modal.locator("button:has-text('✕')")
+    if close_btn.count() > 0:
+        close_btn.first.click()

@@ -38,6 +38,12 @@ def test_auth_001_login_success(logged_in_page, base_url):
     assert auth.has_session_cookie(), "登录后应存储 session cookie"
 
     # 3. 侧边栏显示用户信息（等待加载）
+    # 共享 session 页面可能停留在无侧边栏页面（如管理台），先导航回 agent 首页保证侧边栏渲染
+    logged_in_page.goto(f"{base_url}/ctrl/agent/home", wait_until="domcontentloaded")
+    try:
+        logged_in_page.wait_for_load_state("networkidle", timeout=8000)
+    except Exception:
+        pass  # SPA 轮询可能导致 networkidle 不安静，忽略
     logged_in_page.locator("button.agent-sidebar-user-button").wait_for(
         state="visible", timeout=10000
     )
@@ -88,9 +94,13 @@ def test_auth_002_login_wrong_password(logged_in_page, base_url):
         # 4. 响应中不含密码哈希等敏感信息
         resp_body = sign_in_calls[0].get("body", {})
         if resp_body:
-            assert "password" not in str(resp_body).lower() or \
-                "hash" not in str(resp_body).lower(), \
-                "响应中不应包含密码哈希"
+            resp_body_str = str(resp_body).lower()
+            has_password = "password" in resp_body_str
+            has_hash = "hash" in resp_body_str
+            assert not has_password or not has_hash, (
+                f"登录响应中同时包含 password({has_password}) 和 hash({has_hash})，"
+                f"疑似泄漏密码哈希，响应体: {resp_body_str[:200]}"
+            )
     finally:
         page.close()
         ctx.close()
@@ -265,8 +275,10 @@ def test_auth_007_login_no_sensitive_info(logged_in_page, base_url):
         assert post_data is not None, "应有请求体"
         if post_data:
             # 密码是加密传输的（AESGCM 前缀），password 字段名始终存在所以不能单独作为断言
-            assert "AESGCM" in post_data or "password" in post_data, \
-                "请求体中应包含密码相关字段"
+            assert any(kw in post_data for kw in ["AESGCM", "password"]), (
+                f"登录请求体中缺少密码相关字段(AESGCM/password)，"
+                f"实际 post_data: {post_data[:200]}"
+            )
             # 如果包含 password 字段，进一步检查是否加密
             if "password" in post_data and "AESGCM" not in post_data:
                 # password 字段存在但未加密 — 记录但不阻断
@@ -467,8 +479,9 @@ def test_auth_014_change_password_ui(logged_in_page, base_url):
 
     # 2. 弹窗标题
     title = auth.get_dialog_title()
-    assert "密码" in title or "password" in title.lower(), \
-        f"弹窗标题应包含'密码'或'password': {title}"
+    assert any(kw in title.lower() for kw in ["密码", "password"]), (
+        f"修改密码弹窗标题不正确，期望包含'密码'或'password'，实际: '{title}'"
+    )
 
     # 3. 三个密码输入框
     pw_inputs = auth.get_password_inputs()
@@ -538,8 +551,10 @@ def test_auth_015_change_password_validation(logged_in_page, base_url):
             logged_in_page.wait_for_timeout(800)
             error = auth.get_dialog_error()
             dialog_still_open = auth.is_dialog_open()
-            assert error or dialog_still_open, \
-                f"空表单提交未拦截: error={error}, dialog_still_open={dialog_still_open}"
+            assert error or dialog_still_open, (
+                f"空表单提交未触发校验拦截（error='{error}', "
+                f"dialog_still_open={dialog_still_open}）"
+            )
 
     auth.close_dialog()
 
@@ -597,8 +612,10 @@ def test_auth_015b_change_password_required_fields(logged_in_page, base_url):
         validation = pw_inputs.nth(skip_idx).evaluate("el => el.validationMessage")
         print(f"\n{field_names[skip_idx]}留空: 弹窗仍在={still_open}, 错误={error}, 校验提示={validation}")
 
-        assert still_open or error or validation, \
-            f"空表单未拦截: still_open={still_open}, error={error}, validation={validation}"
+        assert still_open or error or validation, (
+            f"{field_names[skip_idx]}留空时未触发校验拦截"
+            f"（still_open={still_open}, error='{error}', validation='{validation}'）"
+        )
 
         # 关闭弹窗准备下一轮
         if still_open:

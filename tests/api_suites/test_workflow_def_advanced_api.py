@@ -8,6 +8,8 @@
 
 这些端点在 refactor/yjs 分支中扩展了完整的版本管理和触发器 CRUD 能力。
 """
+import uuid
+
 import httpx
 import pytest
 
@@ -65,7 +67,9 @@ steps:
                 json={"yaml": draft_yaml},
             )
             data = web_client._unwrap(resp)
-            assert data is None or isinstance(data, dict)
+            # 草稿保存成功：应返回 None（空操作确认）或包含 id 的 dict
+            if data is not None:
+                assert isinstance(data, dict), f"保存草稿返回类型异常: {type(data)}"
 
             # 回读验证：重新获取 draft 确认已保存
             try:
@@ -104,7 +108,10 @@ steps:
             )
             data = web_client._unwrap(resp)
             # 发布成功返回版本信息或 null
-            assert data is None or isinstance(data, dict)
+            if data is not None:
+                assert isinstance(data, dict), f"发布返回类型异常: {type(data)}"
+                assert any(k in data for k in ("version", "tag", "id", "name")), \
+                    f"发布响应缺少标识字段: {list(data.keys())}"
 
             # 回读验证：发布后版本列表应非空
             versions = web_client.list_workflow_def_versions(wf_id)
@@ -168,7 +175,9 @@ steps:
                 f"/web/workflow-defs/{wf_id}/versions/{version_tag}/set-latest",
             )
             data = web_client._unwrap(resp)
-            assert data is None or isinstance(data, dict)
+            # set-latest 返回 None（确认）或包含版本信息的 dict
+            if data is not None:
+                assert isinstance(data, dict), f"set-latest 返回类型异常: {type(data)}"
         except (httpx.HTTPStatusError, RuntimeError) as e:
             err_str = str(e)
             if "404" in err_str:
@@ -195,13 +204,13 @@ steps:
                 f"/web/workflow-defs/{wf_id}/versions/{version_tag}/restore",
             )
             data = web_client._unwrap(resp)
-            assert data is None or isinstance(data, dict)
+            # restore 返回 None（确认）或包含恢复结果的 dict
+            if data is not None:
+                assert isinstance(data, dict), f"restore 返回类型异常: {type(data)}"
         except (httpx.HTTPStatusError, RuntimeError) as e:
             err_str = str(e)
             if "404" in err_str:
                 pytest.skip(f"版本 {version_tag} 不存在")
-            if "500" in err_str or "502" in err_str:
-                pytest.skip(f"版本恢复服务不可用: {e}")
             raise
 
     def test_get_workflow_params(self, web_client):
@@ -239,7 +248,7 @@ class TestWorkflowDefTriggerAPI:
 
     def test_create_trigger(self, web_client):
         """创建触发器"""
-        test_name = "api-test-wf-trigger-001"
+        test_name = f"api-test-wf-trigger-{uuid.uuid4().hex[:8]}"
         wf_id = _create_test_workflow(web_client, test_name)
 
         try:
@@ -264,7 +273,7 @@ class TestWorkflowDefTriggerAPI:
 
     def test_delete_trigger(self, web_client):
         """删除触发器"""
-        test_name = "api-test-wf-trigger-delete-001"
+        test_name = f"api-test-wf-trigger-del-{uuid.uuid4().hex[:8]}"
         wf_id = _create_test_workflow(web_client, test_name)
 
         try:
@@ -286,7 +295,9 @@ class TestWorkflowDefTriggerAPI:
                 f"/web/workflow-defs/{wf_id}/triggers/{trigger_id}",
             )
             del_data = web_client._unwrap(del_resp)
-            assert del_data is None or isinstance(del_data, dict)
+            # 删除返回 None（确认）或包含删除结果的 dict
+            if del_data is not None:
+                assert isinstance(del_data, dict), f"删除触发器返回类型异常: {type(del_data)}"
 
             # 回读验证：触发器列表不应包含已删除的触发器
             try:
@@ -310,7 +321,7 @@ class TestWorkflowDefTriggerAPI:
 
     def test_enable_disable_trigger(self, web_client):
         """启用/禁用触发器：验证 disable 和 enable 调用成功"""
-        test_name = "api-test-wf-trigger-toggle-001"
+        test_name = f"api-test-wf-trigger-toggle-{uuid.uuid4().hex[:8]}"
         wf_id = _create_test_workflow(web_client, test_name)
 
         try:
@@ -332,14 +343,16 @@ class TestWorkflowDefTriggerAPI:
                 f"/web/workflow-defs/{wf_id}/triggers/{trigger_id}/disable",
             )
             disable_data = web_client._unwrap(disable_resp)
-            assert disable_data is None or isinstance(disable_data, dict)
+            if disable_data is not None:
+                assert isinstance(disable_data, dict), f"禁用触发器返回类型异常: {type(disable_data)}"
 
             # 启用 — 应成功返回
             enable_resp = web_client.post(
                 f"/web/workflow-defs/{wf_id}/triggers/{trigger_id}/enable",
             )
             enable_data = web_client._unwrap(enable_resp)
-            assert enable_data is None or isinstance(enable_data, dict)
+            if enable_data is not None:
+                assert isinstance(enable_data, dict), f"启用触发器返回类型异常: {type(enable_data)}"
         except (httpx.HTTPStatusError, RuntimeError) as e:
             err_str = str(e)
             if "400" in err_str or "422" in err_str:
@@ -350,7 +363,7 @@ class TestWorkflowDefTriggerAPI:
 
     def test_regenerate_trigger_hash(self, web_client):
         """重新生成触发器哈希"""
-        test_name = "api-test-wf-trigger-regen-001"
+        test_name = f"api-test-wf-trigger-regen-{uuid.uuid4().hex[:8]}"
         wf_id = _create_test_workflow(web_client, test_name)
 
         try:

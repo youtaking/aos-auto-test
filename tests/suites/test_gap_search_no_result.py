@@ -12,7 +12,8 @@ def test_home_empty_description_submit(logged_in_page, base_url):
     """TC-HOME-GAP-001: 空描述时点击一键创建无响应"""
     logged_in_page.goto(f"{base_url}/ctrl/agent/home")
     logged_in_page.wait_for_load_state("domcontentloaded")
-    logged_in_page.wait_for_timeout(2000)
+    logged_in_page.wait_for_load_state("networkidle")
+    logged_in_page.wait_for_timeout(500)
 
     # 确保输入框为空
     textarea = logged_in_page.locator("textarea[placeholder*='描述']")
@@ -45,7 +46,8 @@ def test_vertical_models_search_no_result(logged_in_page, base_url):
     """TC-VM-GAP-001: 垂直模型搜索无结果时卡片消失"""
     logged_in_page.goto(f"{base_url}/ctrl/agent/vertical-models")
     logged_in_page.wait_for_load_state("domcontentloaded")
-    logged_in_page.wait_for_timeout(2000)
+    logged_in_page.wait_for_load_state("networkidle")
+    logged_in_page.wait_for_timeout(500)
 
     search = logged_in_page.locator("input[placeholder*='搜索']")
     if search.count() == 0:
@@ -85,7 +87,8 @@ def test_algorithms_search_no_result(logged_in_page, base_url):
     """TC-ALGO-GAP-001: 算法库搜索无结果时列表过滤"""
     logged_in_page.goto(f"{base_url}/ctrl/agent/algorithms")
     logged_in_page.wait_for_load_state("domcontentloaded")
-    logged_in_page.wait_for_timeout(2000)
+    logged_in_page.wait_for_load_state("networkidle")
+    logged_in_page.wait_for_timeout(500)
 
     search = logged_in_page.locator("input[placeholder*='搜索']")
     if search.count() == 0:
@@ -176,41 +179,58 @@ def test_knowledge_search_no_result(logged_in_page, base_url):
 @pytest.mark.order(405)
 @pytest.mark.p2
 def test_views_card_buttons_complete(logged_in_page, base_url):
-    """TC-VIEW-GAP-001: 视图卡片操作按钮完整性"""
+    """TC-VIEW-GAP-001: 视图卡片操作按钮完整性（自建自销）"""
+    import uuid
     from tests.pages.views_page import ViewsPage
     v = ViewsPage(logged_in_page, base_url)
     v.goto()
     if not v.is_loaded():
         pytest.skip("产品视图页面未加载")
 
-    cards = logged_in_page.locator("div.rounded-lg.border")
-    try:
-        cards.first.wait_for(state="visible", timeout=8000)
-    except Exception:
-        pytest.skip("无视图卡片")
+    # 1. 自建视图（数据安全：先创建再操作，测试结束删除）
+    # 限定到「发布视图」顶栏头部的 + 创建按钮（禁止全页面搜索 lucide-plus）
+    header = logged_in_page.locator(
+        "div.flex.items-center.justify-between.border-b span.text-xs.font-medium"
+    ).filter(has_text="发布视图")
+    if header.count() == 0:
+        pytest.skip("发布视图顶栏未找到")
+    plus_btn = header.first.locator("..").locator("button").filter(
+        has=logged_in_page.locator("svg.lucide-plus")
+    )
+    if plus_btn.count() == 0:
+        pytest.skip("创建视图按钮未找到")
+    plus_btn.first.click()
+    logged_in_page.wait_for_timeout(1000)
 
-    first_card = cards.first
-    # hover 显示操作按钮
-    first_card.hover()
-    logged_in_page.wait_for_timeout(800)
+    dialog = logged_in_page.locator("[role=dialog]")
+    if dialog.count() == 0:
+        pytest.skip("创建视图弹窗未打开")
+    name_input = dialog.first.locator("input[placeholder='输入视图名称']")
+    if name_input.count() == 0:
+        pytest.skip("视图名称输入框未找到")
+    view_name = f"e2e_view_{uuid.uuid4().hex[:6]}"
+    name_input.first.fill(view_name)
+    logged_in_page.wait_for_timeout(300)
+    save_btn = dialog.first.get_by_role("button", name="保存")
+    save_btn.first.click()
 
-    # 检查编辑按钮 (Pencil 图标)
-    edit_btn = first_card.locator("button").filter(
+    # 2. 等待视图卡片出现（按名称精确定位，禁止裸 count）
+    card_sel = logged_in_page.locator("div.rounded-lg.border").filter(has_text=view_name)
+    card_sel.first.wait_for(state="visible", timeout=10000)
+
+    # 3. 校验操作按钮完整（源码确认按钮始终可见，无需 hover）
+    edit_btn = card_sel.first.locator("button").filter(
         has=logged_in_page.locator("svg.lucide-pencil")
     )
-    # 检查删除按钮 (Trash 图标)
-    del_btn = first_card.locator("button").filter(
+    del_btn = card_sel.first.locator("button").filter(
         has=logged_in_page.locator("svg.lucide-trash-2")
     )
-    # 检查打开按钮 (ExternalLink 图标)
-    open_btn = first_card.locator("button").filter(
+    open_btn = card_sel.first.locator("button").filter(
         has=logged_in_page.locator("svg.lucide-external-link")
     )
-    # 检查复制按钮 (Copy 图标)
-    copy_btn = first_card.locator("button").filter(
+    copy_btn = card_sel.first.locator("button").filter(
         has=logged_in_page.locator("svg.lucide-copy")
     )
-
     has_all = edit_btn.count() > 0 and del_btn.count() > 0 and \
               open_btn.count() > 0 and copy_btn.count() > 0
     assert has_all, (
@@ -218,6 +238,26 @@ def test_views_card_buttons_complete(logged_in_page, base_url):
         f"编辑={edit_btn.count()}, 删除={del_btn.count()}, "
         f"打开={open_btn.count()}, 复制={copy_btn.count()}"
     )
+
+    # 4. 清理：删除自建视图（确认弹窗按钮为「确认」）
+    del_btn.first.click()
+    logged_in_page.wait_for_timeout(800)
+    cdlg = logged_in_page.locator("[role=alertdialog], [role=dialog]").filter(
+        has_text="删除发布视图"
+    )
+    assert cdlg.count() > 0, "删除视图后未弹出确认弹窗"
+    cdlg_text = cdlg.first.inner_text()
+    assert view_name in cdlg_text, \
+        f"确认弹窗未包含视图名 {view_name}: {cdlg_text[:100]}"
+    confirm = cdlg.first.get_by_role("button", name="确认")
+    assert confirm.count() > 0, "确认弹窗缺少确认按钮"
+    confirm.first.click()
+    # 等待卡片消失（禁止裸 count）
+    for _wait in range(15):
+        if card_sel.count() == 0:
+            break
+        logged_in_page.wait_for_timeout(1000)
+    assert card_sel.count() == 0, f"删除后视图 {view_name} 仍显示在列表中"
 
 
 @allure.epic("智能体管理")
@@ -227,7 +267,8 @@ def test_agent_card_hover_buttons(logged_in_page, base_url):
     """TC-AGENT-GAP-001: 智能体卡片 hover 操作按钮"""
     logged_in_page.goto(f"{base_url}/ctrl/agent/home")
     logged_in_page.wait_for_load_state("domcontentloaded")
-    logged_in_page.wait_for_timeout(2000)
+    logged_in_page.wait_for_load_state("networkidle")
+    logged_in_page.wait_for_timeout(500)
 
     # 找到自有智能体卡片（非共享）
     cards = logged_in_page.locator("button.agent-sidebar-agent-card")
@@ -275,7 +316,8 @@ def test_sidebar_collapse_expand(logged_in_page, base_url):
     """TC-SIDEBAR-GAP-001: 侧边栏折叠/展开"""
     logged_in_page.goto(f"{base_url}/ctrl/agent/home")
     logged_in_page.wait_for_load_state("domcontentloaded")
-    logged_in_page.wait_for_timeout(2000)
+    logged_in_page.wait_for_load_state("networkidle")
+    logged_in_page.wait_for_timeout(500)
 
     # 点击收起
     collapse_btn = logged_in_page.get_by_role("button", name="收起侧边栏")
@@ -304,7 +346,8 @@ def test_sidebar_active_item_highlight(logged_in_page, base_url):
     """TC-SIDEBAR-GAP-002: 当前页面导航项高亮"""
     logged_in_page.goto(f"{base_url}/ctrl/agent/mcp")
     logged_in_page.wait_for_load_state("domcontentloaded")
-    logged_in_page.wait_for_timeout(2000)
+    logged_in_page.wait_for_load_state("networkidle")
+    logged_in_page.wait_for_timeout(500)
 
     # 当前页面是 MCP，MCP 导航项应有 active class
     mcp_btn = logged_in_page.locator("button.agent-sidebar-nav-item.active")

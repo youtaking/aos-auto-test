@@ -58,7 +58,7 @@ def test_home_quick_create_template(logged_in_page, base_url):
     first_pill_text = pills.first.inner_text().strip()
     pills.first.wait_for(state="visible", timeout=5000)
     pills.first.click()
-    logged_in_page.wait_for_timeout(2000)
+    logged_in_page.wait_for_timeout(1000)
 
     # 验证：任意一种反馈即视为通过
     url_after = logged_in_page.url

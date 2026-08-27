@@ -127,7 +127,7 @@ def test_chat_delete_session(logged_in_page, base_url):
     unique_id = _uuid.uuid4().hex[:6]
     session_marker = f"E2E-del-{unique_id}"
     chat.send_message(f"{session_marker}-请回复OK")
-    logged_in_page.wait_for_timeout(5000)  # Yjs 同步需要时间
+    logged_in_page.wait_for_timeout(1500)  # Yjs 同步需要时间
 
     try:
         # 2. 通过 client API 获取会话列表（绕过 UI 缓存），支持 YJS 异步加载重试
@@ -182,7 +182,8 @@ def test_chat_delete_session(logged_in_page, base_url):
                 logged_in_page.reload(wait_until="domcontentloaded")
             except Exception:
                 pass
-            logged_in_page.wait_for_timeout(2000)
+            logged_in_page.wait_for_load_state("networkidle")
+            logged_in_page.wait_for_timeout(500)
             titles_after = chat.get_session_titles_via_client()
             count_after = sum(1 for t in titles_after if unique_id in t)
 

@@ -74,7 +74,7 @@ class TestAgentSiteWebAPI:
             assert detail["id"] == created_id
             assert detail["name"] == test_name
         except (httpx.HTTPStatusError, RuntimeError) as e:
-            if "400" in str(e) or "503" in str(e) or "500" in str(e):
+            if "400" in str(e) or "503" in str(e):
                 pytest.skip(f"Agent Site 服务不可用: {e}")
             raise
         finally:

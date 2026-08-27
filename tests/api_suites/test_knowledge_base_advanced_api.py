@@ -251,7 +251,7 @@ class TestKnowledgeGraphAPI:
 
     def test_graph_nonexistent_kb(self, web_client):
         """查询不存在知识库的图谱：应返回 404 或 502"""
-        with pytest.raises((httpx.HTTPStatusError, RuntimeError)):
+        with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(404|502)"):
             web_client.get("/web/knowledgeBases/nonexistent-kb-99999/graph")
 
 

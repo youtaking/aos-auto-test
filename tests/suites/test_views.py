@@ -30,13 +30,20 @@ def _list_views_api(page, base_url):
 
 
 def _get_first_agent_id(page, base_url):
-    """GET /web/config/agents → 返回第一个可用 agent ID（用于创建视图的必填字段 agentId）"""
+    """GET /web/config/agents → 返回 my-auto-test 的 agent ID（用于创建视图的必填字段 agentId）
+
+    ViewsPage.goto() 浏览的是 my-auto-test 的「发布视图」Tab（面板按 agent 过滤视图），
+    创建视图必须绑定该 agent 才会显示；找不到时回退第一个可用 agent。
+    """
     r = page.request.get(f"{base_url}/web/config/agents")
     if r.status == 200:
         body = r.json().get("data", {})
         if isinstance(body, dict):
             agents = body.get("agents", [])
             if isinstance(agents, list) and agents:
+                for a in agents:
+                    if a.get("name") == "my-auto-test":
+                        return a.get("id")
                 return agents[0].get("id")
     return None
 
@@ -140,14 +147,14 @@ class TestViews:
             tab_btn = logged_in_page.get_by_role("button", name="发布视图")
             if tab_btn.count() > 0:
                 tab_btn.first.click(force=True)
-                logged_in_page.wait_for_timeout(2000)
+                logged_in_page.wait_for_timeout(1000)
             else:
                 # tab 按钮都找不到，面板可能折叠了，goto 重试
                 v.goto()
-                logged_in_page.wait_for_timeout(2000)
+                logged_in_page.wait_for_timeout(1000)
 
         assert has_title, "缺少「发布视图」Tab"
-        assert has_views or has_empty, "既没有视图列表也没有空状态提示"
+        assert has_views or has_empty, f"既无视图列表也无空状态提示，has_views={has_views}, has_empty={has_empty}"
 
     # === 创建视图 ===
 
@@ -173,7 +180,8 @@ class TestViews:
         # 验证弹窗内容
         dialog_text = dialog.first.inner_text()
         assert "名称" in dialog_text, "弹窗缺少名称字段"
-        assert "保存" in dialog_text or "创建" in dialog_text, "弹窗缺少提交按钮"
+        assert any(kw in dialog_text for kw in ["保存", "创建"]), \
+            f"创建弹窗缺少提交按钮（保存/创建），dialog_text 前200字符: {dialog_text[:200]!r}"
 
         # 关闭弹窗
         cancel = dialog.locator("button").filter(has_text="取消")
@@ -541,3 +549,132 @@ class TestViews:
                 pytest.fail("点击复制后未出现「链接已复制」toast")
         finally:
             _delete_view_api(logged_in_page, base_url, view_id)
+
+    @pytest.mark.order(512)
+    @pytest.mark.p1
+    def test_views_module_config(self, logged_in_page, base_url):
+        """验证 ProdView 模块配置区域存在（编辑弹窗中有模块开关）"""
+        view = _create_view_api(logged_in_page, base_url)
+        view_id = view.get("id")
+        view_name = view.get("name", "")
+        if not view_id:
+            pytest.skip("无法创建视图")
+        try:
+            v = ViewsPage(logged_in_page, base_url)
+            v.goto()
+
+            # 等待视图卡片加载
+            cards = logged_in_page.locator("div.rounded-lg.border")
+            try:
+                cards.first.wait_for(state="visible", timeout=5000)
+            except Exception:
+                pytest.skip("视图卡片未加载")
+
+            # 定位卡片，点击编辑按钮（Pencil 图标）
+            card = cards.filter(has_text=view_name)
+            if card.count() == 0:
+                card = cards
+            edit_btn = card.first.locator("button").filter(
+                has=logged_in_page.locator("svg.lucide-pencil")
+            )
+            if edit_btn.count() == 0:
+                pytest.skip("视图卡片内缺少编辑按钮")
+            edit_btn.first.evaluate("el => el.click()")
+
+            # 验证编辑弹窗打开
+            dialog = logged_in_page.locator('[role="dialog"]')
+            try:
+                dialog.first.wait_for(state="visible", timeout=5000)
+            except Exception:
+                pytest.skip("编辑弹窗未打开")
+
+            # 验证模块配置区域存在（checkbox 或 toggle/switch）
+            switches = dialog.locator('[role="switch"]')
+            checkboxes = dialog.locator('input[type="checkbox"]')
+            has_switches = switches.count() > 0
+            has_checkboxes = checkboxes.count() > 0
+            try:
+                if not has_switches:
+                    switches.first.wait_for(state="visible", timeout=3000)
+                    has_switches = True
+            except Exception:
+                pass
+
+            assert has_switches or has_checkboxes, \
+                "编辑弹窗内缺少模块配置区域（无 switch 或 checkbox）"
+
+            # 关闭弹窗（不保存）
+            cancel = dialog.locator("button").filter(has_text="取消")
+            if cancel.count() > 0:
+                cancel.first.click()
+            else:
+                logged_in_page.keyboard.press("Escape")
+        finally:
+            _delete_view_api(logged_in_page, base_url, view_id)
+
+
+# ==================== 补充 P1 测试 ====================
+
+
+@allure.epic("产品视图")
+@pytest.mark.order(513)
+@pytest.mark.p1
+def test_views_preview(logged_in_page, base_url, request):
+    """P1: ProdView 预览功能 — 点击 '打开视图' 验证预览页面出现（自建自销）"""
+    import uuid
+    v = ViewsPage(logged_in_page, base_url)
+
+    # 1. 自建视图（数据安全：不依赖残留视图，测试结束删除）
+    view_data = _create_view_api(
+        logged_in_page, base_url, name=f"e2e-preview-{uuid.uuid4().hex[:6]}"
+    )
+    view_id = view_data.get("id")
+    if not view_id:
+        pytest.skip("无法创建测试视图")
+    view_name = view_data.get("name", "")
+
+    # 2. 进入视图 Tab，找到自建视图卡片（按名称精确定位）
+    v.goto()
+    card_sel = logged_in_page.locator("div.rounded-lg.border").filter(has_text=view_name)
+    try:
+        card_sel.first.wait_for(state="visible", timeout=10000)
+    except Exception:
+        pytest.skip("自建视图卡片未在页面中出现")
+
+    # 3. 点击「打开视图」，应在新标签页打开
+    open_btn = card_sel.first.locator("button").filter(
+        has=logged_in_page.locator("svg.lucide-external-link")
+    )
+    if open_btn.count() == 0:
+        pytest.skip("视图卡片内未找到 '打开视图' 按钮")
+    open_btn.first.wait_for(state="visible", timeout=5000)
+
+    new_page = None
+    try:
+        with logged_in_page.context.expect_page() as new_page_info:
+            open_btn.first.click()
+        new_page = new_page_info.value
+        new_page.wait_for_load_state("domcontentloaded")
+
+        # 验证新标签页 URL 包含 /view/
+        new_url = new_page.url
+        assert "/view/" in new_url, \
+            f"打开视图后 URL 不包含 /view/，实际 URL: {new_url}"
+
+        # 4. 等待预览内容渲染（轮询，禁止单次读 body）
+        # 共享长会话下新标签页 React 挂载可能慢于 domcontentloaded，需轮询
+        body_ok = False
+        for _wait in range(20):
+            body_text = new_page.locator("body").inner_text()
+            if len(body_text.strip()) > 0:
+                body_ok = True
+                break
+            new_page.wait_for_timeout(1000)
+        assert body_ok, "打开视图后页面内容为空"
+    finally:
+        if new_page:
+            try:
+                new_page.close()
+            except Exception:
+                pass
+        _delete_view_api(logged_in_page, base_url, view_id)

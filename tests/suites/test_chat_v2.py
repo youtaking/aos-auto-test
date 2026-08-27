@@ -79,14 +79,11 @@ def test_code_block_highlight(logged_in_page, base_url):
         "必须使用三个反引号加 python 的格式：```python\nprint('hello world')\n```"
     )
 
-    # 轮询等待代码块出现
-    for _ in range(10):
-        if chat.has_code_block():
-            break
-        logged_in_page.wait_for_timeout(1000)
-
-    assert chat.has_code_block(), \
-        "AI 未按指令生成代码块（pre 元素不存在），语法高亮测试无法进行"
+    # 轮询等待代码块出现（全量回归负载高时 AI 回复/Yjs 同步可能滞后，自愈重试）
+    found, reply = chat.wait_for_chat_marker(chat.has_code_block, timeout_s=90)
+    assert found, \
+        "AI 未按指令生成代码块（pre 元素不存在），语法高亮测试无法进行。" \
+        f"回复片段: {reply[:300]}"
 
     # 验证 code 元素存在
     code = logged_in_page.locator("pre code")
@@ -112,14 +109,11 @@ def test_long_code_block_layout(logged_in_page, base_url):
         "务必使用 ```python 代码块格式包裹整个代码。"
     )
 
-    # 轮询等待代码块出现
-    for _ in range(10):
-        if chat.has_code_block():
-            break
-        logged_in_page.wait_for_timeout(1000)
-
-    assert chat.has_code_block(), \
-        "AI 未按指令生成代码块（pre 元素不存在），长代码块布局测试无法进行"
+    # 轮询等待代码块出现（10 个方法的类回复较长，生成可能超 10s，自愈重试）
+    found, reply = chat.wait_for_chat_marker(chat.has_code_block, timeout_s=90)
+    assert found, \
+        "AI 未按指令生成代码块（pre 元素不存在），长代码块布局测试无法进行。" \
+        f"回复片段: {reply[:300]}"
 
     # 验证代码块没有导致页面横向溢出
     body_width = logged_in_page.evaluate("document.body.scrollWidth")
@@ -173,24 +167,11 @@ def test_markdown_table_rendering(logged_in_page, base_url):
         "请严格按此格式输出。"
     )
 
-    # 轮询等待表格出现（LLM 响应可能较慢，最多等 45 秒）
-    for _ in range(45):
-        if chat.has_table():
-            break
-        logged_in_page.wait_for_timeout(1000)
-
-    if not chat.has_table():
-        # 诊断：检查 AI 是否回复了（可能格式不是表格）
-        log_area = logged_in_page.locator("div[role='log']")
-        log_text = log_area.first.inner_text() if log_area.count() > 0 else ""
-        import allure
-        allure.attach(
-            f"AI 回复内容（前500字）：\n{log_text[:500]}",
-            name="表格未出现-AI回复诊断", attachment_type=allure.attachment_type.TEXT,
-        )
-
-    assert chat.has_table(), \
-        "AI 未按指令生成表格（table 元素不存在），表格渲染测试失败"
+    # 轮询等待表格出现（LLM 响应较慢 / 全量负载高时 Yjs 同步滞后，自愈重试）
+    found, reply = chat.wait_for_chat_marker(chat.has_table, timeout_s=90)
+    assert found, \
+        "AI 未按指令生成表格（table 元素不存在），表格渲染测试失败。" \
+        f"回复片段: {reply[:300]}"
 
     table = logged_in_page.locator("table").first
     # 验证表格至少有 2 行数据
@@ -312,16 +293,15 @@ def test_session_message_isolation(logged_in_page, base_url):
         chat.close_session_dialog()
         pytest.skip("需要至少 2 个会话才能测试隔离")
 
-    # 1. 点击第一个会话
+    # 1. 点击第一个会话，轮询等待消息区渲染真实内容
+    #    （禁止裸固定等待后立即读取：全量负载下切换会话后消息区可能短暂停留在空态占位符）
     chat.click_session(titles[0])
-    logged_in_page.wait_for_timeout(800)
-    msg_text_a = chat.get_chat_messages_text()
+    msg_text_a = chat.wait_for_messages_loaded()
 
     # 2. 打开对话框，点击第二个会话
     chat.open_session_dialog()
     chat.click_session(titles[1])
-    logged_in_page.wait_for_timeout(800)
-    msg_text_b = chat.get_chat_messages_text()
+    msg_text_b = chat.wait_for_messages_loaded()
 
     # 3. 两个会话的消息区域内容不同（仅比较消息区，排除侧边栏）
     if not msg_text_a or not msg_text_b:
@@ -665,7 +645,7 @@ def test_multi_file_upload(logged_in_page, base_url):
         if first_item.count() == 0:
             # 等待更长时间
             for _ in range(5):
-                logged_in_page.wait_for_timeout(2000)
+                logged_in_page.wait_for_timeout(1000)
                 first_item = logged_in_page.get_by_role("treeitem", name=file_names[0])
                 if first_item.count() > 0:
                     break
@@ -786,8 +766,8 @@ def test_exe_file_preview_unsupported(logged_in_page, base_url):
         if "选择文件以预览" in body_text or "从左侧文件树选择文件预览" in body_text:
             # 文件服务不可用（503）时预览无法加载，跳过
             pytest.skip("文件服务不可用（503），.exe 文件预览无法加载")
-        assert "暂不支持此格式" in body_text or "不支持" in body_text, \
-            f"点击 .exe 文件后未显示'暂不支持此格式'提示"
+        assert any(kw in body_text for kw in ["暂不支持此格式", "不支持"]), \
+            f"不支持的文件格式未显示相应提示，body_text 前200字符: {body_text[:200]!r}"
 
         # 清理：删除上传的 exe 文件
         if chat.has_file_in_tree(exe_name):
@@ -1014,9 +994,8 @@ def test_stop_generation(logged_in_page, base_url):
     msg_during = log_area.first.inner_text() if log_area.count() > 0 else ""
     content_diff = len(msg_during) - len_before
     is_disabled = chat.is_skill_button_disabled()
-    assert content_diff > 50 or is_disabled, (
-        f"流式响应未开始：消息区增量={content_diff}字符（需>50）且按钮未禁用"
-    )
+    assert content_diff > 50 or is_disabled, \
+        f"流式响应未开始（消息区增量不足且按钮未禁用），content_diff={content_diff}, is_disabled={is_disabled}"
 
     # 点击发送/停止按钮（第3个按钮）
     len_during = len(msg_during)

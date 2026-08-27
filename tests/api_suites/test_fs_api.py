@@ -140,6 +140,16 @@ class TestFsWebAPI:
 
         assert isinstance(result, dict)
 
+        # 回读验证写入内容
+        try:
+            read_back = web_client.read_fs_file(env_id, test_path)
+            assert isinstance(read_back, dict)
+            if "content" in read_back:
+                assert read_back["content"] == test_content, \
+                    f"回读内容不匹配: 期望 {test_content!r}, 实际 {read_back['content']!r}"
+        except (httpx.HTTPStatusError, RuntimeError) as e:
+            pytest.fail(f"写入后回读验证失败: {e}")
+
         # 清理
         try:
             web_client.delete_fs_file(env_id, test_path)

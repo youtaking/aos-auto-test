@@ -59,8 +59,8 @@ def test_apikey_001_list_loads(logged_in_page, base_url):
 
     # 1. 页面标题
     body = ak.get_body_text()
-    assert "API" in body or "密钥" in body, \
-        f"页面缺少标题，当前内容: {body[:80]}"
+    assert any(kw in body for kw in ["API", "密钥"]), \
+        f"API 密钥页面缺少标题，页面文本片段: '{body[:200] if body else '(empty)'}'"
 
     # 2. 创建密钥按钮
     assert ak.has_create_button(), "创建密钥按钮不存在"
@@ -74,13 +74,13 @@ def test_apikey_001_list_loads(logged_in_page, base_url):
     keys = _get_keys_api(logged_in_page, base_url)
     if keys:
         # 有密钥时验证前缀显示
-        assert "rcs_" in body or "sk-" in body or len(keys) > 0, \
-            "列表中未显示密钥前缀"
+        assert any(kw in body for kw in ["rcs_", "sk-"]), \
+            f"列表中未显示任何密钥前缀（rcs_ 或 sk-），页面文本片段: '{body[:200] if body else '(empty)'}'"
     # 无密钥时跳过前缀检查
 
     # 5. 显示创建时间
-    assert "创建时间" in body or "创建" in body, \
-        "列表中未显示创建时间"
+    assert any(kw in body for kw in ["创建时间", "创建"]), \
+        f"列表中未显示创建时间列，页面文本片段: '{body[:200] if body else '(empty)'}'"
 
     # 6. 搜索框存在
     assert ak.has_search_input(), "搜索框不存在"
@@ -100,8 +100,8 @@ def test_apikey_002_create_key(logged_in_page, base_url, request):
 
     ak.click_create_key()
     assert ak.is_dialog_open(), "创建密钥弹窗未打开"
-    assert "创建" in ak.get_dialog_title() or "密钥" in ak.get_dialog_title(), \
-        f"弹窗标题不正确: {ak.get_dialog_title()}"
+    assert any(kw in ak.get_dialog_title() for kw in ["创建", "密钥"]), \
+        f"创建密钥弹窗标题不正确: '{ak.get_dialog_title()}'"
 
     # 填写名称
     dialog = logged_in_page.locator("[role=dialog]")
@@ -164,7 +164,8 @@ def test_apikey_003_name_empty_validation(logged_in_page, base_url):
             logged_in_page.wait_for_timeout(800)
             has_error = len(ak.get_form_validation_text()) > 0
             dialog_still_open = ak.is_dialog_open()
-            assert has_error or dialog_still_open, f"名称为空时未拦截: has_error={has_error}, dialog_still_open={dialog_still_open}"
+            assert has_error or dialog_still_open, \
+                f"名称为空时未触发校验拦截（has_error={has_error}, dialog_still_open={dialog_still_open}）"
 
     ak.close_dialog()
 
@@ -208,7 +209,7 @@ def test_apikey_004_one_time_display(logged_in_page, base_url, request):
     for k in keys:
         if f"onetime-{_PREFIX}" in k.get("name", ""):
             assert "key" not in k or k.get("key") is None, \
-                "列表 API 返回了完整密钥"
+                f"列表 API 中暴露了完整密钥字段: key={k.get('key')!r}, name={k.get('name')!r}"
             assert k.get("prefix", "").startswith("rcs_"), \
                 "密钥前缀格式不正确"
 
@@ -301,7 +302,7 @@ def test_apikey_006_security_warning(logged_in_page, base_url, request):
         )
         # 至少有一个阶段显示了安全提示
         assert has_warning or has_post_warning, \
-            f"未检测到吊销警告: has_warning={has_warning}, has_post_warning={has_post_warning}"
+            f"未检测到密钥吊销安全警告提示（has_warning={has_warning}, has_post_warning={has_post_warning}）"
 
     ak.close_dialog()
 
@@ -464,8 +465,8 @@ def test_apikey_007_delete_key(logged_in_page, base_url, request):
         # 应有确认弹窗
         if ak.is_alert_dialog_open():
             alert_text = ak.get_alert_dialog_text()
-            assert "吊销" in alert_text or "确认" in alert_text or "删除" in alert_text, \
-                f"确认弹窗文本不正确: {alert_text}"
+            assert any(kw in alert_text for kw in ["吊销", "确认", "删除"]), \
+                f"确认弹窗文本缺少操作关键词（吊销/确认/删除），实际文本: '{alert_text}'"
             ak.confirm_alert()
             logged_in_page.wait_for_timeout(800)
         elif ak.is_dialog_open():
@@ -568,3 +569,87 @@ def test_apikey_009_copy_key(logged_in_page, base_url, request):
     for k in keys:
         if f"copy-{_PREFIX}" in k.get("name", ""):
             _delete_key_api(logged_in_page, base_url, k["id"])
+
+
+# ═══════════════════════════════════════════════════════
+# P1 补充: API Key 权限范围
+# ═══════════════════════════════════════════════════════
+
+@allure.epic("API密钥")
+@pytest.mark.order(352)
+@pytest.mark.p1
+def test_apikey_permissions(logged_in_page, base_url):
+    """验证 API Key 权限范围 — 查看密钥详情中的权限相关信息"""
+    ak = ApiKeyPage(logged_in_page, base_url)
+    ak.goto()
+    assert ak.is_loaded(), "API 密钥页面未加载"
+
+    # 检查是否有密钥列表
+    keys = _get_keys_api(logged_in_page, base_url)
+    if not keys:
+        pytest.skip("密钥列表为空，无法验证权限信息")
+
+    # 在页面上查找第一个密钥的详情入口
+    panel_body = logged_in_page.locator("div.agent-panel-body").first
+    key_rows = panel_body.locator(
+        "tr, [role='row'], div[class*='key-item'], "
+        "div[class*='list-item'], div[class*='card']"
+    )
+
+    if key_rows.count() == 0:
+        pytest.skip("页面上无法定位密钥列表项")
+
+    # 尝试点击第一个密钥查看详情
+    first_key = key_rows.first
+    first_key.click()
+    logged_in_page.wait_for_timeout(1000)
+
+    # 检查是否弹出详情弹窗或进入详情页
+    dialog = logged_in_page.locator("[role='dialog']")
+    detail_visible = dialog.count() > 0 and dialog.first.is_visible()
+
+    if not detail_visible:
+        # 尝试查找详情/查看按钮
+        detail_btn = logged_in_page.get_by_role("button", name="详情").or_(
+            logged_in_page.get_by_role("button", name="查看")
+        ).or_(
+            logged_in_page.get_by_role("link", name="详情")
+        ).or_(
+            logged_in_page.locator("button[title*='详情']")
+        )
+        if detail_btn.count() > 0:
+            detail_btn.first.click()
+            logged_in_page.wait_for_timeout(1000)
+            detail_visible = dialog.count() > 0 and dialog.first.is_visible()
+
+    if not detail_visible:
+        # 检查页面上是否直接显示了权限信息（无需进入详情）
+        panel_text = panel_body.inner_text()
+        permission_keywords = ["权限", "permission", "scope", "范围", "角色",
+                               "role", "access", "读", "写", "管理"]
+        has_permission = any(kw in panel_text for kw in permission_keywords)
+        if not has_permission:
+            pytest.skip("密钥列表无详情入口且无权限相关信息展示")
+
+    # 验证详情中包含权限相关信息
+    detail_container = dialog.first if detail_visible else panel_body
+    detail_text = detail_container.inner_text()
+
+    permission_keywords = ["权限", "permission", "scope", "范围", "角色",
+                           "role", "access", "读", "写", "管理",
+                           "只读", "readonly", "read-only", "全权限",
+                           "full", "admin"]
+    has_permission_info = any(kw in detail_text for kw in permission_keywords)
+
+    allure.attach(
+        f"详情文本片段: {detail_text[:200]}",
+        name="密钥详情",
+        attachment_type=allure.attachment_type.TEXT,
+    )
+
+    assert has_permission_info, \
+        "密钥详情中未找到权限相关信息（权限、scope、角色等关键词）"
+
+    # 关闭弹窗
+    if detail_visible:
+        dialog.first.press("Escape")

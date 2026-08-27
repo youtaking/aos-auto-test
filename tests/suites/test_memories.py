@@ -162,8 +162,9 @@ def test_memories_graph_visualization(logged_in_page, base_url, env_check):
     if not has_buttons:
         # 无数据时应显示空状态
         body_text = logged_in_page.locator("div.agent-panel-body").inner_text()
-        assert "暂无" in body_text or "no data" in body_text.lower() or "empty" in body_text.lower(), \
-            f"无图谱按钮且无空状态提示，页面内容: {body_text[:200]}"
+        body_text_lower = body_text.lower()
+        assert any(kw in text for kw, text in [("暂无", body_text), ("no data", body_text_lower), ("empty", body_text_lower)]), \
+            f"无数据时未显示空状态提示，body_text 前200字符: {body_text[:200]!r}"
         return  # 无数据，空状态验证通过
 
     # 有数据时：尝试切换到图谱视图
@@ -202,8 +203,9 @@ def test_memories_detail_modal(logged_in_page, base_url, env_check):
     if items.count() == 0:
         # 无数据时应显示空状态
         body_text = logged_in_page.locator("div.agent-panel-body").inner_text()
-        assert "暂无" in body_text or "no data" in body_text.lower() or "empty" in body_text.lower(), \
-            f"无数据项且无空状态提示，页面内容: {body_text[:200]}"
+        body_text_lower = body_text.lower()
+        assert any(kw in text for kw, text in [("暂无", body_text), ("no data", body_text_lower), ("empty", body_text_lower)]), \
+            f"无数据项时未显示空状态提示，body_text 前200字符: {body_text[:200]!r}"
         return  # 无数据，空状态验证通过
 
     # 点击第一个记忆项
@@ -233,3 +235,67 @@ def test_memories_detail_modal(logged_in_page, base_url, env_check):
     elif detail_panel.count() > 0:
         detail_text = detail_panel.first.inner_text()
         assert len(detail_text.strip()) > 0, "详情面板内容为空"
+
+
+@allure.epic("记忆")
+@pytest.mark.order(462)
+@pytest.mark.p1
+def test_memories_crud(logged_in_page, base_url):
+    """验证记忆模块基本操作 — 页面加载、Tab 切换、只读展示（记忆通过 Agent 对话注入，无手动创建入口）"""
+    mem = MemoryPage(logged_in_page, base_url)
+    mem.goto()
+
+    # 验证页面加载（有 Tab 或表格）
+    if not mem.is_loaded():
+        pytest.skip("记忆页面未加载（可能 Hindsight 服务未启用）")
+
+    tabs = mem.get_tab_names()
+    assert len(tabs) >= 1, f"记忆页面缺少分类 Tab: {tabs}"
+
+    # 记忆页面主内容区域无手动创建按钮 — 记忆通过 Agent 对话注入
+    # 在主内容区域（排除侧边栏）查找创建按钮
+    main_content = logged_in_page.locator("[role=main], main, div.agent-panel-content").first
+    create_btn = main_content.get_by_role("button", name="创建").or_(
+        main_content.get_by_role("button", name="新建").or_(
+            main_content.locator("button").filter(has_text="添加")
+        )
+    )
+
+    if create_btn.count() == 0:
+        # 验证只读展示：有 Tab + 空状态或数据
+        body_text = logged_in_page.locator("body").first.inner_text()
+        has_content = "暂无" in body_text or "记忆" in body_text
+        assert has_content, "记忆页面既无创建入口也无数据展示"
+        # 只读模式验证通过
+        return
+
+    # 如果有创建按钮（未来版本可能增加），验证点击后的弹窗
+    create_btn.first.wait_for(state="visible", timeout=5000)
+    create_btn.first.click()
+
+    # 验证创建弹窗或页面出现
+    dialog = logged_in_page.locator("[role='dialog']")
+    form_page = logged_in_page.locator("form, [data-slot='form']")
+    has_dialog = False
+    has_form = False
+    try:
+        dialog.first.wait_for(state="visible", timeout=3000)
+        has_dialog = True
+    except Exception:
+        pass
+    if not has_dialog:
+        try:
+            form_page.first.wait_for(state="visible", timeout=3000)
+            has_form = True
+        except Exception:
+            pass
+
+    assert has_dialog or has_form, "点击创建按钮后未出现弹窗或表单页面"
+
+    # 按 Escape 取消（不保存，避免操作数据）
+    logged_in_page.keyboard.press("Escape")
+    if has_dialog:
+        try:
+            dialog.first.wait_for(state="hidden", timeout=3000)
+        except Exception:
+            pass

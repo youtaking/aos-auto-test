@@ -76,8 +76,10 @@ def test_mcp_list_data_loads(logged_in_page, base_url):
     # 验证列表容器可见（有服务器或空状态提示）
     list_container = logged_in_page.locator("div.flex-1.overflow-y-auto")
     body_text = logged_in_page.locator("div.agent-panel-body").inner_text()
-    assert list_container.first.is_visible() or "暂无" in body_text or "没有" in body_text, \
-        "MCP 服务器列表容器不可见且无空状态提示"
+    list_visible = list_container.first.is_visible()
+    has_empty_hint = any(kw in body_text for kw in ["暂无", "没有", "No data", "Empty"])
+    assert list_visible or has_empty_hint, \
+        f"MCP 服务器列表不可见（列表容器可见={list_visible}, 空状态提示={has_empty_hint}）"
 
     # 验证 API 数据结构
     logged_in_page.wait_for_timeout(800)
@@ -349,7 +351,7 @@ def test_invalid_name_format(logged_in_page, base_url):
         dialog_still_open = mcp.is_create_dialog_open()
         errors = mcp.get_validation_errors()
         assert dialog_still_open or len(errors) > 0, \
-            f"{desc}（'{name[:20]}'）未触发校验反馈: dialog_still_open={dialog_still_open}, errors={errors}"
+            f"{desc}（'{name[:20]}'）未触发校验拦截（对话框已关闭={not dialog_still_open}, 错误提示={errors}）"
 
         if dialog_still_open:
             mcp.close_dialog()
@@ -363,7 +365,7 @@ def test_invalid_name_format(logged_in_page, base_url):
         dialog_still_open = mcp.is_create_dialog_open()
         errors = mcp.get_validation_errors()
         assert dialog_still_open or len(errors) > 0, \
-            f"空名称未触发校验反馈: dialog_still_open={dialog_still_open}, errors={errors}"
+            f"空名称未触发校验拦截（对话框已关闭={not dialog_still_open}, 错误提示={errors}）"
         if mcp.is_create_dialog_open():
             mcp.close_dialog()
 
@@ -396,7 +398,7 @@ def test_command_validation(logged_in_page, base_url):
     dialog_still_open = mcp.is_create_dialog_open()
     errors = mcp.get_validation_errors()
     assert dialog_still_open or len(errors) > 0, \
-        f"空命令未触发校验反馈: dialog_still_open={dialog_still_open}, errors={errors}"
+        f"空命令未触发校验拦截（对话框已关闭={not dialog_still_open}, 错误提示={errors}）"
 
     if dialog_still_open:
         mcp.close_dialog()
@@ -694,10 +696,8 @@ def test_remote_url(logged_in_page, base_url):
 
         has_feedback = any(kw in combined for kw in ["成功", "失败", "错误", "超时", "Success", "Error", "Timeout", "工具", "tool", "SSE", "Unable"])
         has_console_feedback = any(kw in console_combined for kw in ["SSE error", "Unable to connect", "Error", "error", "失败"])
-        assert has_feedback or has_console_feedback, (
-            f"测试远程 URL 后无任何反馈: has_feedback={has_feedback}, has_console_feedback={has_console_feedback}"
-            f"（页面片段: {combined[:80]}，控制台: {console_combined[:80]}）"
-        )
+        assert has_feedback or has_console_feedback, \
+            f"测试远程 URL 后无任何反馈（页面反馈={has_feedback}, 控制台反馈={has_console_feedback}）"
 
         # 关闭可能的 dialog
         if dialog.count() > 0 and dialog.first.is_visible():
@@ -787,7 +787,7 @@ def test_view_tools(logged_in_page, base_url):
 
     # 全量回归：首次未检测到结果，重新点击重试
     if not has_tools_info:
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.wait_for_timeout(1000)
         mcp.click_inspect(target)
         toast_texts, combined, has_tools_info = _poll_for_result()
 
@@ -981,7 +981,7 @@ def test_public_mcp_readonly(logged_in_page, base_url):
     dialog = logged_in_page.locator("[role='dialog']")
     body_text = logged_in_page.locator("body").inner_text()
     assert dialog.count() > 0 or "查看" in body_text, \
-        "点击'查看'后未打开详情面板"
+        f"点击'查看'后未打开详情面板（弹窗数={dialog.count()}）"
 
     # 关闭弹窗
     if dialog.count() > 0 and dialog.first.is_visible():
@@ -1033,7 +1033,7 @@ def test_mcp_make_public(logged_in_page, base_url):
         now_public = pub_switch.first.get_attribute("aria-checked") == "true"
         if now_public == was_public:
             # 可能需要更长时间响应，再等一轮
-            logged_in_page.wait_for_timeout(2000)
+            logged_in_page.wait_for_timeout(1000)
             now_public = pub_switch.first.get_attribute("aria-checked") == "true"
         if now_public == was_public:
             pytest.skip(f"公开开关点击后状态未变化 ({was_public}→{now_public})，可能为产品 bug")
@@ -1101,7 +1101,7 @@ def test_sse_mcp_make_public(logged_in_page, base_url):
         # 验证前端状态变化
         now_public = pub_switch.first.get_attribute("aria-checked") == "true"
         if now_public == was_public:
-            logged_in_page.wait_for_timeout(2000)
+            logged_in_page.wait_for_timeout(1000)
             now_public = pub_switch.first.get_attribute("aria-checked") == "true"
         if now_public == was_public:
             pytest.skip(f"公开开关点击后状态未变化 ({was_public}→{now_public})，可能为产品 bug")
@@ -1197,7 +1197,7 @@ def test_mcp_api_validation(logged_in_page, base_url):
 
     dialog_still_open = mcp.is_create_dialog_open()
     assert dialog_still_open or len(toast1) > 0, \
-        f"非法名称未触发校验: dialog_still_open={dialog_still_open}, toast1={toast1}"
+        f"非法名称未触发校验拦截（对话框已关闭={not dialog_still_open}, toast={toast1}）"
     if dialog_still_open:
         mcp.close_dialog()
     logged_in_page.wait_for_timeout(300)
@@ -1216,7 +1216,7 @@ def test_mcp_api_validation(logged_in_page, base_url):
 
     dialog_still_open = mcp.is_create_dialog_open()
     assert dialog_still_open or len(toast2) > 0, \
-        f"缺必填字段未触发校验: dialog_still_open={dialog_still_open}, toast2={toast2}"
+        f"缺必填字段未触发校验拦截（对话框已关闭={not dialog_still_open}, toast={toast2}）"
     if dialog_still_open:
         mcp.close_dialog()
     logged_in_page.wait_for_timeout(300)
@@ -1237,7 +1237,7 @@ def test_mcp_api_validation(logged_in_page, base_url):
 
     dialog_still_open = mcp.is_create_dialog_open()
     assert dialog_still_open or len(toast3) > 0, \
-        f"无效 URL 未触发校验: dialog_still_open={dialog_still_open}, toast3={toast3}"
+        f"无效 URL 未触发校验拦截（对话框已关闭={not dialog_still_open}, toast={toast3}）"
     if dialog_still_open:
         mcp.close_dialog()
 
@@ -1257,8 +1257,9 @@ def test_mcp_api_auth(logged_in_page, base_url, browser_instance):
     # 导航到 MCP 页面触发 API 请求（比 reload 更可靠）
     mcp.goto()
     logged_in_page.wait_for_load_state("domcontentloaded")
+    logged_in_page.wait_for_load_state("networkidle")
     # 额外等待 API 响应
-    logged_in_page.wait_for_timeout(2000)
+    logged_in_page.wait_for_timeout(500)
 
     list_resps = [r for r in api_responses if r["method"] == "GET" and r["status"] < 400]
     if len(list_resps) == 0:
@@ -1267,7 +1268,8 @@ def test_mcp_api_auth(logged_in_page, base_url, browser_instance):
             logged_in_page.reload(wait_until="domcontentloaded")
         except Exception:
             pass
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.wait_for_load_state("networkidle")
+        logged_in_page.wait_for_timeout(500)
         list_resps = [r for r in api_responses if r["method"] == "GET" and r["status"] < 400]
 
     assert len(list_resps) > 0, "已认证用户未能获取 MCP 列表 API 响应"
@@ -1370,14 +1372,12 @@ def test_mcp_api_tools(logged_in_page, base_url):
             assert "name" in first_tool, f"工具缺少 name 字段: {list(first_tool.keys())}"
         else:
             # API 返回了但没有 tools 字段，用 toast 验证
-            assert "工具" in toast_combined or "tool" in toast_combined.lower(), (
-                f"API 返回无 tools 且 toast 无工具信息: {toast_combined[:80]}"
-            )
+            assert any(kw in toast_combined.lower() for kw in ["工具", "tool"]), \
+                f"API 返回无 tools 字段且 toast 无工具相关信息，toast: {toast_combined[:100]}"
     else:
         # 未拦截到 API，验证 toast 反馈
-        assert "工具" in toast_combined or "成功" in toast_combined, (
-            f"未拦截到 inspect API 且 toast 无反馈: {toast_combined[:80]}"
-        )
+        assert any(kw in toast_combined for kw in ["工具", "成功", "tool", "success"]), \
+            f"未拦截到 inspect API 且 toast 无任何反馈，toast: {toast_combined[:100]}"
 
     # 关闭 dialog
     dialog = logged_in_page.locator("[role='dialog']")
@@ -1433,3 +1433,199 @@ def test_mcp_api_toggle(logged_in_page, base_url):
     mcp.toggle_enabled(toggle_name)
     logged_in_page.wait_for_timeout(800)
     mcp.delete_server(toggle_name)
+
+
+# ═══════════════════════════════════════════════════════
+# P1 补充: MCP 工具参数详情展示
+# ═══════════════════════════════════════════════════════
+
+@allure.epic("MCP服务器")
+@pytest.mark.order(98)
+@pytest.mark.p1
+def test_mcp_tool_details(logged_in_page, base_url):
+    """验证 MCP 工具参数详情展示 — 展开服务器查看工具列表或工具详情"""
+    mcp = McpServerPage(logged_in_page, base_url)
+    mcp.goto()
+
+    # 等待列表加载
+    logged_in_page.wait_for_timeout(2000)
+
+    # 检查是否有 MCP 服务器
+    panel_body = logged_in_page.locator("div.agent-panel-body").first
+    server_rows = panel_body.locator(
+        "tr, [role='row'], div[class*='server-item'], "
+        "div[class*='list-item'], div[class*='card']"
+    )
+
+    if server_rows.count() == 0:
+        pytest.skip("MCP 服务器列表为空，无法验证工具详情")
+
+    # 点击第一个服务器展开
+    first_server = server_rows.first
+    first_server.click()
+    logged_in_page.wait_for_timeout(1500)
+
+    # 检查是否有展开的工具列表或工具详情
+    panel_text = panel_body.inner_text()
+    tool_keywords = ["工具", "tool", "function", "函数", "方法", "method",
+                     "参数", "parameter", "arg", "schema", "inputSchema"]
+
+    has_tool_info = any(kw in panel_text.lower() for kw in [k.lower() for k in tool_keywords])
+
+    # 也检查展开后是否有专门的工具区域
+    tool_section = logged_in_page.locator(
+        "div[class*='tool'], section[class*='tool'], "
+        "div[class*='function'], div[class*='detail']"
+    )
+    has_tool_section = tool_section.count() > 0
+
+    # 检查是否有 "工具" Tab 或折叠面板
+    tool_tabs = logged_in_page.get_by_role("tab", name="工具").or_(
+        logged_in_page.get_by_role("tab", name="Tool")
+    ).or_(
+        logged_in_page.locator("button:has-text('工具')")
+    ).or_(
+        logged_in_page.locator("h3:has-text('工具')")
+    ).or_(
+        logged_in_page.locator("h3:has-text('Tool')")
+    )
+    has_tool_tab = tool_tabs.count() > 0
+
+    if has_tool_tab:
+        # 点击工具 Tab 查看工具列表
+        tool_tabs.first.click()
+        logged_in_page.wait_for_timeout(1000)
+
+        # 再次检查工具信息
+        panel_text = panel_body.inner_text()
+        has_tool_info = any(kw in panel_text.lower() for kw in [k.lower() for k in tool_keywords])
+
+    assert has_tool_info or has_tool_section or has_tool_tab, \
+        "展开 MCP 服务器后未找到工具列表、工具详情或工具相关区域"
+
+
+# === P2: MCP 列表分页 ===
+
+@allure.epic("MCP服务器")
+@pytest.mark.order(99)
+@pytest.mark.p2
+def test_mcp_pagination(logged_in_page, base_url):
+    """TC-MCP-P2-01: MCP 服务器列表分页控件验证"""
+    mcp = McpServerPage(logged_in_page, base_url)
+    mcp.goto()
+
+    if not mcp.is_loaded():
+        pytest.skip("MCP 页面未加载")
+
+    # 查找分页相关控件
+    # 1. 上一页/下一页按钮
+    prev_next = logged_in_page.get_by_role("button", name="上一页").or_(
+        logged_in_page.get_by_role("button", name="下一页")
+    ).or_(
+        logged_in_page.get_by_role("button", name="Previous")
+    ).or_(
+        logged_in_page.get_by_role("button", name="Next")
+    ).or_(
+        logged_in_page.locator("button[aria-label*='prev' i], button[aria-label*='next' i]")
+    ).or_(
+        logged_in_page.locator("button[data-slot='pagination-previous'], button[data-slot='pagination-next']")
+    )
+
+    # 2. 页码按钮（数字按钮或 "第 N 页" 文本）
+    page_numbers = logged_in_page.locator(
+        "nav[aria-label*='pagination' i], "
+        "div[class*='pagination'], "
+        "ul[class*='pagination']"
+    )
+
+    # 3. "显示 N 条" 或 page-size 选择器
+    page_size = logged_in_page.locator(
+        "select[class*='page-size'], "
+        "button:has-text('条/页'), "
+        "button:has-text('/页')"
+    ).or_(
+        logged_in_page.get_by_text("显示", exact=False).filter(has_text="条")
+    )
+
+    # 4. 分页文本（如 "1 / 3" 或 "共 N 条"）
+    pagination_text = logged_in_page.locator(
+        "span:has-text('共'), span:has-text('页'), "
+        "span:text-matches('\\\\d+\\\\s*/\\\\s*\\\\d+')"
+    )
+
+    has_prev_next = prev_next.count() > 0
+    has_page_nav = page_numbers.count() > 0
+    has_page_size = page_size.count() > 0
+    has_pagination_text = pagination_text.count() > 0
+
+    has_any_pagination = has_prev_next or has_page_nav or has_page_size or has_pagination_text
+
+    if not has_any_pagination:
+        # 数据量少时可能不显示分页，通过 API 确认列表数量
+        api_resp = logged_in_page.request.get(f"{base_url}/web/mcp")
+        if api_resp.status == 200:
+            data = api_resp.json()
+            items = data.get("data", data) if isinstance(data, dict) else data
+            if isinstance(items, dict):
+                total = items.get("total", len(items.get("items", [])))
+            elif isinstance(items, list):
+                total = len(items)
+            else:
+                total = 0
+            if total <= 20:
+                pytest.skip(f"MCP 列表仅 {total} 条数据，无分页控件（数据量不足）")
+        pytest.skip("MCP 列表未找到分页控件，且无法确认数据量")
+
+    # 分页控件存在，验证至少一个可见
+    visible_controls = []
+    if has_prev_next:
+        visible_controls.append("上一页/下一页按钮")
+    if has_page_nav:
+        visible_controls.append("页码导航")
+    if has_page_size:
+        visible_controls.append("每页条数选择")
+    if has_pagination_text:
+        visible_controls.append("分页文本信息")
+
+    assert has_any_pagination, \
+        f"MCP 列表应有分页控件，但未找到任何分页元素。已检查: 上一页/下一页、页码、每页条数、分页文本"
+
+
+# ═══════════════════════════════════════════════════════
+# P2 补充: MCP 创建弹窗字段覆盖
+# ═══════════════════════════════════════════════════════
+
+
+@allure.epic("MCP服务器")
+@pytest.mark.order(99.5)
+@pytest.mark.p2
+def test_mcp_create_all_fields(logged_in_page, base_url):
+    """验证 MCP 创建弹窗的所有未覆盖字段 — 仅验证字段存在，不填写不提交"""
+    mcp = McpServerPage(logged_in_page, base_url)
+    mcp.goto()
+
+    mcp.open_create_dialog()
+    assert mcp.is_create_dialog_open(), "新建 MCP 服务器弹窗未打开"
+
+    # 默认类型即为 Remote（SSE），无需切换
+
+    dialog = logged_in_page.locator("[role='dialog']")
+
+    # 1. Header 名称输入框
+    header_name_input = dialog.locator("input[placeholder='Header 名称']")
+    assert header_name_input.count() > 0, "Header 名称输入框不存在"
+    assert header_name_input.first.is_visible(), "Header 名称输入框不可见"
+
+    # 2. Header 值输入框
+    header_value_input = dialog.locator("input[placeholder='Header 值']")
+    assert header_value_input.count() > 0, "Header 值输入框不存在"
+    assert header_value_input.first.is_visible(), "Header 值输入框不可见"
+
+    # 3. 超时时间 number 输入框（spinbutton，默认值 5000）
+    timeout_input = dialog.locator("input[type='number']")
+    assert timeout_input.count() > 0, "超时时间输入框不存在"
+    assert timeout_input.first.is_visible(), "超时时间输入框不可见"
+
+    # Escape 关闭，不提交
+    logged_in_page.keyboard.press("Escape")
+    logged_in_page.wait_for_timeout(500)

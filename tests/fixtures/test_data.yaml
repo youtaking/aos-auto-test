@@ -3,7 +3,8 @@ fenixagent:
   admin:
     email: xiaochun@agent.com
     password: '12345678'
-  api_key: rcs_VWZmmkoEsylWuDXZvaMbDlrwITaeptXLaXSGQURTvSZuveCgSmVjqGlbCiHfJoqm
+  api_key: rcs_ArjxdvSFVgiBiCskVDckLrogiRTJXxALqkuYKhOlxEYDOEPsacnAoJzmXFOYlCNy
+  system_api_key: 2d55d0927a4299e022f48b24963bb32b
   api_email: xiaochun@agent.com
   api_password: '12345678'
 test_users:

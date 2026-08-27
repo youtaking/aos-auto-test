@@ -61,7 +61,7 @@ def test_agent_search_no_result(logged_in_page, base_url):
         "text=暂无, text=没有结果, text=empty, text=no result, text=无数据"
     ).count() > 0
     assert visible_count == 0 or has_empty_state, \
-        f"搜索不存在的智能体后可见卡片仍有 {visible_count} 个且无空状态提示"
+        f"搜索不存在的智能体后列表未过滤且无空状态提示，visible_count={visible_count}, has_empty_state={has_empty_state}"
     agent_page.clear_search()
 
 

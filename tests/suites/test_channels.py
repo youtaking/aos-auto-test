@@ -345,3 +345,184 @@ def test_channels_agent_dropdown(logged_in_page, base_url):
     # 关闭（点击 option 后弹窗可能已自动关闭）
     if ch.is_dialog_open():
         ch.close_dialog()
+
+
+@allure.epic("消息渠道")
+@pytest.mark.order(508)
+@pytest.mark.p1
+def test_channels_edit(logged_in_page, base_url):
+    """验证渠道编辑入口 — 点击编辑按钮，验证编辑弹窗或页面出现"""
+    ch = ChannelsPage(logged_in_page, base_url)
+    ch.goto()
+    assert ch.is_loaded(), "频道页面未加载"
+
+    # 检查是否有绑定
+    binding_count = ch.get_binding_count()
+    if binding_count == 0:
+        pytest.skip("无渠道绑定，无法验证编辑入口")
+
+    # 找到第一个渠道卡片
+    cards = logged_in_page.locator("div.group.rounded-lg.border-border-light")
+    try:
+        cards.first.wait_for(state="visible", timeout=5000)
+    except Exception:
+        pytest.skip("渠道卡片未加载")
+
+    # hover 显示操作按钮
+    cards.first.hover()
+    logged_in_page.wait_for_timeout(500)
+
+    # 查找编辑按钮（Pencil 图标或"编辑"文本）
+    edit_btn = cards.first.locator("button").filter(
+        has=logged_in_page.locator("svg.lucide-pencil")
+    ).or_(
+        cards.first.get_by_role("button", name="编辑")
+    ).or_(
+        cards.first.get_by_role("button", name="btn.edit")
+    )
+
+    if edit_btn.count() == 0:
+        pytest.skip("渠道卡片内无编辑按钮")
+
+    edit_btn.first.wait_for(state="visible", timeout=5000)
+    edit_btn.first.click()
+
+    # 验证编辑弹窗或页面出现
+    dialog = logged_in_page.locator("[role='dialog']")
+    edit_page_indicator = logged_in_page.locator("text=编辑渠道, text=Edit Channel")
+    has_dialog = False
+    has_edit_page = False
+    try:
+        dialog.first.wait_for(state="visible", timeout=3000)
+        has_dialog = True
+    except Exception:
+        pass
+    if not has_dialog:
+        try:
+            edit_page_indicator.first.wait_for(state="visible", timeout=3000)
+            has_edit_page = True
+        except Exception:
+            pass
+
+    assert has_dialog or has_edit_page, "点击编辑按钮后未出现编辑弹窗或页面"
+
+    # 关闭弹窗（不保存）
+    if has_dialog:
+        logged_in_page.keyboard.press("Escape")
+
+
+# ==================== 补充 P1 测试 ====================
+
+
+@allure.epic("消息渠道")
+@pytest.mark.order(509)
+@pytest.mark.p1
+def test_channels_connectivity(logged_in_page, base_url):
+    """P1: 渠道连通性测试 — 查找渠道卡片中的 '测试' 或 '连通性' 按钮"""
+    ch = ChannelsPage(logged_in_page, base_url)
+    ch.goto()
+    assert ch.is_loaded(), "频道页面未加载"
+
+    # 检查是否有绑定
+    binding_count = ch.get_binding_count()
+    if binding_count == 0:
+        pytest.skip("无渠道绑定，无法验证连通性测试")
+
+    # 找到第一个渠道卡片
+    cards = logged_in_page.locator("div.group.rounded-lg.border-border-light")
+    try:
+        cards.first.wait_for(state="visible", timeout=5000)
+    except Exception:
+        pytest.skip("渠道卡片未加载")
+
+    # hover 显示操作按钮
+    cards.first.hover()
+    logged_in_page.wait_for_timeout(500)
+
+    # 查找"测试"或"连通性"按钮
+    test_btn = cards.first.get_by_role("button", name="测试").or_(
+        cards.first.get_by_role("button", name="连通性").or_(
+            cards.first.get_by_role("button", name="Test").or_(
+                cards.first.locator("button").filter(
+                    has=logged_in_page.locator("svg.lucide-zap, svg.lucide-wifi, svg.lucide-activity")
+                )
+            )
+        )
+    )
+
+    if test_btn.count() == 0:
+        # 检查卡片文本中是否有测试相关入口
+        card_text = cards.first.inner_text()
+        if "测试" not in card_text and "Test" not in card_text:
+            pytest.skip("渠道卡片中未找到 '测试' 或 '连通性' 按钮")
+
+    test_btn.first.wait_for(state="visible", timeout=5000)
+    test_btn.first.click()
+
+    # 等待测试结果反馈（toast 或内联文本）
+    logged_in_page.wait_for_timeout(2000)
+
+    # 检查结果：toast 提示 或 卡片文本变化
+    toasts = logged_in_page.locator("[data-sonner-toast], [data-slot='toast']")
+    card_text_after = cards.first.inner_text()
+    has_feedback = (
+        toasts.count() > 0
+        or "成功" in card_text_after
+        or "失败" in card_text_after
+        or "测试" in card_text_after
+        or "error" in card_text_after.lower()
+    )
+    # 连通性测试有反馈即可（成功或失败都算通过，只要有反馈）
+    assert has_feedback, "点击连通性测试后无任何反馈"
+
+
+# ==================== P2 补充测试 ====================
+
+
+@allure.epic("消息渠道")
+@pytest.mark.order(510)
+@pytest.mark.p2
+def test_channels_search_empty(logged_in_page, base_url):
+    """TC-CH-P2-01: 渠道搜索无结果时显示空状态"""
+    ch = ChannelsPage(logged_in_page, base_url)
+    ch.goto()
+    assert ch.is_loaded(), "频道页面未加载"
+
+    # 先检查搜索框是否存在
+    search_input = logged_in_page.locator("[placeholder='searchPlaceholder']")
+    if search_input.count() == 0:
+        pytest.skip("渠道页面无搜索框，跳过空状态测试")
+
+    # 记录搜索前的绑定数量
+    count_before = ch.get_binding_count()
+
+    # 输入随机无匹配字符串
+    random_query = f"zzz-nonexist-{uuid.uuid4().hex[:8]}"
+    ch.search(random_query)
+    logged_in_page.wait_for_timeout(800)
+
+    # 验证搜索后显示空状态或绑定数量变为 0
+    count_after = ch.get_binding_count()
+    body_text = logged_in_page.locator("body").first.inner_text()
+
+    has_empty_state = (
+        count_after == 0
+        or "暂无" in body_text
+        or "empty" in body_text.lower()
+        or "no result" in body_text.lower()
+        or "没有" in body_text
+        or "未找到" in body_text
+    )
+
+    # 清空搜索框恢复
+    ch.clear_search()
+    logged_in_page.wait_for_timeout(800)
+
+    # 验证清空后恢复
+    count_restored = ch.get_binding_count()
+    restored = count_restored >= count_before or count_restored > 0
+
+    assert has_empty_state, \
+        f"搜索无匹配关键词 '{random_query}' 后未显示空状态（绑定数={count_after}，之前={count_before}）"
+    assert restored, \
+        f"清空搜索框后未恢复列表（恢复后={count_restored}，之前={count_before}）"

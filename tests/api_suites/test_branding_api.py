@@ -7,7 +7,7 @@
 - TestWorkflowCustomToolsWebAPI: /web/workflow-custom-tools（session cookie 认证）
 """
 import pytest
-from tests.api_contracts.branding_schemas import BRANDING_DATA, CUSTOM_TOOL
+from tests.api_contracts.branding_schemas import BRANDING_DATA, CUSTOM_TOOL, SIDEBAR_CONFIG_DATA
 
 
 class TestBrandingWebAPI:
@@ -24,12 +24,12 @@ class TestSidebarConfigWebAPI:
     """/web/sidebar-config 侧边栏配置接口（无需认证）"""
 
     def test_get_sidebar_config(self, web_client):
-        """获取侧边栏配置：返回配置字典"""
+        """获取侧边栏配置：Schema 校验 + hiddenTabs 数组"""
         resp = web_client.get_sidebar_config()
+        web_client.validate_schema(resp, SIDEBAR_CONFIG_DATA)
         assert isinstance(resp, dict)
-        assert len(resp) > 0
-        # 验证至少包含一个已知的配置键
-        assert any(isinstance(v, (dict, list, str, bool, int)) for v in resp.values())
+        assert isinstance(resp.get("hiddenTabs"), list), \
+            f"hiddenTabs 应为数组，实际: {type(resp.get('hiddenTabs'))}"
 
 
 class TestWorkflowCustomToolsWebAPI:

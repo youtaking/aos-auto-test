@@ -14,6 +14,15 @@ BRANDING_DATA = {
     "additionalProperties": True,
 }
 
+SIDEBAR_CONFIG_DATA = {
+    "type": "object",
+    "required": ["hiddenTabs"],
+    "properties": {
+        "hiddenTabs": {"type": "array", "items": {"type": "string"}},
+    },
+    "additionalProperties": True,
+}
+
 CUSTOM_TOOL = {
     "type": "object",
     "required": ["name"],

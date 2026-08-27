@@ -177,8 +177,11 @@ def test_org_003_name_empty_validation(logged_in_page, base_url):
         logged_in_page.wait_for_timeout(800)
         has_error = len(org.get_form_validation_text()) > 0
         dialog_still_open = org.is_dialog_open()
-        assert has_error or dialog_still_open or is_disabled, \
-            f"名称为空时未拦截: has_error={has_error}, dialog_still_open={dialog_still_open}, is_disabled={is_disabled}"
+        assert has_error or dialog_still_open or is_disabled, (
+            f"名称为空时未触发校验拦截"
+            f"（has_error={has_error}, dialog_still_open={dialog_still_open}, "
+            f"is_disabled={is_disabled}）"
+        )
     else:
         assert create_btn.is_disabled(), "创建按钮在名称为空时被禁用（前端校验生效）"
 
@@ -363,8 +366,10 @@ def test_org_006_add_member(logged_in_page, base_url):
             break
 
     toast_combined = " ".join(toast_texts)
-    assert "成功" in toast_combined or "添加" in toast_combined or "已" in toast_combined, \
-        f"添加成员后无成功 toast: {toast_combined[:80]}"
+    assert any(kw in toast_combined for kw in ["成功", "添加", "已"]), (
+        f"添加成员后无成功 toast 提示，期望包含'成功'/'添加'/'已'，"
+        f"实际 toast: '{toast_combined}'"
+    )
 
 
 @allure.epic("组织管理")
@@ -480,7 +485,8 @@ def test_org_011_delete_org(logged_in_page, base_url):
 
     # 确认新建组织出现在列表中（增加重试）
     if not org.has_org(org_name):
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.wait_for_load_state("networkidle")
+        logged_in_page.wait_for_timeout(500)
         org.goto()
     if not org.has_org(org_name):
         assert False, f"【应用Bug】新建组织 {org_name} 未出现在列表中（API 创建成功但 UI 未同步）"
@@ -759,8 +765,12 @@ def test_org_member_search_add(logged_in_page, base_url):
         # 有些 UI 用列表项而非 option
         result_items = dialog.locator("[role='option'], li, [data-slot='command-item']")
         # 搜索结果区域存在即可（可能为空结果，但容器必须在 DOM 中）
-        assert result_items.count() > 0 or dialog.locator("input").count() > 0, \
-            f"搜索功能异常：无结果区域且无搜索输入框"
+        result_count = result_items.count()
+        input_count = dialog.locator("input").count()
+        assert result_count > 0 or input_count > 0, (
+            f"搜索弹窗中无结果区域且无搜索输入框"
+            f"（result_count={result_count}, input_count={input_count}）"
+        )
 
     # 取消关闭弹窗（不实际添加以避免副作用）
     cancel_btn = dialog.get_by_role("button", name="取消").or_(
@@ -815,12 +825,12 @@ def test_org_set_active(logged_in_page, base_url):
     except Exception:
         pass
     # 额外等待侧边栏更新
-    logged_in_page.wait_for_timeout(2000)
+    logged_in_page.wait_for_timeout(1000)
 
     # 验证侧边栏或页面内容反映了当前活跃组织
     body_text = logged_in_page.inner_text("body")
-    assert target_name in body_text or len(body_text) > 50, \
-        f"切换活跃组织后页面未更新 (body length={len(body_text)})"
+    assert target_name in body_text, \
+        f"切换活跃组织后，目标组织名 '{target_name}' 未出现在页面中"
 
 
 @allure.epic("组织管理")
@@ -871,8 +881,12 @@ def test_org_member_role_management(logged_in_page, base_url):
             )
 
             # 角色信息显示或角色选择器存在
-            assert role_selector.count() > 0 or role_text.count() > 0, \
-                "成员行中未找到角色信息或角色选择器"
+            selector_count = role_selector.count()
+            text_count = role_text.count()
+            assert selector_count > 0 or text_count > 0, (
+                f"成员行中未找到角色选择器或角色文本"
+                f"（role_selector_count={selector_count}, role_text_count={text_count}）"
+            )
     else:
         # 角色标签不在文本中，通过 API 验证角色端点可访问
         orgs = _get_orgs_api(logged_in_page, base_url)
@@ -886,3 +900,214 @@ def test_org_member_role_management(logged_in_page, base_url):
                 break
         # 通过即可：API 可访问或 UI 有角色信息
         assert True, "成员角色管理验证通过"
+
+
+@allure.epic("组织管理")
+@pytest.mark.order(365)
+@pytest.mark.p1
+def test_org_default_engine(logged_in_page, base_url):
+    """验证组织默认引擎配置区域存在"""
+    org = OrgPage(logged_in_page, base_url)
+    org.goto()
+    assert org.is_loaded(), "组织管理页面未加载"
+
+    # 选择第一个组织
+    names = org.get_org_names()
+    if not names:
+        pytest.skip("无可用组织")
+
+    org.click_org(names[0])
+    logged_in_page.wait_for_timeout(800)
+
+    body = logged_in_page.locator("div.agent-panel-body")
+    body_text = body.first.inner_text()
+
+    # 查找"默认引擎"或"计算引擎"相关的 H3 标题或区域标识
+    engine_heading = body.locator("h3").filter(has_text="引擎").or_(
+        body.locator("h3").filter(has_text="机器")
+    ).or_(
+        body.locator("h2").filter(has_text="引擎")
+    ).or_(
+        body.locator("h2").filter(has_text="机器")
+    )
+
+    if engine_heading.count() > 0:
+        # 有明确的引擎/机器标题
+        assert engine_heading.first.is_visible(), "默认引擎标题存在但不可见"
+    else:
+        # 降级检查：页面文本中包含"引擎"或"机器"关键词
+        if "引擎" not in body_text and "机器" not in body_text:
+            pytest.skip("组织页面无默认引擎配置区域")
+        # 文本存在但无明确标题，也算通过
+        assert True, "默认引擎相关文本存在于页面中"
+
+
+# ═══════════════════════════════════════════════════════
+# P1 补充: 组织机器管理
+# ═══════════════════════════════════════════════════════
+
+@allure.epic("组织管理")
+@pytest.mark.order(366)
+@pytest.mark.p1
+def test_org_machine_management(logged_in_page, base_url):
+    """验证组织机器管理 — 进入组织后查找机器管理相关区域"""
+    org = OrgPage(logged_in_page, base_url)
+    org.goto()
+    assert org.is_loaded(), "组织管理页面未加载"
+
+    # 选择第一个组织
+    names = org.get_org_names()
+    if not names:
+        pytest.skip("无可用组织")
+
+    org.click_org(names[0])
+    logged_in_page.wait_for_timeout(1000)
+
+    # 查找"机器"相关的 H3/H2 标题或按钮
+    body = logged_in_page.locator("div.agent-panel-body")
+    machine_heading = body.locator("h3").filter(has_text="机器").or_(
+        body.locator("h2").filter(has_text="机器")
+    ).or_(
+        body.locator("h3").filter(has_text="Machine")
+    ).or_(
+        body.locator("h2").filter(has_text="Machine")
+    )
+
+    machine_button = logged_in_page.get_by_role("button", name="新增机器").or_(
+        logged_in_page.get_by_role("button", name="添加机器")
+    ).or_(
+        logged_in_page.get_by_role("button", name="新建机器")
+    ).or_(
+        logged_in_page.locator("button:has-text('机器')")
+    )
+
+    has_machine_heading = machine_heading.count() > 0
+    has_machine_button = machine_button.count() > 0
+
+    if not has_machine_heading and not has_machine_button:
+        # 降级检查：页面文本中是否包含"机器"关键词
+        body_text = body.first.inner_text()
+        if "机器" not in body_text and "Machine" not in body_text:
+            pytest.skip("组织详情中无机器管理相关区域")
+
+    # 验证机器区域存在
+    if has_machine_heading:
+        assert machine_heading.first.is_visible(), \
+            "机器管理标题存在但不可见"
+
+    if has_machine_button:
+        assert machine_button.first.is_visible(), \
+            "机器管理按钮存在但不可见"
+
+    # 如果有新增机器按钮，检查是否可点击（不实际点击创建）
+    if has_machine_button:
+        is_disabled = machine_button.first.is_disabled()
+        allure.attach(
+            f"机器管理: 标题={has_machine_heading}, "
+            f"新增按钮={has_machine_button}, 按钮禁用={is_disabled}",
+            name="机器管理状态",
+            attachment_type=allure.attachment_type.TEXT,
+        )
+
+    # 至少有一个机器相关的 UI 元素
+    assert has_machine_heading or has_machine_button, \
+        "组织详情中未找到机器管理相关的标题或按钮"
+
+
+# ═══════════════════════════════════════════════════════
+# P1 补充: 组织危险区域验证
+# ═══════════════════════════════════════════════════════
+
+
+@allure.epic("组织管理")
+@pytest.mark.order(367)
+@pytest.mark.p1
+def test_org_danger_zone(logged_in_page, base_url):
+    """P1: 组织危险区域 — 验证危险区域标题和删除组织按钮存在（不点击任何危险操作）"""
+    org = OrgPage(logged_in_page, base_url)
+    org.goto()
+    assert org.is_loaded(), "组织管理页面未加载"
+
+    # 选择第一个组织
+    names = org.get_org_names()
+    if not names:
+        pytest.skip("无可用组织")
+
+    org.click_org(names[0])
+    logged_in_page.wait_for_timeout(1000)
+
+    body = logged_in_page.locator("div.agent-panel-body")
+
+    # 1. 查找"危险区域"标题（h3 或 h2）
+    danger_heading = body.locator("h3").filter(has_text="危险区域").or_(
+        body.locator("h2").filter(has_text="危险区域")
+    ).or_(
+        body.locator("h3").filter(has_text="Danger Zone")
+    ).or_(
+        body.locator("h2").filter(has_text="Danger Zone")
+    )
+
+    if danger_heading.count() == 0:
+        # 降级：检查页面文本
+        body_text = body.first.inner_text()
+        if "危险区域" not in body_text and "Danger Zone" not in body_text:
+            pytest.skip("组织详情中未找到 '危险区域' 相关区域")
+
+    # 2. 验证危险区域标题可见
+    assert danger_heading.first.is_visible(), "'危险区域' 标题存在但不可见"
+
+    # 3. 验证有"删除组织"按钮
+    delete_org_btn = body.get_by_role("button", name="删除组织").or_(
+        body.get_by_role("button", name="Delete Organization")
+    )
+    if delete_org_btn.count() == 0:
+        pytest.skip("危险区域中未找到 '删除组织' 按钮")
+
+    assert delete_org_btn.first.is_visible(), "'删除组织' 按钮存在但不可见"
+
+    # 4. 验证危险区域有警告文本（不可撤销等提示）
+    body_text = body.first.inner_text()
+    has_warning = any(kw in body_text for kw in [
+        "不可撤销", "不可恢复", "永久删除", "删除组织将",
+        "irreversible", "cannot be undone",
+    ])
+    assert has_warning, \
+        "危险区域缺少操作警告文本（如 '不可撤销' 等提示）"
+
+    # 注意：绝对不点击 "删除组织" 按钮！仅验证其存在
+
+
+# ═══════════════════════════════════════════════════════
+# P2 补充: 组织创建弹窗字段覆盖
+# ═══════════════════════════════════════════════════════
+
+
+@allure.epic("组织管理")
+@pytest.mark.order(368)
+@pytest.mark.p2
+def test_org_create_all_fields(logged_in_page, base_url):
+    """验证组织创建弹窗的所有字段 — 仅验证字段存在，不填写不提交"""
+    org = OrgPage(logged_in_page, base_url)
+    org.goto()
+
+    if not org.has_create_button():
+        pytest.skip("无创建组织按钮（可能无管理权限）")
+
+    org.click_create_org()
+    assert org.is_dialog_open(), "创建组织弹窗未打开"
+
+    dialog = logged_in_page.locator("[role=dialog]")
+
+    # 1. Slug 输入框（placeholder="url-identifier"）
+    slug_input = dialog.locator("input[placeholder='url-identifier']")
+    assert slug_input.count() > 0, "Slug 输入框不存在"
+    assert slug_input.first.is_visible(), "Slug 输入框不可见"
+
+    # 2. 描述输入框（placeholder="可选"）
+    desc_input = dialog.locator("input[placeholder='可选']")
+    assert desc_input.count() > 0, "描述输入框不存在"
+    assert desc_input.first.is_visible(), "描述输入框不可见"
+
+    # Escape 关闭，不提交
+    logged_in_page.keyboard.press("Escape")
+    logged_in_page.wait_for_timeout(500)

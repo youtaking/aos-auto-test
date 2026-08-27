@@ -83,27 +83,19 @@ class TestTaskV2WebAPI:
             pytest.skip("任务列表为空，无法测试切换")
         task_id = list_resp["items"][0]["id"]
 
-        try:
-            # 记录切换前状态
-            detail_before = web_client.get_task_v2(task_id)
-            enabled_before = detail_before.get("enabled")
+        detail_before = web_client.get_task_v2(task_id)
+        enabled_before = detail_before.get("enabled")
 
-            resp = web_client.toggle_task_v2(task_id)
-            assert isinstance(resp, dict)
-            # 精确验证：返回包含任务 id
-            assert "id" in resp, f"toggle 响应缺少 id 字段: {list(resp.keys())}"
+        resp = web_client.toggle_task_v2(task_id)
+        assert isinstance(resp, dict)
+        assert "id" in resp, f"toggle 响应缺少 id 字段: {list(resp.keys())}"
 
-            # 如果任务有 enabled 字段，验证状态已切换
-            if enabled_before is not None:
-                detail_after = web_client.get_task_v2(task_id)
-                enabled_after = detail_after.get("enabled")
-                if enabled_after is not None:
-                    assert enabled_after != enabled_before, \
-                        f"toggle 后 enabled 未变化: {enabled_before} → {enabled_after}"
-        except (httpx.HTTPStatusError, RuntimeError) as e:
-            if "403" in str(e) or "404" in str(e):
-                pytest.skip("任务切换接口不可用")
-            raise
+        if enabled_before is not None:
+            detail_after = web_client.get_task_v2(task_id)
+            enabled_after = detail_after.get("enabled")
+            if enabled_after is not None:
+                assert enabled_after != enabled_before, \
+                    f"toggle 后 enabled 未变化: {enabled_before} → {enabled_after}"
 
     def test_task_v2_trigger(self, web_client):
         """手动触发任务 V2"""
@@ -112,16 +104,10 @@ class TestTaskV2WebAPI:
             pytest.skip("任务列表为空，无法测试触发")
         task_id = list_resp["items"][0]["id"]
 
-        try:
-            resp = web_client.trigger_task_v2(task_id)
-            assert isinstance(resp, dict)
-            # 精确验证：触发响应应包含状态信息
-            assert "status" in resp or "id" in resp or "run_id" in resp, \
-                f"trigger 响应缺少预期字段: {list(resp.keys())}"
-        except (httpx.HTTPStatusError, RuntimeError) as e:
-            if "403" in str(e) or "404" in str(e) or "500" in str(e):
-                pytest.skip("任务触发接口不可用")
-            raise
+        resp = web_client.trigger_task_v2(task_id)
+        assert isinstance(resp, dict)
+        assert "status" in resp or "id" in resp or "run_id" in resp, \
+            f"trigger 响应缺少预期字段: {list(resp.keys())}"
 
 
     def test_clear_task_v2_logs(self, web_client):
@@ -131,16 +117,37 @@ class TestTaskV2WebAPI:
             pytest.skip("任务列表为空，无法测试清空日志")
         task_id = list_resp["items"][0]["id"]
 
-        try:
-            resp = web_client.clear_task_v2_logs(task_id)
-            # 清空后日志应为空或空列表
-            logs = web_client.get_task_v2_logs(task_id)
-            assert isinstance(logs, dict)
-            if "entries" in logs:
-                assert len(logs["entries"]) == 0, "清空后 entries 应为空"
-            elif "logs" in logs:
-                assert len(logs["logs"]) == 0, "清空后 logs 应为空"
-        except (httpx.HTTPStatusError, RuntimeError) as e:
-            if "403" in str(e) or "404" in str(e) or "500" in str(e):
-                pytest.skip(f"清空日志接口不可用: {e}")
-            raise
+        resp = web_client.clear_task_v2_logs(task_id)
+        # 清空后日志应为空或空列表
+        logs = web_client.get_task_v2_logs(task_id)
+        assert isinstance(logs, dict)
+        if "entries" in logs:
+            assert len(logs["entries"]) == 0, "清空后 entries 应为空"
+        elif "logs" in logs:
+            assert len(logs["logs"]) == 0, "清空后 logs 应为空"
+
+    def test_task_v2_toggle_idempotent(self, web_client):
+        """toggle 幂等性：连续两次 toggle 应恢复原状态"""
+        list_resp = web_client.list_tasks_v2()
+        if len(list_resp["items"]) == 0:
+            pytest.skip("任务列表为空，无法测试 toggle 幂等性")
+        task_id = list_resp["items"][0]["id"]
+
+        detail_before = web_client.get_task_v2(task_id)
+        enabled_before = detail_before.get("enabled")
+
+        # 第一次 toggle
+        web_client.toggle_task_v2(task_id)
+        # 第二次 toggle（恢复原状态）
+        web_client.toggle_task_v2(task_id)
+
+        detail_after = web_client.get_task_v2(task_id)
+        enabled_after = detail_after.get("enabled")
+        if enabled_before is not None and enabled_after is not None:
+            assert enabled_after == enabled_before, \
+                f"两次 toggle 后 enabled 未恢复: {enabled_before} → {enabled_after}"
+
+    def test_task_v2_trigger_invalid_id(self, web_client):
+        """触发不存在的任务：应返回 404"""
+        with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"404"):
+            web_client.trigger_task_v2("nonexistent-task-id-99999")

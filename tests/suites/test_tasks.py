@@ -106,7 +106,12 @@ def _open_dialog_with_retry(page, tasks_page_obj, max_retries=2):
                     break
         if not tasks_page_obj.is_dialog_open():
             tasks_page_obj.click_create()
-            page.wait_for_timeout(2000)
+            # 等待弹窗出现
+            try:
+                page.locator("[role='dialog']").first.wait_for(state="visible", timeout=3000)
+            except Exception:
+                pass
+            page.wait_for_timeout(300)
         if tasks_page_obj.is_dialog_open():
             return True
         # 弹窗仍未打开 → 可能 429，等待限流窗口重置
@@ -206,8 +211,10 @@ def test_cron_expression_config(logged_in_page, base_url):
     tasks.click_cron_preset("每 5 分钟")
     logged_in_page.wait_for_timeout(500)
     cron_value2 = cron_input.input_value()
-    assert "*/5" in cron_value2 or "5" in cron_value2, \
-        f"'每 5 分钟' 预设 Cron 不正确: {cron_value2}"
+    assert any(kw in cron_value2 for kw in ["*/5", "5"]), (
+        f"'每 5 分钟' 预设 Cron 值不正确，期望包含 '*/5' 或 '5'，"
+        f"实际: '{cron_value2}'"
+    )
 
     # 3. 切换到"自定义"，手动输入
     tasks.click_cron_preset("自定义")
@@ -510,16 +517,25 @@ def test_required_fields_validation(logged_in_page, base_url):
         logged_in_page.wait_for_timeout(800)
         # 弹窗应该还在（未成功创建）
         still_open = tasks.is_dialog_open()
-        assert still_open or is_disabled, f"名称为空时未拦截: still_open={still_open}, is_disabled={is_disabled}"
+        assert still_open or is_disabled, (
+            f"名称为空时未触发校验拦截"
+            f"（still_open={still_open}, is_disabled={is_disabled}）"
+        )
     else:
         assert save_btn.first.is_disabled(), "保存按钮在名称为空时被禁用（前端校验生效）"
 
     tasks.cancel_dialog()
 
-    # 验证数量未变
+    # 验证数量未变（全量回归时表格数据加载可能延迟，禁止裸 count 立即断言）
     tasks.goto()
-    assert tasks.get_task_count() == initial_count, \
-        "名称为空时任务被创建了"
+    final_count = 0
+    for _wait in range(15):
+        final_count = tasks.get_task_count()
+        if final_count == initial_count:
+            break
+        logged_in_page.wait_for_timeout(1000)
+    assert final_count == initial_count, \
+        f"名称为空时任务被创建了（initial={initial_count}, final={final_count}）"
 
 
 # === TC-TASK-014: 创建 HTTP 类型任务（含超时）===
@@ -882,8 +898,10 @@ def test_task_log_view(logged_in_page, base_url, request):
     else:
         # 可能内嵌在面板中
         panel_text = panel.inner_text() if panel.count() > 0 else ""
-        assert "日志" in panel_text or "log" in panel_text.lower() or len(panel_text) > 0, \
-            "日志面板无内容"
+        assert any(kw in panel_text.lower() for kw in ["日志", "log"]), (
+            f"日志面板无相关内容，期望包含'日志'或'log'，"
+            f"实际 panel_text: '{panel_text[:200]}'"
+        )
 
 
 @pytest.mark.order(812)
@@ -978,8 +996,12 @@ def test_task_run_now_confirm(logged_in_page, base_url, request):
         )
         # 直接执行也可以接受，只要有反馈
         panel = logged_in_page.locator("div.agent-panel-content")
-        assert toasts.count() > 0 or panel.count() > 0, \
-            "执行后无任何反馈"
+        toast_count = toasts.count()
+        panel_count = panel.count()
+        assert toast_count > 0 or panel_count > 0, (
+            f"手动执行后无 toast 反馈也无面板内容"
+            f"（toast_count={toast_count}, panel_count={panel_count}）"
+        )
 
 
 # === TC-TASK-022: 搜索任务 ===
@@ -1077,3 +1099,115 @@ def test_search_task(logged_in_page, base_url, request):
         if search_input.count() > 0:
             search_input.fill("")
         _delete_task_api(logged_in_page, base_url, task_data.get("id"))
+
+
+# ═══════════════════════════════════════════════════════
+# P1 补充: 定时任务执行历史
+# ═══════════════════════════════════════════════════════
+
+@pytest.mark.order(815)
+@pytest.mark.p1
+def test_tasks_execution_history(logged_in_page, base_url):
+    """验证定时任务执行历史 — 展开任务详情查看执行记录或日志"""
+    tasks = TasksPage(logged_in_page, base_url)
+    tasks.goto()
+    assert tasks.is_loaded(), "定时任务页面未加载"
+
+    # 检查任务列表是否有数据
+    task_count = tasks.get_task_count()
+    if task_count == 0:
+        pytest.skip("任务列表为空，无法验证执行历史")
+
+    # 点击第一个任务展开详情（尝试多种展开入口）
+    panel_body = logged_in_page.locator("div.agent-panel-body").first
+    rows = panel_body.locator("tr, [role='row'], div[class*='task-item'], div[class*='cursor-pointer']")
+
+    expanded = False
+    if rows.count() > 0:
+        # 尝试点击第一行展开
+        rows.first.click()
+        logged_in_page.wait_for_timeout(1000)
+        expanded = True
+    else:
+        # 尝试通过任务名称点击
+        task_names = panel_body.locator("td:first-child, div[class*='name'], span[class*='name']")
+        if task_names.count() > 0:
+            task_names.first.click()
+            logged_in_page.wait_for_timeout(1000)
+            expanded = True
+
+    if not expanded:
+        pytest.skip("无法找到任务展开入口")
+
+    # 验证展开区域有执行历史或日志相关信息
+    panel_text = panel_body.inner_text()
+    history_keywords = ["执行历史", "执行记录", "日志", "历史", "log", "history",
+                        "execution", "运行记录", "最近执行", "上次执行"]
+    has_history = any(kw in panel_text.lower() for kw in [k.lower() for k in history_keywords])
+
+    # 也检查是否有展开的子面板或详情区域
+    detail_panels = logged_in_page.locator(
+        "div[class*='detail'], div[class*='expand'], div[class*='history'], "
+        "div[class*='log'], section[class*='history'], section[class*='log']"
+    )
+    has_detail = detail_panels.count() > 0
+
+    # 检查是否有 "执行历史" 相关的 Tab 或链接
+    history_tabs = logged_in_page.get_by_role("tab", name="执行").or_(
+        logged_in_page.get_by_role("link", name="执行")
+    ).or_(
+        logged_in_page.get_by_role("tab", name="历史")
+    ).or_(
+        logged_in_page.get_by_role("tab", name="日志")
+    )
+    has_history_tab = history_tabs.count() > 0
+
+    assert has_history or has_detail or has_history_tab, \
+        "任务展开区域未找到执行历史、日志或详情信息"
+
+
+# ═══════════════════════════════════════════════════════
+# P2 补充: 定时任务创建弹窗字段覆盖
+# ═══════════════════════════════════════════════════════
+
+
+@pytest.mark.order(816)
+@pytest.mark.p2
+def test_tasks_create_all_fields(logged_in_page, base_url):
+    """验证定时任务创建弹窗的所有未覆盖字段 — 仅验证字段存在，不填写不提交"""
+    tasks = TasksPage(logged_in_page, base_url)
+    tasks.goto()
+
+    if not _open_dialog_with_retry(logged_in_page, tasks):
+        pytest.skip("429 限流导致新建任务弹窗无法打开")
+
+    dialog = logged_in_page.locator('[role="dialog"]')
+
+    # 1. 时区输入框（placeholder="Asia/Shanghai"）
+    timezone_input = dialog.locator("input[placeholder='Asia/Shanghai']")
+    assert timezone_input.count() > 0, "时区输入框不存在"
+    assert timezone_input.first.is_visible(), "时区输入框不可见"
+
+    # 2. 超时秒数 spinbutton（type=number）
+    timeout_input = dialog.locator("input[type='number']")
+    assert timeout_input.count() > 0, "超时秒数输入框不存在"
+    assert timeout_input.first.is_visible(), "超时秒数输入框不可见"
+
+    # 3. 描述输入框（placeholder="可选"）
+    desc_input = dialog.locator("input[placeholder='可选']")
+    assert desc_input.count() > 0, "描述输入框不存在"
+    assert desc_input.first.is_visible(), "描述输入框不可见"
+
+    # 4. Headers textarea（placeholder 含 Content-Type）
+    headers_input = dialog.locator("textarea[placeholder*='Content-Type']")
+    assert headers_input.count() > 0, "Headers textarea 不存在"
+    assert headers_input.first.is_visible(), "Headers textarea 不可见"
+
+    # 5. Body textarea（placeholder 含 key/value）
+    body_input = dialog.locator("textarea[placeholder*='key']")
+    assert body_input.count() > 0, "Body textarea 不存在"
+    assert body_input.first.is_visible(), "Body textarea 不可见"
+
+    # Escape 关闭，不提交
+    logged_in_page.keyboard.press("Escape")
+    logged_in_page.wait_for_timeout(500)

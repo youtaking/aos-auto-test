@@ -130,6 +130,6 @@ class TestOrganizationWebAPI:
                 except Exception:
                     pass
         except (httpx.HTTPStatusError, RuntimeError, ValueError) as e:
-            if "400" in str(e) or "403" in str(e) or "409" in str(e) or "500" in str(e):
+            if "400" in str(e) or "403" in str(e) or "409" in str(e):
                 pytest.skip(f"组织创建接口不可用: {e}")
             raise

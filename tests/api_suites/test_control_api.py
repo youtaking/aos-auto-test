@@ -115,8 +115,9 @@ class TestControlWebAPI:
                 pytest.skip("无权限中断会话")
             raise
 
-        # interrupt 成功返回 null
-        assert result is None or isinstance(result, dict)
+        # interrupt 成功返回 null 或状态确认
+        if result is not None:
+            assert isinstance(result, dict), f"interrupt 应返回 None 或 dict，实际: {type(result)}"
 
     def test_send_event_nonexistent_session(self, web_client):
         """向不存在的会话发送事件：应返回 404 或 403"""

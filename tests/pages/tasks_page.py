@@ -57,10 +57,20 @@ class TasksPage:
     # === 工作台 Tab ===
 
     def has_workspace_tabs(self) -> bool:
-        """是否有工作台 Tab 导航（文件/站点/定时任务/发布视图）"""
+        """是否有工作台 Tab 导航（文件/站点/定时任务/发布视图）
+        工作台 Tab 在 ArtifactsPanel 渲染完成后才出现，必须等待，禁止裸 count() 立即返回。
+        ArtifactsPanel 默认折叠（被测源码 useState(true)），折叠时 Tab 存在但不可见，
+        因此用 attached（存在性）而非 visible 判断。
+        """
         content = self.page.locator("div.agent-panel-content")
-        btns = content.locator("button").filter(has_text="定时任务")
-        return btns.count() > 0
+        if content.count() == 0:
+            return False
+        btn = content.first.locator("button").filter(has_text="定时任务")
+        try:
+            btn.first.wait_for(state="attached", timeout=8000)
+            return True
+        except Exception:
+            return False
 
     def click_workspace_tab(self, name: str):
         """点击工作台 Tab"""

@@ -69,8 +69,10 @@ def test_workflow_search(logged_in_page, base_url):
     page.search("zzz_不存在_zzz")
     logged_in_page.wait_for_timeout(500)
     filtered = page.get_workflow_count()
-    assert filtered == 0 or filtered < initial, \
-        f"搜索不存在的内容后数量未减少: {filtered} vs {initial}"
+    assert filtered == 0 or filtered < initial, (
+        f"搜索不存在内容后列表未过滤"
+        f"（initial={initial}, filtered={filtered}）"
+    )
 
     page.clear_search()
     restored = page.get_workflow_count()
@@ -341,8 +343,10 @@ def test_knowledge_base_search(logged_in_page, base_url):
     page.search("zzz_不存在_zzz")
     logged_in_page.wait_for_timeout(500)
     filtered = page.get_kb_count()
-    assert filtered == 0 or filtered < initial, \
-        f"搜索不存在的内容后数量未减少: {filtered} vs {initial}"
+    assert filtered == 0 or filtered < initial, (
+        f"搜索不存在内容后列表未过滤"
+        f"（initial={initial}, filtered={filtered}）"
+    )
 
     page.clear_search()
     restored = page.get_kb_count()
@@ -466,8 +470,10 @@ def test_apikey_search(logged_in_page, base_url):
     page.search("zzz_不存在_zzz")
     logged_in_page.wait_for_timeout(500)
     filtered = page.get_key_count()
-    assert filtered == 0 or filtered < initial, \
-        f"搜索不存在的内容后数量未减少: {filtered} vs {initial}"
+    assert filtered == 0 or filtered < initial, (
+        f"搜索不存在内容后列表未过滤"
+        f"（initial={initial}, filtered={filtered}）"
+    )
 
     page.clear_search()
     restored = page.get_key_count()

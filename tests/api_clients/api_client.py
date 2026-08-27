@@ -13,12 +13,41 @@ from tests.api_clients.base_client import BaseClient
 class ApiClient(BaseClient):
     """对外 OpenAPI 接口客户端，通过 API Key 认证"""
 
-    def __init__(self, base_url: str, api_key: str, timeout: int = 30):
+    def __init__(self, base_url: str, api_key: str, system_api_key: str = "", timeout: int = 30):
         super().__init__(
             base_url,
             headers={"Authorization": f"Bearer {api_key}"},
             timeout=timeout,
         )
+        self._system_api_key = system_api_key
+
+    def _system_get(self, path: str, params: dict | None = None) -> dict:
+        """System API 专用 GET：使用 system_api_key 替代用户 API Key"""
+        import httpx
+        headers = {"Authorization": f"Bearer {self._system_api_key}"}
+        resp = httpx.get(
+            f"{self.base_url}{path}",
+            params=params,
+            headers=headers,
+            timeout=30,
+            verify=False,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    def _system_get_raw(self, path: str, params: dict | None = None) -> bytes:
+        """System API 专用 GET（返回原始字节，用于文件下载）"""
+        import httpx
+        headers = {"Authorization": f"Bearer {self._system_api_key}"}
+        resp = httpx.get(
+            f"{self.base_url}{path}",
+            params=params,
+            headers=headers,
+            timeout=30,
+            verify=False,
+        )
+        resp.raise_for_status()
+        return resp.content
 
     # ── Agent 模块 ──
 
@@ -339,3 +368,59 @@ class ApiClient(BaseClient):
         POST /api/system/sandbox-instances/rebuild body: {poolId, ...} → rebuild result
         """
         return self.post("/api/system/sandbox-instances/rebuild", json=data)
+
+    # ── System Logs 模块（/api/system/logs，System API Key 认证） ──
+
+    def _unwrap(self, resp: dict) -> dict:
+        """解包 {success, data} 响应，返回 data 部分"""
+        if not resp.get("success"):
+            error = resp.get("error", {})
+            code = error.get("code", "UNKNOWN")
+            message = error.get("message", "")
+            raise RuntimeError(f"System API error: {code} - {message}")
+        return resp.get("data")
+
+    def list_system_log_files(self) -> dict:
+        """列出系统日志文件
+        GET /api/system/logs → {success, data: {files: [...]}}
+        返回 data 部分：{files: [{name, size, modifiedAt, isErrorLog}]}
+        """
+        resp = self._system_get("/api/system/logs")
+        return self._unwrap(resp)
+
+    def search_system_logs(self, params: dict) -> dict:
+        """搜索系统日志内容
+        GET /api/system/logs/search?file=xxx&q=yyy&errorOnly=false&limit=500
+        → {success, data: {file, entries, totalMatches, truncated}}
+        返回 data 部分
+        """
+        resp = self._system_get("/api/system/logs/search", params=params)
+        return self._unwrap(resp)
+
+    def download_system_log(self, file_name: str) -> bytes:
+        """下载系统日志文件（返回原始字节，非 JSON）
+        GET /api/system/logs/download?file=xxx → text/plain stream
+        """
+        return self._system_get_raw("/api/system/logs/download", params={"file": file_name})
+
+    # ── System Observer 模块（/api/system/observer，System API Key 认证） ──
+
+    def get_observer_acp_link(self) -> dict:
+        """获取 ACP 活跃链接观察视图
+        GET /api/system/observer/acp-link
+        → {success, data: {generatedAt, kind, total, trees, integrity, names}}
+        返回 data 部分
+        """
+        resp = self._system_get("/api/system/observer/acp-link")
+        return self._unwrap(resp)
+
+    # ── System People Tree 模块（/api/system/people-tree，System API Key 认证） ──
+
+    def get_people_tree(self) -> dict:
+        """获取组织人员智能体层级
+        GET /api/system/people-tree
+        → {success, data: {organizations: [...]}}
+        返回 data 部分
+        """
+        resp = self._system_get("/api/system/people-tree")
+        return self._unwrap(resp)

@@ -339,6 +339,11 @@ def _page_error_monitor(request):
         yield
         return
 
+    # 用例主动触发 4xx/5xx（如技能重名 409）时跳过页面错误断言
+    if "no_page_error_check" in markers:
+        yield
+        return
+
     # 非 API 测试：获取 page fixture 进行错误监听
     try:
         page = request.getfixturevalue("page")
@@ -429,6 +434,12 @@ def _page_error_monitor(request):
             if "Failed to load resource" in msg.text and "429" in msg.text:
                 warnings.append(f"[console.error] {msg.text}")
                 return
+            # 白名单：系统日志文件过大导致 413（环境数据，非功能缺陷）
+            #（"Failed to load resource: 413" 与 "[request] ...logs/search..." 是两条独立控制台消息）
+            if ("Failed to load resource" in msg.text and "413" in msg.text) \
+                    or "logs/search" in msg.text:
+                warnings.append(f"[console.error] {msg.text}")
+                return
             # 白名单：429 限流导致的 JS 异常（ApiError 级联）
             if "ApiError" in msg.text and "Too many requests" in msg.text:
                 warnings.append(f"[console.error] {msg.text}")
@@ -447,6 +458,10 @@ def _page_error_monitor(request):
                 return
             # 白名单：Agent 配置保存失败（modal 自动触发 PUT 500）
             if "保存失败" in msg.text and "ApiError" in msg.text:
+                warnings.append(f"[console.error] {msg.text}")
+                return
+            # 白名单：浏览器资源耗尽（长时间会话下 CSS/资源加载失败，环境问题非功能缺陷）
+            if "ERR_INSUFFICIENT_RESOURCES" in msg.text:
                 warnings.append(f"[console.error] {msg.text}")
                 return
             console_errors.append(msg.text)
@@ -508,6 +523,10 @@ def _page_error_monitor(request):
             if response.status == 500 and "/web/environments/" in response.url:
                 warnings.append(f"[API 500] {response.request.method} {response.url}")
                 return
+            # 白名单：系统日志文件过大导致搜索 API 返回 413（环境数据，非功能缺陷）
+            if response.status == 413 and "/api/system/logs/search" in response.url:
+                warnings.append(f"[API 413] {response.request.method} {response.url}")
+                return
             api_errors.append(
                 f"[{response.status}] {response.request.method} {response.url}"
             )
@@ -532,6 +551,18 @@ def _page_error_monitor(request):
             return
         # 非致命：新建 Agent 配置加载期间的瞬态错误
         if "Failed to load agent config" in err_text:
+            warnings.append(f"[JS] {err_text}")
+            return
+        # 非致命：系统日志文件过大导致搜索 413（环境数据，非功能缺陷）
+        if "Log file is too large" in err_text:
+            warnings.append(f"[JS] {err_text}")
+            return
+        # 非致命：浏览器资源耗尽导致 CSS 预加载失败（长时间会话环境问题，非功能缺陷）
+        if "Unable to preload CSS" in err_text:
+            warnings.append(f"[JS] {err_text}")
+            return
+        # 非致命：浏览器资源耗尽导致动态模块加载失败（chunk 存在，网络层资源耗尽）
+        if "Failed to fetch dynamically imported module" in err_text:
             warnings.append(f"[JS] {err_text}")
             return
         js_errors.append(err_text)

@@ -190,9 +190,16 @@ class ChatTestPage:
         return self.page.locator("button[title='新会话']")
 
     def _stop_ai_if_responding(self):
-        """如果 AI 正在回复（停止按钮 lucide-square 可见），点击停止"""
-        stop_btn = self.page.locator("button:has(svg.lucide-square)")
-        if stop_btn.count() > 0 and stop_btn.first.is_visible():
+        """如果 AI 正在回复（composer 发送区停止按钮 lucide-square 可见且可用），点击停止。
+
+        注意：必须限定到 composer 容器。侧边栏"实例停止"按钮同样渲染 svg.lucide-square，
+        且实例处于 stopping 状态时 disabled——全页面选择器会误匹配并卡死在 click() 等待 enabled。
+        """
+        composer = self.page.locator(".chat-composer-card")
+        if composer.count() == 0:
+            return
+        stop_btn = composer.locator("button:has(svg.lucide-square)")
+        if stop_btn.count() > 0 and stop_btn.first.is_visible() and stop_btn.first.is_enabled():
             stop_btn.first.click()
             self.page.wait_for_timeout(1500)
 
@@ -468,18 +475,23 @@ class ChatTestPage:
         return False
 
     def click_send_button_during_streaming(self):
-        """在流式响应期间点击停止生成按钮"""
-        # 优先用图标精确匹配停止按钮（Square 图标）
-        stop_btn = self.page.locator("button:has(svg.lucide-square)")
-        if stop_btn.count() > 0:
-            stop_btn.first.click()
-            self.page.wait_for_timeout(2000)
+        """在流式响应期间点击停止生成按钮。
+
+        必须限定到 composer 容器。侧边栏"实例停止"按钮同样渲染 svg.lucide-square，
+        且实例处于 stopping 状态时 disabled——全页面选择器会误匹配并卡死在 click() 等待 enabled。
+        """
+        composer = self.page.locator(".chat-composer-card")
+        if composer.count() == 0:
+            # fallback：从 textarea 向上找编辑区容器，取其中的按钮
+            textarea_parent = self.page.locator("textarea").locator("xpath=../..")
+            btns = textarea_parent.locator("button")
+            if btns.count() > 0:
+                btns.first.click()
+                self.page.wait_for_timeout(2000)
             return
-        # fallback：从 textarea 向上找编辑区容器，取其中的按钮
-        textarea_parent = self.page.locator("textarea").locator("xpath=../..")
-        btns = textarea_parent.locator("button")
-        if btns.count() > 0:
-            btns.first.click()
+        stop_btn = composer.locator("button:has(svg.lucide-square)")
+        if stop_btn.count() > 0 and stop_btn.first.is_visible() and stop_btn.first.is_enabled():
+            stop_btn.first.click()
             self.page.wait_for_timeout(2000)
 
     def try_send_empty(self):
@@ -513,6 +525,49 @@ class ChatTestPage:
         if chat_area.count() > 0:
             return chat_area.first.inner_text()
         return ""
+
+    def wait_for_messages_loaded(self, timeout_s: int = 15) -> str:
+        """点击会话后轮询等待消息区渲染出真实内容（非空态占位符/AgentBadge）。
+
+        全量回归负载高时，切换会话后消息区可能短暂停留在空态（占位符「开始对话」）
+        或 AgentBadge，禁止裸固定等待后立即读取（会读到空态文本）。
+        空态占位符特征文案：chatView.startConversationDesc「输入消息开始与 ACP agent 聊天」。
+        """
+        log_area = self.page.locator("div[role='log']")
+        for _ in range(timeout_s):
+            if log_area.count() > 0:
+                text = log_area.first.inner_text().strip()
+                has_badge = log_area.locator(".agent-badge").count() > 0
+                is_empty_state = "输入消息开始" in text
+                if text and not has_badge and not is_empty_state:
+                    return text
+            self.page.wait_for_timeout(1000)
+        return self.get_chat_messages_text().strip()
+
+    def wait_for_chat_marker(self, check_fn, timeout_s: int = 90) -> tuple:
+        """等待聊天消息区满足 check_fn 判定（如 has_code_block/has_table）。
+
+        全量回归负载高时，AI 回复渲染/Yjs 同步可能滞后；超时后二次刷新强制重建
+        Yjs 连接，再等 30s。返回 (是否满足, 消息区文本)，用于诊断断言。
+        """
+        for _ in range(timeout_s):
+            if check_fn():
+                return True, self.get_chat_messages_text()
+            self.page.wait_for_timeout(1000)
+        # 自愈：二次刷新重建连接（Yjs 同步卡死时恢复）
+        try:
+            self.page.reload(wait_until="domcontentloaded")
+        except Exception:
+            pass
+        try:
+            self.page.locator("textarea").first.wait_for(state="visible", timeout=15000)
+        except Exception:
+            pass
+        for _ in range(30):
+            if check_fn():
+                return True, self.get_chat_messages_text()
+            self.page.wait_for_timeout(1000)
+        return False, self.get_chat_messages_text()
 
     def get_user_message_count(self) -> int:
         """获取用户消息气泡数量"""

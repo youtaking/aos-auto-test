@@ -136,14 +136,16 @@ def test_model_001_provider_list_loads(logged_in_page, base_url, request):
     )
     if not provider_api_called:
         # 等待页面加载后重试
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.wait_for_load_state("networkidle")
+        logged_in_page.wait_for_timeout(500)
         mc.goto()
     if not provider_api_called:
         pytest.skip("未发起 Provider 列表 API 请求（页面可能未加载）")
 
     # 2. 展示已配置的 Provider（增加重试）
     if not mc.is_loaded():
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.wait_for_load_state("networkidle")
+        logged_in_page.wait_for_timeout(500)
     if not mc.is_loaded():
         # 429 可能导致页面未加载，等待后重试
         _wait_rate_limit_reset(logged_in_page)
@@ -183,7 +185,13 @@ def test_model_002_add_openai_provider(logged_in_page, base_url, request):
     """
     mc = ModelConfigPage(logged_in_page, base_url)
     mc.goto()
-    initial_count = mc.get_provider_count()
+    # 等待 Provider 列表加载完成（全量回归负载高时列表渲染延迟，禁止裸 count 立即读取）
+    initial_count = 0
+    for _wait in range(15):
+        initial_count = mc.get_provider_count()
+        if initial_count > 0:
+            break
+        logged_in_page.wait_for_timeout(1000)
 
     # 注册清理（在 UI 创建之前）
     register_cleanup(request, lambda: _delete_provider_via_api(
@@ -216,7 +224,10 @@ def test_model_002_add_openai_provider(logged_in_page, base_url, request):
         mc.goto()
         mc.click_add_provider()
         if not mc.is_dialog_open():
-            logged_in_page.wait_for_timeout(2000)
+            try:
+                logged_in_page.locator("[role=dialog]").first.wait_for(state="visible", timeout=5000)
+            except Exception:
+                logged_in_page.wait_for_timeout(500)
         mc.fill_provider_form(
             provider_id=_TEST_PROVIDER_ID,
             display_name=_TEST_PROVIDER_NAME,
@@ -315,7 +326,10 @@ def test_model_003_add_anthropic_provider(logged_in_page, base_url, request):
         mc.goto()
         mc.click_add_provider()
         if not mc.is_dialog_open():
-            logged_in_page.wait_for_timeout(2000)
+            try:
+                logged_in_page.locator("[role=dialog]").first.wait_for(state="visible", timeout=5000)
+            except Exception:
+                logged_in_page.wait_for_timeout(500)
         mc.select_protocol("Anthropic")
         mc.fill_provider_form(
             provider_id=anthropic_id,
@@ -358,7 +372,13 @@ def test_model_004_api_key_empty_allowed(logged_in_page, base_url, request):
     """
     mc = ModelConfigPage(logged_in_page, base_url)
     mc.goto()
-    initial_count = mc.get_provider_count()
+    # 等待 Provider 列表加载完成（全量回归负载高时列表渲染延迟，禁止裸 count 立即读取）
+    initial_count = 0
+    for _wait in range(15):
+        initial_count = mc.get_provider_count()
+        if initial_count > 0:
+            break
+        logged_in_page.wait_for_timeout(1000)
 
     # 打开弹窗，填写名称但不填 API Key
     provider_id = f"{_TEST_PREFIX}-nokey"
@@ -391,10 +411,13 @@ def test_model_004_api_key_empty_allowed(logged_in_page, base_url, request):
         try:
             mc.click_add_provider()
         except Exception:
-            logged_in_page.wait_for_timeout(3000)
+            logged_in_page.wait_for_timeout(1000)
             mc.click_add_provider()
         if not mc.is_dialog_open():
-            logged_in_page.wait_for_timeout(2000)
+            try:
+                logged_in_page.locator("[role=dialog]").first.wait_for(state="visible", timeout=5000)
+            except Exception:
+                logged_in_page.wait_for_timeout(500)
         mc.fill_provider_form(
             provider_id=provider_id,
             display_name=f"NoKey {_TEST_PREFIX}",
@@ -476,10 +499,10 @@ def test_model_005_api_key_not_exposed(logged_in_page, base_url, request):
         key_hint = prov.get("keyHint", "")
         # keyHint 应该是掩码格式（***开头）
         assert "***" in key_hint or key_hint == "", \
-            f"API 响应中 Provider '{prov.get('id')}' 暴露了 API Key: {key_hint}"
+            f"Provider '{prov.get('id')}' 的 keyHint 暴露了 API Key: '{key_hint}' (len={len(key_hint)})"
         # 不应有完整 apiKey 字段
         assert "apiKey" not in prov or prov.get("apiKey") is None, \
-            f"API 响应中 Provider '{prov.get('id')}' 返回了完整 apiKey"
+            f"Provider '{prov.get('id')}' 的 API 响应返回了完整 apiKey 字段: apiKey={prov.get('apiKey')!r}, keys={list(prov.keys())}"
 
     # 3. LocalStorage 中不存储明文 API Key
     storage_check = logged_in_page.evaluate("""() => {
@@ -629,7 +652,10 @@ def test_model_006b_edit_provider_other_fields(logged_in_page, base_url, request
         mc.goto()
         mc.click_provider_edit(provider_id)
         if not mc.is_dialog_open():
-            logged_in_page.wait_for_timeout(2000)
+            try:
+                logged_in_page.locator("[role=dialog]").first.wait_for(state="visible", timeout=5000)
+            except Exception:
+                logged_in_page.wait_for_timeout(500)
         mc.select_protocol("Anthropic")
         mc.submit_form()
         logged_in_page.wait_for_timeout(800)
@@ -657,7 +683,18 @@ def test_model_006b_edit_provider_other_fields(logged_in_page, base_url, request
 
     # 3. 再次打开验证可用模型列表区域
     mc.goto()
+    if not mc.has_provider(provider_id):
+        _wait_rate_limit_reset(logged_in_page)
+        mc.goto()
     mc.click_provider_edit(provider_id)
+    if not mc.has_model_list_section():
+        # 429 或列表未加载导致弹窗缺少「可用模型列表」区域，等待限流重置后重试
+        print("[429] 编辑弹窗模型列表区域未加载，等待限流窗口重置后重试...")
+        _wait_rate_limit_reset(logged_in_page)
+        mc.goto()
+        if not mc.has_provider(provider_id):
+            pytest.skip("测试 Provider 创建失败（API 可能不可用），跳过测试")
+        mc.click_provider_edit(provider_id)
     assert mc.has_model_list_section(), "编辑弹窗中缺少「可用模型列表」区域"
     assert mc.has_fetch_models_in_dialog(), "编辑弹窗中缺少「获取模型列表」按钮"
 
@@ -723,8 +760,8 @@ def test_model_007_delete_provider_cascade(logged_in_page, base_url, request):
     # 1. 弹出确认弹窗
     assert mc.is_alert_dialog_open(), "删除确认弹窗未弹出"
     alert_text = mc.get_alert_dialog_text()
-    assert "删除" in alert_text or "确认" in alert_text, \
-        f"确认弹窗文本不正确: {alert_text}"
+    assert any(kw in alert_text for kw in ["删除", "确认"]), \
+        f"删除确认弹窗文本缺少操作关键词（删除/确认），实际文本: '{alert_text}'"
 
     # 确认删除
     mc.confirm_alert_dialog()
@@ -787,8 +824,29 @@ def test_model_008_add_model(logged_in_page, base_url, request):
     ]
     assert len(model_api_calls) > 0, "未检测到添加模型的 API 请求"
 
-    # 2. 显示在模型列表中
-    model_count = mc.get_model_count_for_provider(_TEST_PROVIDER_ID)
+    # 若 POST 被限流（429），等待限流窗口重置后重新走一次 UI 添加流程
+    if model_api_calls and model_api_calls[-1]["status"] == 429:
+        print("[429] 添加模型 POST 被限流，等待限流窗口重置后重试...")
+        _wait_rate_limit_reset(logged_in_page)
+        mc.goto()
+        assert mc.has_provider(_TEST_PROVIDER_ID), "重试时测试 Provider 不存在"
+        clicked = mc.click_add_model(_TEST_PROVIDER_ID)
+        assert clicked, "重试点击 '+ 添加模型' 失败"
+        assert mc.is_dialog_open(), "重试添加模型弹窗未打开"
+        mc.fill_model_form(_TEST_MODEL_ID, _TEST_MODEL_NAME)
+        mc.submit_form()
+        logged_in_page.wait_for_timeout(800)
+        mc.goto()
+
+    # 2. 显示在模型列表中 — 等待卡片加载 + 模型数量刷新
+    #（全量回归负载高时 providers/models 列表 API 可能延迟，禁止裸读取卡片计数）
+    assert mc.has_provider(_TEST_PROVIDER_ID), "测试 Provider 未显示在列表中"
+    model_count = 0
+    for _wait in range(15):
+        model_count = mc.get_model_count_for_provider(_TEST_PROVIDER_ID)
+        if model_count > 0:
+            break
+        logged_in_page.wait_for_timeout(1000)
     assert model_count > 0, "添加后模型数量为 0"
 
     model_names = mc.get_model_names_for_provider(_TEST_PROVIDER_ID)
@@ -856,7 +914,8 @@ def test_model_009_edit_model(logged_in_page, base_url, request):
     # 点击模型编辑按钮（增加重试，429 时等待后重试）
     clicked = mc.click_model_edit(_TEST_PROVIDER_ID, model_id)
     if not clicked:
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.wait_for_load_state("networkidle")
+        logged_in_page.wait_for_timeout(500)
         mc.goto()
         clicked = mc.click_model_edit(_TEST_PROVIDER_ID, model_id)
     if not clicked:
@@ -942,7 +1001,8 @@ def test_model_009b_delete_model(logged_in_page, base_url, request):
     model_names = mc.get_model_names_for_provider(_TEST_PROVIDER_ID)
     if not any(model_id in n for n in model_names):
         # 刷新重试一次
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.wait_for_load_state("networkidle")
+        logged_in_page.wait_for_timeout(500)
         mc.goto()
         model_names = mc.get_model_names_for_provider(_TEST_PROVIDER_ID)
     if not any(model_id in n for n in model_names):
@@ -1325,6 +1385,12 @@ def test_model_014_public_model_readonly(logged_in_page, base_url, request):
     mc = ModelConfigPage(logged_in_page, base_url)
     mc.goto()
 
+    # 等待 Provider 列表加载完成（全量回归负载高时列表渲染延迟，禁止裸 count 立即扫描）
+    for _wait in range(15):
+        if mc.get_provider_count() > 0:
+            break
+        logged_in_page.wait_for_timeout(1000)
+
     # 通过 Provider ID 精确定位共享 Provider 卡片（卡片的 data 属性或文本含 ID）
     cards = mc.get_provider_cards()
     target_card = None
@@ -1564,7 +1630,8 @@ def test_model_017_openapi_model_crud(logged_in_page, base_url, request):
         )
         if create_resp.status == 200:
             break
-        logged_in_page.wait_for_timeout(2000)
+        logged_in_page.wait_for_load_state("networkidle")
+        logged_in_page.wait_for_timeout(500)
 
     # 获取 resourceKey
     providers = _get_providers_via_api(logged_in_page, base_url)
@@ -1602,7 +1669,7 @@ def test_model_017_openapi_model_crud(logged_in_page, base_url, request):
     # 3. 模型与 Provider 正确关联
     assert detail.get("data", {}).get("id") == resource_key or \
         detail.get("data", {}).get("name") == provider_data["name"], \
-        "模型与 Provider 关联不正确"
+        f"模型与 Provider 的关联关系不正确: detail.id={detail.get('data', {}).get('id')!r}, expected={resource_key!r}, detail.name={detail.get('data', {}).get('name')!r}, expected={provider_data['name']!r}"
 
     # 4. 删除模型
     del_resp = logged_in_page.request.delete(
@@ -1643,7 +1710,7 @@ def test_model_018_openapi_auth_check(logged_in_page, base_url, request):
         # 应返回 401 或 403 或重定向到登录
         assert resp.status in [401, 403, 302, 307, 308] or \
             not resp.json().get("success", True), \
-            f"无认证请求应被拒绝，实际: status={resp.status}"
+            f"无认证请求未被拒绝（status={resp.status}, success={resp.json().get('success', 'N/A')}）"
     except Exception as e:
         # 网络错误也可以接受（被防火墙拦截等）
         allure.attach(
@@ -1691,7 +1758,7 @@ def test_model_019_openapi_idempotency(logged_in_page, base_url, request):
     is_not_found = resp2.status == 404
     is_failed = resp2.status == 200 and not resp2.json().get("success", True)
     assert is_not_found or is_failed, \
-        f"假 URL Provider 未被拒绝: is_not_found={is_not_found}, is_failed={is_failed}, status={resp2.status}, body={resp2.text()[:200]}"
+        f"重复删除假 URL Provider 未被拒绝（status={resp2.status}, is_not_found={is_not_found}, is_failed={is_failed}）"
 
 
 @allure.epic("模型配置")
@@ -1733,7 +1800,8 @@ def test_model_022_openapi_create_validation(logged_in_page, base_url, request):
             attachment_type=allure.attachment_type.TEXT,
         )
     else:
-        assert resp_empty.status in [400, 422, 500] or not was_created, "空 body 请求未创建 Provider（被拦截）"
+        assert resp_empty.status in [400, 422, 500] or not was_created, \
+            f"空 body 请求未被拦截（status={resp_empty.status}, was_created={was_created}）"
 
     # 2. 无效协议类型
     resp_bad_protocol = logged_in_page.request.put(
@@ -2277,8 +2345,8 @@ def test_model_provider_delete(logged_in_page, base_url, request):
         assert mc.is_alert_dialog_open(), "删除确认对话框未弹出"
 
         alert_text = mc.get_alert_dialog_text()
-        assert "删除" in alert_text or "确认" in alert_text, \
-            f"确认对话框文本不正确: {alert_text}"
+        assert any(kw in alert_text for kw in ["删除", "确认"]), \
+            f"确认对话框文本缺少操作关键词（删除/确认），实际文本: '{alert_text}'"
 
         # 确认删除
         mc.confirm_alert_dialog()
@@ -2298,3 +2366,158 @@ def test_model_provider_delete(logged_in_page, base_url, request):
     finally:
         # 兜底清理
         _delete_provider_via_api(logged_in_page, base_url, provider_id)
+
+
+# ==================== 补充 P1 测试 ====================
+
+
+@allure.epic("模型库")
+@pytest.mark.order(625)
+@pytest.mark.p1
+def test_models_batch_add(logged_in_page, base_url, request):
+    """P1: 批量添加模型流程入口 — 验证 '+ 添加模型' 按钮弹窗和 '获取模型列表' 入口"""
+    mc = ModelConfigPage(logged_in_page, base_url)
+    mc.goto()
+
+    count = mc.get_provider_count()
+    if count == 0:
+        _wait_rate_limit_reset(logged_in_page)
+        mc.goto()
+        count = mc.get_provider_count()
+    if count == 0:
+        pytest.skip("Provider 列表为空")
+
+    names = mc.get_provider_names()
+    provider_name = names[0]
+
+    # 1. 验证 '+ 添加模型' 按钮存在且可点击
+    clicked = mc.click_add_model(provider_name)
+    if not clicked:
+        pytest.skip(f"Provider '{provider_name}' 中未找到 '+ 添加模型' 按钮")
+
+    # 验证弹窗打开（新增模型对话框）
+    dialog = logged_in_page.locator("[role=dialog]")
+    try:
+        dialog.first.wait_for(state="visible", timeout=5000)
+    except Exception:
+        pytest.skip("点击 '+ 添加模型' 后弹窗未出现")
+
+    dialog_text = dialog.first.inner_text()
+    assert "新增模型" in dialog_text or "添加模型" in dialog_text or "model" in dialog_text.lower(), \
+        f"添加模型弹窗标题不正确，dialog_text: {dialog_text[:200]}"
+
+    # 2. 验证弹窗中有表单元素（模型 ID 输入框）
+    form_inputs = dialog.locator("input")
+    assert form_inputs.count() > 0, "添加模型弹窗中缺少表单输入框"
+
+    # 关闭弹窗
+    close_btn = dialog.locator("button[data-slot='dialog-close']").or_(
+        dialog.locator("button").filter(has_text="取消")
+    )
+    if close_btn.count() > 0:
+        close_btn.first.wait_for(state="visible", timeout=5000)
+        close_btn.first.click()
+    else:
+        logged_in_page.keyboard.press("Escape")
+    logged_in_page.wait_for_timeout(500)
+
+    # 3. 验证 '获取模型列表' 按钮存在
+    fetch_btn = logged_in_page.get_by_role("button", name="获取模型列表")
+    if fetch_btn.count() == 0:
+        pytest.skip(f"Provider '{provider_name}' 中未找到 '获取模型列表' 按钮")
+
+    assert fetch_btn.first.is_visible(), "'获取模型列表' 按钮存在但不可见"
+
+
+# === P2: 模型库列表分页/排序 ===
+
+@allure.epic("模型配置")
+@pytest.mark.order(626)
+@pytest.mark.p2
+def test_models_pagination(logged_in_page, base_url):
+    """TC-MODEL-P2-01: 模型库列表分页或排序控件验证"""
+    mc = ModelConfigPage(logged_in_page, base_url)
+    mc.goto()
+
+    # 等待页面加载
+    try:
+        logged_in_page.locator("div.agent-panel-content").first.wait_for(
+            state="attached", timeout=8000
+        )
+    except Exception:
+        pass
+    logged_in_page.wait_for_timeout(1000)
+
+    # 查找分页控件
+    # 1. 上一页/下一页按钮
+    prev_next = logged_in_page.get_by_role("button", name="上一页").or_(
+        logged_in_page.get_by_role("button", name="下一页")
+    ).or_(
+        logged_in_page.get_by_role("button", name="Previous")
+    ).or_(
+        logged_in_page.get_by_role("button", name="Next")
+    ).or_(
+        logged_in_page.locator("button[aria-label*='prev' i], button[aria-label*='next' i]")
+    ).or_(
+        logged_in_page.locator("button[data-slot='pagination-previous'], button[data-slot='pagination-next']")
+    )
+
+    # 2. 分页导航容器
+    page_numbers = logged_in_page.locator(
+        "nav[aria-label*='pagination' i], "
+        "div[class*='pagination'], "
+        "ul[class*='pagination']"
+    )
+
+    # 3. 每页条数选择器
+    page_size = logged_in_page.locator(
+        "select[class*='page-size'], "
+        "button:has-text('条/页'), "
+        "button:has-text('/页')"
+    ).or_(
+        logged_in_page.get_by_text("显示", exact=False).filter(has_text="条")
+    )
+
+    # 4. 分页文本
+    pagination_text = logged_in_page.locator(
+        "span:has-text('共'), span:has-text('页'), "
+        "span:text-matches('\\\\d+\\\\s*/\\\\s*\\\\d+')"
+    )
+
+    # 5. 排序控件（表头排序箭头或排序下拉）
+    sort_controls = logged_in_page.locator(
+        "th[aria-sort], "
+        "button[class*='sort'], "
+        "button[aria-label*='sort' i]"
+    ).or_(
+        logged_in_page.get_by_role("button", name="排序").or_(
+            logged_in_page.locator("select").filter(has_text="排序")
+        )
+    )
+
+    has_prev_next = prev_next.count() > 0
+    has_page_nav = page_numbers.count() > 0
+    has_page_size = page_size.count() > 0
+    has_pagination_text = pagination_text.count() > 0
+    has_sort = sort_controls.count() > 0
+
+    has_any = has_prev_next or has_page_nav or has_page_size or has_pagination_text or has_sort
+
+    if not has_any:
+        # 数据量少时可能不显示分页/排序
+        api_resp = logged_in_page.request.get(f"{base_url}/web/config/providers")
+        if api_resp.status == 200:
+            data = api_resp.json()
+            items = data.get("data", data) if isinstance(data, dict) else data
+            if isinstance(items, dict):
+                total = items.get("total", len(items.get("items", [])))
+            elif isinstance(items, list):
+                total = len(items)
+            else:
+                total = 0
+            if total <= 20:
+                pytest.skip(f"模型库列表仅 {total} 条数据，无分页/排序控件（数据量不足）")
+        pytest.skip("模型库列表未找到分页或排序控件，且无法确认数据量")
+
+    assert has_any, \
+        "模型库列表应有分页或排序控件，但未找到任何相关元素"

@@ -93,8 +93,6 @@ steps:
             err_str = str(e)
             if "400" in err_str:
                 pytest.skip("dryRun 校验失败，YAML 格式不被当前引擎支持")
-            if "500" in err_str:
-                pytest.skip("工作流引擎内部错误")
             raise
 
         assert isinstance(result, dict)

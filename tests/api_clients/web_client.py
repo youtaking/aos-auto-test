@@ -1299,3 +1299,39 @@ class WebClient(BaseClient):
         """
         resp = self.delete(f"/web/tasks/{task_id}/logs")
         return self._unwrap(resp)
+
+    # ── Peri Task Details 模块 ──
+
+    def get_peri_task_detail(self, environment_id: str, session_id: str, task_id: str, params: dict | None = None) -> dict:
+        """获取 Peri Task 详情（按任务类型读取有界摘要）
+        GET /web/agents/:environmentId/sessions/:sessionId/peri-tasks/:taskId/detail
+        → {success, data: {kind: "preview"|"unavailable", taskId, taskKind, ...}}
+        返回 data 部分
+        """
+        path = f"/web/agents/{environment_id}/sessions/{session_id}/peri-tasks/{task_id}/detail"
+        resp = self.get(path, params=params)
+        return self._unwrap(resp)
+
+    # ── ACP 模块（/acp/*，session cookie 认证） ──
+
+    def list_acp_agents(self) -> list:
+        """获取 ACP Agent 列表
+        GET /acp/agents → [{id, agent_name, status, max_sessions, last_seen_at, created_at}]
+        无 {success, data} 包装，直接返回数组
+        """
+        import httpx
+        resp = self._request_with_retry("get", "/acp/agents")
+        resp.raise_for_status()
+        return resp.json()
+
+    # ── Skills 下载（/skills/:name/download，session cookie 认证） ──
+
+    def download_skill(self, name: str, token: str) -> bytes:
+        """下载 Skill 压缩包（二进制流）
+        GET /skills/:name/download?token=xxx → application/zip
+        返回原始字节
+        """
+        import httpx
+        resp = self._request_with_retry("get", f"/skills/{name}/download", params={"token": token})
+        resp.raise_for_status()
+        return resp.content

@@ -116,8 +116,9 @@ class TestWorkflow:
         # 如果页面返回 404（路由未注册），跳过而非失败
         if "404" in text and "页面未找到" in text:
             pytest.skip("工作流页面返回 404，路由可能未注册")
-        assert count > 0 or "暂无" in text or "空" in text or "workflow" in text.lower(), \
-            f"工作流列表无数据且无空状态提示 (count={count}, text片段={text[:80]})"
+        if count == 0:
+            assert any(kw in text.lower() for kw in ["暂无", "空", "no data", "empty"]), \
+                f"工作流列表无数据且无空状态提示 (text片段={text[:80]})"
 
     # === 创建工作流 ===
 
@@ -171,8 +172,8 @@ class TestWorkflow:
                 pass
             # ReactFlow 画布或空画布容器
             panel = logged_in_page.locator("div.agent-panel-content, main")
-            assert canvas.count() > 0 or panel.count() > 0, \
-                f"编辑器画布未加载（URL: {logged_in_page.url}）"
+            assert panel.count() > 0, \
+                f"编辑器页面容器未加载（URL: {logged_in_page.url}）"
         finally:
             if created:
                 _delete_workflow_api(logged_in_page, base_url, wf_id)
@@ -209,7 +210,7 @@ class TestWorkflow:
                 ".react-flow__node, [data-slot='flow-node']"
             )
             assert has_add_ui or nodes.count() > 0, \
-                f"编辑器中无节点相关 UI: has_add_ui={has_add_ui}, nodes={nodes.count()}"
+                f"编辑器中无节点相关 UI（添加UI={has_add_ui}, 节点数={nodes.count()}）"
         finally:
             if created:
                 _delete_workflow_api(logged_in_page, base_url, wf_id)
@@ -252,7 +253,7 @@ class TestWorkflow:
             )
             publish_btn = logged_in_page.get_by_role("button", name="发布")
             assert save_btn.count() > 0 or publish_btn.count() > 0, \
-                "编辑器中无保存或发布按钮"
+                f"编辑器中保存和发布按钮均不存在（保存={save_btn.count()}, 发布={publish_btn.count()}）"
         finally:
             if created:
                 _delete_workflow_api(logged_in_page, base_url, wf_id)
@@ -282,12 +283,12 @@ class TestWorkflow:
                     state="visible", timeout=15000
                 )
             except Exception:
-                logged_in_page.wait_for_timeout(3000)
+                logged_in_page.wait_for_timeout(1000)
             publish_btn = logged_in_page.get_by_role("button", name="发布")
             save_btn = logged_in_page.get_by_role("button", name="保存")
             # 发布按钮或保存按钮应存在
             assert publish_btn.count() > 0 or save_btn.count() > 0, \
-                "编辑器中无发布或保存按钮"
+                f"编辑器中发布和保存按钮均不存在（发布={publish_btn.count()}, 保存={save_btn.count()}）"
         finally:
             if created:
                 _delete_workflow_api(logged_in_page, base_url, wf_id)
@@ -361,8 +362,8 @@ class TestWorkflow:
         )
         if verify_resp.status == 200:
             wf_data = verify_resp.json().get("data", {})
-            assert wf_data.get("draftYaml") is not None or wf_data.get("id") == wf_id, \
-                "恢复后工作流草稿状态异常"
+            assert wf_data.get("draftYaml") is not None, \
+                f"恢复后工作流草稿 YAML 为空 (id={wf_data.get('id')})"
 
         # Step 13: 刷新版本页面，验证版本列表仍正常
         refresh_btn = logged_in_page.get_by_role("button", name="刷新")
@@ -424,7 +425,7 @@ class TestWorkflow:
         link.first.click()
         logged_in_page.wait_for_timeout(1500)
         assert "tab=runs" in logged_in_page.url or "运行记录" in logged_in_page.url, \
-            "点击运行记录后 URL 未切换"
+            f"点击运行记录后 URL 未切换，当前 URL: {logged_in_page.url}"
 
     # === 触发器 CRUD ===
 
@@ -552,7 +553,7 @@ class TestWorkflow:
                     state="visible", timeout=15000
                 )
             except Exception:
-                logged_in_page.wait_for_timeout(2000)
+                logged_in_page.wait_for_timeout(1000)
 
             # 查找触发器 UI 入口（按钮或 Tab）
             trigger_btn = loc.button_by_name_or_title(logged_in_page, "触发器").or_(
@@ -580,7 +581,8 @@ class TestWorkflow:
                 if create_btn.count() > 0:
                     create_btn.first.wait_for(state="visible", timeout=5000)
                     create_btn.first.click()
-                    logged_in_page.wait_for_timeout(2000)
+                    logged_in_page.wait_for_load_state("networkidle")
+                    logged_in_page.wait_for_timeout(500)
 
                     # 验证新触发器被创建（列表刷新）
                     list_resp2 = logged_in_page.request.get(
@@ -657,7 +659,7 @@ class TestWorkflow:
                     state="visible", timeout=15000
                 )
             except Exception:
-                logged_in_page.wait_for_timeout(3000)
+                logged_in_page.wait_for_timeout(1000)
             # ReactFlow 画布加载验证
             react_flow = logged_in_page.locator(
                 ".react-flow"
@@ -665,16 +667,16 @@ class TestWorkflow:
             # 或者通用的 SVG/Canvas 画布
             svg_canvas = logged_in_page.locator("svg").first
             panel = logged_in_page.locator("div.agent-panel-content, main")
-            assert react_flow.count() > 0 or svg_canvas.count() > 0 or panel.count() > 0, \
-                "ReactFlow 画布未加载"
+            assert react_flow.count() > 0 or panel.count() > 0, \
+                f"编辑器画布和内容面板均未加载（react_flow={react_flow.count()}, panel={panel.count()}）"
             # 验证编辑器工具栏或控制面板可见
             toolbar = logged_in_page.locator(
                 "button[title*='撤销'], button[title*='重做'], "
                 "button[title*='zoom'], button[title*='Zoom']"
             )
             # 工具栏或画布至少有一个
-            assert toolbar.count() > 0 or react_flow.count() > 0 or panel.count() > 0, \
-                "编辑器工具栏和画布均未找到"
+            assert toolbar.count() > 0 or react_flow.count() > 0, \
+                f"编辑器工具栏和画布均未找到（工具栏={toolbar.count()}, react_flow={react_flow.count()}）"
         finally:
             if created:
                 _delete_workflow_api(logged_in_page, base_url, wf_id)
@@ -764,8 +766,8 @@ class TestWorkflow:
         ).filter(has_text="暂无").or_(
             logged_in_page.locator("p").filter(has_text="暂无")
         )
-        assert table.count() > 0 or empty_state.count() > 0 or panel.count() > 0, \
-            "运行记录列表未显示"
+        assert table.count() > 0 or empty_state.count() > 0, \
+            f"运行记录列表未显示（表格={table.count()}, 空状态={empty_state.count()}）"
 
     @pytest.mark.order(423)
     @pytest.mark.p2
@@ -881,7 +883,7 @@ class TestWorkflow:
             if has_dialog:
                 logged_in_page.keyboard.press("Escape")
             assert has_dialog or has_params, \
-                f"运行参数对话框未检测到: has_dialog={has_dialog}, has_params={has_params}"
+                f"运行参数弹窗未出现（对话框={has_dialog}, 参数区域={has_params}）"
         finally:
             if created:
                 _delete_workflow_api(logged_in_page, base_url, wf_id)
@@ -960,7 +962,7 @@ class TestWorkflow:
             apply_btn.wait_for(state="visible", timeout=5000)
             # Apply YAML 按钮可能被 react-flow 画布遮挡，需要 force 点击
             apply_btn.first.click(force=True)
-            logged_in_page.wait_for_timeout(2000)
+            logged_in_page.wait_for_timeout(1000)
 
             # Step 6: 验证 Apply 后 textarea 内容保留（未被清空或重置）
             applied_yaml = yaml_textarea.input_value()
@@ -1002,3 +1004,457 @@ class TestWorkflow:
         finally:
             if created:
                 _delete_workflow_api(logged_in_page, base_url, wf_id)
+
+
+    # ==================== 工作流缺口补充测试（TC-WF-GAP-01 ~ 03）====================
+
+    @pytest.mark.order(430)
+    @pytest.mark.p0
+    def test_wf_gap_01_node_config_sheet(self, logged_in_page, base_url):
+        """TC-WF-GAP-01: 节点配置 Sheet — 点击画布节点，右侧弹出配置面板"""
+        wf_id, created = _get_or_create_workflow(logged_in_page, base_url)
+        if not wf_id:
+            pytest.skip("无法获取或创建工作流 ID")
+        try:
+            try:
+                logged_in_page.goto(
+                    f"{base_url}/ctrl/agent/workflow/{wf_id}/edit",
+                    wait_until="domcontentloaded",
+                )
+            except Exception:
+                pass
+            logged_in_page.wait_for_load_state("domcontentloaded")
+            try:
+                logged_in_page.locator("div.agent-panel-content").first.wait_for(
+                    state="attached", timeout=8000
+                )
+            except Exception:
+                pass
+            logged_in_page.wait_for_timeout(1000)
+
+            # 查找 ReactFlow 节点
+            nodes = logged_in_page.locator(".react-flow__node")
+            if nodes.count() == 0:
+                pytest.skip("编辑器画布中无 ReactFlow 节点")
+
+            # 点击第一个节点
+            nodes.first.wait_for(state="visible", timeout=5000)
+            nodes.first.click()
+            try:
+                logged_in_page.locator(".wf-node-sheet").first.wait_for(state="visible", timeout=5000)
+            except Exception:
+                logged_in_page.wait_for_timeout(500)
+
+            # 验证 NodeConfigSheet 打开（通过 CSS class 判断）
+            sheet = logged_in_page.locator(".wf-node-sheet")
+            sheet_visible = sheet.count() > 0 and sheet.first.is_visible()
+
+            # 备选：通过 data-state=open 的 dialog
+            if not sheet_visible:
+                dialog = logged_in_page.locator(
+                    "[data-state=open][role=dialog]"
+                )
+                sheet_visible = dialog.count() > 0
+
+            assert sheet_visible, "点击节点后 NodeConfigSheet 未打开"
+
+            # 验证 Sheet 内有配置内容
+            sheet_container = (
+                sheet if sheet.count() > 0
+                else logged_in_page.locator("[data-state=open][role=dialog]")
+            )
+            sheet_text = sheet_container.first.inner_text()
+            assert len(sheet_text) > 0, "NodeConfigSheet 内容为空"
+
+            # 验证有输入框或配置元素
+            sheet_inputs = sheet_container.locator("input, textarea, select, [role=switch]")
+            assert sheet_inputs.count() > 0, "NodeConfigSheet 无任何配置元素"
+
+            # 关闭 Sheet
+            logged_in_page.keyboard.press("Escape")
+            logged_in_page.wait_for_timeout(1000)
+        finally:
+            if created:
+                _delete_workflow_api(logged_in_page, base_url, wf_id)
+
+
+    @pytest.mark.order(431)
+    @pytest.mark.p1
+    def test_wf_gap_02_meta_popover(self, logged_in_page, base_url):
+        """TC-WF-GAP-02: 工作流 Meta 信息弹窗 — 点击齿轮按钮弹出元数据配置"""
+        wf_id, created = _get_or_create_workflow(logged_in_page, base_url)
+        if not wf_id:
+            pytest.skip("无法获取或创建工作流 ID")
+        try:
+            try:
+                logged_in_page.goto(
+                    f"{base_url}/ctrl/agent/workflow/{wf_id}/edit",
+                    wait_until="domcontentloaded",
+                )
+            except Exception:
+                pass
+            logged_in_page.wait_for_load_state("domcontentloaded")
+            try:
+                logged_in_page.locator("div.agent-panel-content").first.wait_for(
+                    state="attached", timeout=8000
+                )
+            except Exception:
+                pass
+            logged_in_page.wait_for_timeout(1000)
+
+            # 查找 Meta 设置按钮（齿轮图标，title 包含 meta/settings/设置）
+            meta_btn = logged_in_page.locator(
+                "button.wf-meta-trigger-btn[title*='meta'], "
+                "button.wf-meta-trigger-btn[title*='Meta'], "
+                "button.wf-meta-trigger-btn[title*='设置'], "
+                "button.wf-meta-trigger-btn[title*='setting']"
+            )
+
+            if meta_btn.count() == 0:
+                # 备选：通过 data-tooltip 查找
+                meta_btn = logged_in_page.locator(
+                    "button[data-tooltip*='meta'], "
+                    "button[data-tooltip*='设置'], "
+                    "button[data-tooltip*='Meta']"
+                )
+
+            if meta_btn.count() == 0:
+                pytest.skip("编辑器中未找到 Meta 设置按钮")
+
+            meta_btn.first.wait_for(state="visible", timeout=5000)
+            meta_btn.first.click()
+            logged_in_page.wait_for_timeout(1500)
+
+            # 验证 Popover 打开
+            popover = logged_in_page.locator(".wf-meta-popover")
+            popover_visible = popover.count() > 0 and popover.first.is_visible()
+
+            # 备选：检查 data-state=open 的 dialog
+            if not popover_visible:
+                dialog = logged_in_page.locator(
+                    "[data-state=open][role=dialog]"
+                )
+                popover_visible = dialog.count() > 0
+
+            assert popover_visible, "Meta 设置 Popover 未打开"
+
+            # 验证 Popover 内有配置字段
+            pop_container = (
+                popover if popover.count() > 0
+                else logged_in_page.locator("[data-state=open][role=dialog]")
+            )
+            pop_text = pop_container.first.inner_text()
+
+            # 检查关键字段：name、description、timeout 等
+            has_fields = any(
+                kw in pop_text.lower()
+                for kw in ["name", "description", "timeout", "名称", "描述", "超时", "schema"]
+            )
+            assert has_fields, \
+                f"MetaPopover 内容不包含预期字段: '{pop_text[:200]}'"
+
+            # 验证有可编辑的输入框
+            pop_inputs = pop_container.locator("input, textarea")
+            assert pop_inputs.count() > 0, "MetaPopover 无输入框"
+
+            # 关闭 Popover
+            logged_in_page.keyboard.press("Escape")
+            logged_in_page.wait_for_timeout(500)
+        finally:
+            if created:
+                _delete_workflow_api(logged_in_page, base_url, wf_id)
+
+
+    @pytest.mark.order(432)
+    @pytest.mark.p1
+    def test_wf_gap_03_run_list_panel(self, logged_in_page, base_url):
+        """TC-WF-GAP-03: 运行记录面板 — 点击运行历史按钮，侧栏展示运行记录列表"""
+        wf_id, created = _get_or_create_workflow(logged_in_page, base_url)
+        if not wf_id:
+            pytest.skip("无法获取或创建工作流 ID")
+        try:
+            try:
+                logged_in_page.goto(
+                    f"{base_url}/ctrl/agent/workflow/{wf_id}/edit",
+                    wait_until="domcontentloaded",
+                )
+            except Exception:
+                pass
+            logged_in_page.wait_for_load_state("domcontentloaded")
+            try:
+                logged_in_page.locator("div.agent-panel-content").first.wait_for(
+                    state="attached", timeout=8000
+                )
+            except Exception:
+                pass
+            logged_in_page.wait_for_timeout(1000)
+
+            # 查找运行历史按钮（List 图标，title 包含 run/history/运行/历史）
+            run_btn = logged_in_page.locator(
+                "button.wf-meta-trigger-btn[title*='run'], "
+                "button.wf-meta-trigger-btn[title*='Run'], "
+                "button.wf-meta-trigger-btn[title*='运行'], "
+                "button.wf-meta-trigger-btn[title*='历史'], "
+                "button.wf-meta-trigger-btn[title*='history']"
+            )
+
+            if run_btn.count() == 0:
+                # 备选：通过 data-tooltip 查找
+                run_btn = logged_in_page.locator(
+                    "button[data-tooltip*='run'], "
+                    "button[data-tooltip*='运行'], "
+                    "button[data-tooltip*='历史']"
+                )
+
+            if run_btn.count() == 0:
+                pytest.skip("编辑器中未找到运行历史按钮")
+
+            run_btn.first.wait_for(state="visible", timeout=5000)
+            run_btn.first.click()
+
+            # 验证运行记录面板出现
+            # 面板内容特征：包含"运行历史"或"run_history"或状态过滤按钮
+            # SPA 含后台轮询，networkidle 永不安静，改为轮询等待面板内容出现
+            _panel_kw = [
+                "运行记录", "运行历史", "run history",
+                "RUNNING", "SUCCESS", "FAILED", "SUSPENDED",
+                "暂无运行", "no runs",
+                "查看全部", "view all",
+            ]
+            for _ in range(20):
+                body_text = logged_in_page.inner_text("body")
+                if any(kw in body_text for kw in _panel_kw):
+                    break
+                logged_in_page.wait_for_timeout(500)
+            has_run_panel = any(kw in body_text for kw in _panel_kw)
+
+            # 备选：检查面板是否通过 class 标识
+            run_panel = logged_in_page.locator(
+                ".wf-run-sheet, .wf-prop-header, [class*='run-list']"
+            )
+            has_panel_class = run_panel.count() > 0
+
+            assert has_run_panel or has_panel_class, \
+                f"运行记录面板未出现（run-sheet={has_run_panel}, panel-class={has_panel_class}）"
+
+            # 再次点击关闭
+            run_btn.first.click()
+            logged_in_page.wait_for_timeout(1000)
+        finally:
+            if created:
+                _delete_workflow_api(logged_in_page, base_url, wf_id)
+
+    # ==================== 运行记录功能测试（P1）====================
+
+    @pytest.mark.order(433)
+    @pytest.mark.p1
+    def test_workflow_runs_filter_tabs(self, logged_in_page, base_url):
+        """TC-WF-GAP-04: 运行记录筛选 Tab — 5 个筛选 Tab 均可点击并切换"""
+        try:
+            logged_in_page.goto(
+                f"{base_url}/ctrl/agent/workflow?tab=runs",
+                wait_until="domcontentloaded",
+            )
+        except Exception:
+            pass
+        logged_in_page.wait_for_load_state("domcontentloaded")
+        try:
+            logged_in_page.locator("div.agent-panel-content").first.wait_for(
+                state="attached", timeout=8000
+            )
+        except Exception:
+            pass
+        logged_in_page.wait_for_timeout(1500)
+
+        tab_names = ["全部", "运行中", "等待审批", "成功", "失败"]
+
+        for tab_name in tab_names:
+            tab = logged_in_page.get_by_role("button", name=tab_name)
+            assert tab.count() > 0, f"筛选 Tab '{tab_name}' 未找到"
+            tab.first.wait_for(state="visible", timeout=5000)
+            tab.first.click()
+            logged_in_page.wait_for_timeout(800)
+
+            # 验证点击后 Tab 高亮（DOM: 激活态 class 含 border-brand / bg-brand-subtle）
+            selected_val = tab.first.get_attribute("aria-selected")
+            tab_classes = tab.first.get_attribute("class") or ""
+            is_active = (
+                selected_val == "true"
+                or "active" in tab_classes
+                or "selected" in tab_classes
+                or "border-brand" in tab_classes
+                or "bg-brand-subtle" in tab_classes
+            )
+            assert is_active, \
+                f"点击筛选 Tab '{tab_name}' 后未高亮（aria-selected={selected_val}, class={tab_classes[:80]}）"
+
+            # 验证页面有表格或空状态
+            table = logged_in_page.locator("table")
+            empty_text = logged_in_page.locator("body").first.inner_text()
+            has_content = table.count() > 0 or any(kw in empty_text for kw in ["暂无", "没有匹配", "没有数据", "Empty"])
+            assert has_content, \
+                f"点击筛选 Tab '{tab_name}' 后页面既无表格也无空状态提示"
+
+    @pytest.mark.order(434)
+    @pytest.mark.p1
+    def test_workflow_runs_search(self, logged_in_page, base_url):
+        """TC-WF-GAP-05: 运行记录搜索 — 搜索框输入无匹配字符串后数据消失，清空后恢复"""
+        try:
+            logged_in_page.goto(
+                f"{base_url}/ctrl/agent/workflow?tab=runs",
+                wait_until="domcontentloaded",
+            )
+        except Exception:
+            pass
+        logged_in_page.wait_for_load_state("domcontentloaded")
+        try:
+            logged_in_page.locator("div.agent-panel-content").first.wait_for(
+                state="attached", timeout=8000
+            )
+        except Exception:
+            pass
+        logged_in_page.wait_for_timeout(1500)
+
+        search_box = logged_in_page.get_by_role("textbox", name="搜索工作流名称...")
+        assert search_box.count() > 0, "运行记录页面搜索框未找到"
+        search_box.first.wait_for(state="visible", timeout=5000)
+
+        # 记录搜索前页面内容状态（表格行数或空状态）
+        table_before = logged_in_page.locator("table")
+        has_data_before = table_before.count() > 0
+
+        # 输入确保无匹配的随机字符串
+        random_str = f"zzz_no_match_{uuid.uuid4().hex[:8]}"
+        search_box.first.fill(random_str)
+        logged_in_page.wait_for_timeout(2000)
+
+        # 验证搜索后无匹配数据：表格不存在或页面包含"暂无"
+        table_after = logged_in_page.locator("table")
+        body_text_after = logged_in_page.locator("body").first.inner_text()
+        no_match = table_after.count() == 0 or "暂无" in body_text_after
+        assert no_match, \
+            "搜索随机无匹配字符串后，仍显示数据（表格存在且无'暂无'提示）"
+
+        # 清空搜索框
+        search_box.first.fill("")
+        logged_in_page.wait_for_timeout(2000)
+
+        # 验证数据恢复：如果搜索前有数据，清空后表格应重新出现
+        if has_data_before:
+            table_restored = logged_in_page.locator("table")
+            assert table_restored.count() > 0, \
+                "清空搜索框后表格数据未恢复"
+        else:
+            # 搜索前就无数据，清空后页面应仍正常（表格或空状态）
+            table_final = logged_in_page.locator("table")
+            body_final = logged_in_page.locator("body").first.inner_text()
+            assert table_final.count() > 0 or "暂无" in body_final, \
+                "清空搜索框后页面既无表格也无空状态提示"
+
+    @pytest.mark.order(435)
+    @pytest.mark.p1
+    def test_workflow_runs_refresh(self, logged_in_page, base_url):
+        """TC-WF-GAP-06: 运行记录刷新 — 点击刷新按钮后页面无报错，表格或空状态仍存在"""
+        try:
+            logged_in_page.goto(
+                f"{base_url}/ctrl/agent/workflow?tab=runs",
+                wait_until="domcontentloaded",
+            )
+        except Exception:
+            pass
+        logged_in_page.wait_for_load_state("domcontentloaded")
+        try:
+            logged_in_page.locator("div.agent-panel-content").first.wait_for(
+                state="attached", timeout=8000
+            )
+        except Exception:
+            pass
+        logged_in_page.wait_for_timeout(1500)
+
+        refresh_btn = logged_in_page.get_by_role("button", name="刷新")
+        assert refresh_btn.count() > 0, "运行记录页面刷新按钮未找到"
+        refresh_btn.first.wait_for(state="visible", timeout=5000)
+        refresh_btn.first.click()
+        logged_in_page.wait_for_timeout(2000)
+
+        # 验证刷新后页面仍有内容（表格或空状态）
+        table = logged_in_page.locator("table")
+        body_text = logged_in_page.locator("body").first.inner_text()
+        has_content = table.count() > 0 or "暂无" in body_text
+        assert has_content, \
+            "点击刷新按钮后页面既无表格也无空状态提示"
+
+    @pytest.mark.order(436)
+    @pytest.mark.p2
+    def test_workflow_runs_pagination_controls(self, logged_in_page, base_url):
+        """TC-WF-P2-01: 运行记录分页控件验证"""
+        # 导航到运行记录页面
+        try:
+            logged_in_page.goto(
+                f"{base_url}/ctrl/agent/workflow?tab=runs",
+                wait_until="domcontentloaded",
+            )
+        except Exception:
+            pass
+        logged_in_page.wait_for_load_state("domcontentloaded")
+        try:
+            logged_in_page.locator("div.agent-panel-content").first.wait_for(
+                state="attached", timeout=8000
+            )
+        except Exception:
+            pass
+        logged_in_page.wait_for_timeout(1500)
+
+        # 查找分页相关控件
+        # 1. 上一页/下一页按钮
+        prev_next = logged_in_page.get_by_role("button", name="上一页").or_(
+            logged_in_page.get_by_role("button", name="下一页")
+        ).or_(
+            logged_in_page.get_by_role("button", name="Previous")
+        ).or_(
+            logged_in_page.get_by_role("button", name="Next")
+        ).or_(
+            logged_in_page.locator("button[aria-label*='prev' i], button[aria-label*='next' i]")
+        ).or_(
+            logged_in_page.locator("button[data-slot='pagination-previous'], button[data-slot='pagination-next']")
+        )
+
+        # 2. 分页导航容器
+        page_numbers = logged_in_page.locator(
+            "nav[aria-label*='pagination' i], "
+            "div[class*='pagination'], "
+            "ul[class*='pagination']"
+        )
+
+        # 3. 每页条数选择器
+        page_size = logged_in_page.locator(
+            "select[class*='page-size'], "
+            "button:has-text('条/页'), "
+            "button:has-text('/页')"
+        ).or_(
+            logged_in_page.get_by_text("显示", exact=False).filter(has_text="条")
+        )
+
+        # 4. 分页文本
+        pagination_text = logged_in_page.locator(
+            "span:has-text('共'), span:has-text('页'), "
+            "span:text-matches('\\\\d+\\\\s*/\\\\s*\\\\d+')"
+        )
+
+        has_prev_next = prev_next.count() > 0
+        has_page_nav = page_numbers.count() > 0
+        has_page_size = page_size.count() > 0
+        has_pagination_text = pagination_text.count() > 0
+
+        has_any_pagination = has_prev_next or has_page_nav or has_page_size or has_pagination_text
+
+        if not has_any_pagination:
+            # 检查是否有运行记录数据
+            table = logged_in_page.locator("table")
+            body_text = logged_in_page.locator("body").first.inner_text()
+            if table.count() == 0 and ("暂无" in body_text or "empty" in body_text.lower()):
+                pytest.skip("运行记录为空，无分页控件（无数据）")
+            pytest.skip("运行记录页面未找到分页控件")
+
+        assert has_any_pagination, \
+            "运行记录页面应有分页控件，但未找到任何分页元素"

@@ -151,6 +151,86 @@ class TestSkillWebAPI:
             _cleanup_web_skill(web_client, test_name)
 
 
+# ── Skill 下载接口测试 ──
+
+class TestSkillDownloadAPI:
+    """/skills/:name/download 技能下载接口（token 认证，返回二进制 zip）
+
+    特点：
+    - GET /skills/:name/download?token=xxx
+    - 需要有效的下载 token（由 skill-download-token 服务签发）
+    - 返回 application/zip 二进制流
+    - 无效 token 返回 403
+    - 不存在的 skill 返回 404
+    """
+
+    def test_download_skill_invalid_token(self, web_client):
+        """无效 token 下载 Skill — 应返回 403"""
+        list_data = web_client.list_skills()
+        if len(list_data["skills"]) == 0:
+            pytest.skip("Skill 列表为空，无法测试下载")
+        skill_name = list_data["skills"][0]["name"]
+
+        try:
+            web_client.download_skill(skill_name, "invalid-token-99999")
+            pytest.fail("无效 token 应抛出异常")
+        except httpx.HTTPStatusError as e:
+            assert e.response.status_code == 403, \
+                f"无效 token 预期 403，实际: {e.response.status_code}"
+        except RuntimeError as e:
+            assert "403" in str(e), f"无效 token 预期 403，实际: {e}"
+
+    def test_download_skill_empty_token(self, web_client):
+        """空 token 下载 Skill — 应返回 400（Zod 校验 min(1)）或 403"""
+        list_data = web_client.list_skills()
+        if len(list_data["skills"]) == 0:
+            pytest.skip("Skill 列表为空，无法测试下载")
+        skill_name = list_data["skills"][0]["name"]
+
+        try:
+            web_client.download_skill(skill_name, "")
+            pytest.fail("空 token 应抛出异常")
+        except httpx.HTTPStatusError as e:
+            assert e.response.status_code in (400, 403), \
+                f"空 token 预期 400/403，实际: {e.response.status_code}"
+        except RuntimeError as e:
+            assert "400" in str(e) or "403" in str(e), f"空 token 预期 400/403，实际: {e}"
+
+    def test_download_skill_missing_token(self, api_base_url):
+        """缺少 token 参数下载 Skill — 应返回 400（Zod 校验）或 403"""
+        import httpx as _httpx
+        with _httpx.Client(base_url=api_base_url, timeout=30, verify=False) as client:
+            resp = client.get("/skills/test-skill/download")
+            assert resp.status_code in (400, 403), \
+                f"缺少 token 预期 400/403，实际: {resp.status_code}"
+
+    def test_download_nonexistent_skill(self, web_client):
+        """下载不存在的 Skill — 应返回 403（token 校验先于 skill 存在性检查）"""
+        try:
+            web_client.download_skill("nonexistent-skill-99999", "some-token")
+            pytest.fail("不存在的 skill 应抛出异常")
+        except httpx.HTTPStatusError as e:
+            # token 校验在 skill 查找之前，所以返回 403 而非 404
+            assert e.response.status_code in (403, 404), \
+                f"不存在的 skill 预期 403/404，实际: {e.response.status_code}"
+        except RuntimeError as e:
+            assert "403" in str(e) or "404" in str(e), \
+                f"不存在的 skill 预期 403/404，实际: {e}"
+
+    def test_download_skill_invalid_name(self, web_client):
+        """非法 skill name 下载 — 路由层可能过滤路径，token 无效则 403"""
+        try:
+            web_client.download_skill("invalid..name", "bad-token")
+            pytest.fail("非法 name 或无效 token 应抛出异常")
+        except httpx.HTTPStatusError as e:
+            # 非法 name 可能返回 400（name 校验）或 403（token 校验）或 404（not found）
+            assert e.response.status_code in (400, 403, 404), \
+                f"非法 name 预期 400/403/404，实际: {e.response.status_code}"
+        except RuntimeError as e:
+            assert any(code in str(e) for code in ("400", "403", "404")), \
+                f"非法 name 预期 400/403/404，实际: {e}"
+
+
 # ── 对外 OpenAPI 测试 ──
 
 class TestSkillOpenAPI:

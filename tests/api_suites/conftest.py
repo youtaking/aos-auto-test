@@ -62,7 +62,8 @@ def web_client(api_base_url, api_test_config):
 def api_client(api_base_url, api_test_config):
     """ApiClient 实例，Open API Key 认证"""
     api_key = os.environ.get("FENIX_OPEN_API_KEY") or api_test_config["fenixagent"]["api_key"]
-    client = ApiClient(api_base_url, api_key)
+    system_api_key = os.environ.get("FENIX_SYSTEM_API_KEY") or api_test_config["fenixagent"].get("system_api_key", "")
+    client = ApiClient(api_base_url, api_key, system_api_key=system_api_key)
     yield client
     client.close()
 

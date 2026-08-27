@@ -231,6 +231,65 @@ class KnowledgePage:
         dialog.get_by_role("button", name="取消").click()
         self.page.wait_for_timeout(500)
 
+    # ==================== 分块详情 Sheet ====================
+
+    def open_chunk_sheet(self, resource_name: str) -> bool:
+        """点击资源文件名打开分块详情 Sheet"""
+        btn = self.page.locator(
+            f"button.font-semibold.truncate:has-text('{resource_name}')"
+        )
+        if btn.count() == 0:
+            return False
+        btn.first.wait_for(state="visible", timeout=5000)
+        btn.first.click()
+        # 等待 Sheet 渲染 + 异步内容加载
+        self.page.wait_for_timeout(3000)
+        return self.is_chunk_sheet_open()
+
+    def is_chunk_sheet_open(self) -> bool:
+        """分块详情 Sheet 是否已打开（通过搜索输入框判断）"""
+        dialog = self.page.locator("[role=dialog][data-state=open]")
+        if dialog.count() == 0:
+            return False
+        search_input = dialog.locator("input[placeholder*='搜索切片']")
+        try:
+            search_input.first.wait_for(state="visible", timeout=5000)
+            return True
+        except Exception:
+            return False
+
+    def close_chunk_sheet(self):
+        """关闭分块详情 Sheet"""
+        self.page.keyboard.press("Escape")
+        self.page.wait_for_timeout(1000)
+
+    def get_chunk_sheet_search_input(self):
+        """获取 Sheet 内的搜索输入框"""
+        dialog = self.page.locator("[role=dialog][data-state=open]")
+        return dialog.locator("input[placeholder*='搜索切片']")
+
+    def get_chunk_sheet_switches(self):
+        """获取 Sheet 内所有切片 Switch"""
+        dialog = self.page.locator("[role=dialog][data-state=open]")
+        return dialog.locator("[role=switch]")
+
+    def get_chunk_sheet_text_mode_button(self, mode: str):
+        """获取全文/省略切换按钮。mode: '全文' 或 '省略'"""
+        dialog = self.page.locator("[role=dialog][data-state=open]")
+        return dialog.get_by_role("button", name=mode)
+
+    def get_chunk_sheet_pagination_buttons(self):
+        """获取分页按钮（上一页/下一页）"""
+        dialog = self.page.locator("[role=dialog][data-state=open]")
+        return dialog.locator("button[class*='outline'][class*='rounded-lg']")
+
+    def get_chunk_sheet_text(self) -> str:
+        """获取 Sheet 完整文本"""
+        dialog = self.page.locator("[role=dialog][data-state=open]")
+        if dialog.count() > 0:
+            return dialog.first.inner_text()
+        return ""
+
     # ==================== API 拦截 ====================
 
     def intercept_api(self, url_pattern: str):

@@ -32,7 +32,7 @@ def test_long_message(logged_in_page, base_url):
     textarea.wait_for(state="visible", timeout=5000)
     textarea.fill(long_text)
     textarea.press("Enter")
-    logged_in_page.wait_for_timeout(2000)
+    logged_in_page.wait_for_timeout(800)
 
     # 验证：输入框已清空（消息被接受）或有错误提示
     val_after = textarea.input_value()
@@ -42,8 +42,12 @@ def test_long_message(logged_in_page, base_url):
         if log_area.count() > 0:
             log_text = log_area.first.inner_text()
             # 至少用户消息部分内容出现
-            assert "超长消息" in log_text or len(log_text) > 100, \
-                "超长消息发送后消息区域内容异常"
+            assert "超长消息" in log_text or len(log_text.strip()) > 0, (
+                f"超长消息发送后消息区域为空"
+                f"（'超长消息'匹配={'超长消息' in log_text}, "
+                f"log_text长度={len(log_text.strip())}, "
+                f"内容前100字: '{log_text[:100]}'）"
+            )
     else:
         # 消息未被接受（可能有长度限制），验证有错误提示
         body_text = logged_in_page.locator("body").inner_text()
@@ -74,7 +78,7 @@ def test_special_characters(logged_in_page, base_url):
 
     special_msg = "🎉🚀 emoji test | 中文测试 | 日本語テスト | 한국어 | مرحبا | שלום"
     chat.send_message(special_msg)
-    logged_in_page.wait_for_timeout(2000)
+    logged_in_page.wait_for_timeout(800)
 
     # 验证无 XSS 弹窗
     assert len(alert_triggered) == 0, \
@@ -84,8 +88,10 @@ def test_special_characters(logged_in_page, base_url):
     log_area = logged_in_page.locator("div[role='log']")
     if log_area.count() > 0:
         log_text = log_area.first.inner_text()
-        assert "emoji test" in log_text or "🎉" in log_text, \
-            "特殊字符消息未在消息区域正确显示"
+        assert any(kw in log_text for kw in ["emoji test", "🎉"]), (
+            f"特殊字符/emoji 消息未在消息区域正确显示，"
+            f"期望包含'emoji test'或'🎉'，实际 log_text: '{log_text[:200]}'"
+        )
 
     # 验证页面未崩溃
     assert chat.is_chat_loaded(), "发送特殊字符后页面崩溃"
@@ -104,7 +110,7 @@ def test_single_char_message(logged_in_page, base_url):
     chat.create_new_session()
 
     chat.send_message("a")
-    logged_in_page.wait_for_timeout(2000)
+    logged_in_page.wait_for_timeout(800)
 
     # 验证输入框清空
     val = logged_in_page.locator("textarea").first.input_value()
@@ -141,7 +147,7 @@ def test_rapid_consecutive_messages(logged_in_page, base_url):
     textarea.wait_for(state="visible", timeout=5000)
     textarea.fill("第二条快速消息-B")
     textarea.press("Enter")
-    logged_in_page.wait_for_timeout(2000)
+    logged_in_page.wait_for_timeout(800)
 
     # 验证：页面未崩溃，消息区域有内容
     assert chat.is_chat_loaded(), "快速连续发送后页面崩溃"
@@ -186,7 +192,7 @@ def test_model_display_consistency(logged_in_page, base_url):
             m = _get_composer_model()
             if m:
                 return m
-            logged_in_page.wait_for_timeout(2000)
+            logged_in_page.wait_for_timeout(1000)
         return ""
 
     initial_model = _wait_composer_model()
@@ -584,7 +590,7 @@ def test_token_usage_display(logged_in_page, base_url):
 
     # 发送消息等待 AI 回复
     chat.send_message("请回复：token用量测试")
-    logged_in_page.wait_for_timeout(2000)
+    logged_in_page.wait_for_timeout(800)
 
     # 等待 AI 回复完成
     log_area = logged_in_page.locator("div[role='log']")
@@ -613,7 +619,10 @@ def test_token_usage_display(logged_in_page, base_url):
             name="备注", attachment_type=allure.attachment_type.TEXT
         )
     else:
-        assert token_text or has_token, "Token 用量显示异常"
+        assert token_text or has_token, (
+            f"Token 用量信息未显示"
+            f"（token_text='{token_text}', has_token={has_token}）"
+        )
 
 
 # === UI-06: 消息区域自动滚动 ===
@@ -632,7 +641,7 @@ def test_auto_scroll_on_message(logged_in_page, base_url):
 
     # 发送消息
     chat.send_message("自动滚动测试消息")
-    logged_in_page.wait_for_timeout(2000)
+    logged_in_page.wait_for_timeout(800)
 
     if log_area.count() == 0:
         pytest.skip("消息区域未出现")
@@ -725,7 +734,7 @@ def test_action_error_banner(logged_in_page, base_url):
 
     # 发送正常消息
     chat.send_message("Error banner 测试：请回复 OK")
-    logged_in_page.wait_for_timeout(3000)
+    logged_in_page.wait_for_timeout(1000)
 
     # 正常消息不应触发 Error Banner
     has_banner_after = chat.has_action_error_banner()

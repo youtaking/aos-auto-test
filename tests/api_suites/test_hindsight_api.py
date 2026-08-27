@@ -181,7 +181,9 @@ class TestHindsightWebAPI:
         if not memory_id:
             pytest.skip("记忆项无 ID 字段")
         detail = web_client.get_hindsight_memory(memory_id)
-        assert detail is not None
+        assert isinstance(detail, dict), f"记忆详情应返回 dict，实际: {type(detail)}"
+        assert any(k in detail for k in ("id", "memory_id", "content", "type")), \
+            f"记忆详情缺少预期字段: {list(detail.keys())}"
 
     def test_get_hindsight_memory_nonexistent(self, web_client, _hindsight_enabled):
         """获取不存在的记忆：应返回 404 或空结果"""
@@ -200,10 +202,14 @@ class TestHindsightWebAPI:
     # ── Recall & Reflect ──
 
     def test_recall_hindsight(self, web_client, _hindsight_enabled):
-        """检索记忆：POST /recall"""
+        """检索记忆：POST /recall 返回结构化结果"""
         try:
             resp = web_client.recall_hindsight({"query": "test query"})
-            assert resp is not None
+            assert resp is not None, "recall 响应不应为 None"
+            assert isinstance(resp, (dict, list)), f"recall 应返回 dict/list，实际: {type(resp)}"
+            if isinstance(resp, dict):
+                assert any(k in resp for k in ("items", "results", "memories", "data", "query")), \
+                    f"recall 响应缺少预期字段: {list(resp.keys())}"
         except (httpx.HTTPStatusError, RuntimeError) as e:
             err_str = str(e)
             if "502" in err_str or "503" in err_str or "504" in err_str:
@@ -211,10 +217,11 @@ class TestHindsightWebAPI:
             raise
 
     def test_reflect_hindsight(self, web_client, _hindsight_enabled):
-        """触发反思：POST /reflect"""
+        """触发反思：POST /reflect 返回分析结果"""
         try:
             resp = web_client.reflect_hindsight({})
-            assert resp is not None
+            assert resp is not None, "reflect 响应不应为 None"
+            assert isinstance(resp, (dict, list)), f"reflect 应返回 dict/list，实际: {type(resp)}"
         except (httpx.HTTPStatusError, RuntimeError) as e:
             err_str = str(e)
             if "502" in err_str or "503" in err_str or "504" in err_str:
@@ -256,7 +263,10 @@ class TestHindsightWebAPI:
             pytest.skip("文档项无 ID 字段")
         try:
             chunks = web_client.get_hindsight_document_chunks(doc_id)
-            assert chunks is not None
+            assert isinstance(chunks, (dict, list)), f"文档分块应返回 dict/list，实际: {type(chunks)}"
+            if isinstance(chunks, dict):
+                assert any(k in chunks for k in ("items", "chunks", "data")), \
+                    f"文档分块响应缺少预期字段: {list(chunks.keys())}"
         except (httpx.HTTPStatusError, RuntimeError) as e:
             err_str = str(e)
             if "502" in err_str or "503" in err_str or "504" in err_str:
@@ -282,7 +292,9 @@ class TestHindsightWebAPI:
         if not model_id:
             pytest.skip("心智模型项无 ID 字段")
         detail = web_client.get_hindsight_mental_model(model_id)
-        assert detail is not None
+        assert isinstance(detail, dict), f"心智模型详情应返回 dict，实际: {type(detail)}"
+        assert any(k in detail for k in ("id", "model_id", "name", "title")), \
+            f"心智模型详情缺少预期字段: {list(detail.keys())}"
 
     def test_delete_hindsight_mental_model_nonexistent(self, web_client, _hindsight_enabled):
         """删除不存在的心智模型：应返回 404 或幂等成功"""
@@ -317,7 +329,9 @@ class TestHindsightWebAPI:
         if not entity_id:
             pytest.skip("实体项无 ID 字段")
         detail = web_client.get_hindsight_entity(entity_id)
-        assert detail is not None
+        assert isinstance(detail, dict), f"实体详情应返回 dict，实际: {type(detail)}"
+        assert any(k in detail for k in ("id", "entity_id", "name", "type")), \
+            f"实体详情缺少预期字段: {list(detail.keys())}"
 
     def test_get_hindsight_entity_nonexistent(self, web_client, _hindsight_enabled):
         """获取不存在的实体：应返回 404 或空结果"""
@@ -333,6 +347,10 @@ class TestHindsightWebAPI:
                 f"预期 404/not_found 错误，实际: {e}"
 
     def test_get_hindsight_entities_graph(self, web_client, _hindsight_enabled):
-        """获取实体关系图谱"""
+        """获取实体关系图谱：Schema 校验 + nodes/edges 断言"""
         resp = web_client.get_hindsight_entities_graph()
-        assert resp is not None
+        web_client.validate_schema(resp, _HINDSIGHT_GRAPH_DATA)
+        assert "nodes" in resp, f"实体图谱缺少 nodes 字段: {list(resp.keys())}"
+        assert "edges" in resp, f"实体图谱缺少 edges 字段: {list(resp.keys())}"
+        assert isinstance(resp["nodes"], list)
+        assert isinstance(resp["edges"], list)
