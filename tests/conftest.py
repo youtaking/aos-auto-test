@@ -107,6 +107,43 @@ def logged_in_page(page, base_url, test_config, step_delay):
     return page
 
 
+@pytest.fixture
+def second_browser_page(browser_instance, context, logged_in_page):
+    """第二个浏览器页面（模拟浏览器 B）：复用主上下文小春登录态，独立 context。
+
+    用于多端同步测试：A/B 两个独立浏览器打开同一 agent 实例 URL。
+    每个用例独立创建/关闭，避免跨用例串扰。挂 B 侧 WebSocket/控制台/JS 错误收集，
+    供同步断言失败时作为 Allure 诊断。
+    """
+    storage = context.storage_state()
+    ctx = browser_instance.new_context(
+        storage_state=storage,
+        ignore_https_errors=True,
+        locale="zh-CN",
+        viewport={"width": 1920, "height": 1080},
+    )
+    page = ctx.new_page()
+    diag = {"ws_events": [], "console_errors": [], "js_errors": []}
+
+    def on_ws(ws):
+        diag["ws_events"].append(f"open:{ws.url}")
+        ws.on("close", lambda _ws: diag["ws_events"].append(f"close:{_ws.url}"))
+
+    def on_console(msg):
+        if msg.type == "error":
+            diag["console_errors"].append(msg.text)
+
+    def on_pageerror(err):
+        diag["js_errors"].append(str(err))
+
+    page.on("websocket", on_ws)
+    page.on("console", on_console)
+    page.on("pageerror", on_pageerror)
+    page._sync_diag = diag  # 供断言失败时读取
+    yield page
+    ctx.close()
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _cleanup_leftover_test_providers(logged_in_page, base_url):
     """会话开始时清理遗留的测试 Provider（防止假模型污染模型库）。
