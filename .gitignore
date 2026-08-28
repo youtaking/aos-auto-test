@@ -28,6 +28,7 @@ run_logs/
 
 # 临时脚本
 dump_*.py
+_sync_jobs.py
 
 # Vite 缓存
 .vite/
