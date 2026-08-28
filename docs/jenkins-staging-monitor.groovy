@@ -7,7 +7,7 @@ pipeline {
         string(name: 'APP_REPO',         defaultValue: 'https://github.com/HuangPuStar/FenixAgent.git', description: '被测项目仓库地址（单元测试需要）')
         string(name: 'APP_BRANCH',       defaultValue: 'main',                               description: '被测项目分支（单元测试源码）')
         string(name: 'POLL_INTERVAL',    defaultValue: '30',                                  description: '轮询间隔（分钟）')
-        string(name: 'AUTOTEST_URL',     defaultValue: 'http://100.105.181.173:8111',        description: 'AutoTest 后端地址')
+        string(name: 'AUTOTEST_URL',     defaultValue: 'http://100.105.114.178:8111',        description: 'AutoTest 后端地址')
         string(name: 'TEST_REPO',        defaultValue: 'https://github.com/youtaking/aos-auto-test.git', description: '测试代码仓库')
         string(name: 'TEST_REPO_BRANCH', defaultValue: 'master',               description: '测试代码分支')
         booleanParam(name: 'FORCE_RESET', defaultValue: false,                                description: '强制触发测试（清除上次 commitId 记录）')

@@ -11,7 +11,7 @@ pipeline {
         string(name: 'APP_BRANCH',   description: '被测项目分支',                       defaultValue: 'main')
         string(name: 'TEST_REPO',    description: '测试代码仓库地址（如 aos-auto-test）', defaultValue: 'https://github.com/youtaking/aos-auto-test.git')
         string(name: 'TEST_REPO_BRANCH', description: '测试代码分支',                    defaultValue: 'master')
-        string(name: 'AUTOTEST_URL', description: 'AutoTest 后端地址（用于上传测试结果和日志）', defaultValue: 'http://100.105.181.173:8111')
+        string(name: 'AUTOTEST_URL', description: 'AutoTest 后端地址（用于上传测试结果和日志）', defaultValue: 'http://100.105.114.178:8111')
         string(name: 'HOST_IP', description: '宿主机 IP（RCS 服务对外地址，用于健康检查和 target_url）', defaultValue: '100.105.114.178')
         booleanParam(name: 'NOTIFY_WECOM', defaultValue: true, description: '构建完成后发送企业微信通知（手动测试时可取消勾选）')
     }

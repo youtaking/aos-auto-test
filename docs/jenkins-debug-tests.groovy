@@ -8,7 +8,7 @@ pipeline {
         string(name: 'APP_REPO',     description: '被测项目仓库地址（单元测试需要源码）', defaultValue: 'https://github.com/HuangPuStar/FenixAgent.git')
         string(name: 'APP_BRANCH',   description: '被测项目分支',                       defaultValue: 'main')
         string(name: 'TEST_REPO',    description: '测试代码仓库地址',                   defaultValue: 'https://github.com/youtaking/aos-auto-test.git')
-        string(name: 'AUTOTEST_URL', description: 'AutoTest 后端地址（用于上传测试结果和日志）', defaultValue: 'http://100.105.181.173:8111')
+        string(name: 'AUTOTEST_URL', description: 'AutoTest 后端地址（用于上传测试结果和日志）', defaultValue: 'http://100.105.114.178:8111')
         string(name: 'HOST_IP', description: '宿主机 IP（RCS 服务对外地址，用于健康检查和 target_url）', defaultValue: '100.105.114.178')
         booleanParam(name: 'KEEP_CONTAINERS', description: '保留容器不销毁（用于手动调试）', defaultValue: false)
     }
