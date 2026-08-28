@@ -158,7 +158,10 @@ async def _execute_api_tests(
                     outcome = parsed["outcome"]
 
                     case_query = await db.execute(
-                        select(TestCase).where(TestCase.function_name == func_name)
+                        select(TestCase).where(
+                            TestCase.function_name == func_name,
+                            TestCase.file_path == parsed["file_path"],
+                        )
                     )
                     case = case_query.scalars().first()
 

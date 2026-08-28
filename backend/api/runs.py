@@ -151,7 +151,8 @@ async def _execute_tests(
             failed = 0
             skipped = 0
             last_result_time = datetime.utcnow()  # 追踪每条用例的耗时
-            # 追踪已见 case_name → outcome，防止 teardown 失败产生重复记录
+            # 追踪已见 nodeid → outcome，防止 teardown 失败产生重复记录。
+            # 键用完整 nodeid（file_path::Class::method），同名不同文件的用例互不顶掉。
             seen_cases: dict[str, str] = {}
 
             LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -172,6 +173,7 @@ async def _execute_tests(
                     if not parsed:
                         continue
 
+                    nodeid = parsed["nodeid"]
                     func_name = parsed["func_name"]
                     outcome = parsed["outcome"]
 
@@ -182,12 +184,12 @@ async def _execute_tests(
 
                     status = outcome if outcome in ("passed", "failed", "skipped") else "error"
 
-                    if func_name in seen_cases:
+                    if nodeid in seen_cases:
                         # 同一测试的第二行输出（teardown 阶段），更新已有记录
                         existing_result = await db.execute(
                             select(TestResult).where(
                                 TestResult.run_id == run_id,
-                                TestResult.case_name == func_name,
+                                TestResult.case_name == nodeid,
                             )
                         )
                         r = existing_result.scalars().first()
@@ -202,6 +204,7 @@ async def _execute_tests(
                         case_query = await db.execute(
                             select(TestCase).where(
                                 TestCase.function_name == func_name,
+                                TestCase.file_path == parsed["file_path"],
                                 TestCase.branch == (run.git_branch or "main"),
                             )
                         )
@@ -210,7 +213,7 @@ async def _execute_tests(
                         result = TestResult(
                             run_id=run_id,
                             case_id=case.id if case else None,
-                            case_name=func_name,
+                            case_name=nodeid,
                             suite_name=parsed["suite_name"],
                             status=status,
                             duration_ms=estimated_ms,
@@ -219,7 +222,7 @@ async def _execute_tests(
                         )
                         db.add(result)
 
-                        seen_cases[func_name] = outcome
+                        seen_cases[nodeid] = outcome
                         if outcome == "passed":
                             passed += 1
                         elif outcome in ("failed", "error"):
@@ -234,7 +237,7 @@ async def _execute_tests(
                     await db.commit()
 
                     await ws_module.broadcast(run_id, "result_update", {
-                        "case_name": func_name,
+                        "case_name": nodeid,
                         "suite_name": parsed["suite_name"],
                         "status": outcome,
                         "passed": passed, "failed": failed, "skipped": skipped,
@@ -251,8 +254,6 @@ async def _execute_tests(
                         report = json.load(f)
                     for test in report.get("tests", []):
                         nodeid = test.get("nodeid", "")
-                        parts = nodeid.split("::")
-                        func_name = "::".join(parts[1:]) if len(parts) > 1 else ""
                         call_info = test.get("call", {})
                         duration_ms = int(call_info.get("duration", 0) * 1000)
                         longrepr = str(call_info.get("longrepr", "")) if call_info.get("longrepr") else None
@@ -269,7 +270,7 @@ async def _execute_tests(
                         existing = await db.execute(
                             select(TestResult).where(
                                 TestResult.run_id == run_id,
-                                TestResult.case_name == func_name,
+                                TestResult.case_name == nodeid,
                             )
                         )
                         r = existing.scalars().first()
@@ -808,9 +809,12 @@ async def run_single_test(
     if case_id:
         case = await db.get(TestCase, case_id)
     if not case and case_name:
-        query = await db.execute(
-            select(TestCase).where(TestCase.function_name == case_name)
-        )
+        # case_name 可能是完整 nodeid（file_path::Class::method）或仅 function_name
+        q = select(TestCase).where(TestCase.function_name == case_name)
+        if "::" in case_name:
+            parts = case_name.split("::")
+            q = q.where(TestCase.file_path == parts[0])
+        query = await db.execute(q)
         case = query.scalars().first()
     if not case:
         return ApiResponse(success=False, error=f"用例不存在 (case_id={case_id}, case_name={case_name})")
