@@ -52,11 +52,17 @@ async def _resolve_collection_case_ids(db, collection_ids: list[int]) -> list[in
 
 def _parse_pytest_line(line: str) -> dict | None:
     """解析 pytest -v 输出的单行结果"""
-    m = re.match(r"^(tests/\S+::\w+)\s+(PASSED|FAILED|SKIPPED|ERROR)", line.strip())
+    m = re.match(r"^(tests/\S+::\w+)\s+(PASSED|FAILED|SKIPPED|ERROR|XFAIL|XPASS)", line.strip())
     if not m:
         return None
     nodeid = m.group(1)
     outcome = m.group(2).lower()
+    # strict=True 时 XPASS 表示 Bug 已修复但 xfail 标记未移除，视为失败
+    if outcome == "xpass":
+        outcome = "failed"
+    # 已知 Bug 预期失败：记录在案但归入 skipped 计数，与 pytest 统计一致
+    elif outcome == "xfail":
+        outcome = "skipped"
     parts = nodeid.split("::")
     file_path = parts[0] if parts else ""
     func_name = "::".join(parts[1:]) if len(parts) > 1 else ""
@@ -194,7 +200,10 @@ async def _execute_tests(
                     else:
                         # 新测试用例
                         case_query = await db.execute(
-                            select(TestCase).where(TestCase.function_name == func_name)
+                            select(TestCase).where(
+                                TestCase.function_name == func_name,
+                                TestCase.branch == (run.git_branch or "main"),
+                            )
                         )
                         case = case_query.scalars().first()
 
