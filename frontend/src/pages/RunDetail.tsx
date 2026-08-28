@@ -83,7 +83,7 @@ export default function RunDetail() {
     if (!result.case_id && !result.case_name) return;
     setRerunningCaseId(result.case_id ?? -1);
     try {
-      const res = await runSingleTest(result.case_id ?? undefined, result.case_name || undefined, true);
+      const res = await runSingleTest(result.case_id ?? undefined, result.case_name || undefined, false);
       setSingleResult({ caseName: result.case_name, result: res });
     } catch (e) {
       console.error(e);
