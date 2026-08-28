@@ -1072,8 +1072,11 @@ build_url = os.environ.get('BUILD_URL', '')
 app_repo = os.environ.get('APP_REPO', '').rstrip('/').replace('.git', '')
 pr_link = (app_repo + '/pull/' + pr_id) if (app_repo and pr_id) else ''
 
-def stat_line(name, passed, failed, skipped):
-    return '> **' + name + '**: ' + str(passed) + ' 通过 / ' + str(failed) + ' 失败 / ' + str(skipped) + ' 跳过'
+def stat_line(name, passed, failed, skipped, error=0):
+    line = '> **' + name + '**: ' + str(passed) + ' 通过 / ' + str(failed) + ' 失败 / ' + str(skipped) + ' 跳过'
+    if error:
+        line += ' / ' + str(error) + ' 错误'
+    return line
 
 lines = [
     '### ' + icon + ' PR-Pipeline-FenixAgent 构建' + status,
@@ -1084,13 +1087,13 @@ lines = [
 ]
 
 # 接口 / E2E 统计：按 nodeid 分类（先判 api_suites，避免被 suites/ 子串误命中）
-api = {'passed': 0, 'failed': 0, 'skipped': 0}
-e2e = {'passed': 0, 'failed': 0, 'skipped': 0}
+api = {'passed': 0, 'failed': 0, 'skipped': 0, 'error': 0}
+e2e = {'passed': 0, 'failed': 0, 'skipped': 0, 'error': 0}
 if os.path.exists('report.json'):
     data = json.load(open('report.json', 'r', encoding='utf-8'))
     for t in data.get('tests', []):
         outcome = t.get('outcome', '')
-        if outcome not in ('passed', 'failed', 'skipped'):
+        if outcome not in ('passed', 'failed', 'skipped', 'error'):
             continue
         nodeid = t.get('nodeid', '')
         if 'api_suites/' in nodeid:
@@ -1110,8 +1113,8 @@ if os.path.exists('unit-junit.xml'):
     unit['passed'] = total - failed - skipped
 
 lines.append(stat_line('单元测试', unit['passed'], unit['failed'], unit['skipped']))
-lines.append(stat_line('接口测试', api['passed'], api['failed'], api['skipped']))
-lines.append(stat_line('E2E 测试', e2e['passed'], e2e['failed'], e2e['skipped']))
+lines.append(stat_line('接口测试', api['passed'], api['failed'], api['skipped'], api['error']))
+lines.append(stat_line('E2E 测试', e2e['passed'], e2e['failed'], e2e['skipped'], e2e['error']))
 
 if pr_link:
     lines.append('> [GitHub PR](' + pr_link + ')')
