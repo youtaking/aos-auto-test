@@ -1053,11 +1053,11 @@ open('logs_upload.json', 'w', encoding='utf-8').write(json.dumps(payload))
                             set +x
                             RESULT="__RESULT__"
                             if [ "$RESULT" = "SUCCESS" ]; then
-                                ICON="✅"
-                                STATUS="成功"
+                                export ICON="✅"
+                                export STATUS="成功"
                             else
-                                ICON="❌"
-                                STATUS="失败"
+                                export ICON="❌"
+                                export STATUS="失败"
                             fi
                             python3 -c "
 import json, os
