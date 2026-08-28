@@ -104,12 +104,12 @@ class TestRunner:
                 })
                 continue
 
-            # 旧版扁平格式：tests/suites/test_login.py::test_xxx
+            # 旧版扁平格式：tests/suites/test_login.py::test_xxx 或 tests/suites/test_login.py::TestXxx::test_xxx
             if "::" in line_stripped and line_stripped.startswith(("tests/", ".")):
                 parts = line_stripped.split("::")
                 if len(parts) >= 2:
                     file_path = parts[0]
-                    func_name = parts[-1]
+                    func_name = "::".join(parts[1:])  # 保留 ClassName:: 前缀，避免类方法丢失类名
                     suite_name = Path(file_path).stem.replace("test_", "")
                     collected.append({
                         "suite_name": suite_name,
@@ -171,7 +171,7 @@ class TestRunner:
                 parts = line_stripped.split("::")
                 if len(parts) >= 2:
                     file_path = parts[0]
-                    func_name = parts[-1]
+                    func_name = "::".join(parts[1:])  # 保留 ClassName:: 前缀，避免类方法丢失类名
                     suite_name = Path(file_path).stem.replace("test_", "")
                     collected.append({
                         "suite_name": suite_name,
