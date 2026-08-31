@@ -59,8 +59,10 @@ def test_site_builder_chat_loads(logged_in_page, base_url):
 
 @pytest.mark.order(45)
 @pytest.mark.p0
-def test_app_preview_and_url_access(logged_in_page, base_url):
+def test_app_preview_and_url_access(logged_in_page, base_url, env_check):
     """应用预览和独立 URL 访问（TC-SITE-011） | ✅ 人工评审通过 |"""
+    if not env_check.get("agent_sites_enabled", False):
+        pytest.skip("agent-sites 平台未配置/未部署，跳过")
     sites = SitesListPage(logged_in_page, base_url)
     sites.goto()
     assert sites.is_loaded()
@@ -115,8 +117,10 @@ def test_app_preview_and_url_access(logged_in_page, base_url):
 
 @pytest.mark.order(46)
 @pytest.mark.p1
-def test_sites_list_edit_and_delete(logged_in_page, base_url):
+def test_sites_list_edit_and_delete(logged_in_page, base_url, env_check):
     """Sites 列表管理 — 编辑和删除（TC-SITE-014） | ✅ 人工评审通过 |"""
+    if not env_check.get("agent_sites_enabled", False):
+        pytest.skip("agent-sites 平台未配置/未部署，跳过")
     sites = SitesListPage(logged_in_page, base_url)
     sites.goto()
     assert sites.is_loaded()
@@ -163,8 +167,10 @@ def test_sites_list_edit_and_delete(logged_in_page, base_url):
 
 @pytest.mark.order(47)
 @pytest.mark.p1
-def test_artifacts_panel_with_bound_site(logged_in_page, base_url):
+def test_artifacts_panel_with_bound_site(logged_in_page, base_url, env_check):
     """应用绑定到 Agent 后 ArtifactsPanel 展示（TC-SITE-015）"""
+    if not env_check.get("agent_sites_enabled", False):
+        pytest.skip("agent-sites 平台未配置/未部署，跳过")
     import random
     chat = SiteBuilderChatPage(logged_in_page, base_url)
     found = chat.goto_builder_chat()
@@ -258,8 +264,10 @@ def test_creator_name_display(logged_in_page, base_url):
 
 @pytest.mark.order(49)
 @pytest.mark.p1
-def test_open_site_in_new_tab(logged_in_page, base_url):
+def test_open_site_in_new_tab(logged_in_page, base_url, env_check):
     """点击「打开」按钮在新标签页打开站点（TC-SITE-017）"""
+    if not env_check.get("agent_sites_enabled", False):
+        pytest.skip("agent-sites 平台未配置/未部署，跳过")
     sites = SitesListPage(logged_in_page, base_url)
     sites.goto()
     assert sites.is_loaded()
@@ -297,8 +305,10 @@ def test_open_site_in_new_tab(logged_in_page, base_url):
 
 @pytest.mark.order(50)
 @pytest.mark.p0
-def test_create_app(logged_in_page, base_url):
+def test_create_app(logged_in_page, base_url, env_check):
     """通过「创建 App」按钮创建新应用 | ✅ 人工评审通过 |"""
+    if not env_check.get("agent_sites_enabled", False):
+        pytest.skip("agent-sites 平台未配置/未部署，跳过")
     sites = SitesListPage(logged_in_page, base_url)
     sites.goto()
     assert sites.is_loaded()
@@ -413,8 +423,10 @@ def test_sites_filter_tabs(logged_in_page, base_url):
 
 @pytest.mark.order(53)
 @pytest.mark.p1
-def test_token_renewal(logged_in_page, base_url):
+def test_token_renewal(logged_in_page, base_url, env_check):
     """重签 Token — 三点菜单中旋转应用部署 Token（TC-SITE-021） | ✅ 人工评审通过 |"""
+    if not env_check.get("agent_sites_enabled", False):
+        pytest.skip("agent-sites 平台未配置/未部署，跳过")
     sites = SitesListPage(logged_in_page, base_url)
     sites.goto()
     assert sites.is_loaded()

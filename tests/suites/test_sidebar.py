@@ -252,8 +252,10 @@ def test_memory_page_loads(logged_in_page, base_url):
 
 @pytest.mark.order(20)
 @pytest.mark.p1
-def test_memory_has_tabs(logged_in_page, base_url):
+def test_memory_has_tabs(logged_in_page, base_url, env_check):
     """记忆页面有分类 Tab | ✅ 人工评审通过 |"""
+    if not env_check.get("hindsight_enabled", False):
+        pytest.skip("记忆服务未开启（Hindsight 未启用），跳过")
     page = MemoryPage(logged_in_page, base_url)
     page.goto()
     tabs = page.get_tab_names()

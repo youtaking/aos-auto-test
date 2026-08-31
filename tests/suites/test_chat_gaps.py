@@ -175,13 +175,17 @@ def test_model_display_consistency(logged_in_page, base_url):
     chat.create_new_session()
 
     def _get_composer_model():
-        """从 composer meta 读取展示的模型名（跳过 Bypass）"""
+        """从 composer meta 读取展示的模型名（跳过 Bypass）
+        注意：meta 区第一个 span[title] 是 agent 名（内嵌 shield 图标），须跳过。"""
         meta = logged_in_page.locator("div.chat-composer-meta")
         if meta.count() == 0:
             return ""
         spans = meta.locator("span[title]")
         for i in range(spans.count()):
-            title = spans.nth(i).get_attribute("title") or ""
+            span = spans.nth(i)
+            if span.locator(".lucide-shield").count() > 0:
+                continue  # agent 名 span
+            title = span.get_attribute("title") or ""
             if title and title != "Bypass":
                 return title
         return ""

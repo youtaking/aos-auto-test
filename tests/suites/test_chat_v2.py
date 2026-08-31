@@ -263,6 +263,11 @@ def test_create_new_session(logged_in_page, base_url):
     composer_meta = composer_card.locator("div.chat-composer-meta")
     assert composer_meta.count() > 0, "输入框 meta 区域（chat-composer-meta）不存在"
     model_span = composer_meta.locator("span[title]")
+    # 模型名异步加载：CI 全量负载下点新会话后 meta 可能短暂空载，轮询等待而非裸 count()
+    for _ in range(15):
+        if model_span.count() > 0:
+            break
+        logged_in_page.wait_for_timeout(1000)
     assert model_span.count() > 0, "未找到模型名称展示区域（span[title]）"
     model_title = model_span.first.get_attribute("title") or model_span.first.inner_text().strip()
     assert model_title.strip(), "模型名称为空"

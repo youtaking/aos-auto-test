@@ -194,6 +194,22 @@ def env_check(logged_in_page, base_url):
             checks["hindsight_enabled"] = False
     except Exception:
         checks["hindsight_enabled"] = False
+    # 3. 检查 agent-sites 平台（Sites 模块依赖）：取列表第一个 app 探测 /web/site/deploy/
+    #    未配置 AGENT_SITES_BASE_URL 时代理不启用，deploy 路由返回 200 空 body
+    try:
+        resp = logged_in_page.request.get(f"{base_url}/web/agent-sites/apps")
+        if resp.status == 200:
+            data = resp.json().get("data", [])
+            if data:
+                first_id = data[0].get("remoteAppId")
+                probe = logged_in_page.request.get(f"{base_url}/web/site/deploy/{first_id}/")
+                checks["agent_sites_enabled"] = not (probe.status == 200 and len(probe.body()) == 0)
+            else:
+                checks["agent_sites_enabled"] = True
+        else:
+            checks["agent_sites_enabled"] = False
+    except Exception:
+        checks["agent_sites_enabled"] = False
     return checks
 
 

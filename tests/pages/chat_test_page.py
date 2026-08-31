@@ -677,6 +677,8 @@ class ChatTestPage:
         file_input = self._get_file_input()
         file_input.set_input_files(file_path)
         self.page.wait_for_timeout(2000)
+        # 文件树默认折叠：上传后 refreshTree 重新挂载树，新文件可能藏在 user/ 下，需展开才可见
+        self.expand_file_tree()
 
     def upload_files(self, file_paths: list[str]):
         """通过 UI 上传多个文件 — 直接操作隐藏 file input"""
@@ -687,6 +689,33 @@ class ChatTestPage:
         file_input = self._get_file_input()
         file_input.set_input_files(file_paths)
         self.page.wait_for_timeout(2000)
+        self.expand_file_tree()
+
+    def expand_file_tree(self):
+        """展开 Artifacts 面板 + 文件树所有目录节点，使上传的文件可见。
+
+        进入 chat 时 _collapse_artifacts_if_open 会把右侧面板折叠成 0 宽，
+        treeitem 不可见不可点；必须先 expand_artifacts_panel（幂等，已展开则 no-op）。
+        且应用的文件树默认全部折叠（defaultExpandedIds 为空，上传刷新后保留折叠态），
+        新上传文件会落在 user/ 子目录下，不展开则 treeitem 里看不到文件名。
+        """
+        self.expand_artifacts_panel()
+        for _ in range(20):
+            if self.page.locator("[role='treeitem']").count() > 0:
+                break
+            self.page.wait_for_timeout(500)
+        for _ in range(3):
+            collapsed = self.page.locator(
+                "[role='treeitem'][aria-expanded='false']:has(.lucide-folder)"
+            )
+            if collapsed.count() == 0:
+                break
+            for i in range(collapsed.count()):
+                try:
+                    collapsed.nth(i).click(timeout=3000)
+                    self.page.wait_for_timeout(250)
+                except Exception:
+                    pass
 
     def has_file_preview(self) -> bool:
         """是否有文件预览区域"""
@@ -781,15 +810,26 @@ class ChatTestPage:
     # === 模型操作 ===
 
     def get_current_model_name(self) -> str:
-        """获取当前选中模型名称（从 composer meta 区域的 span[title] 读取）"""
+        """获取当前选中模型名称（从 composer meta 区域的 span[title] 读取）
+
+        meta 区第一个 span[title] 是 agent 名（内嵌 lucide-shield 图标），
+        模型名 span 无图标，需跳过 agent 名 span 取真正的模型名。
+        """
         composer_meta = self.page.locator("div.chat-composer-meta")
         if composer_meta.count() == 0:
             return ""
-        model_span = composer_meta.locator("span[title]")
-        if model_span.count() == 0:
-            return ""
-        return (model_span.first.get_attribute("title")
-                or model_span.first.inner_text().strip())
+        model_spans = composer_meta.locator("span[title]")
+        for i in range(model_spans.count()):
+            span = model_spans.nth(i)
+            if span.locator(".lucide-shield").count() == 0:
+                title = span.get_attribute("title")
+                if title:
+                    return title
+        # 回退：旧版本 meta 区可能没有 agent 名 span，取第一个
+        if model_spans.count() > 0:
+            return (model_spans.first.get_attribute("title")
+                    or model_spans.first.inner_text().strip())
+        return ""
 
     def open_model_selector(self) -> bool:
         """打开模型选择器下拉列表，返回是否成功"""

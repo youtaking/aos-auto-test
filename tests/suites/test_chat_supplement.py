@@ -67,6 +67,9 @@ def test_chat_artifacts_panel(logged_in_page, base_url):
     try:
         logged_in_page.locator("iframe").first.wait_for(state="visible", timeout=10000)
     except Exception:
+        # 未绑定 Site 时应用显示"未绑定站点"空态（数据前置条件），无 iframe 属正常
+        if "未绑定站点" in logged_in_page.locator("body").inner_text():
+            pytest.skip("当前 Agent 未绑定 Site，「站点」Tab 显示空态（数据前置条件不满足）")
         pytest.fail("点击「站点」后 Artifacts iframe 未出现")
 
     # 验证 iframe 可见
@@ -281,6 +284,9 @@ def test_chat_artifacts_panel_collapse_expand(logged_in_page, base_url):
     try:
         logged_in_page.locator("iframe").first.wait_for(state="visible", timeout=10000)
     except Exception:
+        # 未绑定 Site 时应用显示"未绑定站点"空态（数据前置条件），无 iframe 属正常
+        if "未绑定站点" in logged_in_page.locator("body").inner_text():
+            pytest.skip("当前 Agent 未绑定 Site，「站点」Tab 显示空态（数据前置条件不满足）")
         pytest.fail("点击「站点」后 Artifacts iframe 未出现")
 
     iframe = logged_in_page.locator("iframe")

@@ -8,8 +8,10 @@ from tests.pages.sidebar_pages import MemoryPage
 @allure.epic("记忆")
 @pytest.mark.order(30)
 @pytest.mark.p0
-def test_memories_page_content(logged_in_page, base_url):
+def test_memories_page_content(logged_in_page, base_url, env_check):
     """TC-MEM-001: 记忆页面内容加载"""
+    if not env_check.get("hindsight_enabled", False):
+        pytest.skip("记忆服务未开启（Hindsight 未启用），跳过")
     mem = MemoryPage(logged_in_page, base_url)
     mem.goto()
     assert mem.is_loaded(), "记忆页面未加载"
@@ -20,8 +22,10 @@ def test_memories_page_content(logged_in_page, base_url):
 @allure.epic("记忆")
 @pytest.mark.order(31)
 @pytest.mark.p1
-def test_memories_tab_world_facts(logged_in_page, base_url):
+def test_memories_tab_world_facts(logged_in_page, base_url, env_check):
     """TC-MEM-002: 世界事实 Tab 数据展示"""
+    if not env_check.get("hindsight_enabled", False):
+        pytest.skip("记忆服务未开启（Hindsight 未启用），跳过")
     mem = MemoryPage(logged_in_page, base_url)
     mem.goto()
     mem.click_tab("世界事实")
@@ -34,8 +38,10 @@ def test_memories_tab_world_facts(logged_in_page, base_url):
 @allure.epic("记忆")
 @pytest.mark.order(32)
 @pytest.mark.p1
-def test_memories_tab_experiences(logged_in_page, base_url):
+def test_memories_tab_experiences(logged_in_page, base_url, env_check):
     """TC-MEM-003: 经验 Tab 数据展示"""
+    if not env_check.get("hindsight_enabled", False):
+        pytest.skip("记忆服务未开启（Hindsight 未启用），跳过")
     mem = MemoryPage(logged_in_page, base_url)
     mem.goto()
     mem.click_tab("经验")
@@ -45,8 +51,10 @@ def test_memories_tab_experiences(logged_in_page, base_url):
 @allure.epic("记忆")
 @pytest.mark.order(33)
 @pytest.mark.p1
-def test_memories_tab_observations(logged_in_page, base_url):
+def test_memories_tab_observations(logged_in_page, base_url, env_check):
     """TC-MEM-004: 观察 Tab 数据展示"""
+    if not env_check.get("hindsight_enabled", False):
+        pytest.skip("记忆服务未开启（Hindsight 未启用），跳过")
     mem = MemoryPage(logged_in_page, base_url)
     mem.goto()
     mem.click_tab("观察")
@@ -56,8 +64,10 @@ def test_memories_tab_observations(logged_in_page, base_url):
 @allure.epic("记忆")
 @pytest.mark.order(34)
 @pytest.mark.p1
-def test_memories_tab_mental_models(logged_in_page, base_url):
+def test_memories_tab_mental_models(logged_in_page, base_url, env_check):
     """TC-MEM-005: 心理模型 Tab 数据展示"""
+    if not env_check.get("hindsight_enabled", False):
+        pytest.skip("记忆服务未开启（Hindsight 未启用），跳过")
     mem = MemoryPage(logged_in_page, base_url)
     mem.goto()
     mem.click_tab("心理模型")
@@ -67,8 +77,10 @@ def test_memories_tab_mental_models(logged_in_page, base_url):
 @allure.epic("记忆")
 @pytest.mark.order(35)
 @pytest.mark.p1
-def test_memories_tab_entities(logged_in_page, base_url):
+def test_memories_tab_entities(logged_in_page, base_url, env_check):
     """TC-MEM-006: 实体 Tab 数据展示"""
+    if not env_check.get("hindsight_enabled", False):
+        pytest.skip("记忆服务未开启（Hindsight 未启用），跳过")
     mem = MemoryPage(logged_in_page, base_url)
     mem.goto()
     mem.click_tab("实体")
@@ -240,8 +252,10 @@ def test_memories_detail_modal(logged_in_page, base_url, env_check):
 @allure.epic("记忆")
 @pytest.mark.order(462)
 @pytest.mark.p1
-def test_memories_crud(logged_in_page, base_url):
+def test_memories_crud(logged_in_page, base_url, env_check):
     """验证记忆模块基本操作 — 页面加载、Tab 切换、只读展示（记忆通过 Agent 对话注入，无手动创建入口）"""
+    if not env_check.get("hindsight_enabled", False):
+        pytest.skip("记忆服务未开启（Hindsight 未启用），跳过")
     mem = MemoryPage(logged_in_page, base_url)
     mem.goto()
 
