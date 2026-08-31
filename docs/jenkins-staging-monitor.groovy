@@ -229,22 +229,30 @@ pipeline {
 
                     # 克隆/更新被测项目源码（单元测试需要 @fenix/* 路径别名）
                     # 用 git 协议（smart HTTP）替代 archive tar.gz：git 直连更稳，且可增量更新
+                    # gh-proxy 系列是"URL前缀反向代理"（https://gh-proxy.com/https://github.com/...），
+                    # 不是 HTTP CONNECT 代理，配 -c http.proxy= 会 CONNECT tunnel failed，必须拼 URL 前缀
                     export GIT_HTTP_LOW_SPEED_LIMIT=1000
                     export GIT_HTTP_LOW_SPEED_TIME=300
                     APP_PROXIES="https://gh-proxy.com https://mirror.ghproxy.com https://ghfast.top https://ghproxy.net"
                     git_retry() {
-                        local cmd="$1"; shift
+                        local op="$1" url="$2" dir="$3" branch="$4"
                         for proxy in $APP_PROXIES ""; do
                             if [ -n "$proxy" ]; then
-                                echo "    Trying via ${proxy}: git $cmd ..."
-                                if git -c http.proxy="$proxy" "$cmd" "$@" >/tmp/git_out.log 2>&1; then
-                                    echo "    OK (proxy: ${proxy})"
+                                target="${proxy}/${url}"
+                                echo "    Trying via ${proxy}: git $op ..."
+                            else
+                                target="$url"
+                                echo "    Trying direct: git $op ..."
+                            fi
+                            if [ "$op" = "clone" ]; then
+                                if GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=300 git clone --depth 1 -b "$branch" "$target" "$dir" >/tmp/git_out.log 2>&1; then
+                                    echo "    OK (${proxy:-direct})"
                                     return 0
                                 fi
+                                rm -rf "$dir"
                             else
-                                echo "    Trying direct: git $cmd ..."
-                                if git "$cmd" "$@" >/tmp/git_out.log 2>&1; then
-                                    echo "    OK (direct)"
+                                if GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=300 git fetch --depth 1 "$target" "$branch" >/tmp/git_out.log 2>&1; then
+                                    echo "    OK (${proxy:-direct})"
                                     return 0
                                 fi
                             fi
@@ -254,12 +262,13 @@ pipeline {
                     }
                     if [ -d app/.git ]; then
                         echo ">>> Updating app source (__APP_BRANCH__)..."
-                        if (cd app && git_retry fetch --depth 1 origin __APP_BRANCH__ && git reset --hard origin/__APP_BRANCH__); then
+                        # 增量更新：fetch 走代理前缀 URL 拉最新分支，FETCH_HEAD 即本次目标 commit
+                        if (cd app && git_retry fetch __APP_REPO__ "" __APP_BRANCH__ && git reset --hard FETCH_HEAD); then
                             echo "    App source updated: $(ls app/ | wc -l) files/dirs"
                         else
                             echo "    Update failed, re-cloning..."
                             rm -rf app
-                            if ! git_retry clone --depth 1 -b __APP_BRANCH__ __APP_REPO__ app; then
+                            if ! git_retry clone __APP_REPO__ app __APP_BRANCH__; then
                                 echo "    ERROR: app clone failed"
                                 exit 1
                             fi
@@ -269,7 +278,7 @@ pipeline {
                         rm -rf app
                         mkdir -p app
                         echo ">>> Cloning app source (__APP_REPO__ @ __APP_BRANCH__)..."
-                        if ! git_retry clone --depth 1 -b __APP_BRANCH__ __APP_REPO__ app; then
+                        if ! git_retry clone __APP_REPO__ app __APP_BRANCH__; then
                             echo "    ERROR: app clone failed"
                             exit 1
                         fi
