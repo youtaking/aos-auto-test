@@ -41,13 +41,13 @@ pipeline {
                             fi
                             echo "    Trying: ${full_url}"
                             for i in 1 2 3; do
-                                if curl --fail -SL --connect-timeout 10 --max-time 300 "${full_url}" -o "${output}" 2>/dev/null; then
+                                if curl --fail -SL --connect-timeout 10 --max-time 600 "${full_url}" -o "${output}" 2>/tmp/curl_err.log; then
                                     if [ -s "${output}" ] && tar tzf "${output}" > /dev/null 2>&1; then
                                         echo "    OK (proxy: ${proxy:-direct})"
                                         return 0
                                     fi
                                 fi
-                                echo "    Attempt $i failed, retrying..."
+                                echo "    Attempt $i failed: $(tail -1 /tmp/curl_err.log)"
                                 sleep 3
                             done
                             echo "    Proxy ${proxy:-direct} failed, trying next..."
@@ -207,13 +207,13 @@ pipeline {
                             fi
                             echo "    Trying: ${full_url}"
                             for i in 1 2 3; do
-                                if curl --fail -SL --connect-timeout 10 --max-time 300 "${full_url}" -o "${output}" 2>/dev/null; then
+                                if curl --fail -SL --connect-timeout 10 --max-time 600 "${full_url}" -o "${output}" 2>/tmp/curl_err.log; then
                                     if [ -s "${output}" ] && tar tzf "${output}" > /dev/null 2>&1; then
                                         echo "    OK (proxy: ${proxy:-direct})"
                                         return 0
                                     fi
                                 fi
-                                echo "    Attempt $i failed, retrying..."
+                                echo "    Attempt $i failed: $(tail -1 /tmp/curl_err.log)"
                                 sleep 2
                             done
                             echo "    Proxy ${proxy:-direct} failed, trying next..."
