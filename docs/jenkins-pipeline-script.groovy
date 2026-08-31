@@ -27,6 +27,9 @@ pipeline {
         RCS_PORT    = "${30000 + PORT_OFFSET.toInteger()}"
         PG_PORT     = "${30001 + PORT_OFFSET.toInteger()}"
         LITE_PORT   = "${30002 + PORT_OFFSET.toInteger()}"
+        OPENAI_API_KEY    = "***REMOVED***"
+        OPENAI_MODEL      = "deepseek-v4-flash"
+        OPENAI_BASE_URL   = "https://api.deepseek.com/v1/"
     }
 
     stages {
@@ -344,6 +347,9 @@ services:
       RCS_PORT: 3001
       RCS_API_KEYS: sk-rcs-dev-key
       RCS_SECRET_LITELLM_ADMIN_KEY: sk-litellm-admin-dev-key
+      OPENAI_API_KEY: __OPENAI_API_KEY__
+      OPENAI_MODEL: __OPENAI_MODEL__
+      OPENAI_BASE_URL: __OPENAI_BASE_URL__
       BETTER_AUTH_URL: http://__HOST_IP__:__RCS_PORT__
       NODE_ENV: test
       BUN_TEST: "1"
@@ -382,6 +388,9 @@ services:
   .replace('__MIGRATE_IMAGE_TAG__', "${PROJECT_NAME}-migrate:${BUILD_NUMBER}")
   .replace('__RCS_PORT__', RCS_PORT)
   .replace('__HOST_IP__', HOST_IP)
+  .replace('__OPENAI_API_KEY__', OPENAI_API_KEY)
+  .replace('__OPENAI_MODEL__', OPENAI_MODEL)
+  .replace('__OPENAI_BASE_URL__', OPENAI_BASE_URL)
   .replace('__WORKSPACE__', env.WORKSPACE.replace('/var/jenkins_home', '/opt/1panel/apps/jenkins/jenkins/data'))
   .replace('__UNIT_TEST_MOUNT__', (params.PR_BRANCH && params.PR_BRANCH != 'main')
       ? env.WORKSPACE.replace('/var/jenkins_home', '/opt/1panel/apps/jenkins/jenkins/data') + '/autotest/branches/' + params.PR_BRANCH + '/unit_tests'
