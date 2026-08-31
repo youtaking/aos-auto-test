@@ -227,18 +227,57 @@ pipeline {
                     rm -f /tmp/autotest.tar.gz
                     echo "    Test code: $(ls autotest/ | wc -l) files/dirs"
 
-                    # 克隆被测项目源码（单元测试需要 @fenix/* 路径别名）
-                    rm -rf app
-                    mkdir -p app
-                    APP_ARCHIVE_URL="__APP_REPO__/archive/refs/heads/__APP_BRANCH__.tar.gz"
-                    echo ">>> Downloading app source (${APP_ARCHIVE_URL})..."
-                    download_repo "${APP_ARCHIVE_URL}" /tmp/fenix.tar.gz
-                    tar xzf /tmp/fenix.tar.gz --strip-components=1 -C app
-                    rm -f /tmp/fenix.tar.gz
-                    echo "    App source: $(ls app/ | wc -l) files/dirs"
+                    # 克隆/更新被测项目源码（单元测试需要 @fenix/* 路径别名）
+                    # 用 git 协议（smart HTTP）替代 archive tar.gz：git 直连更稳，且可增量更新
+                    export GIT_HTTP_LOW_SPEED_LIMIT=1000
+                    export GIT_HTTP_LOW_SPEED_TIME=300
+                    APP_PROXIES="https://gh-proxy.com https://mirror.ghproxy.com https://ghfast.top https://ghproxy.net"
+                    git_retry() {
+                        local cmd="$1"; shift
+                        for proxy in $APP_PROXIES ""; do
+                            if [ -n "$proxy" ]; then
+                                echo "    Trying via ${proxy}: git $cmd ..."
+                                if git -c http.proxy="$proxy" "$cmd" "$@" >/tmp/git_out.log 2>&1; then
+                                    echo "    OK (proxy: ${proxy})"
+                                    return 0
+                                fi
+                            else
+                                echo "    Trying direct: git $cmd ..."
+                                if git "$cmd" "$@" >/tmp/git_out.log 2>&1; then
+                                    echo "    OK (direct)"
+                                    return 0
+                                fi
+                            fi
+                            echo "    Attempt failed: $(tail -1 /tmp/git_out.log)"
+                        done
+                        return 1
+                    }
+                    if [ -d app/.git ]; then
+                        echo ">>> Updating app source (__APP_BRANCH__)..."
+                        if (cd app && git_retry fetch --depth 1 origin __APP_BRANCH__ && git reset --hard origin/__APP_BRANCH__); then
+                            echo "    App source updated: $(ls app/ | wc -l) files/dirs"
+                        else
+                            echo "    Update failed, re-cloning..."
+                            rm -rf app
+                            if ! git_retry clone --depth 1 -b __APP_BRANCH__ __APP_REPO__ app; then
+                                echo "    ERROR: app clone failed"
+                                exit 1
+                            fi
+                            echo "    App source: $(ls app/ | wc -l) files/dirs"
+                        fi
+                    else
+                        rm -rf app
+                        mkdir -p app
+                        echo ">>> Cloning app source (__APP_REPO__ @ __APP_BRANCH__)..."
+                        if ! git_retry clone --depth 1 -b __APP_BRANCH__ __APP_REPO__ app; then
+                            echo "    ERROR: app clone failed"
+                            exit 1
+                        fi
+                        echo "    App source: $(ls app/ | wc -l) files/dirs"
+                    fi
                 '''.replace('__TEST_REPO__', params.TEST_REPO.replace('.git', ''))
                   .replace('__TEST_BRANCH__', params.TEST_REPO_BRANCH ?: 'master')
-                  .replace('__APP_REPO__', params.APP_REPO.replace('.git', ''))
+                  .replace('__APP_REPO__', params.APP_REPO)
                   .replace('__APP_BRANCH__', params.APP_BRANCH ?: 'main')
             }
         }
