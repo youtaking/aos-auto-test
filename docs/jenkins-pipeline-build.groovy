@@ -246,8 +246,10 @@ pipeline {
                     set +x
                     set +e
                         echo ">>> Querying AutoTest API for test targets..."
-                        curl -s -H "Authorization: Bearer $TOKEN" \
-                          "__AUTOTEST_URL__/api/ci/resolve-tests?branch=__APP_BRANCH__" > resolve_resp.json
+                        # 分支名必须 URL 编码：feature/ui+instance 里的 + 若直接进 query，
+                        # 会被解析成空格导致后端校验失败（历史坑：#137 Invalid branch name）
+                        curl -s -G -H "Authorization: Bearer $TOKEN" \
+                          "__AUTOTEST_URL__/api/ci/resolve-tests" --data-urlencode "branch=__APP_BRANCH__" > resolve_resp.json
 
                         echo ">>> API response:"
                         cat resolve_resp.json
@@ -281,8 +283,8 @@ except Exception as e:
                         fi
 
                         echo ">>> Resolving unit tests..."
-                        curl -s -H "Authorization: Bearer $TOKEN" \
-                          "__AUTOTEST_URL__/api/ci/resolve-unit-tests?branch=__APP_BRANCH__" > unit_resolve_resp.json
+                        curl -s -G -H "Authorization: Bearer $TOKEN" \
+                          "__AUTOTEST_URL__/api/ci/resolve-unit-tests" --data-urlencode "branch=__APP_BRANCH__" > unit_resolve_resp.json
 
                         python3 -c "
 import json

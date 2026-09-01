@@ -19,7 +19,7 @@ from backend.services.branch_poller import BranchPoller, PROJECT_ROOT, BRANCHES_
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-_BRANCH_RE = re.compile(r'^[a-zA-Z0-9._\-/]+$')
+_BRANCH_RE = re.compile(r'^[a-zA-Z0-9._\-+/]+$')
 
 
 def _validate_branch_name(name: str) -> str:
