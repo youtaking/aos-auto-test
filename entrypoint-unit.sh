@@ -77,11 +77,15 @@ else
   echo "    WARNING: TEST_ROOT=$TEST_ROOT is empty or does not exist!"
 fi
 # 2. 生成 tsconfig.json（@fenix/* 解析必须与被测代码一致，避免同一包加载两份导致 instanceof 失败）
-#    历史坑：这里曾把 @fenix/sandbox-provider 指到 ${FENIX_ROOT}/packages/...（真实源码），
-#    但被测代码（tsconfig.base.json 无此条目）走 node_modules/workspace 拷贝，两份模块
-#    使 instanceof / toBeInstanceOf 全部失败（sandbox 单测长期失败）。修复：精确复制
-#    FenixAgent tsconfig.base.json 的 paths（相对 → ${FENIX_ROOT}/ 绝对），不在 paths 里的
-#    @fenix/*（sandbox-provider、model-gateway-* 等）统一走 node_modules，与被测一致。
+#    历史坑1：曾把 @fenix/sandbox-provider 指到 ${FENIX_ROOT}/packages/...（挂载的原始源码），
+#    但被测代码（FenixAgent tsconfig.base.json 无此条目）走 node_modules/workspace 拷贝
+#    （/workspace/packages/sandbox-provider，entrypoint 从 FENIX_ROOT 复制的那份），两份物理
+#    文件使 instanceof / toBeInstanceOf 全部失败。修复：sandbox-provider 也指到 workspace
+#    拷贝 ${WORKSPACE_ROOT}/packages/sandbox-provider，与被测代码走同一份。
+#    历史坑2：不能去掉 @fenix/* 通配——测试大量 import @fenix/auth/*、@fenix/routes/*、
+#    @fenix/services/*、@fenix/db/* 等 src/ 下模块（不是 workspace 包），必须映射到
+#    ${FENIX_ROOT}/src/*。@fenix/chat-channel 等顶层包无 src/ 对应目录，bun 会 fallback
+#    到 node_modules（workspace 包）解析。
 echo ">>> Generating tsconfig.json..."
 cat > "$WORKSPACE_ROOT/tests/tsconfig.json" << TSEOF
 {
@@ -93,17 +97,9 @@ cat > "$WORKSPACE_ROOT/tests/tsconfig.json" << TSEOF
     "types": ["bun"],
     "strict": true,
     "paths": {
-      "@fenix/plugin-sdk": ["${FENIX_ROOT}/packages/plugin-sdk/src/index.ts"],
-      "@fenix/core": ["${FENIX_ROOT}/packages/core/src/index.ts"],
-      "@fenix/opencode": ["${FENIX_ROOT}/packages/plugin-opencode/src/index.ts"],
-      "@fenix/orchestration": ["${FENIX_ROOT}/packages/orchestration/src/index.ts"],
-      "@fenix/claude-code": ["${FENIX_ROOT}/packages/plugin-claude-code/src/index.ts"],
-      "@fenix/ccb": ["${FENIX_ROOT}/packages/plugin-ccb/src/index.ts"],
-      "@fenix/workflow-engine": ["${FENIX_ROOT}/packages/workflow-engine/src/index.ts"],
-      "@fenix/remote-runtime": ["${FENIX_ROOT}/packages/remote-runtime/src/index.ts"],
-      "@fenix/logger": ["${FENIX_ROOT}/packages/logger/src/index.ts"],
-      "@fenix/chat-channel": ["${FENIX_ROOT}/packages/chat-channel/src/index.ts"],
-      "@fenix/chat-channel/server": ["${FENIX_ROOT}/packages/chat-channel/src/server.ts"]
+      "@fenix/sandbox-provider": ["${WORKSPACE_ROOT}/packages/sandbox-provider/src"],
+      "@fenix/sandbox-provider/*": ["${WORKSPACE_ROOT}/packages/sandbox-provider/src/*"],
+      "@fenix/*": ["${FENIX_ROOT}/src/*"]
     }
   },
   "include": ["**/*.ts"]
