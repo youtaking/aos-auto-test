@@ -76,7 +76,12 @@ if [ -d "$TEST_ROOT" ] && [ "$(ls -A "$TEST_ROOT" 2>/dev/null)" ]; then
 else
   echo "    WARNING: TEST_ROOT=$TEST_ROOT is empty or does not exist!"
 fi
-# 2. 生成 tsconfig.json（@fenix/* → FenixAgent src/*）
+# 2. 生成 tsconfig.json（@fenix/* 解析必须与被测代码一致，避免同一包加载两份导致 instanceof 失败）
+#    历史坑：这里曾把 @fenix/sandbox-provider 指到 ${FENIX_ROOT}/packages/...（真实源码），
+#    但被测代码（tsconfig.base.json 无此条目）走 node_modules/workspace 拷贝，两份模块
+#    使 instanceof / toBeInstanceOf 全部失败（sandbox 单测长期失败）。修复：精确复制
+#    FenixAgent tsconfig.base.json 的 paths（相对 → ${FENIX_ROOT}/ 绝对），不在 paths 里的
+#    @fenix/*（sandbox-provider、model-gateway-* 等）统一走 node_modules，与被测一致。
 echo ">>> Generating tsconfig.json..."
 cat > "$WORKSPACE_ROOT/tests/tsconfig.json" << TSEOF
 {
@@ -88,9 +93,17 @@ cat > "$WORKSPACE_ROOT/tests/tsconfig.json" << TSEOF
     "types": ["bun"],
     "strict": true,
     "paths": {
-      "@fenix/sandbox-provider": ["${FENIX_ROOT}/packages/sandbox-provider/src"],
-      "@fenix/sandbox-provider/*": ["${FENIX_ROOT}/packages/sandbox-provider/src/*"],
-      "@fenix/*": ["${FENIX_SRC}/*"]
+      "@fenix/plugin-sdk": ["${FENIX_ROOT}/packages/plugin-sdk/src/index.ts"],
+      "@fenix/core": ["${FENIX_ROOT}/packages/core/src/index.ts"],
+      "@fenix/opencode": ["${FENIX_ROOT}/packages/plugin-opencode/src/index.ts"],
+      "@fenix/orchestration": ["${FENIX_ROOT}/packages/orchestration/src/index.ts"],
+      "@fenix/claude-code": ["${FENIX_ROOT}/packages/plugin-claude-code/src/index.ts"],
+      "@fenix/ccb": ["${FENIX_ROOT}/packages/plugin-ccb/src/index.ts"],
+      "@fenix/workflow-engine": ["${FENIX_ROOT}/packages/workflow-engine/src/index.ts"],
+      "@fenix/remote-runtime": ["${FENIX_ROOT}/packages/remote-runtime/src/index.ts"],
+      "@fenix/logger": ["${FENIX_ROOT}/packages/logger/src/index.ts"],
+      "@fenix/chat-channel": ["${FENIX_ROOT}/packages/chat-channel/src/index.ts"],
+      "@fenix/chat-channel/server": ["${FENIX_ROOT}/packages/chat-channel/src/server.ts"]
     }
   },
   "include": ["**/*.ts"]
