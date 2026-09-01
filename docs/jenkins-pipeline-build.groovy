@@ -97,6 +97,10 @@ pipeline {
                     echo ""
                     echo ">>> Cleaning previous workspace..."
                     rm -rf app autotest
+                    # 清理 workspace 根目录残留结果文件：post{always} 会读取这些文件，
+                    # 若本次构建在测试阶段前失败，残留文件会把上一构建的结果当成本次的
+                    # 上传到后端并写入企业微信通知（历史坑：#136 Deploy 失败报了 #135 的数字）
+                    rm -f report.json unit-junit.xml pipeline.json pipeline_logs.txt .pipeline_id .unit_run_id
                     mkdir -p app autotest
 
                     download_repo() {
@@ -1130,6 +1134,8 @@ lines = [
 ]
 
 # 接口 / E2E 统计：按 nodeid 分类（先判 api_suites，避免被 suites/ 子串误命中）
+# 注意：仅当结果文件存在（即本次构建真正跑过测试）才报数字；
+# 测试阶段因前置失败未执行时文件不存在，显示"未执行"，不报残留/编造的数字
 api = {'passed': 0, 'failed': 0, 'skipped': 0, 'error': 0}
 e2e = {'passed': 0, 'failed': 0, 'skipped': 0, 'error': 0}
 if os.path.exists('report.json'):
@@ -1155,9 +1161,15 @@ if os.path.exists('unit-junit.xml'):
     unit['skipped'] = skipped
     unit['passed'] = total - failed - skipped
 
-lines.append(stat_line('单元测试', unit['passed'], unit['failed'], unit['skipped']))
-lines.append(stat_line('接口测试', api['passed'], api['failed'], api['skipped'], api['error']))
-lines.append(stat_line('E2E 测试', e2e['passed'], e2e['failed'], e2e['skipped'], e2e['error']))
+if os.path.exists('unit-junit.xml'):
+    lines.append(stat_line('单元测试', unit['passed'], unit['failed'], unit['skipped']))
+else:
+    lines.append('> **单元测试**: 未执行')
+if os.path.exists('report.json'):
+    lines.append(stat_line('接口测试', api['passed'], api['failed'], api['skipped'], api['error']))
+    lines.append(stat_line('E2E 测试', e2e['passed'], e2e['failed'], e2e['skipped'], e2e['error']))
+else:
+    lines.append('> **接口 / E2E 测试**: 未执行')
 
 if pr_link:
     lines.append('> [GitHub PR](' + pr_link + ')')
