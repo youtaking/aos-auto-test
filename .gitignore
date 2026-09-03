@@ -18,6 +18,9 @@ report.json
 # 数据库
 *.db
 
+# 测试环境种子数据（含 LLM 提供方 key，移出仓库，部署在服务器 Jenkins data/seed-data/）
+/data.sql
+
 # 运行日志
 *.log
 
