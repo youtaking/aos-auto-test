@@ -27,7 +27,8 @@ pipeline {
         RCS_PORT    = "${30000 + PORT_OFFSET.toInteger()}"
         PG_PORT     = "${30001 + PORT_OFFSET.toInteger()}"
         LITE_PORT   = "${30002 + PORT_OFFSET.toInteger()}"
-        OPENAI_API_KEY    = "***REMOVED***"
+        // OPENAI_API_KEY 移出仓库，改从 Jenkins 凭据注入（Secret text: deepseek-openai-key）
+        OPENAI_API_KEY    = credentials('deepseek-openai-key')
         OPENAI_MODEL      = "deepseek-v4-flash"
         OPENAI_BASE_URL   = "https://api.deepseek.com/v1/"
     }
