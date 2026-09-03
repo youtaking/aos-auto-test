@@ -495,11 +495,12 @@ INITEOF
 
                     echo ">>> Preparing seed data..."
                     rm -rf seed-data.sql
-                    if [ -f autotest/data.sql ]; then
+                    # seed 数据源固定为服务器端目录（已 git rm 移出仓库，勿改回 autotest/data.sql）
+                    if [ -f /var/jenkins_home/seed-data/data.sql ]; then
                       cat > /tmp/filter_seed.py << 'PYEOF'
 import sys
 BS = chr(92)
-lines = open('autotest/data.sql', encoding='utf-8').readlines()
+lines = open('/var/jenkins_home/seed-data/data.sql', encoding='utf-8').readlines()
 out = []
 skip = False
 for line in lines:
@@ -520,8 +521,9 @@ PYEOF
                       python3 /tmp/filter_seed.py
                       echo "    seed-data.sql ready ($(wc -l < seed-data.sql) lines)."
                     else
-                      echo "    WARNING: autotest/data.sql not found, creating empty seed."
-                      echo "-- No seed data" > seed-data.sql
+                      echo "    ERROR: seed data not found at /var/jenkins_home/seed-data/data.sql"
+                      echo "    seed 源已移出 GitHub，必须放在服务器 /opt/1panel/apps/jenkins/jenkins/data/seed-data/data.sql。中止构建。"
+                      exit 1
                     fi
 
                     echo ">>> Starting postgres..."
