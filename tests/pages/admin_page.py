@@ -130,10 +130,16 @@ class AdminPage:
             return False
 
     def get_log_files(self) -> list:
-        """获取日志文件列表"""
+        """获取日志文件列表（文件按钮为异步加载，先等待首个 .log 按钮出现）"""
         main = self.page.locator("main")
         if main.count() == 0:
             return []
+        try:
+            main.locator("button", has_text=".log").first.wait_for(
+                state="visible", timeout=8000
+            )
+        except Exception:
+            pass
         buttons = main.get_by_role("button")
         files = []
         for i in range(buttons.count()):
@@ -258,20 +264,29 @@ class AdminPage:
             pass
 
     def is_sandbox_cluster_loaded(self) -> bool:
-        """Cluster 面板加载（Cluster Pool 卡片或错误重试卡片）"""
-        cluster_pool = self.page.locator("h3:has-text('Cluster Pool')")
-        try:
-            cluster_pool.first.wait_for(state="visible", timeout=8000)
+        """Cluster 面板加载（Cluster Pool 卡片标题 或 错误重试卡片）"""
+        main = self.page.locator("main")
+        if main.count() == 0:
+            return False
+        if main.locator("div.font-semibold:has-text('Cluster Pool')").count() > 0:
             return True
-        except Exception:
-            pass
-        retry = self.page.locator("main").get_by_role("button", name="重试")
-        return retry.count() > 0
+        return main.get_by_role("button", name="重试").count() > 0
 
     def get_sandbox_cluster_status(self) -> str:
-        """Cluster 面板状态：loaded / retry"""
-        if self.page.locator("h3:has-text('Cluster Pool')").count() > 0:
-            return "loaded"
-        if self.page.locator("main").get_by_role("button", name="重试").count() > 0:
-            return "retry"
+        """Cluster 面板状态：loaded / retry / unknown
+
+        新版 DOM：Cluster Pool 为卡片标题 div.font-semibold（非 h3），
+        Cluster 数据为异步加载，内部轮询最多 ~8s。
+        """
+        main = self.page.locator("main")
+        if main.count() == 0:
+            return "unknown"
+        for _ in range(16):
+            if main.locator(
+                "div.font-semibold:has-text('Cluster Pool')"
+            ).count() > 0:
+                return "loaded"
+            if main.get_by_role("button", name="重试").count() > 0:
+                return "retry"
+            self.page.wait_for_timeout(500)
         return "unknown"

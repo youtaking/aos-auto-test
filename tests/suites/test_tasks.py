@@ -347,21 +347,27 @@ def test_view_task_log(logged_in_page, base_url, request):
 @pytest.mark.order(35)
 @pytest.mark.p1
 def test_edit_task(logged_in_page, base_url, request):
-    """编辑任务名称（TC-TASK-008） | ✅ 人工评审通过 |"""
+    """编辑任务名称（TC-TASK-008） | ✅ 人工评审通过 | 自建任务上编辑，清理由 API 删除"""
     tasks = TasksPage(logged_in_page, base_url)
+
+    original_name = f"edit-task-{_PREFIX}"
+    task_data = _create_task_api(
+        logged_in_page, base_url,
+        name=original_name, cron="0 9 * * *",
+        task_type="http", url="https://httpbin.org/get",
+        request=request,
+    )
+    if not task_data:
+        pytest.skip("无法创建待编辑任务")
+
     tasks.goto()
+    for _ in range(6):
+        if tasks.has_task(original_name):
+            break
+        logged_in_page.wait_for_timeout(1000)
+    assert tasks.has_task(original_name), f"待编辑任务 {original_name} 未创建成功"
 
-    names = tasks.get_task_names()
-    if not names:
-        task_data, _ = _get_or_create_task(logged_in_page, base_url, request)
-        if not task_data:
-            pytest.skip("无法获取或创建任务")
-        tasks.goto()
-        names = tasks.get_task_names()
-        if not names:
-            pytest.skip("任务列表仍为空")
-
-    original_name = names[0]
+    new_name = f"{original_name}-edited"
 
     # 点击任务名称打开编辑弹窗（429 时等待限流窗口重置后重试）
     for _attempt in range(2):
@@ -376,66 +382,37 @@ def test_edit_task(logged_in_page, base_url, request):
         if _attempt == 0:
             _wait_rate_limit_reset(logged_in_page)
             tasks.goto()
-            # 重新获取任务名称（刷新后可能变化）
-            names = tasks.get_task_names()
-            if not names:
-                pytest.skip("429 限流后任务列表为空")
-            original_name = names[0]
     if not tasks.is_dialog_open():
         pytest.skip("429 限流导致编辑弹窗无法打开")
-    assert "编辑" in tasks.get_dialog_title(), "弹窗标题不包含'编辑'"
+    assert "编辑" in tasks.get_dialog_title(), \
+        f"弹窗标题不包含'编辑': {tasks.get_dialog_title()}"
 
-    # 修改名称
     dialog = logged_in_page.locator('[role="dialog"]')
     name_input = dialog.locator('input[placeholder="输入任务名称"]')
-    old_name = name_input.input_value()
-    new_name = f"{old_name}-edited"
     name_input.wait_for(state="visible", timeout=5000)
     name_input.fill(new_name)
-
     tasks.save_dialog()
 
-    # 等待弹窗关闭（说明保存 API 已返回），429 时等待限流窗口后重试保存
+    # 等待弹窗关闭（说明保存 API 已返回）
     try:
-        dialog.wait_for(state="hidden", timeout=5000)
+        dialog.wait_for(state="hidden", timeout=8000)
     except Exception:
-        # 弹窗未关闭 → 可能 429，等待后重试保存
-        _wait_rate_limit_reset(logged_in_page)
-        tasks.goto()
-        if tasks.has_task(original_name):
-            tasks.click_task_name(original_name)
-            if tasks.is_dialog_open():
-                dialog2 = logged_in_page.locator('[role="dialog"]')
-                name_input2 = dialog2.locator('input[placeholder="输入任务名称"]')
-                if name_input2.count() > 0:
-                    name_input2.fill(new_name)
-                    tasks.save_dialog()
-                    try:
-                        dialog2.wait_for(state="hidden", timeout=8000)
-                    except Exception:
-                        pytest.skip("429 限流导致编辑保存未响应（重试后仍失败）")
+        pytest.skip("编辑保存后弹窗未关闭")
 
-    # 刷新验证
+    # 刷新验证新名称出现、旧名称消失
     tasks.goto()
-    try:
-        # 轮询等待新名称出现
-        for _ in range(6):
-            if tasks.has_task(new_name):
-                break
-            logged_in_page.wait_for_timeout(1000)
-            tasks.goto()
-        assert tasks.has_task(new_name), f"编辑后新名称 {new_name} 未出现"
-    finally:
-        # 还原名称
+    new_ok = False
+    for _ in range(6):
         if tasks.has_task(new_name):
-            tasks.click_task_name(new_name)
-            if tasks.is_dialog_open():
-                dialog = logged_in_page.locator('[role="dialog"]')
-                name_input = dialog.locator('input[placeholder="输入任务名称"]')
-                if name_input.count() > 0:
-                    name_input.wait_for(state="visible", timeout=5000)
-                    name_input.fill(old_name)
-                    tasks.save_dialog()
+            new_ok = True
+            break
+        logged_in_page.wait_for_timeout(1000)
+        tasks.goto()
+    assert new_ok, f"编辑后新名称 {new_name} 未出现"
+    # 精确比对：has_task 为子串匹配，而新名称包含旧名称子串，必须用全等判断旧名是否被替换
+    names_after = tasks.get_task_names()
+    assert not any(n == original_name for n in names_after), \
+        f"编辑后旧名称 {original_name} 仍存在（应已替换）: {names_after}"
 
 
 # === TC-TASK-009: 删除任务 ===
@@ -566,8 +543,25 @@ def test_create_http_task_v2(logged_in_page, base_url):
 
     tasks.save_dialog()
 
-    # 刷新验证
+    # 等待弹窗关闭（说明保存 API 已返回），429 时重试一次保存
+    dialog = logged_in_page.locator('[role="dialog"]')
+    try:
+        dialog.wait_for(state="hidden", timeout=8000)
+    except Exception:
+        if tasks.is_dialog_open():
+            tasks.save_dialog()
+            try:
+                dialog.wait_for(state="hidden", timeout=8000)
+            except Exception:
+                pass
+
+    # 刷新验证（轮询等待任务出现，服务端创建可能有延迟）
     tasks.goto()
+    for _ in range(8):
+        if tasks.has_task(task_name):
+            break
+        logged_in_page.wait_for_timeout(1000)
+        tasks.goto()
     try:
         assert tasks.has_task(task_name), f"HTTP V2 任务 {task_name} 未出现"
     finally:
@@ -663,49 +657,61 @@ def test_create_agent_task(logged_in_page, base_url):
                 break
 
 
-# === TC-TASK-016: Chat 右侧 TasksPanel 面板展示 ===
+# === TC-TASK-016: 定时任务管理入口（对话页 → 侧边栏 → 任务管理页）===
 
 @pytest.mark.order(40)
 @pytest.mark.p0
 def test_chat_tasks_panel(logged_in_page, base_url):
-    """Chat 右侧 TasksPanel 面板展示（TC-TASK-016） | ✅ 人工评审通过 |"""
-    # 进入对话页面
+    """任务管理入口可达（TC-TASK-016）| 新版 UI 已移除聊天页右侧 TasksPanel，
+    定时任务统一在 /ctrl/agent/tasks 管理；验证从智能体页经侧边栏可进入并加载列表。"""
+    tasks = TasksPage(logged_in_page, base_url)
+
+    # 进入智能体对话页（home）
     try:
         logged_in_page.goto(f"{base_url}/ctrl/agent/home", wait_until="domcontentloaded")
     except Exception:
         pass  # SPA 路由可能中断初始导航
     logged_in_page.wait_for_load_state("domcontentloaded")
     try:
-        logged_in_page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+        logged_in_page.locator("main").first.wait_for(state="attached", timeout=8000)
     except Exception:
         pass
+    logged_in_page.wait_for_timeout(1000)
 
-    # 选择一个 Agent
-    agent_card = logged_in_page.locator("button.agent-sidebar-agent-card")
-    if agent_card.count() == 0:
-        pytest.skip("侧边栏没有可用的 Agent")
-    agent_card.first.wait_for(state="visible", timeout=5000)
-    agent_card.first.click()
-    logged_in_page.wait_for_timeout(800)
+    # 侧边栏「定时任务」导航（限定 complementary，避免与主区同名内容混淆）
+    nav = logged_in_page.get_by_role("complementary").get_by_role(
+        "button", name="定时任务", exact=True)
+    nav.first.wait_for(state="visible", timeout=5000)
+    nav.first.click()
 
-    # 查找「定时任务」按钮
-    tasks_btn = logged_in_page.locator("div.agent-panel-content button").filter(
-        has_text="定时任务"
-    )
-    assert tasks_btn.count() > 0, "Chat 页面找不到「定时任务」入口"
-    try:
-        tasks_btn.first.wait_for(state="visible", timeout=5000)
-        tasks_btn.first.click(timeout=5000)
-    except Exception:
-        # 可能被 resizable-panel 遮挡，使用 force click
-        tasks_btn.first.click(force=True)
-    logged_in_page.wait_for_timeout(1500)
+    # 校验落地到任务管理页
+    assert "/ctrl/agent/tasks" in logged_in_page.url, \
+        f"点击侧边栏「定时任务」后未跳转任务页，URL={logged_in_page.url}"
 
-    # 验证面板加载 — 限定到面板内容区（不含侧边栏）
-    panel = logged_in_page.locator("div.agent-panel-content")
-    assert panel.count() > 0, "面板内容区不存在"
-    panel_text = panel.inner_text()
-    assert "定时任务" in panel_text, "点击「定时任务」后面板中未显示定时任务相关内容"
+    # 主内容标题必须挂载。is_loaded() 的 ready 选择器会命中侧边栏常驻
+    # 「定时任务」按钮造成误判，因此这里直接轮询 main 区 h1。
+    h1 = logged_in_page.locator("main h1")
+    h1_ok = False
+    for _ in range(16):  # 最长 8s 等 SPA 挂载
+        if h1.count() > 0 and "定时任务" in h1.first.inner_text():
+            h1_ok = True
+            break
+        logged_in_page.wait_for_timeout(500)
+    if not h1_ok:
+        # SPA 路由跳转慢 → 整页加载兜底
+        tasks.goto()
+        for _ in range(10):
+            if h1.count() > 0 and "定时任务" in h1.first.inner_text():
+                h1_ok = True
+                break
+            logged_in_page.wait_for_timeout(500)
+
+    assert h1_ok, "任务页主标题缺失（main h1 含「定时任务」未出现）"
+    thead = logged_in_page.locator("main table thead")
+    assert thead.count() > 0, "任务列表表头不存在"
+    headers = thead.first.inner_text()
+    for col in ("名称", "类型", "目标", "执行计划", "操作"):
+        assert col in headers, f"任务表缺少列 '{col}': {headers}"
 
 
 # === TC-TASK-017: 按类型过滤任务列表 ===
@@ -757,21 +763,26 @@ def test_tasks_filter_by_type(logged_in_page, base_url, request):
 @pytest.mark.order(43)
 @pytest.mark.p0
 def test_toggle_task_enabled(logged_in_page, base_url, request):
-    """启用/禁用任务开关（TC-TASK-006） | ✅ 人工评审通过 |"""
+    """启用/禁用任务开关（TC-TASK-006） | 自建任务上切换，清理由 API 删除"""
     tasks = TasksPage(logged_in_page, base_url)
+
+    # 自建任务（默认启用），禁止操作既有数据
+    target = f"toggle-{_PREFIX}"
+    task_data = _create_task_api(
+        logged_in_page, base_url,
+        name=target, cron="0 9 * * *",
+        task_type="http", url="https://httpbin.org/get",
+        request=request,
+    )
+    if not task_data:
+        pytest.skip("无法创建待切换任务")
+
     tasks.goto()
-
-    names = tasks.get_task_names()
-    if not names:
-        task_data, _ = _get_or_create_task(logged_in_page, base_url, request)
-        if not task_data:
-            pytest.skip("任务列表为空且无法创建")
-        tasks.goto()
-        names = tasks.get_task_names()
-        if not names:
-            pytest.skip("任务列表仍为空")
-
-    target = names[0]
+    for _ in range(6):
+        if tasks.has_task(target):
+            break
+        logged_in_page.wait_for_timeout(1000)
+    assert tasks.has_task(target), f"待切换任务 {target} 未创建成功"
 
     # 获取初始状态
     initial_state = tasks.get_row_switch_state(target)
@@ -949,59 +960,77 @@ def test_task_tab_filter(logged_in_page, base_url, request):
 @pytest.mark.order(813)
 @pytest.mark.p1
 def test_task_run_now_confirm(logged_in_page, base_url, request):
-    """TC-TASK-021: 立即运行确认 — 点击立即运行弹出确认对话框"""
+    """TC-TASK-021: 立即运行 — 新版点击执行按钮直接触发（无确认弹窗），
+    自建任务执行并断言 trigger API 返回 200，清理由 API 删除"""
     tasks = TasksPage(logged_in_page, base_url)
+
+    # 自建任务（仅 enabled 任务可执行）
+    target = f"runnow-{_PREFIX}"
+    task_data = _create_task_api(
+        logged_in_page, base_url,
+        name=target, cron="0 9 * * *",
+        task_type="http", url="https://httpbin.org/get",
+        request=request,
+    )
+    if not task_data:
+        pytest.skip("无法创建待执行任务")
+
     tasks.goto()
+    for _ in range(6):
+        if tasks.has_task(target):
+            break
+        logged_in_page.wait_for_timeout(1000)
+    assert tasks.has_task(target), f"待执行任务 {target} 未创建成功"
 
-    names = tasks.get_task_names()
-    if not names:
-        task_data, _ = _get_or_create_task(logged_in_page, base_url, request)
-        if not task_data:
-            pytest.skip("无法获取或创建任务")
-        tasks.goto()
-        names = tasks.get_task_names()
-        if not names:
-            pytest.skip("任务列表仍为空")
+    # 确认行上有启用开关且为 enabled（可直接执行）
+    state = tasks.get_row_switch_state(target)
+    assert state != "not_found", f"任务 {target} 行内未找到启用开关"
+    if state not in ("true", "on", "checked"):
+        # 若新任务默认 disabled，先切换为 enabled 再执行
+        tasks.toggle_switch(target)
+        for _ in range(6):
+            state = tasks.get_row_switch_state(target)
+            if state in ("true", "on", "checked"):
+                break
+            logged_in_page.wait_for_timeout(500)
 
-    target = names[0]
+    # 拦截 trigger API 响应
+    trigger_hits = []
+    def on_response(resp):
+        url = resp.url.lower()
+        if "trigger" in url or url.rstrip("/").endswith("/run") or "/executions" in url:
+            trigger_hits.append((resp.status, resp.request.method, resp.url))
+    logged_in_page.on("response", on_response)
 
-    # 查找执行按钮
-    tasks.click_execute(target)
-    logged_in_page.wait_for_timeout(1500)
+    try:
+        # 点击执行按钮
+        tasks.click_execute(target)
 
-    # 检查是否有确认对话框
-    dialog = logged_in_page.locator('[role="dialog"]')
-    alert = logged_in_page.locator('[role="alertdialog"]')
-    confirm_dialog = logged_in_page.locator('[role="dialog"], [role="alertdialog"]')
+        # 轮询：等待 trigger API 返回 200 或 toast 反馈
+        triggered = False
+        for _ in range(12):
+            if any(s == 200 for s, _, _ in trigger_hits):
+                triggered = True
+                break
+            toasts = logged_in_page.locator(
+                "ol > li, [data-slot='toast'] li, [data-sonner-toast] li")
+            for t in toasts.all():
+                if "执行" in t.inner_text():
+                    triggered = True
+                    break
+            if triggered:
+                break
+            logged_in_page.wait_for_timeout(500)
 
-    if confirm_dialog.count() > 0:
-        dialog_text = confirm_dialog.first.inner_text()
-        has_confirm = any(kw in dialog_text for kw in [
-            "确认", "确定", "执行", "运行", "confirm", "run", "取消"
-        ])
-        assert has_confirm, "确认对话框无相关提示文本"
-        # 取消执行
-        cancel_btn = confirm_dialog.locator("button").filter(has_text="取消").or_(
-            confirm_dialog.locator("button").filter(has_text="Cancel")
+        assert triggered, (
+            "点击执行后无 trigger API 200 也无 toast 反馈。"
+            f"trigger_hits={trigger_hits[:3]}"
         )
-        if cancel_btn.count() > 0:
-            cancel_btn.first.wait_for(state="visible", timeout=5000)
-            cancel_btn.first.click()
-        else:
-            logged_in_page.keyboard.press("Escape")
-    else:
-        # 某些系统可能直接执行（无确认弹窗），检查 toast 反馈
-        toasts = logged_in_page.locator(
-            "ol > li, [data-slot='toast'] li, [data-sonner-toast] li"
-        )
-        # 直接执行也可以接受，只要有反馈
-        panel = logged_in_page.locator("div.agent-panel-content")
-        toast_count = toasts.count()
-        panel_count = panel.count()
-        assert toast_count > 0 or panel_count > 0, (
-            f"手动执行后无 toast 反馈也无面板内容"
-            f"（toast_count={toast_count}, panel_count={panel_count}）"
-        )
+    finally:
+        try:
+            logged_in_page.remove_listener("response", on_response)
+        except Exception:
+            pass
 
 
 # === TC-TASK-022: 搜索任务 ===
@@ -1012,11 +1041,6 @@ def test_task_run_now_confirm(logged_in_page, base_url, request):
 def test_search_task(logged_in_page, base_url, request):
     """TC-TASK-022: 搜索任务 — 输入关键词过滤任务列表，清空后恢复"""
     tasks = TasksPage(logged_in_page, base_url)
-
-    # 页面加载
-    tasks.goto()
-    search_input = logged_in_page.locator("input[placeholder*='搜索']").first
-    search_input.wait_for(state="visible", timeout=10000)
 
     # 创建一个可搜索的测试任务（unique name 确保搜索命中唯一）
     search_name = f"search-{uuid.uuid4().hex[:8]}"
@@ -1029,58 +1053,42 @@ def test_search_task(logged_in_page, base_url, request):
     if not task_data:
         pytest.skip("无法创建测试任务")
 
-    tasks.goto()
-    assert tasks.has_task(search_name), \
-        f"测试任务 {search_name} 未出现在列表中"
-
-    def _wait_for_count_change(expected_max, timeout_ms=8000):
-        """轮询等待行数变化（服务端搜索有 debounce）"""
-        for _ in range(timeout_ms // 500):
-            count = tasks.get_task_count()
-            if count <= expected_max:
-                return count
-            logged_in_page.wait_for_timeout(500)
-        return tasks.get_task_count()
-
     try:
-        # 记录搜索前总数
+        # 页面加载
+        tasks.goto()
+        assert tasks.has_task(search_name), \
+            f"测试任务 {search_name} 未出现在列表中"
+
         total_before = tasks.get_task_count()
         assert total_before >= 1, "搜索前任务列表为空"
 
         # 搜索：逐字输入触发 debounce → 服务端过滤
-        search_input = logged_in_page.locator("input[placeholder*='搜索']").first
-        search_input.wait_for(state="visible", timeout=5000)
-        search_input.click()
-        search_input.fill("")
-        search_input.press_sequentially(search_name, delay=80)
+        tasks.search(search_name)
 
         # 轮询等待行数减少（服务端搜索 debounce + API 延迟）
-        _wait_for_count_change(1)
+        count = tasks.get_task_count()
+        for _ in range(16):  # 最多 8 秒
+            if count <= 1:
+                break
+            logged_in_page.wait_for_timeout(500)
+            count = tasks.get_task_count()
 
         # 验证：搜索结果中应包含目标任务
         assert tasks.has_task(search_name), \
             f"搜索 '{search_name}' 后未找到目标任务"
 
-        # 搜索一个不存在的关键词
-        search_input.wait_for(state="visible", timeout=5000)
-        search_input.fill("")
-        search_input.press_sequentially("zzz-notexist-99", delay=80)
-
-        # 轮询等待目标任务从列表消失
-        for _ in range(16):  # 最多 8 秒
+        # 搜索一个不存在的关键词 → 目标任务应从列表消失
+        tasks.clear_search()
+        tasks.search("zzz-notexist-99")
+        for _ in range(16):
             if not tasks.has_task(search_name):
                 break
             logged_in_page.wait_for_timeout(500)
-
-        # 验证：搜索结果不应包含目标任务
         assert not tasks.has_task(search_name), \
             "搜索不存在的关键词后目标任务仍在列表中"
 
         # 清空搜索，验证列表恢复
-        search_input.wait_for(state="visible", timeout=5000)
-        search_input.fill("")
-        logged_in_page.wait_for_timeout(500)
-        # 轮询等待行数恢复
+        tasks.clear_search()
         for _ in range(16):
             if tasks.get_task_count() >= total_before:
                 break
@@ -1092,12 +1100,7 @@ def test_search_task(logged_in_page, base_url, request):
         assert tasks.has_task(search_name), \
             "清空搜索后目标任务未恢复"
     finally:
-        # 清理
-        search_input = logged_in_page.locator(
-            "div.agent-panel-content input[placeholder*='搜索']"
-        ).first
-        if search_input.count() > 0:
-            search_input.fill("")
+        tasks.clear_search()
         _delete_task_api(logged_in_page, base_url, task_data.get("id"))
 
 
@@ -1183,8 +1186,8 @@ def test_tasks_create_all_fields(logged_in_page, base_url):
 
     dialog = logged_in_page.locator('[role="dialog"]')
 
-    # 1. 时区输入框（placeholder="Asia/Shanghai"）
-    timezone_input = dialog.locator("input[placeholder='Asia/Shanghai']")
+    # 1. 时区输入框（placeholder="使用默认时区"）
+    timezone_input = dialog.locator("input[placeholder='使用默认时区']")
     assert timezone_input.count() > 0, "时区输入框不存在"
     assert timezone_input.first.is_visible(), "时区输入框不可见"
 

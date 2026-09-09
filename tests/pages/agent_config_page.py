@@ -1,5 +1,6 @@
 # tests/pages/agent_config_page.py
 """智能体配置 Page Object — 基于真实 DOM 结构编写"""
+import re
 from playwright.sync_api import Page
 
 
@@ -15,6 +16,8 @@ class AgentConfigPage:
     # ==================== 导航 ====================
 
     def goto_agents(self):
+        # 若残留重启提示/配置弹窗，先关闭，否则会遮挡 sidebar 导航点击
+        self._dismiss_any_dialog()
         # SPA 导航优先（sidebar 测试已验证可靠），避免全页面刷新后 router 初始化问题
         nav_btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="智能体管理")
         if nav_btn.count() > 0:
@@ -418,12 +421,38 @@ class AgentConfigPage:
 
     # ==================== 右侧面板（技能/文件/配置） ====================
 
+    # ==================== 新版 6-tab Agent 配置 Modal ====================
+
+    def _edit_agent_dialog(self):
+        """新版「编辑Agent」配置对话框 locator（h2=编辑Agent 的 role=dialog）"""
+        return self.page.locator("[role='dialog']").filter(
+            has=self.page.locator("h2", has_text="编辑Agent")
+        ).first
+
+    def _dismiss_any_dialog(self):
+        """若页面上残留 dialog/alertdialog，先按 Escape 关掉，避免叠层干扰。"""
+        for _ in range(3):
+            any_dlg = self.page.locator("[role='alertdialog'], [role='dialog']")
+            try:
+                if any_dlg.count() > 0 and any_dlg.first.is_visible():
+                    self.page.keyboard.press("Escape")
+                    self.page.wait_for_timeout(400)
+                else:
+                    break
+            except Exception:
+                break
+
     def open_agent_config_modal(self, agent_name: str):
-        """打开 Agent 配置 modal 并等待内容加载完成。
-        返回 (modal, agent_wrapper) 元组。"""
+        """打开新版 Agent 配置 modal（6-tab 配置地图）。
+        返回 (modal_locator, agent_wrapper)；打开失败返回 (None, agent_wrapper)。
+        """
+        self.goto_agents()
         card = self.wait_for_agent_card(agent_name)
         if card.count() == 0:
             return None, None
+        # 若已有其它配置弹窗残留，先关闭，避免叠层
+        self._dismiss_any_dialog()
+        self.page.wait_for_timeout(300)
         agent_wrapper = card.first.locator(
             "xpath=ancestor::div[contains(@class,'agent-sidebar-agent')]"
         )
@@ -431,126 +460,347 @@ class AgentConfigPage:
         config_btn = agent_wrapper.locator('button[title="智能体配置"]')
         config_btn.wait_for(state="visible", timeout=5000)
         config_btn.click()
-        modal = self.page.locator("div.absolute.inset-0.z-50")
-        modal.wait_for(state="visible", timeout=10000)
-        # 等待 modal 内容加载（API 请求完成）
+        modal = self._edit_agent_dialog()
         try:
-            self.page.wait_for_load_state("domcontentloaded", timeout=5000)
+            modal.wait_for(state="visible", timeout=12000)
+        except Exception:
+            return None, agent_wrapper
+        # 等 配置地图 tab 栏渲染完成（modal 内容 API 加载）
+        try:
+            self.page.locator("[role='dialog'] [role='tab']").filter(
+                has_text="身份与指令"
+            ).first.wait_for(state="visible", timeout=8000)
         except Exception:
             pass
-        self.page.wait_for_timeout(1000)
+        self.page.wait_for_timeout(600)
         return modal, agent_wrapper
 
+    def switch_config_tab(self, modal, label: str):
+        """切换 6-tab 配置地图大 tab（身份与指令/模型/能力与工具/知识与记忆/运行环境/共享与访问）。
+        label 为短标签，用 strong 精确匹配，避免命中能力页内层 sub-tab。"""
+        tab = modal.locator("[role='tab']").filter(
+            has=self.page.locator("strong", has_text=label)
+        ).first
+        tab.wait_for(state="visible", timeout=8000)
+        if tab.get_attribute("aria-selected") != "true":
+            tab.click()
+            self.page.wait_for_timeout(600)
+
+    def identity_field(self, modal, kind: str):
+        """身份与指令 tab 中的输入框 locator。kind: 'description' | 'prompt'"""
+        if kind == "description":
+            return modal.locator("input[placeholder*='Agent 的简短描述']").first
+        if kind == "prompt":
+            return modal.locator("textarea[placeholder*='自定义 Agent 提示词']").first
+        return None
+
+    def _active_main_panel(self, modal, heading: str):
+        """返回 main 区中带指定 h3 标题的外层 tabpanel locator"""
+        return modal.locator("[role='tabpanel']").filter(
+            has=self.page.locator("h3", has_text=heading)
+        ).first
+
+    def capability_panel(self, modal, kind: str):
+        """进入 能力与工具 并切到内层 绑定技能/绑定MCP/绑定Sites，返回内层 tabpanel locator。
+        kind: '技能' | 'MCP' | 'Sites'
+        内层 tabpanel 的 accessible-name 形如「绑定技能 1」「绑定 MCP 0」，用 name 匹配最稳。"""
+        self.switch_config_tab(modal, "能力与工具")
+        outer = self._active_main_panel(modal, "能力与工具")
+        pattern = re.compile(rf"绑定\s*{re.escape(kind)}")
+        inner_tab = outer.get_by_role("tab", name=pattern)
+        inner_tab.wait_for(state="visible", timeout=8000)
+        inner_tab.click()
+        self.page.wait_for_timeout(700)
+        panel = modal.get_by_role("tabpanel", name=pattern)
+        panel.wait_for(state="visible", timeout=5000)
+        return panel
+
+    def knowledge_group(self, modal):
+        """进入 知识与记忆 tab，返回「绑定知识库」候选 group（含 已选 N 项 + chips + checkbox 行）。
+        结构同能力面板，可复用 _cap_* 帮助方法。"""
+        self.switch_config_tab(modal, "知识与记忆")
+        outer = self._active_main_panel(modal, "知识与记忆")
+        group = outer.locator("[role='group']").filter(
+            has=self.page.locator("strong", has_text=re.compile(r"已选\s*\d+\s*项"))
+        ).first
+        group.wait_for(state="visible", timeout=8000)
+        return group
+
+    def _cap_bound_names(self, panel) -> set:
+        """已绑定项集合（从「移除 xxx」chips 的 aria-label 提取）"""
+        bound = set()
+        chips = panel.locator("button[aria-label^='移除 ']")
+        for i in range(chips.count()):
+            lab = chips.nth(i).get_attribute("aria-label") or ""
+            bound.add(lab.replace("移除 ", "").strip())
+        return bound
+
+    def _cap_selected_count(self, panel) -> int:
+        """解析「已选 N 项」数量；解析失败退回 chips 数量"""
+        s = panel.locator("strong", has_text=re.compile(r"已选\s*\d+\s*项")).first
+        if s.count() > 0:
+            m = re.search(r"已选\s*(\d+)\s*项", s.inner_text())
+            if m:
+                return int(m.group(1))
+        return len(self._cap_bound_names(panel))
+
+    def pick_unbound_candidate(self, panel):
+        """候选 checkbox 中挑一个未绑定的名称；没有则返回 None"""
+        bound = self._cap_bound_names(panel)
+        for cb in panel.get_by_role("checkbox").all():
+            nm = cb.get_attribute("aria-label") or ""
+            nm = nm.strip()
+            if nm and nm not in bound:
+                return nm
+        return None
+
+    def bind_cap_item(self, panel, name: str):
+        """通过 candidate checkbox 绑定一个 item（技能/MCP/Sites/知识库共用结构）"""
+        cb = panel.get_by_role("checkbox", name=name).first
+        cb.scroll_into_view_if_needed()
+        cb.wait_for(state="visible", timeout=5000)
+        cb.click(force=True)
+        self.page.wait_for_timeout(600)
+
+    def unbind_cap_item(self, panel, name: str):
+        """点击「移除 name」chip 解除绑定"""
+        chip = panel.get_by_role("button", name=re.compile(rf"^移除 {re.escape(name)}$"))
+        chip.first.wait_for(state="visible", timeout=5000)
+        chip.first.click()
+        self.page.wait_for_timeout(600)
+
+    def save_edit_modal(self, modal, restart: bool = True, timeout_s: int = 20):
+        """点击保存并处理「配置已保存…是否立即重启」弹窗。
+        restart=True → 点『重启选中』；否则点『稍后』。完成后确保 modal 关闭。
+        """
+        save_btn = modal.get_by_role("button", name="保存")
+        save_btn.wait_for(state="visible", timeout=8000)
+        save_btn.click()
+        self.page.wait_for_timeout(1200)
+        # 等待保存结果：alertdialog（'配置已保存'）或 modal 自动关闭
+        import time as _t
+        alert = self.page.locator("[role='alertdialog']")
+        appeared = False
+        _end = _t.time() + 8
+        while _t.time() < _end:
+            try:
+                if alert.count() > 0 and alert.first.is_visible():
+                    appeared = True
+                    break
+            except Exception:
+                pass
+            try:
+                if not modal.is_visible():
+                    break  # 已静默关闭（无实例场景）
+            except Exception:
+                pass
+            self.page.wait_for_timeout(400)
+        if appeared:
+            txt = alert.first.inner_text()
+            if restart and "重启" in txt:
+                rb = alert.get_by_role("button", name="重启选中")
+                if rb.count() == 0:
+                    rb = alert.get_by_role("button", name=re.compile("重启"))
+                rb.first.wait_for(state="visible", timeout=5000)
+                rb.first.click()
+                self.page.wait_for_timeout(2000)
+            else:
+                lb = alert.get_by_role("button", name="稍后")
+                if lb.count() > 0:
+                    lb.first.wait_for(state="visible", timeout=5000)
+                    lb.first.click()
+                    self.page.wait_for_timeout(800)
+        self._dismiss_modal_if_open(modal)
+        return True
+
+    def _dismiss_modal_if_open(self, modal):
+        """保存后若 modal 仍停留则关闭（避免叠层影响后续操作）"""
+        try:
+            modal.wait_for(state="hidden", timeout=10000)
+            return
+        except Exception:
+            pass
+        try:
+            cancel = modal.get_by_role("button", name="取消")
+            if cancel.count() > 0 and cancel.first.is_visible():
+                cancel.first.click()
+                modal.wait_for(state="hidden", timeout=5000)
+                return
+        except Exception:
+            pass
+        self.page.keyboard.press("Escape")
+        self.page.wait_for_timeout(500)
+
+    def close_edit_modal(self, modal):
+        """点「取消」关闭编辑 modal（丢弃草稿）。
+        新版若有未保存修改，会先弹「放弃未保存修改？」alertdialog，需点「放弃修改」确认。"""
+        try:
+            cancel = modal.get_by_role("button", name="取消")
+            cancel.wait_for(state="visible", timeout=5000)
+            cancel.click()
+        except Exception:
+            self.page.keyboard.press("Escape")
+        self.page.wait_for_timeout(700)
+        # 处理「放弃未保存修改？」确认弹窗
+        confirm = self.page.locator("[role='alertdialog']")
+        try:
+            if confirm.count() > 0 and confirm.first.is_visible():
+                txt = confirm.first.inner_text()
+                if "放弃" in txt:
+                    btn = confirm.get_by_role("button", name="放弃修改")
+                    btn.first.wait_for(state="visible", timeout=4000)
+                    btn.first.click()
+        except Exception:
+            pass
+        try:
+            modal.wait_for(state="hidden", timeout=6000)
+        except Exception:
+            pass
+
+    def model_panel(self, modal):
+        """切换到 模型 外层 tab，返回其 tabpanel locator"""
+        self.switch_config_tab(modal, "模型")
+        return self._active_main_panel(modal, "模型")
+
+    def model_selected_name(self, panel) -> str:
+        """模型页中当前勾选(aria-checked=true)的模型名；未配置模型时返回 ''"""
+        radios = panel.locator("button[role='radio']")
+        for i in range(radios.count()):
+            checked = (radios.nth(i).get_attribute("aria-checked") or "").lower()
+            s = radios.nth(i).locator("strong").first
+            if checked == "true" and s.count() > 0:
+                return s.inner_text().strip()
+        return ""
+
+    def _model_provider_nav(self, panel):
+        """「资源来源」provider 过滤导航（nav aria-label=资源来源），找不到则回退第一个 nav"""
+        try:
+            nav = panel.get_by_role("navigation", name="资源来源")
+            if nav.count() == 0:
+                nav = panel.locator("nav").first
+        except Exception:
+            nav = panel.locator("nav").first
+        return nav
+
+    def model_provider_buttons(self, panel) -> list:
+        """返回「资源来源」provider 过滤按钮文本列表（如 ['Qwen-Test 5', 'deepseek 2']）"""
+        nav = self._model_provider_nav(panel)
+        out = []
+        for i in range(nav.get_by_role("button").count()):
+            out.append(nav.get_by_role("button").nth(i).inner_text().strip())
+        return out
+
+    def model_select_provider(self, panel, provider: str) -> bool:
+        """点击 provider 过滤按钮（如 deepseek / Qwen-Test），按名称前缀匹配，命中返回 True"""
+        nav = self._model_provider_nav(panel)
+        btns = nav.get_by_role("button")
+        for i in range(btns.count()):
+            txt = btns.nth(i).inner_text().strip()
+            if txt.split()[0] == provider or txt.startswith(provider + " "):
+                btns.nth(i).wait_for(state="visible", timeout=6000)
+                btns.nth(i).click()
+                self.page.wait_for_timeout(600)
+                return True
+        return False
+
+    def model_select_provider_index(self, panel, index: int):
+        """点击第 index 个 provider 过滤按钮（0-based）"""
+        nav = self._model_provider_nav(panel)
+        btn = nav.get_by_role("button").nth(index)
+        btn.wait_for(state="visible", timeout=6000)
+        btn.click()
+        self.page.wait_for_timeout(700)
+
+    def model_radio_names(self, panel) -> list:
+        """返回当前 radiogroup 里可见模型的名称列表"""
+        names = []
+        radios = panel.locator("[role='radio']")
+        for i in range(radios.count()):
+            s = radios.nth(i).locator("strong").first
+            if s.count() > 0:
+                names.append(s.inner_text().strip())
+        return names
+
+    def model_select_radio(self, panel, model_name: str) -> bool:
+        """点击 radiogroup 中 strong 文本 == model_name 的 radio，成功返回 True"""
+        radios = panel.locator("[role='radio']")
+        for i in range(radios.count()):
+            strong = radios.nth(i).locator("strong").first
+            if strong.count() > 0 and strong.inner_text().strip() == model_name:
+                radios.nth(i).scroll_into_view_if_needed()
+                radios.nth(i).wait_for(state="visible", timeout=5000)
+                radios.nth(i).click()
+                self.page.wait_for_timeout(500)
+                return True
+        return False
+
     def change_model_via_config(self, agent_name: str, target_model_label: str) -> bool:
-        """通过 Agent 配置 modal 修改模型并保存+重启。
+        """通过新版 6-tab 配置 modal 修改模型并保存+重启。
 
         Args:
-            agent_name: Agent 名称（用于在侧边栏定位配置按钮）
-            target_model_label: 目标模型在下拉中显示的文本（如 "deepseek-test/deepseek-v4-flash"）
+            agent_name: Agent 名称
+            target_model_label: 'provider/model'（如 'deepseek/deepseek-v4-flash'）
 
         Returns:
-            True 表示模型修改成功，False 表示失败
+            True 表示切换成功并回到聊天页；False 表示失败
         """
         modal, _ = self.open_agent_config_modal(agent_name)
         if modal is None:
             print(f"  [change_model] 无法打开配置 modal: {agent_name}")
             return False
-
-        # 在 modal 中找到模型字段（真实 DOM: "模型" 是 div，不是 label）
-        model_label = modal.get_by_text("模型", exact=True)
-        if model_label.count() == 0:
-            print("  [change_model] modal 中未找到模型 Label")
-            # 关闭 modal
-            self.page.keyboard.press("Escape")
-            return False
-
-        # SelectTrigger 是"模型"文本父容器内的 combobox
-        model_field = model_label.first.locator("xpath=..")
-        select_trigger = model_field.locator("button[role='combobox']")
-        if select_trigger.count() == 0:
-            select_trigger = model_field.locator("button").first
-        select_trigger.scroll_into_view_if_needed()
-        select_trigger.wait_for(state="visible", timeout=5000)
-        select_trigger.click()
-        self.page.wait_for_timeout(500)
-
-        # 在下拉面板中选择目标模型
-        option = self.page.locator("[role='option']").filter(has_text=target_model_label)
-        if option.count() == 0:
-            print(f"  [change_model] 未找到模型选项: {target_model_label}")
-            self.page.keyboard.press("Escape")
-            self.page.keyboard.press("Escape")
-            return False
-
-        option.first.wait_for(state="visible", timeout=5000)
-        option.first.click()
-        self.page.wait_for_timeout(300)
-        print(f"  [change_model] 已选择模型: {target_model_label}")
-
-        # 点击「保存」按钮
-        save_btn = modal.get_by_role("button", name="保存")
-        if save_btn.count() == 0:
-            print("  [change_model] 未找到保存按钮")
-            self.page.keyboard.press("Escape")
-            return False
-        save_btn.first.wait_for(state="visible", timeout=5000)
-        save_btn.first.click()
-        self.page.wait_for_timeout(1500)
-
-        # 处理重启确认弹窗（"配置已保存" → 点击"重启"）
-        restart_dialog = self.page.locator("[role='alertdialog']")
-        if restart_dialog.count() > 0 and restart_dialog.first.is_visible():
-            restart_btn = restart_dialog.get_by_role("button", name="重启")
-            if restart_btn.count() > 0:
-                restart_btn.first.wait_for(state="visible", timeout=5000)
-                restart_btn.first.click()
-                self.page.wait_for_timeout(3000)
-                print("  [change_model] 已点击重启")
-            else:
-                # 找不到重启按钮，点击"稍后"
-                later_btn = restart_dialog.get_by_role("button", name="稍后")
-                if later_btn.count() > 0:
-                    later_btn.first.wait_for(state="visible", timeout=5000)
-                    later_btn.first.click()
-                    self.page.wait_for_timeout(1000)
-                print("  [change_model] 点击稍后重启")
-
-        # 等待 modal 关闭
         try:
-            modal.wait_for(state="hidden", timeout=8000)
-        except Exception:
-            self.page.keyboard.press("Escape")
-            self.page.wait_for_timeout(500)
+            if "/" in target_model_label:
+                provider, model_name = target_model_label.split("/", 1)
+            else:
+                provider, model_name = "", target_model_label
+            panel = self.model_panel(modal)
+            if provider and not self.model_select_provider(panel, provider):
+                print(f"  [change_model] 未找到 provider 过滤按钮: {provider}")
+                self.close_edit_modal(modal)
+                return False
+            if not self.model_select_radio(panel, model_name):
+                print(f"  [change_model] 未找到模型 radio: {model_name} (provider={provider})")
+                self.close_edit_modal(modal)
+                return False
+            self.save_edit_modal(modal, restart=True)
+        except Exception as e:
+            print(f"  [change_model] 配置保存异常: {e}")
+            self._dismiss_modal_if_open(modal)
+            return False
+        # 回到该 Agent 对话页并轮询聊天输入框稳定就绪
+        return self._enter_chat_and_wait_ready(agent_name)
 
-        # 重启后需要重新点击侧边栏 Agent 卡片进入对话页面
-        self.page.wait_for_timeout(1500)
+    def _enter_chat_and_wait_ready(self, agent_name: str, timeout_ms: int = 45000) -> bool:
+        """重启后进入 Agent 对话页，轮询聊天输入框稳定可见（最长 timeout_ms）"""
         card = self.page.locator("button.agent-sidebar-agent-card").filter(has_text=agent_name)
         if card.count() > 0:
-            card.first.scroll_into_view_if_needed()
-            self.page.wait_for_timeout(300)
-            card.first.wait_for(state="visible", timeout=5000)
-            card.first.click()
-
-        # 轮询等待聊天输入框稳定可见（重启后 WebSocket 重连需要时间，最多 40s）
-        # textarea 可能短暂闪现后消失（React 重渲染），需确认稳定可见
-        for _attempt in range(20):
+            try:
+                card.first.scroll_into_view_if_needed()
+                card.first.wait_for(state="visible", timeout=5000)
+                card.first.click(force=True)
+            except Exception:
+                pass
+        import time as _t
+        _end = _t.time() + timeout_ms / 1000
+        while _t.time() < _end:
             ta = self.page.locator("textarea[placeholder*='发送']")
             if ta.count() > 0 and ta.first.is_visible():
                 # 等 2s 再确认仍然可见（排除闪现）
                 self.page.wait_for_timeout(2000)
                 if ta.count() > 0 and ta.first.is_visible():
                     return True
-            # 检查是否需要手动重连
-            reconnect_area = self.page.locator("div.agent-welcome-empty")
-            if reconnect_area.count() > 0 and reconnect_area.first.is_visible():
-                reconnect_btn = reconnect_area.locator("button")
-                if reconnect_btn.count() > 0 and reconnect_btn.first.is_visible():
-                    reconnect_btn.first.wait_for(state="visible", timeout=5000)
-                    reconnect_btn.first.click()
-                    self.page.wait_for_timeout(2000)
-                    continue
+            # 尝试手动重连（欢迎/重连卡片）
+            try:
+                reconnect_area = self.page.locator("div.agent-welcome-empty")
+                if reconnect_area.count() > 0 and reconnect_area.first.is_visible():
+                    rbtn = reconnect_area.locator("button").first
+                    if rbtn.count() > 0 and rbtn.first.is_visible():
+                        rbtn.first.click()
+                        self.page.wait_for_timeout(2000)
+                        continue
+            except Exception:
+                pass
             self.page.wait_for_timeout(2000)
-
         return True
 
     def wait_for_ai_reply(self, timeout_ms: int = 30000) -> str:
@@ -606,10 +856,11 @@ class AgentConfigPage:
     # ==================== API ====================
 
     def create_agent_api(self, name: str, system_prompt: str = "",
-                         model_id: str = "", _max_retries: int = 3) -> dict:
-        """通过 API 创建智能体（含 environment）
+                         model_id: str = "", _max_retries: int = 3,
+                         with_env: bool = True) -> dict:
+        """通过 API 创建智能体
         1. POST /web/config/agents 创建 Agent 配置
-        2. POST /web/environments 创建运行环境
+        2. with_env=True 时 POST /web/environments 创建运行环境
         遇到 500 或假成功（success=true 但无 id）时自动重试
         """
         import json
@@ -669,23 +920,24 @@ class AgentConfigPage:
                 v_found = bool((v_data.get("data") or {}).get("id"))
                 print(f"  [create_agent_api] verify GET: status={verify.status}, found={v_found}")
 
-                env_body = json.dumps({
-                    "name": f"env-{agent_id[:8]}",
-                    "agentConfigId": agent_id,
-                    "autoStart": True,
-                })
-                env_resp = self.page.request.post(
-                    f"{self.base_url}/web/environments",
-                    data=env_body,
-                    headers={"Content-Type": "application/json"},
-                )
-                result["env_status"] = env_resp.status
-                try:
-                    env_data = env_resp.json()
-                    env_id = (env_data.get("data") or {}).get("id", "")
-                    result["env_id"] = env_id
-                except Exception:
-                    pass
+                if with_env:
+                    env_body = json.dumps({
+                        "name": f"env-{agent_id[:8]}",
+                        "agentConfigId": agent_id,
+                        "autoStart": True,
+                    })
+                    env_resp = self.page.request.post(
+                        f"{self.base_url}/web/environments",
+                        data=env_body,
+                        headers={"Content-Type": "application/json"},
+                    )
+                    result["env_status"] = env_resp.status
+                    try:
+                        env_data = env_resp.json()
+                        env_id = (env_data.get("data") or {}).get("id", "")
+                        result["env_id"] = env_id
+                    except Exception:
+                        pass
 
         return result
 

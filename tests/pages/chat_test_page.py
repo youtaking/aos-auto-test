@@ -14,12 +14,13 @@ class ChatTestPage:
     # === 导航 ===
 
     def _collapse_artifacts_if_open(self):
-        """如果 Artifacts 面板是展开的，折叠它（避免 resizable panel 遮挡按钮）"""
-        expand_btn = self.page.locator("button.agent-artifacts-expand-btn.open")
-        if expand_btn.count() > 0:
+        """如果 Artifacts 面板已展开则收起（新版: button.artifacts-close-button，
+        注意 collapsed 时该按钮仍在 DOM 中但不可见，必须判可见性）"""
+        close_btn = self.page.locator("button.artifacts-close-button")
+        if close_btn.count() > 0 and close_btn.first.is_visible():
             try:
-                expand_btn.first.click()
-                self.page.wait_for_timeout(500)
+                close_btn.first.click()
+                self.page.wait_for_timeout(600)
             except Exception:
                 pass
 
@@ -35,21 +36,23 @@ class ChatTestPage:
                 toggle.first.click()
                 self.page.wait_for_timeout(800)
 
-    def expand_artifacts_panel(self):
-        """展开右侧 Artifacts 面板（文件树、预览区在面板内）
-        注意：页面可能有多个 agent-artifacts-expand-btn（内层+外层），
-        外层按钮 title="显示内容面板" 表示折叠态，"隐藏内容面板"/"收起至弹窗" 表示已展开。
+    def expand_artifacts_panel(self) -> bool:
+        """展开右侧 Artifacts 内容面板（文件/站点/定时任务/发布视图 Tab 在面板内）。
+
+        新版 UI：折叠时显示 button.artifacts-open-button（title=显示内容面板），
+        面板本体为 aside.artifacts-shell（展开后才可见）。幂等：已展开则直接返回。
         """
-        # 精确匹配外层折叠按钮：title="显示内容面板" = 面板已折叠
-        collapsed_btn = self.page.locator(
-            "button.agent-artifacts-expand-btn[title='显示内容面板']"
-        )
-        if collapsed_btn.count() > 0:
-            collapsed_btn.first.click()
-            self.page.wait_for_timeout(1500)
-            return True
-        # 没有 title="显示内容面板" 的按钮 → 面板已展开，无需操作
-        return False
+        shell = self.page.locator("aside.artifacts-shell")
+        open_btn = self.page.locator("button.artifacts-open-button")
+        for _ in range(4):
+            if shell.count() > 0 and shell.first.is_visible():
+                return True
+            if open_btn.count() > 0 and open_btn.first.is_visible():
+                open_btn.first.click()
+                self.page.wait_for_timeout(900)
+                continue
+            self.page.wait_for_timeout(700)
+        return shell.count() > 0 and shell.first.is_visible()
 
     def goto_agent_chat(self, agent_name: str = "通用助手"):
         """进入指定 Agent 的对话页（带重试）"""
@@ -307,14 +310,30 @@ class ChatTestPage:
                 pass  # 跳过不可见或已卸载的元素（ScrollArea 虚拟渲染）
         return titles
 
-    def search_sessions(self, keyword: str):
-        """在侧边栏搜索框中输入关键词过滤会话"""
-        search_input = self.page.locator(
+    def get_session_search_box(self):
+        """定位会话面板搜索框（排除 Artifacts 文件树的「搜索文件」输入框）。
+
+        新版 UI：文件树 File 面板带独立「搜索文件」搜索框，必须排除；
+        若新版会话列表面板不再提供会话搜索框，则返回 None（功能移除）。
+        """
+        cands = self.page.locator(
             "input[aria-label*='搜索'], input[placeholder*='搜索']"
         )
-        if search_input.count() > 0:
-            search_input.first.fill(keyword)
-            self.page.wait_for_timeout(500)
+        for i in range(cands.count()):
+            in_shell = cands.nth(i).evaluate(
+                "el => !!el.closest('aside.artifacts-shell')"
+            )
+            if not in_shell:
+                return cands.nth(i)
+        return None
+
+    def search_sessions(self, keyword: str):
+        """在会话搜索框输入关键词过滤会话；无会话搜索框则 no-op（避免误填文件树搜索框）"""
+        box = self.get_session_search_box()
+        if box is None:
+            return
+        box.fill(keyword)
+        self.page.wait_for_timeout(500)
 
     def get_filtered_session_titles(self) -> list[str]:
         """获取搜索过滤后的会话标题（与 get_session_titles 相同，过滤由前端完成）"""
@@ -645,8 +664,15 @@ class ChatTestPage:
     # === 文件上传 ===
 
     def _get_upload_button(self):
-        """获取文件树头部的"上传"按钮（lucide-upload 图标，无 title/aria-label）"""
-        return self.page.locator("svg.lucide-upload").locator("xpath=ancestor::button")
+        """获取文件树面板头部的"上传"按钮。
+
+        新版 UI：File 面板内存在两个 lucide-upload 按钮——面板 header 操作区
+        （button[title='上传']）与"我的文件"小节按钮（.file-tree-section-upload）。
+        需排除后者，避免 strict mode 多元素冲突。消息输入区附件按钮是另一图标，不在此列。
+        """
+        return self.page.locator(
+            "button[title='上传']:not(.file-tree-section-upload)"
+        )
 
     def _get_file_input(self):
         """获取隐藏的文件上传 input[type=file]（通过上传按钮所在的 panel 内查找）"""
@@ -951,25 +977,30 @@ class ChatTestPage:
 
     # === Artifacts 面板 Tabs ===
 
+    def _artifacts_mode_tab(self, tab_name: str):
+        """Artifacts 面板内的模式 Tab（限定 aside.artifacts-shell，避免误中其它「文件」按钮）"""
+        return self.page.locator(
+            "aside.artifacts-shell button.artifacts-mode-tab"
+        ).filter(has_text=tab_name)
+
     def click_artifacts_tab(self, tab_name: str):
         """点击 Artifacts 面板中的 Tab（文件/站点/定时任务/发布视图）"""
-        tab = self.page.get_by_role("button", name=tab_name)
-        if tab.count() > 0:
-            tab.first.click(force=True)
+        tab = self._artifacts_mode_tab(tab_name)
+        if tab.count() == 0:
+            self.expand_artifacts_panel()
+            tab = self._artifacts_mode_tab(tab_name)
+        if tab.count() > 0 and tab.first.is_visible():
+            tab.first.click()
             self.page.wait_for_timeout(800)
 
     def is_artifacts_tab_active(self, tab_name: str) -> bool:
-        """检查指定 Artifacts Tab 是否处于活跃状态"""
-        tab = self.page.get_by_role("button", name=tab_name)
+        """检查指定 Artifacts Tab 是否处于活跃状态（新版激活类 is-active）"""
+        tab = self._artifacts_mode_tab(tab_name)
         if tab.count() == 0:
             return False
-        # 检查 aria-selected 或 active 样式
-        selected = tab.first.get_attribute("aria-selected")
-        if selected == "true":
-            return True
-        # 回退：检查 data-state="active"
-        state = tab.first.get_attribute("data-state")
-        return state == "active"
+        return tab.first.evaluate(
+            "el => el.classList.contains('is-active')"
+        )
 
     def has_file_tree(self) -> bool:
         """Artifacts 文件 Tab 是否已渲染（有文件树 或 空状态提示均视为成功）"""

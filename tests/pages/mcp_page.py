@@ -1,127 +1,161 @@
 # tests/pages/mcp_page.py
-"""MCP 服务器管理页面 Page Object — 基于真实 DOM 结构编写"""
+"""MCP 插件市场页 Page Object — 基于 2026-09 新版两栏「MCP 插件市场」真实 DOM 编写
+
+新版页面结构（已用 playwright MCP 在参照环境 100.105.9.16:38879 实测）：
+- 顶栏：h1「MCP 插件市场」 + 按钮「添加插件」
+- 筛选区：搜索框(ph=搜索插件、连接方式或用途) + 分段按钮 全部N/本组织N/公开N
+- 左栏 catalog：navigation aria-label=插件目录，每项 = button，内含 strong{服务器名} + 副行(url/描述) + 徽标
+- 右栏详情（选中某项后）：
+  - header：h2{名} + 徽标 + 右侧按钮（owner=编辑 / 非owner=查看）
+  - article dl：类型/状态/Tools(N 个工具)/详情
+  - Tools 卡片：会话内点「检测」后原地渲染已发现工具列表；未发现则提示「暂无已发现的工具…」
+  - 页脚操作条（owner 私有）：[检测][启用|禁用][设为公开|设为私有][删除]
+    - owner 公开后：仍保留全部管理按钮，仅「设为公开」变「设为私有」
+    - 非 owner（同组织他成员/公开分享）：页脚仅 [检测]，header 仅 [查看]，无管理按钮
+- 行为要点（实测）：新建弹窗/编辑弹窗/删除确认弹窗文案均已确认。
+"""
+import re
+import time
 from playwright.sync_api import Page
-from tests.pages import locators as loc
 
 
 class McpServerPage:
-    """MCP 服务器管理页 /ctrl/agent/mcp"""
+    """MCP 插件市场页 /ctrl/agent/mcp"""
 
     def __init__(self, page: Page, base_url: str):
         self.page = page
         self.base_url = base_url
         self.url = f"{base_url}/ctrl/agent/mcp"
 
-    # === 导航 ===
+    # ═══════════ 导航/加载 ═══════════
 
     def goto(self):
-        # SPA 导航优先（sidebar 测试已验证可靠），避免全页面刷新后 router 初始化问题
-        nav_btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="MCP")
-        if nav_btn.count() > 0:
-            nav_btn.first.wait_for(state="visible", timeout=5000)
-            nav_btn.first.click()
-            try:
-                self.page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
-            except Exception:
-                pass
-            if self.is_loaded():
-                return
-        # 降级：全页面刷新（SPA 导航失败时）
-        for _attempt in range(2):
-            try:
-                self.page.goto(self.url, wait_until="domcontentloaded")
-            except Exception:
-                pass
-            self.page.wait_for_load_state("domcontentloaded")
-            try:
-                self.page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
-            except Exception:
-                pass
-            if self.is_loaded():
-                break
-            try:
-                self.page.wait_for_load_state("networkidle", timeout=5000)
-            except Exception:
-                pass
-            self.page.wait_for_timeout(500)
-
-    def is_loaded(self) -> bool:
-        """MCP 页面内容已加载"""
-        return "/ctrl/agent/mcp" in self.page.url and self.page.locator("div.agent-panel-content").count() > 0
-
-    # === 搜索 ===
-
-    def search(self, keyword: str):
-        """搜索 MCP 服务器"""
-        inp = self.page.locator("input[placeholder*='搜索 MCP']")
-        if inp.count() > 0:
-            inp.first.wait_for(state="visible", timeout=5000)
-            inp.first.fill(keyword)
-            self.page.wait_for_timeout(500)
-
-    def clear_search(self):
-        """清空搜索"""
-        inp = self.page.locator("input[placeholder*='搜索 MCP']")
-        if inp.count() > 0:
-            inp.first.wait_for(state="visible", timeout=5000)
-            inp.first.fill("")
-            self.page.wait_for_timeout(500)
-
-    # === 列表 ===
-
-    def get_server_rows(self):
-        """获取所有 MCP 服务器卡片元素（grid 中的每个卡片）"""
-        return self.page.locator("div.grid.gap-3 > div.rounded-lg.border")
-
-    def get_server_count(self) -> int:
-        """获取 MCP 服务器列表数量（通过「检测」按钮计数）"""
-        return self.page.get_by_role("button", name="检测").count()
-
-    def get_server_names(self) -> list[str]:
-        """获取所有服务器名称（从 grid 卡片中提取）"""
-        names = []
-        rows = self.get_server_rows()
-        for i in range(rows.count()):
-            row = rows.nth(i)
-            text = row.inner_text().strip()
-            lines = text.split("\n")
-            # 卡片文本格式：首字母\nORG_ID/名称\n类型(Local/Remote)\n...
-            if len(lines) >= 2:
-                full_name = lines[1].strip()
-                # 去掉组织前缀（如 "ORG_001/"）
-                if "/" in full_name:
-                    full_name = full_name.split("/", 1)[-1].strip()
-                if full_name and full_name not in ["检测", "启用", "禁用", "编辑", "删除", "Local", "Remote"]:
-                    names.append(full_name)
-        return names
-
-    def has_server(self, name: str) -> bool:
-        """列表中是否包含指定名称的服务器（等待列表加载完成）"""
-        # 等待目标名称出现在页面中（列表 API 可能需要时间）
-        target = self.page.locator(f"text={name}")
+        """直达 MCP 插件市场页并等待加载完成"""
+        self.page.goto(self.url, wait_until="domcontentloaded")
         try:
-            target.first.wait_for(state="visible", timeout=15000)
+            self.page.wait_for_load_state("networkidle", timeout=8000)
+        except Exception:
+            pass
+        if not self._wait_loaded(timeout=5000):
+            # 兜底：重载一次（SPA 初始化偶发）
+            for _ in range(2):
+                try:
+                    self.page.reload(wait_until="domcontentloaded")
+                except Exception:
+                    pass
+                if self._wait_loaded(timeout=5000):
+                    break
+
+    def _wait_loaded(self, timeout: int = 8000) -> bool:
+        try:
+            self.page.get_by_role("heading", name="MCP 插件市场").wait_for(
+                state="visible", timeout=timeout
+            )
             return True
         except Exception:
             return False
 
-    # === 创建 ===
+    def is_loaded(self) -> bool:
+        return "/ctrl/agent/mcp" in self.page.url and self._wait_loaded(timeout=3000)
+
+    # ═══════════ 搜索/范围 ═══════════
+
+    def search(self, keyword: str):
+        """按名称/描述/类型过滤插件"""
+        inp = self.page.get_by_placeholder("搜索插件、连接方式或用途")
+        inp.first.wait_for(state="visible", timeout=5000)
+        inp.first.fill(keyword)
+        self.page.wait_for_timeout(500)
+
+    def clear_search(self):
+        try:
+            inp = self.page.get_by_placeholder("搜索插件、连接方式或用途")
+            inp.first.fill("")
+            self.page.wait_for_timeout(400)
+        except Exception:
+            pass
+
+    # ═══════════ 目录（catalog） ═══════════
+
+    def _catalog(self):
+        return self.page.get_by_role("navigation", name="插件目录")
+
+    def get_server_count(self) -> int:
+        """目录项总数（当前筛选范围下可见项）"""
+        return self._catalog().locator("button").count()
+
+    def get_server_names(self) -> list[str]:
+        """所有目录项的显示名（strong 文本，可能带 ORG 前缀）"""
+        items = self._catalog().locator("button")
+        names = []
+        for i in range(items.count()):
+            strongs = items.nth(i).locator("strong")
+            if strongs.count() > 0:
+                txt = strongs.first.inner_text().strip()
+                if txt and txt not in names:
+                    names.append(txt)
+        return names
+
+    def has_server(self, name: str, timeout: float = 15000) -> bool:
+        """目录里是否有（显示名或原名称）包含 name 的服务器"""
+        try:
+            self._catalog_item(name).first.wait_for(state="visible", timeout=timeout)
+            return True
+        except Exception:
+            return False
+
+    def _catalog_item(self, name: str):
+        """目录项 button（可访问名/子文本含 name）"""
+        return self._catalog().locator("button").filter(has_text=name)
+
+    # ═══════════ 选择服务器（详情上下文） ═══════════
+
+    def select_server(self, name: str):
+        """点击目录项，让右侧详情指向该服务器；返回详情 h2 文本"""
+        item = self._catalog_item(name).first
+        item.wait_for(state="visible", timeout=8000)
+        item.click()
+        try:
+            self.page.locator("main article").first.wait_for(state="visible", timeout=6000)
+        except Exception:
+            pass
+        return self._detail_title()
+
+    def _detail_title(self) -> str:
+        """详情区当前选中服务器的标题文本"""
+        try:
+            return self.page.locator("main").get_by_role("heading", level=2).first.inner_text().strip()
+        except Exception:
+            return ""
+
+    def _ensure_selected(self, name: str):
+        """确保右侧详情正显示 name（防误操作其他服务器）"""
+        cur = self._detail_title()
+        if name not in cur:
+            cur = self.select_server(name)
+        assert name in cur, f"详情区当前显示 '{cur}'，与目标 '{name}' 不一致"
+
+    # ═══════════ 新建 ═══════════
 
     def open_create_dialog(self):
-        """点击「新建服务器」按钮"""
-        self.page.get_by_role("button", name="新建服务器").first.wait_for(state="visible", timeout=5000)
-        self.page.get_by_role("button", name="新建服务器").first.click()
-        self.page.wait_for_timeout(1000)
+        self.page.get_by_role("button", name="添加插件").first.wait_for(state="visible", timeout=5000)
+        self.page.get_by_role("button", name="添加插件").first.click()
+        self.page.wait_for_timeout(600)
 
     def is_create_dialog_open(self) -> bool:
-        return self.page.locator("[role='dialog']").count() > 0
+        dlg = self.page.get_by_role("dialog")
+        if dlg.count() == 0:
+            return False
+        try:
+            dlg.filter(has=self.page.get_by_role("heading", name="新建 MCP 服务器")).first.wait_for(
+                state="visible", timeout=2000
+            )
+            return True
+        except Exception:
+            return False
 
     def select_type(self, server_type: str):
-        """选择服务器类型：Stdio(→Local) / SSE(→Remote) / Streamable HTTP
-        实际 UI 是 Radix Select 下拉框（role=combobox），选项为 Local（命令行启动）/ Remote（URL 连接）"""
-        dialog = self.page.locator("[role='dialog']")
-
-        # 映射测试用语到实际选项文本（含括号说明）
+        """在新建弹窗切换类型：Stdio/Local→Local（命令行启动）；SSE/Remote/Streamable HTTP→Remote（URL 连接）"""
         type_map = {
             "Stdio": "Local（命令行启动）",
             "Local": "Local（命令行启动）",
@@ -130,215 +164,305 @@ class McpServerPage:
             "Streamable HTTP": "Remote（URL 连接）",
         }
         option_text = type_map.get(server_type, server_type)
-
-        # 点击 combobox 触发器打开下拉列表
-        trigger = dialog.locator("button[role='combobox'][data-slot='select-trigger']")
-        if trigger.count() > 0:
-            trigger.first.wait_for(state="visible", timeout=5000)
-            trigger.first.click()
-            self.page.wait_for_timeout(800)
-
-            # 精确匹配选项文本
-            options = self.page.locator("[role='option']")
-            for i in range(options.count()):
-                txt = options.nth(i).inner_text().strip()
-                if txt == option_text:
-                    options.nth(i).wait_for(state="visible", timeout=5000)
-                    options.nth(i).click()
-                    self.page.wait_for_timeout(800)
-                    return
+        dlg = self.page.get_by_role("dialog").filter(
+            has=self.page.get_by_role("heading", name="新建 MCP 服务器")
+        )
+        trigger = dlg.get_by_role("combobox").first
+        trigger.wait_for(state="visible", timeout=5000)
+        trigger.click()
+        try:
+            option = self.page.get_by_role("option", name=option_text, exact=True)
+            option.first.wait_for(state="visible", timeout=5000)
+            option.first.click()
+        except Exception:
+            pass
+        self.page.wait_for_timeout(500)
 
     def fill_create_form(self, name: str, command: str = "", url: str = ""):
-        """填写创建表单"""
-        dialog = self.page.locator("[role='dialog']")
-
-        # 名称输入框（placeholder = my-mcp-server）
-        name_input = dialog.locator("input[placeholder='my-mcp-server']").or_(
-            dialog.locator("input[name='name']")
+        """填写新建弹窗（仅填当前模式相关字段）"""
+        dlg = self.page.get_by_role("dialog").filter(
+            has=self.page.get_by_role("heading", name="新建 MCP 服务器")
         )
-        if name_input.count() > 0:
-            name_input.first.wait_for(state="visible", timeout=5000)
-            name_input.first.fill(name)
-
-        # 命令（Local/Stdio 模式，placeholder = npx @anthropic/mcp-server-xxx --arg1 val1）
+        name_input = dlg.get_by_placeholder("my-mcp-server")
+        name_input.first.wait_for(state="visible", timeout=5000)
+        name_input.first.fill(name)
+        if url:
+            url_input = dlg.get_by_placeholder("https://example.com/mcp")
+            if url_input.count() > 0:
+                url_input.first.fill(url)
         if command:
-            cmd_input = dialog.locator("input[placeholder*='npx']").or_(
-                dialog.locator("input[name='command']")
-            )
+            cmd_input = dlg.get_by_placeholder("npx @modelcontextprotocol/server-filesystem")
             if cmd_input.count() > 0:
-                cmd_input.first.wait_for(state="visible", timeout=5000)
                 cmd_input.first.fill(command)
 
-        # URL（Remote/SSE 模式，placeholder = https://example.com/mcp）
-        if url:
-            url_input = dialog.locator("input[placeholder*='example.com']").or_(
-                dialog.locator("input[name='url']")
-            )
-            if url_input.count() > 0:
-                url_input.first.wait_for(state="visible", timeout=5000)
-                url_input.first.fill(url)
+    def add_header(self, header_name: str, header_value: str):
+        """新建/编辑弹窗：新增一行请求头并填写（填最后一行，避免覆盖已有）"""
+        dlg = self.page.get_by_role("dialog").first
+        add_btn = dlg.get_by_role("button", name="+ 添加")
+        if add_btn.count() > 0:
+            add_btn.first.click()
+            self.page.wait_for_timeout(300)
+        names = dlg.get_by_placeholder("Header 名称")
+        values = dlg.get_by_placeholder("Header 值")
+        n = names.count()
+        assert n > 0 and values.count() == n, "未找到请求头 名称/值 输入行"
+        names.nth(n - 1).fill(header_name)
+        values.nth(n - 1).fill(header_value)
 
     def save(self):
-        """点击保存/创建"""
-        dialog = self.page.locator("[role='dialog']")
-        save_btn = loc.save_or_submit_button(dialog)
-        if save_btn.count() > 0:
-            save_btn.first.wait_for(state="visible", timeout=5000)
-            save_btn.first.click()
-            self.page.wait_for_timeout(1000)
+        dlg = self.page.get_by_role("dialog").first
+        btn = dlg.get_by_role("button", name="保存", exact=True)
+        btn.wait_for(state="visible", timeout=5000)
+        btn.click()
+        try:
+            self.page.get_by_role("dialog").first.wait_for(state="hidden", timeout=8000)
+        except Exception:
+            pass
+        self.page.wait_for_timeout(600)
 
     def close_dialog(self):
-        """关闭对话框"""
-        dialog = self.page.locator("[role='dialog']")
-        cancel = loc.cancel_button(dialog)
+        """取消/关闭当前弹窗"""
+        dlg = self.page.get_by_role("dialog")
+        if dlg.count() == 0:
+            return
+        cancel = dlg.first.get_by_role("button", name="取消", exact=True)
         if cancel.count() > 0:
-            cancel.first.wait_for(state="visible", timeout=5000)
             cancel.first.click()
-            self.page.wait_for_timeout(500)
+        else:
+            self.page.keyboard.press("Escape")
+        try:
+            self.page.get_by_role("dialog").first.wait_for(state="hidden", timeout=5000)
+        except Exception:
+            pass
 
-    # === 表单校验 ===
+    # ═══════════ 表单校验反馈（toast + 弹窗内联） ═══════════
+
+    def read_toast_texts(self) -> list[str]:
+        """读取右上角通知区的全部 toast 文本"""
+        return self.page.evaluate("""() => {
+            const out = [];
+            for (const li of document.querySelectorAll('li')) {
+                if (!li.querySelector('button')) continue;
+                const t = (li.textContent || '').replace('Close toast', '').trim();
+                if (t) out.push(t);
+            }
+            return out;
+        }""")
 
     def get_validation_errors(self) -> list[str]:
-        """获取表单校验错误信息（包括 dialog 内联错误 + 页面 toast 通知）"""
+        """toast + 弹窗内联报错文本"""
         errors = []
-
-        # 1. dialog 内联错误
-        dialog = self.page.locator("[role='dialog']")
-        inline_errors = dialog.locator(
-            "[role='alert'], p.text-red-500, p.text-red-600, "
-            "span.text-red-500, [data-slot='form-message']"
-        )
-        for e in inline_errors.all():
-            txt = e.inner_text().strip()
-            if txt and txt not in ["检测", "删除", "取消", "保存", "编辑"]:
-                errors.append(txt)
-
-        # 2. toast 通知（右上角，<li> 元素，自动消失）
-        toasts = self.page.locator("ol > li, [data-slot='toast'] li, [data-sonner-toast] li")
-        for t in toasts.all():
-            txt = t.inner_text().strip()
-            if txt:
-                errors.append(txt)
-
-        # 3. 兜底：在页面右上角区域查找 li 元素的文本
-        if not errors:
-            top_right_texts = self.page.evaluate("""() => {
-                const results = [];
-                const lis = document.querySelectorAll('li');
-                for (const li of lis) {
-                    const rect = li.getBoundingClientRect();
-                    if (rect.top >= 0 && rect.top < 100 && rect.right > window.innerWidth - 500 && rect.height > 0) {
-                        const text = li.textContent.trim();
-                        if (text && text.length > 5) {
-                            results.push(text);
-                        }
-                    }
-                }
-                return results;
-            }""")
-            errors.extend(top_right_texts)
-
+        dlg = self.page.get_by_role("dialog")
+        if dlg.count() > 0:
+            inline = dlg.first.locator(
+                "[role=alert], p.text-red-500, p.text-red-600, [data-slot='form-message']"
+            )
+            for e in inline.all():
+                txt = e.inner_text().strip()
+                if txt:
+                    errors.append(txt)
+        errors.extend(self.read_toast_texts())
         return errors
 
-    # === 找到服务器行的辅助方法 ===
+    # ═══════════ 详情只读/状态读取 ═══════════
 
-    def _get_server_row(self, name: str):
-        """获取指定名称的服务器所在卡片"""
-        rows = self.get_server_rows()
-        for i in range(rows.count()):
-            row = rows.nth(i)
-            if name in row.inner_text():
-                return row
-        # 回退：在 agent-panel-body 内找包含名称的卡片
-        body = self.page.locator("div.agent-panel-body")
-        return body.locator("div.rounded-lg.border").filter(has_text=name).first
+    def _detail_article_text(self) -> str:
+        try:
+            return self.page.locator("main article").first.inner_text()
+        except Exception:
+            return ""
 
-    # === 启用/禁用 ===
+    def get_status(self, name: str) -> str:
+        """返回状态：已启用 / 已停用"""
+        self._ensure_selected(name)
+        m = re.search(r"状态\s*(已启用|已停用)", self._detail_article_text())
+        return m.group(1) if m else ""
 
-    def get_enable_disable_button(self, name: str):
-        """获取指定服务器的启用/禁用按钮"""
-        row = self._get_server_row(name)
-        # 「启用」或「禁用」按钮
-        btn = row.get_by_role("button", name="启用").or_(
-            row.get_by_role("button", name="禁用")
-        )
-        return btn
+    def get_tools_meta(self, name: str) -> str:
+        """dl 里的 Tools 行，如 '4 个工具'"""
+        self._ensure_selected(name)
+        m = re.search(r"Tools\s*(\d+)\s*个工具", self._detail_article_text())
+        return f"{m.group(1)} 个工具" if m else ""
+
+    def is_managed(self, name: str) -> bool:
+        """owner：header 有「编辑」按钮；非 owner 只读：header 是「查看」"""
+        self._ensure_selected(name)
+        main = self.page.locator("main")
+        return main.get_by_role("button", name="编辑", exact=True).count() > 0
+
+    def _find_readonly_server(self) -> str | None:
+        """扫描目录，返回第一个「非 owner 只读」服务器名（header 为「查看」）"""
+        for name in self.get_server_names():
+            try:
+                self.select_server(name)
+                main = self.page.locator("main")
+                if main.get_by_role("button", name="查看", exact=True).count() > 0:
+                    return name
+            except Exception:
+                continue
+        return None
+
+    # ═══════════ 启用/禁用 ═══════════
 
     def is_server_enabled(self, name: str) -> bool:
-        """检查服务器是否启用（有「禁用」按钮说明当前是启用状态）"""
-        row = self._get_server_row(name)
-        disable_btn = row.get_by_role("button", name="禁用")
-        return disable_btn.count() > 0 and disable_btn.first.is_visible()
+        """有页脚「禁用」按钮=已启用；只有「启用」=已停用"""
+        self._ensure_selected(name)
+        main = self.page.locator("main")
+        return main.get_by_role("button", name="禁用", exact=True).count() > 0
 
     def toggle_enabled(self, name: str):
-        """切换启用/禁用"""
-        btn = self.get_enable_disable_button(name)
-        if btn.count() > 0:
-            btn.first.wait_for(state="visible", timeout=5000)
-            btn.first.click()
-            self.page.wait_for_timeout(1500)
+        """切换启用/停用（点击页脚 禁用/启用）"""
+        self._ensure_selected(name)
+        main = self.page.locator("main")
+        btn = main.get_by_role("button", name="禁用", exact=True).or_(
+            main.get_by_role("button", name="启用", exact=True)
+        )
+        btn.first.wait_for(state="visible", timeout=5000)
+        btn.first.click()
+        self.page.wait_for_timeout(800)
 
-    # === 操作按钮 ===
-
-    def click_inspect(self, name: str):
-        """点击「检测」按钮"""
-        row = self._get_server_row(name)
-        btn = row.get_by_role("button", name="检测")
-        if btn.count() > 0:
-            btn.first.wait_for(state="visible", timeout=5000)
-            btn.first.click()
-            self.page.wait_for_load_state("domcontentloaded")
-
-    def click_edit(self, name: str):
-        """点击「编辑」按钮"""
-        row = self._get_server_row(name)
-        btn = row.get_by_role("button", name="编辑")
-        if btn.count() > 0:
-            btn.first.wait_for(state="visible", timeout=5000)
-            btn.first.click()
-            self.page.wait_for_timeout(1000)
-
-    # === 删除 ===
-
-    def delete_server(self, name: str):
-        """删除 MCP 服务器（含确认）"""
-        row = self._get_server_row(name)
-        delete_btn = row.get_by_role("button", name="删除")
-        if delete_btn.count() > 0:
-            delete_btn.first.wait_for(state="visible", timeout=5000)
-            delete_btn.first.click()
-            self.page.wait_for_timeout(500)
-
-        # 确认删除弹窗
-        confirm = loc.confirm_button(self.page)
-        if confirm.count() > 0:
-            confirm.first.wait_for(state="visible", timeout=5000)
-            confirm.first.click()
-            self.page.wait_for_timeout(1000)
-
-    # === 公开开关 ===
-
-    def get_public_switch(self, name: str):
-        """获取公开开关"""
-        row = self._get_server_row(name)
-        return row.locator("button[role='switch'][aria-label='公开']")
+    # ═══════════ 公开/私有 ═══════════
 
     def is_public(self, name: str) -> bool:
-        """检查服务器是否公开"""
-        switch = self.get_public_switch(name)
-        if switch.count() > 0:
-            return switch.first.get_attribute("aria-checked") == "true"
-        return False
+        """公开：页脚为「设为私有」"""
+        self._ensure_selected(name)
+        main = self.page.locator("main")
+        return main.get_by_role("button", name="设为私有", exact=True).count() > 0
 
     def toggle_public(self, name: str):
-        """切换公开状态"""
-        switch = self.get_public_switch(name)
-        if switch.count() > 0:
-            switch.first.wait_for(state="visible", timeout=5000)
-            switch.first.click()
-            self.page.wait_for_timeout(1500)
+        """切换 设为公开 ↔ 设为私有"""
+        self._ensure_selected(name)
+        main = self.page.locator("main")
+        btn = main.get_by_role("button", name="设为公开", exact=True).or_(
+            main.get_by_role("button", name="设为私有", exact=True)
+        )
+        btn.first.wait_for(state="visible", timeout=5000)
+        btn.first.click()
+        self.page.wait_for_timeout(800)
 
-    # === API 拦截辅助 ===
+    # ═══════════ 检测（发现工具） ═══════════
+
+    def click_inspect(self, name: str):
+        """选中后点页脚「检测」（页脚是 main 内最后一个 检测）"""
+        self._ensure_selected(name)
+        main = self.page.locator("main")
+        insp = main.get_by_role("button", name="检测", exact=True)
+        n = insp.count()
+        assert n > 0, "未找到「检测」按钮"
+        insp.nth(n - 1).wait_for(state="visible", timeout=5000)
+        insp.nth(n - 1).click()
+
+    def wait_inspect_result(self, name: str, timeout: float = 15000):
+        """等待检测出结果：出现 toast 或 Tools 卡片不再显示空态。
+
+        返回 (toasts, tools_card_empty, article_text)
+        """
+        deadline = time.time() + timeout / 1000
+        last_toasts, last_empty = [], True
+        while time.time() < deadline:
+            toasts = self.read_toast_texts()
+            article = self._detail_article_text()
+            empty = "暂无已发现的工具" in article
+            last_toasts, last_empty = toasts, empty
+            if toasts:
+                return toasts, empty, article
+            if not empty:
+                return toasts, empty, article
+            self.page.wait_for_timeout(500)
+        return last_toasts, last_empty, self._detail_article_text()
+
+    # ═══════════ 编辑 ═══════════
+
+    def click_edit(self, name: str):
+        self._ensure_selected(name)
+        self.page.locator("main").get_by_role("button", name="编辑", exact=True).first.click()
+        self.page.wait_for_timeout(600)
+
+    def is_edit_dialog_open(self) -> bool:
+        try:
+            self.page.get_by_role("dialog").filter(
+                has=self.page.get_by_role("heading", name="编辑 MCP 服务器")
+            ).first.wait_for(state="visible", timeout=2000)
+            return True
+        except Exception:
+            return False
+
+    def _edit_dialog(self):
+        return self.page.get_by_role("dialog").filter(
+            has=self.page.get_by_role("heading", name="编辑 MCP 服务器")
+        )
+
+    def is_name_field_locked(self) -> bool:
+        """编辑弹窗中名称输入框应 disabled + 有「名称创建后不可修改」提示"""
+        dlg = self._edit_dialog()
+        name_input = dlg.get_by_placeholder("my-mcp-server")
+        if name_input.count() == 0:
+            return False
+        disabled = name_input.first.get_attribute("disabled") is not None
+        hint = dlg.get_by_text("名称创建后不可修改").count() > 0
+        return disabled and hint
+
+    def edit_field_values(self) -> dict:
+        """编辑弹窗当前字段值：url / timeout / headers(名称列表)"""
+        dlg = self._edit_dialog()
+        out = {"url": "", "timeout": "", "headers": []}
+        url_input = dlg.get_by_placeholder("https://example.com/mcp")
+        if url_input.count() > 0:
+            out["url"] = url_input.first.input_value()
+        spin = dlg.get_by_role("spinbutton")
+        if spin.count() > 0:
+            out["timeout"] = spin.first.input_value()
+        names = dlg.get_by_placeholder("Header 名称")
+        values = dlg.get_by_placeholder("Header 值")
+        for i in range(names.count()):
+            out["headers"].append({"name": names.nth(i).input_value(), "value": values.nth(i).input_value()})
+        return out
+
+    def set_edit_field(self, url: str = "", timeout: str = "", header: tuple[str, str] | None = None):
+        """在编辑弹窗修改字段：url / timeout(毫秒) / 新增一条 header"""
+        dlg = self._edit_dialog()
+        if url:
+            url_input = dlg.get_by_placeholder("https://example.com/mcp")
+            if url_input.count() > 0:
+                url_input.first.fill(url)
+        if timeout:
+            spin = dlg.get_by_role("spinbutton")
+            if spin.count() > 0:
+                spin.first.fill(timeout)
+        if header:
+            self.add_header(header[0], header[1])
+
+    # ═══════════ 删除 ═══════════
+
+    def delete_server(self, name: str):
+        """删除当前选中的服务器（页脚删除→确认弹窗校验对象→确认）
+
+        删除前必须确认：① 详情区标题是目标；② 确认弹窗文案包含目标名。
+        """
+        self._ensure_selected(name)
+        main = self.page.locator("main")
+        del_btn = main.get_by_role("button", name="删除", exact=True)
+        del_btn.wait_for(state="visible", timeout=5000)
+        del_btn.first.click()
+        self.page.wait_for_timeout(500)
+
+        ad = self.page.get_by_role("alertdialog")
+        ad.first.wait_for(state="visible", timeout=5000)
+        text = ad.first.inner_text()
+        assert "确认删除" in text, f"确认弹窗标题异常: {text[:80]}"
+        assert name in text, (
+            f"确认弹窗内容不包含目标 '{name}'，可能误删其他服务器！弹窗: {text[:120]}"
+        )
+        confirm = ad.first.get_by_role("button", name="确认", exact=True)
+        confirm.wait_for(state="visible", timeout=5000)
+        confirm.click()
+        try:
+            self.page.get_by_role("alertdialog").first.wait_for(state="hidden", timeout=5000)
+        except Exception:
+            pass
+        self.page.wait_for_timeout(800)
+
+    # ═══════════ API 拦截辅助 ═══════════
 
     def setup_api_interceptor(self, url_pattern: str) -> list:
         """设置 API 响应拦截器"""
@@ -346,19 +470,12 @@ class McpServerPage:
 
         def on_response(r):
             if url_pattern in r.url and ".js" not in r.url and ".css" not in r.url:
+                data = {"url": r.url, "method": r.request.method, "status": r.status}
                 try:
-                    data = {
-                        "url": r.url,
-                        "method": r.request.method,
-                        "status": r.status,
-                    }
-                    try:
-                        data["body"] = r.json()
-                    except Exception:
-                        data["body"] = None
-                    responses.append(data)
+                    data["body"] = r.json()
                 except Exception:
-                    pass
+                    data["body"] = None
+                responses.append(data)
 
         self.page.on("response", on_response)
         return responses

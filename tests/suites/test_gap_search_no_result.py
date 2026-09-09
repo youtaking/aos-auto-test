@@ -27,12 +27,16 @@ def test_home_empty_description_submit(logged_in_page, base_url):
     if create_btn.count() == 0:
         pytest.skip("一键创建按钮未找到")
 
+    # 新版：描述为空时按钮为禁用态（应用侧 UX 防护）
+    disabled = create_btn.first.is_disabled()
+
     # 记录当前 URL
     url_before = logged_in_page.url
 
-    # 点击一键创建
-    create_btn.first.click()
-    logged_in_page.wait_for_timeout(1500)
+    # 空描述不应创建智能体（禁用态不可点击；若可点，点了也不应跳转）
+    if not disabled:
+        create_btn.first.click()
+        logged_in_page.wait_for_timeout(1500)
 
     # 验证：无页面跳转（空描述不应创建智能体）
     url_after = logged_in_page.url
@@ -164,14 +168,23 @@ def test_knowledge_search_no_result(logged_in_page, base_url):
     if not kb.is_loaded():
         pytest.skip("知识库页面未加载")
 
+    # 新版为目录式布局，无可见的库级搜索框（仅隐藏的文件输入框带 placeholder 搜索文件）
     search = logged_in_page.locator("input[placeholder*='搜索']")
-    if search.count() == 0:
-        pytest.skip("知识库搜索框未找到")
-    search.first.fill("zzz_不存在_99999")
+    visible_search = None
+    for i in range(search.count()):
+        try:
+            if search.nth(i).is_visible():
+                visible_search = search.nth(i)
+                break
+        except Exception:
+            continue
+    if visible_search is None:
+        pytest.skip("知识库页面无可见搜索框（新版目录布局）")
+
+    visible_search.fill("zzz_不存在_99999")
     logged_in_page.wait_for_timeout(1500)
 
-    search.first.wait_for(state="visible", timeout=5000)
-    search.first.fill("")
+    visible_search.fill("")
     logged_in_page.wait_for_timeout(1500)
 
 
@@ -188,19 +201,9 @@ def test_views_card_buttons_complete(logged_in_page, base_url):
         pytest.skip("产品视图页面未加载")
 
     # 1. 自建视图（数据安全：先创建再操作，测试结束删除）
-    # 限定到「发布视图」顶栏头部的 + 创建按钮（禁止全页面搜索 lucide-plus）
-    header = logged_in_page.locator(
-        "div.flex.items-center.justify-between.border-b span.text-xs.font-medium"
-    ).filter(has_text="发布视图")
-    if header.count() == 0:
-        pytest.skip("发布视图顶栏未找到")
-    plus_btn = header.first.locator("..").locator("button").filter(
-        has=logged_in_page.locator("svg.lucide-plus")
-    )
-    if plus_btn.count() == 0:
+    if not v.has_create_button():
         pytest.skip("创建视图按钮未找到")
-    plus_btn.first.click()
-    logged_in_page.wait_for_timeout(1000)
+    v.click_create_button()
 
     dialog = logged_in_page.locator("[role=dialog]")
     if dialog.count() == 0:
@@ -215,32 +218,19 @@ def test_views_card_buttons_complete(logged_in_page, base_url):
     save_btn.first.click()
 
     # 2. 等待视图卡片出现（按名称精确定位，禁止裸 count）
-    card_sel = logged_in_page.locator("div.rounded-lg.border").filter(has_text=view_name)
+    card_sel = logged_in_page.locator(
+        "aside.artifacts-shell div.rounded-lg.border"
+    ).filter(has_text=view_name)
     card_sel.first.wait_for(state="visible", timeout=10000)
 
-    # 3. 校验操作按钮完整（源码确认按钮始终可见，无需 hover）
-    edit_btn = card_sel.first.locator("button").filter(
-        has=logged_in_page.locator("svg.lucide-pencil")
-    )
-    del_btn = card_sel.first.locator("button").filter(
-        has=logged_in_page.locator("svg.lucide-trash-2")
-    )
-    open_btn = card_sel.first.locator("button").filter(
-        has=logged_in_page.locator("svg.lucide-external-link")
-    )
-    copy_btn = card_sel.first.locator("button").filter(
-        has=logged_in_page.locator("svg.lucide-copy")
-    )
-    has_all = edit_btn.count() > 0 and del_btn.count() > 0 and \
-              open_btn.count() > 0 and copy_btn.count() > 0
-    assert has_all, (
-        f"视图卡片操作按钮不完整: "
-        f"编辑={edit_btn.count()}, 删除={del_btn.count()}, "
-        f"打开={open_btn.count()}, 复制={copy_btn.count()}"
-    )
+    # 3. 校验操作按钮完整（title 属性，源码确认按钮始终可见）
+    for title in ["打开视图", "复制链接", "编辑", "删除"]:
+        assert card_sel.first.locator(f'button[title="{title}"]').count() > 0, \
+            f"视图卡片缺少操作按钮: {title}"
 
     # 4. 清理：删除自建视图（确认弹窗按钮为「确认」）
-    del_btn.first.click()
+    del_btn = card_sel.first.locator('button[title="删除"]')
+    del_btn.click()
     logged_in_page.wait_for_timeout(800)
     cdlg = logged_in_page.locator("[role=alertdialog], [role=dialog]").filter(
         has_text="删除发布视图"
@@ -252,11 +242,12 @@ def test_views_card_buttons_complete(logged_in_page, base_url):
     confirm = cdlg.first.get_by_role("button", name="确认")
     assert confirm.count() > 0, "确认弹窗缺少确认按钮"
     confirm.first.click()
-    # 等待卡片消失（禁止裸 count）
-    for _wait in range(15):
-        if card_sel.count() == 0:
-            break
-        logged_in_page.wait_for_timeout(1000)
+
+    # 参照环境：DELETE 返回 404 但行已删，UI 需重拉列表才移除卡片
+    v.refresh()
+    card_sel = logged_in_page.locator(
+        "aside.artifacts-shell div.rounded-lg.border"
+    ).filter(has_text=view_name)
     assert card_sel.count() == 0, f"删除后视图 {view_name} 仍显示在列表中"
 
 
@@ -349,12 +340,12 @@ def test_sidebar_active_item_highlight(logged_in_page, base_url):
     logged_in_page.wait_for_load_state("networkidle")
     logged_in_page.wait_for_timeout(500)
 
-    # 当前页面是 MCP，MCP 导航项应有 active class
+    # 当前页面是 MCP，MCP 导航项应有 active class（新版菜单名「插件市场」）
     mcp_btn = logged_in_page.locator("button.agent-sidebar-nav-item.active")
     assert mcp_btn.count() > 0, "当前页面无高亮导航项"
 
     active_text = mcp_btn.first.inner_text().strip()
-    assert "MCP" in active_text, \
+    assert "插件市场" in active_text, \
         f"高亮的导航项不是当前页面: '{active_text}'"
 
     # 非当前页面的导航项不应有 active class

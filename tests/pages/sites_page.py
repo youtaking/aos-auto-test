@@ -1,10 +1,16 @@
 # tests/pages/sites_page.py
-"""Agent Sites 页面 Page Object（列表管理 + 建站助手对话）"""
+"""Agent Sites 应用部署页 Page Object（新版卡片布局）+ 建站助手对话"""
 from playwright.sync_api import Page
 
 
 class SitesListPage:
-    """Agent Sites 列表页 /ctrl/agent/sites"""
+    """应用部署列表页 /ctrl/agent/sites（新版：卡片布局，非旧表格）
+    真实 DOM（2026-09-08 探查）：
+      main h1「应用部署」 + button「新建应用」
+      region[aria-label='应用搜索与可见性筛选']：搜索框(placeholder=搜索应用、远程 ID 或创建者) + 访问范围按钮组
+      h2「已部署应用」 + article 卡片列表：卡片含 strong(名称)+ remoteId、button「更多应用操作」、
+      描述 paragraph、状态/可见性 badge、创建者(有则显示)、link「打开」(/web/site/deploy/...)
+    """
 
     def __init__(self, page: Page, base_url: str):
         self.page = page
@@ -19,10 +25,10 @@ class SitesListPage:
                 pass
             self.page.wait_for_load_state("domcontentloaded")
             try:
-                self.page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+                self.page.locator("main h1").first.wait_for(state="attached", timeout=15000)
             except Exception:
                 pass
-            if self.page.locator("div.agent-panel-content").count() > 0:
+            if self.is_loaded():
                 break
             try:
                 self.page.wait_for_load_state("networkidle", timeout=5000)
@@ -30,302 +36,297 @@ class SitesListPage:
                 pass
             self.page.wait_for_timeout(500)
         # 降级：侧边栏 SPA 导航
-        if self.page.locator("div.agent-panel-content").count() == 0:
-            nav_btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="AOS应用部署")
+        if not self.is_loaded():
+            nav_btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="应用部署")
             if nav_btn.count() > 0:
                 nav_btn.first.click()
                 try:
-                    self.page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
+                    self.page.locator("main h1").first.wait_for(state="attached", timeout=15000)
                 except Exception:
                     pass
 
     def is_loaded(self) -> bool:
-        return "/ctrl/agent/sites" in self.page.url and self.page.locator("div.agent-panel-content").count() > 0
+        if "/ctrl/agent/sites" not in self.page.url:
+            return False
+        h1 = self.page.locator("main h1").first
+        if h1.count() == 0:
+            return False
+        try:
+            return "应用部署" in h1.inner_text()
+        except Exception:
+            return False
 
-    # === 列表基础 ===
+    # === 列表（卡片）===
 
-    def has_table(self) -> bool:
-        return self.page.locator("table").count() > 0
+    def _cards(self):
+        return self.page.locator("main article")
+
+    def _card(self, app_name: str):
+        """返回名称精确匹配的卡片 locator；找不到返回 count==0 的 locator"""
+        cards = self._cards().filter(has=self.page.locator(
+            "strong", has_text=app_name))
+        # strong 需精确匹配，避免子串误中
+        for i in range(self._cards().count()):
+            card = self._cards().nth(i)
+            strong = card.locator("strong").first
+            if strong.count() > 0 and strong.inner_text().strip() == app_name:
+                return card
+        return cards.first
 
     def get_app_count(self) -> int:
-        return self.page.locator("table tbody tr").count()
+        return self._cards().count()
 
     def get_app_names(self) -> list[str]:
         names = []
-        for row in self.page.locator("table tbody tr").all():
-            name_btn = row.locator("td").first.locator("button")
-            if name_btn.count() > 0:
-                names.append(name_btn.inner_text().strip())
+        for card in self._cards().all():
+            strong = card.locator("strong").first
+            if strong.count() > 0:
+                t = strong.inner_text().strip()
+                if t:
+                    names.append(t)
         return names
 
     def has_app(self, name: str) -> bool:
         return name in self.get_app_names()
 
-    def get_table_headers(self) -> list[str]:
-        return self.page.locator("table thead th").all_text_contents()
-
-    # === 搜索 & Tab ===
-
-    def search(self, keyword: str):
-        inp = self.page.locator("input[placeholder*='搜索 app'], input[placeholder*='搜索app']")
-        if inp.count() > 0:
-            inp.first.fill(keyword)
-            self.page.wait_for_timeout(500)
-
-    def clear_search(self):
-        inp = self.page.locator("input[placeholder*='搜索 app'], input[placeholder*='搜索app']")
-        if inp.count() > 0:
-            inp.first.fill("")
-            self.page.wait_for_timeout(500)
-
-    def get_filter_tabs(self) -> list[str]:
-        return [t.strip() for t in self.page.locator("[role='tab']").all_text_contents() if t.strip()]
-
-    def click_filter_tab(self, tab_name: str):
-        tab = self.page.locator("[role='tab']").filter(has_text=tab_name)
-        if tab.count() > 0:
-            tab.first.click()
-            self.page.wait_for_timeout(500)
-
-    # === 创建者列 ===
-
-    def _creator_col_index(self) -> int:
-        """动态获取「创建者」列索引（0-based），默认回退 3"""
-        headers = self.get_table_headers()
-        for i, h in enumerate(headers):
-            if "创建者" in h:
-                return i
-        return 3  # fallback
-
-    def get_creator_text(self, app_name: str) -> str:
-        """获取某应用的创建者列文本"""
-        col = self._creator_col_index()
-        for row in self.page.locator("table tbody tr").all():
-            name_btn = row.locator("td").first.locator("button")
-            if name_btn.count() > 0 and name_btn.inner_text().strip() == app_name:
-                return row.locator("td").nth(col).inner_text().strip()
+    def get_card_text(self, app_name: str) -> str:
+        """某应用的卡片文本（用于校验创建者/说明等）"""
+        card = self._card(app_name)
+        if card.count() > 0:
+            return card.inner_text()
         return ""
 
-    def get_all_creator_texts(self) -> list[str]:
-        """获取所有应用的创建者文本"""
-        col = self._creator_col_index()
-        creators = []
-        for row in self.page.locator("table tbody tr").all():
-            creators.append(row.locator("td").nth(col).inner_text().strip())
-        return creators
+    # === 搜索 & 可见性筛选 ===
 
-    def click_creator(self, app_name: str):
-        """点击某应用的创建者名称"""
-        col = self._creator_col_index()
-        for row in self.page.locator("table tbody tr").all():
-            name_btn = row.locator("td").first.locator("button")
-            if name_btn.count() > 0 and name_btn.inner_text().strip() == app_name:
-                creator_td = row.locator("td").nth(col)
-                link = creator_td.locator("a, button").first
-                if link.count() > 0:
-                    link.click()
-                    self.page.wait_for_timeout(1000)
+    def _search_input(self):
+        return self.page.locator(
+            "input[placeholder*='搜索应用'], input[placeholder*='搜索远程']"
+        ).first
+
+    def search(self, keyword: str):
+        inp = self._search_input()
+        if inp.count() > 0:
+            inp.wait_for(state="visible", timeout=5000)
+            inp.fill("")
+            inp.fill(keyword)
+            self.page.wait_for_timeout(800)
+
+    def clear_search(self):
+        inp = self._search_input()
+        if inp.count() > 0:
+            try:
+                inp.wait_for(state="visible", timeout=3000)
+            except Exception:
                 return
+            inp.fill("")
+            self.page.wait_for_timeout(800)
 
-    def has_creator_link(self, app_name: str) -> bool:
-        """某应用的创建者列是否有可点击链接"""
-        col = self._creator_col_index()
-        for row in self.page.locator("table tbody tr").all():
-            name_btn = row.locator("td").first.locator("button")
-            if name_btn.count() > 0 and name_btn.inner_text().strip() == app_name:
-                creator_td = row.locator("td").nth(col)
-                return creator_td.locator("a, button").count() > 0
-        return False
+    def _filter_group(self):
+        return self.page.locator("main [role='group'][aria-label='访问范围']").first
+
+    def get_filter_tabs(self) -> list[str]:
+        grp = self._filter_group()
+        if grp.count() == 0:
+            return []
+        return [b.inner_text().strip() for b in grp.locator("button").all()]
+
+    def click_filter_tab(self, tab_name: str):
+        grp = self._filter_group()
+        if grp.count() == 0:
+            return
+        btn = grp.locator("button").filter(has_text=tab_name).first
+        if btn.count() > 0:
+            btn.wait_for(state="visible", timeout=5000)
+            btn.click()
+            self.page.wait_for_timeout(1000)
 
     # === 创建应用 ===
 
     def click_create_app(self):
-        """点击'创建 App'按钮"""
-        btn = self.page.locator("button").filter(has_text="创建 App")
+        """点击「新建应用」按钮（新版按钮名，非旧「创建 App」）"""
+        btn = self.page.locator("main button").filter(has_text="新建应用")
+        if btn.count() == 0:
+            btn = self.page.get_by_role("button", name="创建 App")
         if btn.count() > 0:
+            btn.first.wait_for(state="visible", timeout=5000)
             btn.first.click()
             self.page.wait_for_timeout(1500)
 
     def is_create_dialog_open(self) -> bool:
-        """创建弹窗是否打开"""
         d = self.page.locator('[role="dialog"]')
-        if d.count() == 0:
+        if d.count() == 0 or not d.first.is_visible():
             return False
-        return "创建 App" in d.first.inner_text()
+        return "新建应用" in d.first.inner_text().split("\n")[0]
+
+    def _dialog(self):
+        return self.page.locator('[role="dialog"]').first
 
     def fill_create_form(self, name: str, desc: str = "", visibility: str = "仅自己"):
-        """填写创建表单"""
-        d = self.page.locator('[role="dialog"]')
-        # 名称
-        name_input = d.locator('input[placeholder*="kebab"]')
+        """填写创建表单：名称 input(placeholder 例如 my-app)、描述 textarea(placeholder 可选描述)、访问范围 combobox"""
+        d = self._dialog()
+        name_input = d.locator('input[placeholder*="my-app"]').or_(
+            d.locator('input[placeholder*="例如"]'))
         if name_input.count() > 0:
+            name_input.first.wait_for(state="visible", timeout=5000)
             name_input.first.fill(name)
-        # 描述
         if desc:
             desc_input = d.locator('textarea[placeholder*="可选"]')
             if desc_input.count() > 0:
                 desc_input.first.fill(desc)
-        # 可见性
         if visibility:
-            sel = d.locator("select")
-            if sel.count() > 0:
-                sel.first.select_option(label=visibility)
+            self._select_visibility(d, visibility)
+
+    def _select_visibility(self, d, visibility: str):
+        cb = d.locator('button[role="combobox"]').first
+        if cb.count() == 0:
+            return
+        cb.wait_for(state="visible", timeout=5000)
+        cb.click()
+        self.page.wait_for_timeout(400)
+        opt = self.page.get_by_role("option", name=visibility).first
+        if opt.count() > 0:
+            opt.wait_for(state="visible", timeout=5000)
+            opt.click()
+            self.page.wait_for_timeout(300)
 
     def save_create(self):
-        """点击创建弹窗的保存按钮，等待创建完成（toast 提示或弹窗关闭）"""
-        d = self.page.locator('[role="dialog"]')
+        """点击保存，等弹窗关闭（远程创建可能较慢，轮询最多 30s）"""
+        d = self._dialog()
+        if d.count() == 0:
+            return
         btn = d.locator("button").filter(has_text="保存")
         if btn.count() > 0:
             btn.first.click()
-            # 等待 toast 提示"创建成功"或"保存失败"（API 是 3 步远程调用，可能较慢）
-            toast = self.page.locator("[role='status'], [data-sonner-toast], [data-slot='toast']")
-            try:
-                toast.filter(has_text="成功").or_(toast.filter(has_text="失败")).first.wait_for(
-                    state="visible", timeout=30000
-                )
-            except Exception:
-                pass
-            # 等弹窗关闭
-            try:
-                d.first.wait_for(state="hidden", timeout=5000)
-            except Exception:
-                pass
-
-    # === 打开应用（独立 URL）===
-
-    def get_open_url(self, app_name: str) -> str | None:
-        """获取某应用的打开 URL（不点击）"""
-        for row in self.page.locator("table tbody tr").all():
-            name_btn = row.locator("td").first.locator("button")
-            if name_btn.count() > 0 and name_btn.inner_text().strip() == app_name:
-                open_btn = row.locator("button[title='打开']")
-                if open_btn.count() > 0:
-                    # 从 href 或 data 属性获取 URL
-                    href = open_btn.get_attribute("href")
-                    if href:
-                        return href
-        return None
-
-    def open_app_in_new_tab(self, app_name: str):
-        """点击打开按钮，在新标签页打开应用"""
-        for row in self.page.locator("table tbody tr").all():
-            name_btn = row.locator("td").first.locator("button")
-            if name_btn.count() > 0 and name_btn.inner_text().strip() == app_name:
-                open_btn = row.locator("button[title='打开']")
-                if open_btn.count() > 0:
-                    with self.page.context.expect_page() as new_page_info:
-                        open_btn.click()
-                    new_page = new_page_info.value
-                    new_page.wait_for_load_state("domcontentloaded")
-                    return new_page
-        return None
+        try:
+            d.wait_for(state="hidden", timeout=30000)
+        except Exception:
+            pass
 
     # === 编辑 ===
 
     def open_edit_dialog(self, app_name: str):
-        """点击应用名打开编辑对话框"""
-        for row in self.page.locator("table tbody tr").all():
-            name_btn = row.locator("td").first.locator("button")
-            if name_btn.count() > 0 and name_btn.inner_text().strip() == app_name:
-                name_btn.click()
-                self.page.wait_for_timeout(1000)
-                return
+        """通过卡片菜单「编辑」打开编辑弹窗（新版无表格行名点击，需菜单进入）"""
+        self.open_row_menu(app_name)
+        menu = self.page.locator('[role="menu"]').first
+        if menu.count() > 0:
+            item = menu.locator('[role="menuitem"]').filter(has_text="编辑").first
+            if item.count() > 0:
+                item.wait_for(state="visible", timeout=5000)
+                item.click()
+                self.page.wait_for_timeout(1200)
 
     def is_edit_dialog_open(self) -> bool:
-        dialog = self.page.locator("[role='dialog']")
-        if dialog.count() == 0:
+        d = self.page.locator('[role="dialog"]')
+        if d.count() == 0 or not d.first.is_visible():
             return False
-        return dialog.get_by_text("编辑").count() > 0 or dialog.locator("input").count() > 0
+        return "编辑应用" in d.first.inner_text()
 
     def edit_app_name(self, new_name: str):
-        """在编辑对话框中修改名称"""
-        dialog = self.page.locator("[role='dialog']")
-        name_input = dialog.locator("input").first
-        name_input.wait_for(state="visible", timeout=5000)
-        name_input.fill(new_name)
+        d = self._dialog()
+        name_input = d.locator('input[placeholder*="my-app"]').or_(
+            d.locator('input[placeholder*="例如"]'))
+        if name_input.count() > 0:
+            name_input.first.wait_for(state="visible", timeout=5000)
+            name_input.first.fill(new_name)
 
     def edit_app_description(self, desc: str):
-        """在编辑对话框中修改描述"""
-        dialog = self.page.locator("[role='dialog']")
-        textarea = dialog.locator("textarea").first
-        textarea.wait_for(state="visible", timeout=5000)
-        textarea.fill(desc)
+        d = self._dialog()
+        textarea = d.locator('textarea[placeholder*="可选"]')
+        if textarea.count() > 0:
+            textarea.first.wait_for(state="visible", timeout=5000)
+            textarea.first.fill(desc)
 
     def save_edit(self):
-        dialog = self.page.locator("[role='dialog']")
-        save_btn = dialog.get_by_role("button", name="保存")
-        save_btn.wait_for(state="visible", timeout=5000)
-        save_btn.click()
-        self.page.wait_for_timeout(1500)
+        d = self._dialog()
+        save_btn = d.locator("button").filter(has_text="保存")
+        if save_btn.count() > 0:
+            save_btn.first.click()
+        try:
+            d.wait_for(state="hidden", timeout=15000)
+        except Exception:
+            pass
 
     def cancel_edit(self):
-        dialog = self.page.locator("[role='dialog']")
-        cancel = dialog.get_by_role("button", name="取消")
+        d = self._dialog()
+        cancel = d.locator("button").filter(has_text="取消")
         if cancel.count() > 0:
             cancel.first.click()
             self.page.wait_for_timeout(500)
 
-    # === 删除（三点菜单）===
+    # === 卡片菜单 ===
 
     def open_row_menu(self, app_name: str):
-        """打开某应用的三点菜单"""
-        for row in self.page.locator("table tbody tr").all():
-            name_btn = row.locator("td").first.locator("button")
-            if name_btn.count() > 0 and name_btn.inner_text().strip() == app_name:
-                # 第三个 button 是三点菜单
-                btns = row.locator("button")
-                if btns.count() >= 3:
-                    btns.nth(2).click()
-                    self.page.wait_for_timeout(500)
-                    return
-
-    def renew_token(self, app_name: str):
-        """通过三点菜单重签 Token"""
-        self.open_row_menu(app_name)
-        renew_item = self.page.get_by_role("menuitem", name="重签 Token")
-        if renew_item.count() > 0:
-            renew_item.click()
-            self.page.wait_for_timeout(1000)
-
-    def delete_app(self, app_name: str):
-        """通过三点菜单删除应用"""
-        self.open_row_menu(app_name)
-        delete_item = self.page.get_by_role("menuitem", name="删除")
-        if delete_item.count() > 0:
-            delete_item.click()
-            self.page.wait_for_timeout(500)
-
-            # 确认删除 — alertdialog 优先
-            alert_confirm = self.page.locator("[role='alertdialog']").get_by_role("button", name="确认")
-            dialog_confirm = self.page.locator("[role='dialog']").get_by_role("button", name="确认")
-            confirm_btn = self.page.get_by_role("button", name="确认").or_(
-                self.page.get_by_role("button", name="确定")
-            )
-
-            if alert_confirm.count() > 0:
-                alert_confirm.first.click()
-            elif dialog_confirm.count() > 0:
-                dialog_confirm.first.click()
-            elif confirm_btn.count() > 0:
-                confirm_btn.first.click()
-
-            # 等待删除完成：对话框关闭 + 列表更新
-            self.page.wait_for_timeout(1000)
-
-            # 等待对话框消失（确认删除成功）
-            for _ in range(5):
-                remaining = self.page.locator("[role='alertdialog'], [role='dialog']")
-                if remaining.count() == 0 or not remaining.first.is_visible():
-                    break
-                self.page.wait_for_timeout(1000)
+        """打开某应用卡片的「更多应用操作」菜单"""
+        card = self._card(app_name)
+        if card.count() == 0:
+            return
+        btn = card.locator('button[aria-label="更多应用操作"]').or_(
+            card.get_by_role("button", name="更多应用操作"))
+        if btn.count() > 0:
+            btn.first.wait_for(state="visible", timeout=5000)
+            btn.first.click()
+            self.page.wait_for_timeout(700)
 
     def get_menu_items(self, app_name: str) -> list[str]:
-        """获取某应用的菜单项列表"""
         self.open_row_menu(app_name)
-        items = [m.strip() for m in self.page.locator("[role='menuitem']").all_text_contents()]
+        menu = self.page.locator('[role="menu"]').first
+        items = []
+        if menu.count() > 0:
+            items = [m.strip() for m in menu.locator('[role="menuitem"]').all_text_contents()]
         self.page.keyboard.press("Escape")
         self.page.wait_for_timeout(300)
         return items
+
+    def renew_token(self, app_name: str):
+        self.open_row_menu(app_name)
+        item = self.page.locator('[role="menuitem"]').filter(has_text="重签 Token")
+        if item.count() > 0:
+            item.first.wait_for(state="visible", timeout=5000)
+            item.first.click()
+            self.page.wait_for_timeout(1500)
+
+    def delete_app(self, app_name: str):
+        """菜单 → 删除 → alertdialog「确认删除」→ 确认"""
+        self.open_row_menu(app_name)
+        del_item = self.page.locator('[role="menuitem"]').filter(has_text="删除")
+        if del_item.count() > 0:
+            del_item.first.wait_for(state="visible", timeout=5000)
+            del_item.first.click()
+            self.page.wait_for_timeout(800)
+        alert = self.page.locator('[role="alertdialog"]')
+        if alert.count() > 0:
+            confirm = alert.locator("button").filter(has_text="确认")
+            if confirm.count() > 0:
+                confirm.first.wait_for(state="visible", timeout=5000)
+                confirm.first.click()
+        # 等弹窗/确认框关闭
+        for _ in range(10):
+            vis = self.page.locator('[role="alertdialog"], [role="dialog"]')
+            if vis.count() == 0 or not vis.first.is_visible():
+                break
+            self.page.wait_for_timeout(1000)
+        self.page.wait_for_timeout(500)
+
+    # === 打开应用（独立 URL）===
+
+    def _open_link(self, app_name: str):
+        """某应用卡片中的「打开」链接"""
+        card = self._card(app_name)
+        if card.count() > 0:
+            return card.locator("a").filter(has_text="打开").first
+        return self.page.locator("a", has_text="打开").first
+
+    def open_app_in_new_tab(self, app_name: str):
+        """点击「打开」链接（target=_blank），在新标签页打开应用"""
+        lnk = self._open_link(app_name)
+        if lnk.count() == 0:
+            return None
+        lnk.wait_for(state="visible", timeout=5000)
+        with self.page.context.expect_page() as new_page_info:
+            lnk.click()
+        new_page = new_page_info.value
+        new_page.wait_for_load_state("domcontentloaded")
+        return new_page
 
 
 class SiteBuilderChatPage:

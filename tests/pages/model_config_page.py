@@ -1,813 +1,509 @@
 # tests/pages/model_config_page.py
-"""服务商与模型配置页面 Page Object — 基于真实 DOM 结构编写"""
-import allure
-from playwright.sync_api import Page, expect
+"""服务商与模型配置页面 Page Object — 新版双栏布局（左侧目录 + 右侧详情）。
+
+真实 DOM 依据（探查于参照环境）：
+- 页面: /ctrl/agent/models
+- 工具栏: main header 内 h1=模型库 + 「新建服务商」按钮
+- 搜索: input[placeholder='搜索服务商、模型或协议']
+- 范围组: div[role=group][aria-label='资源范围'] 下 全部/本组织/公开
+- 左目录: aside > nav[aria-label='服务商'] > button（每项内 strong=显示名）
+- 右详情: main > header(协议/ID code + h2 显示名 + 编辑/删除) + article
+    - article: Endpoint/密钥引用/组织共享 switch + section(已配置模型)
+    - 组织共享: article button[role=switch]
+    - 模型区: article > section，行内 strong=模型显示名 + code=模型ID + 测试/编辑/删除
+- 新建/编辑服务商弹窗: 协议 label 内含 button[role=combobox]（选型弹出 [role=option]）+ API Key + Base URL + 可用模型列表 section
+- 新增/编辑模型弹窗: 模型 ID(编辑时 disabled)/显示名称/上下文限制/输出限制
+    + fieldset 输入模态(text,image,audio,video,pdf)/输出模态(text,image)（选中态 class=is-selected）+ 启用思考模式 switch
+- 删除确认: [role=alertdialog]，服务商/模型标题区分，正文引用 服务商显示名/模型ID
+- toast: li 含 Close 按钮（新增 prepend，取 [0]）
+"""
+import time
+from playwright.sync_api import Page
+
+URL_PATH = "/ctrl/agent/models"
 
 
 class ModelConfigPage:
-    """服务商与模型配置页 /ctrl/agent/models"""
+    """服务商与模型配置页 Page Object"""
+
+    # 目录相关
+    _NAV_BTN = "nav[aria-label='服务商'] button"
+    _SEARCH = "input[placeholder='搜索服务商、模型或协议']"
+    # 详情相关
+    _ARTICLE = "main article"
+    _MODEL_SECTION = "main article section"
 
     def __init__(self, page: Page, base_url: str):
         self.page = page
         self.base_url = base_url
-        self.url = f"{base_url}/ctrl/agent/models"
+        self.url = f"{base_url}{URL_PATH}"
 
     # ==================== 页面加载 ====================
 
     def goto(self):
-        for _attempt in range(2):
-            try:
-                self.page.goto(self.url, wait_until="domcontentloaded")
-            except Exception:
-                pass  # SPA 路由可能中断初始导航
-            self.page.wait_for_load_state("domcontentloaded")
-            try:
-                self.page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
-            except Exception:
-                pass
-            # React.lazy 加载 _panel layout 需要额外时间
-            if self.page.locator("div.agent-panel-content").count() > 0:
-                break
-            try:
-                self.page.wait_for_load_state("networkidle", timeout=5000)
-            except Exception:
-                pass
-            self.page.wait_for_timeout(500)
-        # 降级：侧边栏 SPA 导航
-        if self.page.locator("div.agent-panel-content").count() == 0:
-            nav_btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="模型库")
-            if nav_btn.count() > 0:
-                nav_btn.first.wait_for(state="visible", timeout=5000)
-                nav_btn.first.click()
-                try:
-                    self.page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
-                except Exception:
-                    pass
+        """直接导航到模型库页面并等待目录渲染。"""
+        try:
+            self.page.goto(self.url, wait_until="domcontentloaded")
+        except Exception:
+            pass
+        try:
+            self.page.wait_for_load_state("networkidle", timeout=8000)
+        except Exception:
+            pass
+        # 等待目录出现（双栏首屏渲染依赖异步数据）
+        try:
+            self.page.locator(self._NAV_BTN).first.wait_for(
+                state="attached", timeout=12000)
+        except Exception:
+            pass
+        self.page.wait_for_timeout(500)
 
     def is_loaded(self) -> bool:
-        """页面已加载"""
-        return "/ctrl/agent/models" in self.page.url and \
-            self.page.locator("div.agent-panel-content").count() > 0
+        """页面是否已加载出服务商目录。"""
+        return URL_PATH in self.page.url and self.page.locator(self._NAV_BTN).count() > 0
 
-    def get_page_title(self) -> str:
-        body = self.page.locator("div.agent-panel-body")
-        h = body.locator("div.mb-3").first
-        if h.count() > 0:
-            return h.inner_text().split("\n")[0].strip()
-        return ""
+    def page_title(self) -> str:
+        h1 = self.page.locator("main h1")
+        return h1.first.inner_text().strip() if h1.count() else ""
 
     # ==================== 搜索 ====================
 
+    def has_search_input(self) -> bool:
+        return self.page.locator(self._SEARCH).count() > 0
+
     def search(self, keyword: str):
-        inp = self.page.locator("input[placeholder*='搜索服务商名称']")
-        if inp.count() > 0:
-            inp.first.wait_for(state="visible", timeout=5000)
-            inp.first.fill(keyword)
-            self.page.wait_for_timeout(500)
+        inp = self.page.locator(self._SEARCH).first
+        inp.wait_for(state="visible", timeout=5000)
+        inp.fill(keyword)
+        self.page.wait_for_timeout(600)
 
     def clear_search(self):
-        inp = self.page.locator("input[placeholder*='搜索服务商名称']")
-        if inp.count() > 0:
-            inp.first.wait_for(state="visible", timeout=5000)
+        inp = self.page.locator(self._SEARCH)
+        if inp.count():
             inp.first.fill("")
-            self.page.wait_for_timeout(500)
+            self.page.wait_for_timeout(600)
 
-    def has_search_input(self) -> bool:
-        return self.page.locator("input[placeholder*='搜索服务商名称']").count() > 0
+    # ==================== 资源范围（替代旧分页/排序） ====================
 
-    # ==================== Provider 列表 ====================
+    _SCOPE_GROUP = "div[role=group][aria-label='资源范围']"
 
-    def get_provider_cards(self):
-        """获取所有 Provider 卡片"""
-        return self.page.locator("div.group.flex.h-full.flex-col")
+    def scope_names(self) -> list[str]:
+        """资源范围分组内按钮（如 全部/本组织/公开）文本。"""
+        grp = self.page.locator(self._SCOPE_GROUP)
+        if grp.count() == 0:
+            return []
+        btns = grp.first.locator("button")
+        return [b.inner_text().strip() for b in btns.all()]
 
-    def get_provider_count(self) -> int:
-        """Provider 卡片数量"""
-        return self.get_provider_cards().count()
+    def click_scope(self, name: str):
+        """点击资源范围某档（全部/本组织/公开），name 用前缀即可。"""
+        grp = self.page.locator(self._SCOPE_GROUP).first
+        btn = grp.locator("button", has_text=name).first
+        btn.wait_for(state="visible", timeout=5000)
+        btn.click()
+        self.page.wait_for_timeout(700)
 
-    def has_provider(self, name: str) -> bool:
-        """是否存在指定名称的 Provider（等待列表加载完成）"""
-        # 等待目标名称出现在页面中
-        target = self.page.locator(f"text={name}")
+    # ==================== 服务商目录 ====================
+
+    def _buttons(self):
+        return self.page.locator(self._NAV_BTN)
+
+    def _display_of(self, button_idx: int) -> str:
+        """读取目录按钮的显示名（strong）。"""
+        btn = self._buttons().nth(button_idx)
+        strong = btn.locator("strong")
+        if strong.count():
+            return strong.first.inner_text().strip()
+        return btn.inner_text().split("\n")[0].strip()
+
+    def catalog_names(self) -> list[str]:
+        """全部服务商显示名（目录顺序）。"""
+        out = []
+        for i in range(self._buttons().count()):
+            try:
+                out.append(self._display_of(i))
+            except Exception:
+                pass
+        return out
+
+    def provider_count(self) -> int:
+        return self._buttons().count()
+
+    def has_provider(self, display: str, timeout: float = 15000) -> bool:
+        """等待并判断目录中是否存在指定显示名的服务商。"""
+        deadline = time.time() + timeout / 1000
+        while time.time() < deadline:
+            if display in self.catalog_names():
+                return True
+            self.page.wait_for_timeout(400)
+        return False
+
+    def _find_button(self, display: str) -> "object":
+        buttons = self._buttons()
+        for i in range(buttons.count()):
+            if self._display_of(i) == display:
+                return buttons.nth(i)
+        return None
+
+    def open_provider(self, display: str):
+        """点击目录服务商，进入右侧详情。"""
+        btn = self._find_button(display)
+        if btn is None:
+            raise AssertionError(f"目录中未找到服务商 '{display}'")
+        btn.click()
+        # 等待详情区渲染（h2 == 显示名）
+        h2 = self.page.locator("main h2")
         try:
-            target.first.wait_for(state="visible", timeout=15000)
-            return True
+            h2.first.wait_for(state="visible", timeout=8000)
         except Exception:
+            pass
+
+    # ==================== 详情区（服务商） ====================
+
+    def _provider_header(self):
+        """定位服务商详情头部（含「删除」按钮的 main header）。
+
+        新版双栏布局中 main 下 header 依序为：工具栏(0)、次卡头(1)、
+        服务商详情头(2，含 编辑/删除)、模型区头(3)。用「含删除按钮」过滤更稳，
+        共享(external)服务商无该头 → 返回空。
+        """
+        return self.page.locator("main header").filter(
+            has=self.page.get_by_role("button", name="删除", exact=True))
+
+    def detail_h2(self) -> str:
+        h2 = self.page.locator("main h2")
+        return h2.first.inner_text().strip() if h2.count() else ""
+
+    def detail_has_edit_delete(self) -> bool:
+        """自建/可管理服务商详情头部有编辑+删除按钮。"""
+        hdr = self._provider_header()
+        if hdr.count() == 0:
             return False
+        return (hdr.first.get_by_role("button", name="编辑", exact=True).count() > 0
+                and hdr.first.get_by_role("button", name="删除", exact=True).count() > 0)
 
-    def get_provider_names(self) -> list[str]:
-        """获取所有 Provider 显示名称（从卡片文本第2行提取）"""
-        cards = self.get_provider_cards()
-        names = []
-        for i in range(cards.count()):
-            text = cards.nth(i).inner_text().strip()
-            # 卡片文本格式：首字母\n名称\nORG_ID\n...
-            lines = text.split("\n")
-            if len(lines) >= 2:
-                names.append(lines[1].strip())
-        return names
+    def has_new_provider_button(self) -> bool:
+        """工具栏「新建服务商」按钮是否存在。"""
+        return self.page.get_by_role("main").get_by_role(
+            "button", name="新建服务商", exact=True).count() > 0
 
-    def get_provider_card_text(self, name: str) -> str:
-        """获取指定 Provider 卡片的完整文本"""
-        cards = self.get_provider_cards()
-        for i in range(cards.count()):
-            text = cards.nth(i).inner_text()
-            if name in text:
-                return text
+    def click_provider_edit(self):
+        """点击详情头部「编辑」。"""
+        hdr = self._provider_header().first
+        hdr.get_by_role("button", name="编辑", exact=True).first.click()
+
+    def click_provider_delete(self):
+        """点击详情头部「删除」。"""
+        hdr = self._provider_header().first
+        hdr.get_by_role("button", name="删除", exact=True).first.click()
+
+    def article_text(self) -> str:
+        art = self.page.locator(self._ARTICLE)
+        return art.first.inner_text() if art.count() else ""
+
+    def org_share_checked(self) -> bool:
+        """详情页组织共享 switch 状态（None=无开关）。"""
+        sw = self.page.locator(f"{self._ARTICLE} [role=switch]").first
+        return sw.get_attribute("aria-checked") == "true" if sw.count() else None
+
+    def org_share_switch_disabled(self) -> bool:
+        """详情页组织共享开关是否只读禁用（共享 external 服务商为禁用展示）。"""
+        sw = self.page.locator(f"{self._ARTICLE} [role=switch]").first
+        return sw.is_disabled() if sw.count() else False
+
+    def toggle_org_share(self):
+        sw = self.page.locator(f"{self._ARTICLE} [role=switch]").first
+        sw.wait_for(state="visible", timeout=5000)
+        sw.click()
+
+    def key_hint_in_detail(self) -> str:
+        """详情页「密钥引用」掩码文本（无则该元素为空）。"""
+        art = self.page.locator(self._ARTICLE).first
+        # article 内 code 标签：第一个为 Endpoint，第二个为密钥
+        codes = art.locator("code")
+        if codes.count() >= 2:
+            return codes.nth(1).inner_text().strip()
         return ""
 
-    def get_provider_protocol(self, name: str) -> str:
-        """获取 Provider 的协议类型文本"""
-        card_text = self.get_provider_card_text(name)
-        if "Anthropic" in card_text:
-            return "Anthropic"
-        if "OpenAI" in card_text:
-            return "OpenAI 兼容"
-        return ""
+    # ==================== 模型区 ====================
 
-    def get_model_count_for_provider(self, name: str) -> int:
-        """获取指定 Provider 下的模型数量"""
-        card_text = self.get_provider_card_text(name)
-        # 文本中包含 "模型 (N)" 格式
-        import re
-        match = re.search(r"模型\s*\((\d+)\)", card_text)
-        if match:
-            return int(match.group(1))
-        return 0
+    def model_section_text(self) -> str:
+        sec = self.page.locator(self._MODEL_SECTION)
+        return sec.first.inner_text() if sec.count() else ""
 
-    def is_api_key_masked_in_ui(self, name: str) -> bool:
-        """UI 中 API Key 是否以掩码显示（不应有明文）"""
-        card_text = self.get_provider_card_text(name)
-        # 不应包含 "sk-" 开头的明文 key
-        import re
-        return not bool(re.search(r"\bsk-[a-zA-Z0-9]{8,}", card_text))
+    def model_names_visible(self) -> list[str]:
+        """模型区可见的模型显示名列表（strong 文本）。"""
+        sec = self.page.locator(self._MODEL_SECTION).first
+        if not sec.count():
+            return []
+        return [s.strip() for s in sec.locator("strong").all_inner_texts() if s.strip()]
 
-    # ==================== 新建 Provider 弹窗 ====================
+    def model_row(self, display: str):
+        """定位指定显示名的模型行（含 测试/编辑/删除 按钮的最外层行）。"""
+        sec = self.page.locator(self._MODEL_SECTION).first
+        return sec.locator("div", has_text=display).first
 
-    def click_add_provider(self):
-        btn = self.page.get_by_role("button", name="新建服务商")
-        btn.wait_for(state="visible", timeout=10000)
-        btn.click()
-        self.page.wait_for_timeout(1000)
+    def model_row_text(self, display: str) -> str:
+        """模型行的完整文本（含行内连通性结果标记，如 失败/成功）。"""
+        row = self.model_row(display)
+        if row.count() == 0:
+            return ""
+        try:
+            return row.inner_text()
+        except Exception:
+            return ""
 
-    def has_add_provider_button(self) -> bool:
-        return self.page.get_by_role("button", name="新建服务商").count() > 0
+    def has_section_add_model(self) -> bool:
+        sec = self.page.locator(self._MODEL_SECTION).first
+        return sec.get_by_role("button", name="添加模型", exact=True).count() > 0
 
-    def fill_provider_form(
-        self,
-        provider_id: str = "",
-        display_name: str = "",
-        api_key: str = "",
-        base_url: str = "",
-    ):
-        """填写新建 Provider 表单（弹窗须已打开）"""
-        dialog = self.page.locator("[role=dialog]")
-        if provider_id:
-            el = dialog.locator("input[placeholder='bailian-token-plan']")
-            el.wait_for(state="visible", timeout=5000)
-            el.fill(provider_id)
-        if display_name:
-            el = dialog.locator("input[placeholder='例如 阿里百炼']")
-            el.wait_for(state="visible", timeout=5000)
-            el.fill(display_name)
-        if api_key:
-            el = dialog.locator("input[placeholder='输入 API Key']")
-            el.wait_for(state="visible", timeout=5000)
-            el.fill(api_key)
-        if base_url:
-            el = dialog.locator("input[placeholder*='默认使用服务商']")
-            el.wait_for(state="visible", timeout=5000)
-            el.fill(base_url)
+    def has_section_fetch_models(self) -> bool:
+        sec = self.page.locator(self._MODEL_SECTION).first
+        return sec.get_by_role("button", name="获取模型列表", exact=True).count() > 0
 
-    def select_protocol(self, protocol: str):
-        """选择协议（'OpenAI 兼容' 或 'Anthropic'）"""
-        dialog = self.page.locator("[role=dialog]")
-        # 点击 combobox 按钮打开下拉
-        combobox = dialog.locator("button[role=combobox]")
-        if combobox.count() > 0:
-            combobox.wait_for(state="visible", timeout=5000)
-            combobox.click()
-            self.page.wait_for_timeout(300)
-            # 在下拉中选择
-            option = self.page.locator("[role=option]").filter(has_text=protocol)
-            option.wait_for(state="visible", timeout=5000)
-            option.click()
-            self.page.wait_for_timeout(300)
+    def click_add_model(self):
+        """模型区头部「添加模型」。"""
+        sec = self.page.locator(self._MODEL_SECTION).first
+        sec.get_by_role("button", name="添加模型", exact=True).first.click()
 
-    def submit_form(self):
-        """点击保存按钮"""
-        dialog = self.page.locator("[role=dialog]")
-        btn = dialog.get_by_role("button", name="保存")
-        btn.wait_for(state="visible", timeout=5000)
-        btn.click()
-        self.page.wait_for_timeout(1000)
+    def click_section_fetch_models(self):
+        """模型区头部「获取模型列表」（连接探测/发现）。"""
+        sec = self.page.locator(self._MODEL_SECTION).first
+        sec.get_by_role("button", name="获取模型列表", exact=True).first.click()
 
-    def cancel_form(self):
-        """点击取消按钮"""
-        dialog = self.page.locator("[role=dialog]")
-        btn = dialog.get_by_role("button", name="取消")
-        btn.wait_for(state="visible", timeout=5000)
-        btn.click()
-        self.page.wait_for_timeout(500)
+    def click_model_edit(self, display: str):
+        self.model_row(display).get_by_role("button", name="编辑", exact=True).first.click()
 
-    def close_dialog(self):
-        """关闭弹窗"""
-        dialog = self.page.locator("[role=dialog]")
-        close_btn = dialog.locator("button").filter(has_text="Close")
-        if close_btn.count() > 0:
-            close_btn.first.wait_for(state="visible", timeout=5000)
-            close_btn.first.click()
-        else:
-            self.page.keyboard.press("Escape")
-        self.page.wait_for_timeout(500)
+    def click_model_delete(self, display: str):
+        self.model_row(display).get_by_role("button", name="删除", exact=True).first.click()
+
+    def click_model_test(self, display: str):
+        self.model_row(display).get_by_role("button", name="测试", exact=True).first.click()
+
+    # ==================== 弹窗通用 ====================
 
     def is_dialog_open(self) -> bool:
-        dialog = self.page.locator("[role=dialog]")
-        return dialog.count() > 0 and dialog.first.is_visible()
-
-    def get_dialog_title(self) -> str:
-        dialog = self.page.locator("[role=dialog]")
-        h2 = dialog.locator("h2")
-        if h2.count() > 0:
-            return h2.first.text_content().strip()
-        return ""
-
-    def get_form_validation_text(self) -> str:
-        """获取表单校验错误文本"""
-        dialog = self.page.locator("[role=dialog]")
-        errors = dialog.locator("[data-slot='form-message'], [role='alert']")
-        if errors.count() == 0:
-            errors = dialog.locator("p.text-red-500, p.text-destructive")
-        if errors.count() > 0:
-            return errors.first.text_content().strip()
-        return ""
-
-    # ==================== Provider 级别操作（footer 区域）====================
-
-    def _get_provider_footer(self, name: str):
-        """获取 Provider 卡片的 footer 区域"""
-        cards = self.get_provider_cards()
-        for i in range(cards.count()):
-            if name in cards.nth(i).inner_text():
-                return cards.nth(i).locator("div.mt-auto")
-        return None
-
-    def click_provider_edit(self, name: str):
-        """点击 Provider 级别的编辑按钮"""
-        footer = self._get_provider_footer(name)
-        if footer:
-            btn = footer.get_by_role("button", name="编辑")
-            btn.wait_for(state="visible", timeout=5000)
-            btn.click()
-            self.page.wait_for_timeout(1000)
-
-    def click_provider_delete(self, name: str):
-        """点击 Provider 级别的删除按钮"""
-        footer = self._get_provider_footer(name)
-        if footer:
-            btn = footer.get_by_role("button", name="删除")
-            btn.wait_for(state="visible", timeout=5000)
-            btn.click()
-            self.page.wait_for_timeout(1000)
-
-    def click_fetch_models(self, name: str):
-        """点击「获取模型列表」按钮"""
-        footer = self._get_provider_footer(name)
-        if footer:
-            btn = footer.get_by_role("button", name="获取模型列表")
-            btn.wait_for(state="visible", timeout=5000)
-            btn.click()
-            self.page.wait_for_timeout(1000)
-
-    def get_public_switch(self, name: str):
-        """获取 Provider 的公开开关元素"""
-        footer = self._get_provider_footer(name)
-        if footer:
-            sw = footer.locator("[role=switch][aria-label='公开']")
-            if sw.count() > 0:
-                return sw.first
-        return None
-
-    def is_public(self, name: str) -> bool:
-        """Provider 是否已公开"""
-        sw = self.get_public_switch(name)
-        if sw:
-            return sw.get_attribute("aria-checked") == "true"
-        return False
-
-    def toggle_public(self, name: str):
-        """切换公开状态"""
-        sw = self.get_public_switch(name)
-        if sw:
-            sw.wait_for(state="visible", timeout=5000)
-            sw.click()
-            self.page.wait_for_timeout(1000)
-
-    # ==================== 编辑 Provider 弹窗 ====================
-
-    def fill_edit_provider_form(
-        self,
-        display_name: str = "",
-        api_key: str = "",
-        base_url: str = "",
-    ):
-        """填写编辑 Provider 表单（弹窗须已打开）"""
-        dialog = self.page.locator("[role=dialog]")
-        if display_name:
-            el = dialog.locator("input[placeholder='例如 阿里百炼']")
-            el.wait_for(state="visible", timeout=5000)
-            el.fill(display_name)
-        if api_key:
-            el = dialog.locator("input[placeholder='留空表示不修改']")
-            el.wait_for(state="visible", timeout=5000)
-            el.fill(api_key)
-        if base_url:
-            el = dialog.locator("input[placeholder*='默认使用服务商']")
-            el.wait_for(state="visible", timeout=5000)
-            el.fill(base_url)
-
-    def get_edit_form_base_url(self) -> str:
-        """获取编辑弹窗中的 Base URL 当前值"""
-        dialog = self.page.locator("[role=dialog]")
-        inp = dialog.locator("input[placeholder*='默认使用服务商']")
-        if inp.count() > 0:
-            return inp.input_value()
-        return ""
-
-    def is_edit_id_disabled(self) -> bool:
-        """编辑弹窗中 ID 字段是否不可修改"""
-        dialog = self.page.locator("[role=dialog]")
-        id_input = dialog.locator("input[placeholder='bailian-token-plan']")
-        if id_input.count() > 0:
-            return id_input.is_disabled()
-        return False
-
-    def get_edit_provider_protocol(self) -> str:
-        """获取编辑弹窗中的协议文本"""
-        dialog = self.page.locator("[role=dialog]")
-        combobox = dialog.locator("button[role=combobox]")
-        if combobox.count() > 0:
-            return combobox.first.inner_text().strip()
-        return ""
-
-    def has_model_list_section(self) -> bool:
-        """编辑弹窗中是否存在「可用模型列表」区域"""
-        dialog = self.page.locator("[role=dialog]")
         try:
-            dialog.first.wait_for(state="visible", timeout=10000)
-            # 等待弹窗内容加载完成（全套回归时渲染可能较慢）
-            for _ in range(5):
-                if "可用模型列表" in dialog.first.inner_text():
-                    return True
-                self.page.wait_for_timeout(500)
-            return "可用模型列表" in dialog.first.inner_text()
-        except Exception:
-            return False
-
-    def has_fetch_models_in_dialog(self) -> bool:
-        """编辑弹窗中是否有「获取模型列表」按钮"""
-        dialog = self.page.locator("[role=dialog]")
-        btn = dialog.get_by_role("button", name="获取模型列表")
-        try:
-            btn.first.wait_for(state="visible", timeout=5000)
+            d = self.page.locator("[role=dialog]").first
+            d.wait_for(state="visible", timeout=2500)
             return True
         except Exception:
             return False
 
-    def click_fetch_models_in_dialog(self):
-        """点击编辑弹窗中的「获取模型列表」按钮"""
-        dialog = self.page.locator("[role=dialog]")
-        btn = dialog.get_by_role("button", name="获取模型列表")
-        if btn.count() > 0:
-            btn.first.wait_for(state="visible", timeout=5000)
-            btn.first.click()
-            self.page.wait_for_timeout(1000)
+    def _dialog(self):
+        return self.page.locator("[role=dialog]").first
 
-    def get_dialog_model_list_text(self) -> str:
-        """获取编辑弹窗中可用模型列表区域的文本"""
-        dialog = self.page.locator("[role=dialog]")
-        full_text = dialog.inner_text()
-        # 提取"可用模型列表"之后的文本
-        if "可用模型列表" in full_text:
-            idx = full_text.index("可用模型列表")
-            return full_text[idx:idx + 500]
-        return ""
+    def dialog_title(self) -> str:
+        d = self._dialog()
+        h2 = d.locator("h2")
+        return h2.first.inner_text().strip() if h2.count() else ""
 
-    # ==================== 编辑模型弹窗 — 高级字段 ====================
+    def submit_dialog(self):
+        d = self._dialog()
+        d.get_by_role("button", name="保存", exact=True).first.click()
 
-    def set_context_limit(self, value: int):
-        """设置上下文限制"""
-        dialog = self.page.locator("[role=dialog]")
-        number_inputs = dialog.locator("input[type=number]")
-        if number_inputs.count() >= 1:
-            number_inputs.nth(0).wait_for(state="visible", timeout=5000)
-            number_inputs.nth(0).fill(str(value))
+    def close_dialog(self):
+        d = self._dialog()
+        d.get_by_role("button", name="关闭", exact=True).first.click()
+        self.page.wait_for_timeout(300)
 
-    def set_output_limit(self, value: int):
-        """设置输出限制"""
-        dialog = self.page.locator("[role=dialog]")
-        number_inputs = dialog.locator("input[type=number]")
-        if number_inputs.count() >= 2:
-            number_inputs.nth(1).wait_for(state="visible", timeout=5000)
-            number_inputs.nth(1).fill(str(value))
+    def alert_dialog_text(self) -> str:
+        ad = self.page.locator("[role=alertdialog]").first
+        return ad.inner_text() if ad.count() else ""
+
+    def confirm_alert(self):
+        ad = self.page.locator("[role=alertdialog]").first
+        ad.get_by_role("button", name="确认", exact=True).first.click()
+
+    def cancel_alert(self):
+        ad = self.page.locator("[role=alertdialog]").first
+        ad.get_by_role("button", name="取消", exact=True).first.click()
+
+    # ==================== 新建服务商弹窗 ====================
+
+    def click_new_provider(self):
+        self.page.get_by_role("main").get_by_role(
+            "button", name="新建服务商", exact=True).first.click()
+        try:
+            self._dialog().wait_for(state="visible", timeout=5000)
+        except Exception:
+            pass
+
+    def fill_provider_form(self, provider_id: str = "", display_name: str = "",
+                           api_key: str = "", base_url: str = ""):
+        """填充新建/编辑服务商表单（留空字段不填）。"""
+        d = self._dialog()
+        if provider_id:
+            self._fill_label(d, "ID（标识符）", provider_id)
+        if display_name:
+            self._fill_label(d, "显示名称", display_name)
+        if api_key:
+            self._fill_label(d, "API Key", api_key)
+        if base_url:
+            self._fill_label(d, "Base URL", base_url)
+
+    @staticmethod
+    def _fill_label(dialog, label: str, value: str):
+        inp = dialog.locator("label", has_text=label).first.locator("input").first
+        inp.wait_for(state="visible", timeout=5000)
+        inp.fill(value)
+
+    def select_protocol(self, protocol: str):
+        """协议 combobox：点开并从 [role=option] 选择。"""
+        d = self._dialog()
+        cb = d.locator("label", has_text="协议").first.locator("button[role=combobox]")
+        cb.first.wait_for(state="visible", timeout=5000)
+        cb.first.click()
+        self.page.wait_for_timeout(400)
+        opt = self.page.get_by_role("option", name=protocol).first
+        opt.wait_for(state="visible", timeout=5000)
+        opt.click()
+        self.page.wait_for_timeout(300)
+
+    def selected_protocol(self) -> str:
+        d = self._dialog()
+        cb = d.locator("label", has_text="协议").first.locator("button[role=combobox]")
+        return cb.first.inner_text().strip() if cb.count() else ""
+
+    def available_models_text(self) -> str:
+        """弹窗内「可用模型列表」区文本。"""
+        d = self._dialog()
+        sec = d.locator("section", has_text="可用模型列表").first
+        return sec.inner_text() if sec.count() else ""
+
+    def click_dialog_fetch_models(self):
+        """弹窗内「可用模型列表」的「获取模型列表」按钮。"""
+        d = self._dialog()
+        sec = d.locator("section", has_text="可用模型列表").first
+        sec.get_by_role("button", name="获取模型列表", exact=True).first.click()
+
+    def edit_id_disabled(self) -> bool:
+        d = self._dialog()
+        inp = d.locator("label", has_text="ID（标识符）").first.locator("input").first
+        return inp.count() > 0 and inp.is_disabled()
+
+    def get_form_base_url(self) -> str:
+        d = self._dialog()
+        inp = d.locator("label", has_text="Base URL").first.locator("input").first
+        return inp.input_value() if inp.count() else ""
+
+    def edit_api_key_placeholder(self) -> str:
+        d = self._dialog()
+        inp = d.locator("label", has_text="API Key").first.locator("input").first
+        return inp.get_attribute("placeholder") or "" if inp.count() else ""
+
+    # ==================== 新增/编辑模型弹窗 ====================
+
+    def model_dialog_set_id_name(self, model_id: str = "", display_name: str = ""):
+        d = self._dialog()
+        if model_id:
+            inp = d.locator("label", has_text="模型 ID").first.locator("input").first
+            if not inp.is_disabled():
+                inp.fill(model_id)
+        if display_name:
+            self._fill_label(d, "显示名称", display_name)
+
+    def model_id_disabled(self) -> bool:
+        d = self._dialog()
+        inp = d.locator("label", has_text="模型 ID").first.locator("input").first
+        return inp.count() > 0 and inp.is_disabled()
+
+    def set_context_limit(self, value: str):
+        d = self._dialog()
+        d.locator("label", has_text="上下文限制").first.locator("input").first.fill(str(value))
+
+    def set_output_limit(self, value: str):
+        d = self._dialog()
+        d.locator("label", has_text="输出限制").first.locator("input").first.fill(str(value))
 
     def get_context_limit(self) -> str:
-        """获取上下文限制值"""
-        dialog = self.page.locator("[role=dialog]")
-        number_inputs = dialog.locator("input[type=number]")
-        if number_inputs.count() >= 1:
-            return number_inputs.nth(0).input_value()
-        return ""
+        d = self._dialog()
+        inp = d.locator("label", has_text="上下文限制").first.locator("input").first
+        return inp.input_value() if inp.count() else ""
 
     def get_output_limit(self) -> str:
-        """获取输出限制值"""
-        dialog = self.page.locator("[role=dialog]")
-        number_inputs = dialog.locator("input[type=number]")
-        if number_inputs.count() >= 2:
-            return number_inputs.nth(1).input_value()
-        return ""
+        d = self._dialog()
+        inp = d.locator("label", has_text="输出限制").first.locator("input").first
+        return inp.input_value() if inp.count() else ""
 
-    def _get_modality_buttons(self, section: str = "input"):
-        """获取模态切换按钮列表。section: 'input' 或 'output'"""
-        dialog = self.page.locator("[role=dialog]")
-        # 输入模态: text, image, audio, video, pdf (前5个按钮)
-        # 输出模态: text, image (按钮5-6)
-        all_btns = dialog.locator("button")
-        input_mods = ["text", "image", "audio", "video", "pdf"]
-        output_mods = ["text", "image"]
-        result = []
-        count = all_btns.count()
-        if section == "input":
-            for i in range(min(5, count)):
-                txt = all_btns.nth(i).inner_text().strip()
-                if txt in input_mods:
-                    result.append(all_btns.nth(i))
-        else:
-            # 输出模态按钮在索引 5-6
-            for i in range(5, min(7, count)):
-                txt = all_btns.nth(i).inner_text().strip()
-                if txt in output_mods:
-                    result.append(all_btns.nth(i))
-        return result
-
-    def is_modality_selected(self, modality: str, section: str = "input") -> bool:
-        """模态按钮是否被选中（通过 CSS class 判断：bg-indigo/bg-emerald 表示选中）"""
-        btns = self._get_modality_buttons(section)
-        for btn in btns:
-            if btn.inner_text().strip() == modality:
-                cls = btn.get_attribute("class") or ""
-                return "bg-indigo" in cls or "bg-emerald" in cls
-        return False
-
-    def click_modality(self, modality: str, section: str = "input"):
-        """点击模态切换按钮"""
-        btns = self._get_modality_buttons(section)
-        for btn in btns:
-            if btn.inner_text().strip() == modality:
-                btn.wait_for(state="visible", timeout=5000)
-                btn.click()
-                self.page.wait_for_timeout(300)
-                return True
-        return False
-
-    def get_selected_input_modalities(self) -> list:
-        """获取已选中的输入模态"""
-        btns = self._get_modality_buttons("input")
-        selected = []
-        for btn in btns:
-            cls = btn.get_attribute("class") or ""
-            if "bg-indigo" in cls:
-                selected.append(btn.inner_text().strip())
-        return selected
-
-    def get_selected_output_modalities(self) -> list:
-        """获取已选中的输出模态"""
-        btns = self._get_modality_buttons("output")
-        selected = []
-        for btn in btns:
-            cls = btn.get_attribute("class") or ""
-            if "bg-emerald" in cls:
-                selected.append(btn.inner_text().strip())
-        return selected
-
-    def has_expand_advanced_button(self) -> bool:
-        """是否有「展开高级参数」按钮"""
-        dialog = self.page.locator("[role=dialog]")
-        btn = dialog.get_by_role("button", name="展开高级参数")
-        return btn.count() > 0
-
-    def click_expand_advanced(self):
-        """点击「展开高级参数」"""
-        dialog = self.page.locator("[role=dialog]")
-        btn = dialog.get_by_role("button", name="展开高级参数")
-        if btn.count() > 0:
-            btn.wait_for(state="visible", timeout=5000)
-            btn.click()
-            self.page.wait_for_timeout(500)
-
-    def has_thinking_mode_checkbox(self) -> bool:
-        """展开高级参数后，是否有「启用思考模式」开关"""
-        dialog = self.page.locator("[role=dialog]")
-        switch = dialog.locator("button[role=switch]")
-        return switch.count() > 0
-
-    def is_thinking_mode_checked(self) -> bool:
-        """思考模式是否已启用"""
-        dialog = self.page.locator("[role=dialog]")
-        switch = dialog.locator("button[role=switch]")
-        if switch.count() > 0:
-            return switch.first.get_attribute("aria-checked") == "true"
-        return False
-
-    def toggle_thinking_mode(self):
-        """切换思考模式（点击 role=switch 按钮）"""
-        dialog = self.page.locator("[role=dialog]")
-        switch = dialog.locator("button[role=switch]")
-        if switch.count() > 0:
-            switch.first.wait_for(state="visible", timeout=5000)
-            switch.first.click()
-            self.page.wait_for_timeout(300)
-
-    def set_input_cost(self, value: str):
-        """设置输入费用（通过 label 文本定位）"""
-        dialog = self.page.locator("[role=dialog]")
-        label = dialog.locator("label").filter(has_text="输入费用")
-        if label.count() > 0:
-            inp = label.locator("xpath=following-sibling::input | ./input")
-            if inp.count() > 0:
-                inp.first.wait_for(state="visible", timeout=5000)
-                inp.first.fill(value)
-            else:
-                # label 和 input 在同一个父 div 中
-                parent = label.locator("xpath=..")
-                num_inp = parent.locator("input[type=number]")
-                if num_inp.count() > 0:
-                    num_inp.first.wait_for(state="visible", timeout=5000)
-                    num_inp.first.fill(value)
-
-    def set_output_cost(self, value: str):
-        """设置输出费用（通过 label 文本定位）"""
-        dialog = self.page.locator("[role=dialog]")
-        label = dialog.locator("label").filter(has_text="输出费用")
-        if label.count() > 0:
-            parent = label.locator("xpath=..")
-            num_inp = parent.locator("input[type=number]")
-            if num_inp.count() > 0:
-                num_inp.first.wait_for(state="visible", timeout=5000)
-                num_inp.first.fill(value)
-
-    def get_input_cost(self) -> str:
-        """获取输入费用值"""
-        dialog = self.page.locator("[role=dialog]")
-        label = dialog.locator("label").filter(has_text="输入费用")
-        if label.count() > 0:
-            parent = label.locator("xpath=..")
-            num_inp = parent.locator("input[type=number]")
-            if num_inp.count() > 0:
-                return num_inp.first.input_value()
-        return ""
-
-    def get_output_cost(self) -> str:
-        """获取输出费用值"""
-        dialog = self.page.locator("[role=dialog]")
-        label = dialog.locator("label").filter(has_text="输出费用")
-        if label.count() > 0:
-            parent = label.locator("xpath=..")
-            num_inp = parent.locator("input[type=number]")
-            if num_inp.count() > 0:
-                return num_inp.first.input_value()
-        return ""
-
-    def has_thinking_budget_input(self) -> bool:
-        """是否有「思考预算」输入框（仅在思考模式开启时出现）"""
-        dialog = self.page.locator("[role=dialog]")
-        label = dialog.locator("label").filter(has_text="思考预算")
-        return label.count() > 0
-
-    def set_thinking_budget(self, value: str):
-        """设置思考预算"""
-        dialog = self.page.locator("[role=dialog]")
-        label = dialog.locator("label").filter(has_text="思考预算")
-        if label.count() > 0:
-            parent = label.locator("xpath=..")
-            num_inp = parent.locator("input[type=number]")
-            if num_inp.count() > 0:
-                num_inp.first.wait_for(state="visible", timeout=5000)
-                num_inp.first.fill(value)
-
-    def get_thinking_budget(self) -> str:
-        """获取思考预算值"""
-        dialog = self.page.locator("[role=dialog]")
-        label = dialog.locator("label").filter(has_text="思考预算")
-        if label.count() > 0:
-            parent = label.locator("xpath=..")
-            num_inp = parent.locator("input[type=number]")
-            if num_inp.count() > 0:
-                return num_inp.first.input_value()
-        return ""
-
-    # ==================== 模型操作 ====================
-
-    def click_add_model(self, provider_name: str):
-        """点击指定 Provider 的「+ 添加模型」按钮"""
-        cards = self.get_provider_cards()
-        for i in range(cards.count()):
-            if provider_name in cards.nth(i).inner_text():
-                btn = cards.nth(i).locator("button").filter(has_text="+ 添加模型")
-                if btn.count() > 0:
-                    btn.first.wait_for(state="visible", timeout=5000)
-                    btn.first.click()
-                    self.page.wait_for_timeout(1000)
-                    return True
-        return False
-
-    def fill_model_form(self, model_id: str, display_name: str):
-        """填写新增模型表单（弹窗须已打开）"""
-        dialog = self.page.locator("[role=dialog]")
-        inputs = dialog.locator("input[data-slot='input']")
-        if inputs.count() >= 2:
-            inputs.nth(0).wait_for(state="visible", timeout=5000)
-            inputs.nth(0).fill(model_id)
-            inputs.nth(1).wait_for(state="visible", timeout=5000)
-            inputs.nth(1).fill(display_name)
-
-    def get_model_names_for_provider(self, provider_name: str) -> list[str]:
-        """获取指定 Provider 下的所有模型名称"""
-        cards = self.get_provider_cards()
-        for i in range(cards.count()):
-            if provider_name in cards.nth(i).inner_text():
-                body = cards.nth(i).locator("div.space-y-2")
-                if body.count() == 0:
-                    return []
-                rows = body.locator("> div")
-                names = []
-                for j in range(rows.count()):
-                    text = rows.nth(j).inner_text()
-                    # 模型名称通常在行首
-                    first_line = text.split("\n")[0].strip()
-                    if first_line:
-                        names.append(first_line)
-                return names
-        return []
-
-    def click_model_test(self, provider_name: str, model_name: str):
-        """点击模型级别的「测试」按钮"""
-        cards = self.get_provider_cards()
-        for i in range(cards.count()):
-            if provider_name in cards.nth(i).inner_text():
-                rows = cards.nth(i).locator("div.space-y-2 > div")
-                for j in range(rows.count()):
-                    if model_name in rows.nth(j).inner_text():
-                        btn = rows.nth(j).locator("button").filter(has_text="测试")
-                        if btn.count() > 0:
-                            btn.first.wait_for(state="visible", timeout=5000)
-                            btn.first.click()
-                            self.page.wait_for_timeout(500)
-                            return True
-        return False
-
-    def click_model_edit(self, provider_name: str, model_name: str):
-        """点击模型级别的「编辑」按钮（等待列表加载完成）"""
-        # 等待目标 provider 出现在页面
-        target = self.page.locator(f"text={provider_name}")
-        try:
-            target.first.wait_for(state="visible", timeout=15000)
-        except Exception:
-            return False
-        # 再等模型名称出现
-        model_target = self.page.locator(f"text={model_name}")
-        try:
-            model_target.first.wait_for(state="visible", timeout=10000)
-        except Exception:
-            return False
-        cards = self.get_provider_cards()
-        for i in range(cards.count()):
-            if provider_name in cards.nth(i).inner_text():
-                rows = cards.nth(i).locator("div.space-y-2 > div")
-                for j in range(rows.count()):
-                    if model_name in rows.nth(j).inner_text():
-                        btn = rows.nth(j).locator("button").filter(has_text="编辑")
-                        if btn.count() > 0:
-                            btn.first.wait_for(state="visible", timeout=5000)
-                            btn.first.click()
-                            self.page.wait_for_timeout(1000)
-                            return True
-        return False
-
-    def is_edit_model_id_disabled(self) -> bool:
-        """编辑模型弹窗中模型 ID 是否不可修改"""
-        dialog = self.page.locator("[role=dialog]")
-        inputs = dialog.locator("input[data-slot='input']")
-        if inputs.count() > 0:
-            return inputs.nth(0).is_disabled()
-        return False
-
-    def fill_edit_model_form(self, display_name: str = ""):
-        """填写编辑模型表单（弹窗须已打开）"""
-        dialog = self.page.locator("[role=dialog]")
-        inputs = dialog.locator("input[data-slot='input']")
-        if display_name and inputs.count() >= 2:
-            inputs.nth(1).wait_for(state="visible", timeout=5000)
-            inputs.nth(1).fill(display_name)
-
-    def get_edit_model_display_name(self) -> str:
-        """获取编辑模型弹窗中的显示名称"""
-        dialog = self.page.locator("[role=dialog]")
-        inputs = dialog.locator("input[data-slot='input']")
-        if inputs.count() >= 2:
-            return inputs.nth(1).input_value()
-        return ""
-
-    def click_model_delete(self, provider_name: str, model_name: str):
-        """点击模型级别的「删除」按钮"""
-        cards = self.get_provider_cards()
-        for i in range(cards.count()):
-            if provider_name in cards.nth(i).inner_text():
-                rows = cards.nth(i).locator("div.space-y-2 > div")
-                for j in range(rows.count()):
-                    if model_name in rows.nth(j).inner_text():
-                        btn = rows.nth(j).locator("button").filter(has_text="删除")
-                        if btn.count() > 0:
-                            btn.first.wait_for(state="visible", timeout=5000)
-                            btn.first.click()
-                            self.page.wait_for_timeout(500)
-                            return True
-        return False
-
-    # ==================== 确认弹窗 ====================
-
-    def is_alert_dialog_open(self) -> bool:
-        dialog = self.page.locator("[role=alertdialog]")
-        return dialog.count() > 0 and dialog.first.is_visible()
-
-    def get_alert_dialog_text(self) -> str:
-        dialog = self.page.locator("[role=alertdialog]")
-        if dialog.count() > 0:
-            return dialog.first.inner_text().strip()
-        return ""
-
-    def confirm_alert_dialog(self):
-        """点击确认弹窗的「确认」按钮"""
-        dialog = self.page.locator("[role=alertdialog]")
-        btn = dialog.get_by_role("button", name="确认")
+    def click_modality(self, modality: str, kind: str):
+        """点击输入/输出模态按钮。kind ∈ {输入模态, 输出模态}"""
+        d = self._dialog()
+        btn = d.locator("fieldset", has_text=kind).first.get_by_role(
+            "button", name=modality).first
         btn.wait_for(state="visible", timeout=5000)
         btn.click()
-        self.page.wait_for_timeout(1000)
+        self.page.wait_for_timeout(200)
 
-    def cancel_alert_dialog(self):
-        """点击确认弹窗的「取消」按钮"""
-        dialog = self.page.locator("[role=alertdialog]")
-        btn = dialog.get_by_role("button", name="取消")
-        btn.wait_for(state="visible", timeout=5000)
-        btn.click()
-        self.page.wait_for_timeout(500)
+    def selected_modalities(self, kind: str) -> list[str]:
+        """选中模态（class 含 is-selected）。kind ∈ {输入模态, 输出模态}"""
+        d = self._dialog()
+        fs = d.locator("fieldset", has_text=kind).first
+        out = []
+        for b in fs.locator("button").all():
+            if "is-selected" in (b.get_attribute("class") or ""):
+                out.append(b.inner_text().strip())
+        return out
 
-    # ==================== 加载状态 ====================
+    def thinking_checked(self):
+        d = self._dialog()
+        sw = d.locator("[role=switch]").first
+        return sw.get_attribute("aria-checked") == "true" if sw.count() else None
 
-    def has_skeleton_or_spinner(self) -> bool:
-        """是否有加载骨架屏或 Spinner"""
-        body = self.page.locator("div.agent-panel-body")
-        loading = body.locator(
-            "[role='progressbar'], [data-slot='skeleton'], "
-            "div.animate-pulse, [data-slot='spinner']"
-        )
-        return loading.count() > 0
+    def toggle_thinking(self):
+        d = self._dialog()
+        sw = d.locator("[role=switch]").first
+        sw.wait_for(state="visible", timeout=5000)
+        sw.click()
+        self.page.wait_for_timeout(200)
+
+    # ==================== toast ====================
+
+    def read_toast_texts(self) -> list[str]:
+        """右上角通知区全部 toast 文本（新 toast 在 index 0）。"""
+        return self.page.evaluate("""() => {
+            const out = [];
+            for (const li of document.querySelectorAll('li')) {
+                if (!li.querySelector('button')) continue;
+                const t = (li.textContent || '').replace('Close toast', '').trim();
+                if (t) out.push(t);
+            }
+            return out;
+        }""")
+
+    def get_last_toast_text(self, timeout: float = 6000) -> str:
+        deadline = time.time() + timeout / 1000
+        while time.time() < deadline:
+            toasts = self.read_toast_texts()
+            if toasts:
+                return toasts[0]
+            self.page.wait_for_timeout(200)
+        return ""
 
     # ==================== Network 拦截辅助 ====================
 
-    def intercept_api_responses(self, url_pattern: str):
-        """设置 API 响应拦截，返回收集列表"""
-        # 移除之前的监听器，避免累积
-
-        if hasattr(self, '_last_listener') and self._last_listener:
-
+    def intercept_api_responses(self, url_pattern: str) -> list:
+        """设置 API 响应拦截，返回收集列表。"""
+        if getattr(self, '_last_listener', None):
             try:
-
                 self.page.remove_listener("response", self._last_listener)
-
             except Exception:
-
                 pass
-
         collected = []
 
         def on_response(resp):
             if url_pattern in resp.url:
                 try:
-                    body = resp.json() if "json" in resp.headers.get("content-type", "") else None
-                    collected.append({
-                        "url": resp.url,
-                        "status": resp.status,
-                        "method": resp.request.method,
-                        "body": body,
-                    })
+                    body = resp.json() if "json" in resp.headers.get(
+                        "content-type", "") else None
                 except Exception:
-                    collected.append({
-                        "url": resp.url,
-                        "status": resp.status,
-                        "method": resp.request.method,
-                        "body": None,
-                    })
+                    body = None
+                collected.append({
+                    "url": resp.url,
+                    "status": resp.status,
+                    "method": resp.request.method,
+                    "body": body,
+                })
 
         self._last_listener = on_response
         self.page.on("response", on_response)

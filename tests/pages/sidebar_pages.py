@@ -293,8 +293,8 @@ class MemoryPage:
         self.base_url = base_url
         self.url = f"{base_url}/ctrl/agent/memories"
 
-    # 页面就绪标识：Tab 或"未开启"提示（记忆服务未配置时显示"记忆能力未开启..."）
-    _READY_SELECTORS = "[role='tab'], :text('未开启'), :text('记忆能力'), :text('Hindsight')"
+    # 页面就绪标识：记忆视角导航 / 记忆标题 / "未开启"提示
+    _READY_SELECTORS = "nav[aria-label='记忆视角'], :text('未开启'), :text('记忆能力'), :text('Hindsight')"
 
     def goto(self):
         for _attempt in range(2):
@@ -328,26 +328,45 @@ class MemoryPage:
         return "/ctrl/agent/memor" in self.page.url and \
             self.page.locator(self._READY_SELECTORS).count() > 0
 
+    def _perspective_nav(self):
+        """左侧「记忆视角」导航（nav[aria-label=记忆视角]，含 5 个视角按钮）"""
+        return self.page.locator("nav[aria-label='记忆视角']").first
+
     def get_tab_names(self) -> list[str]:
-        """获取分类 Tab 名称列表"""
-        tabs = self.page.locator("[role='tab']")
-        return [t.strip() for t in tabs.all_text_contents() if t.strip()]
+        """获取「记忆视角」分类名称列表（世界事实/经验/观察/心理模型/实体）
+        新版记忆页是独立页面，视角是左侧导航按钮而非 [role=tab]，
+        旧实现读全局 [role=tab] 会误中工作区 Tab（文件/站点/定时任务/发布视图）。"""
+        nav = self._perspective_nav()
+        if nav.count() == 0:
+            return []
+        names = []
+        for b in nav.locator("button").all():
+            strong = b.locator("strong").first
+            if strong.count() > 0:
+                t = strong.inner_text().strip()
+                if t:
+                    names.append(t)
+        return names
 
     def click_tab(self, name: str):
-        """点击某个分类 Tab"""
-        tab = self.page.locator("[role='tab']").filter(has_text=name).first
+        """点击某个记忆视角"""
+        nav = self._perspective_nav()
+        if nav.count() == 0:
+            return
+        tab = nav.locator("button").filter(has_text=name).first
         tab.wait_for(state="visible", timeout=5000)
         tab.click()
-        self.page.wait_for_timeout(500)
+        self.page.wait_for_timeout(600)
 
     def is_tab_active(self, name: str) -> bool:
-        """某个 Tab 是否处于激活状态"""
-        tab = self.page.locator("[role='tab']").filter(has_text=name)
+        """某个记忆视角是否处于激活状态（aria-pressed=true）"""
+        nav = self._perspective_nav()
+        if nav.count() == 0:
+            return False
+        tab = nav.locator("button").filter(has_text=name)
         if tab.count() == 0:
             return False
-        cls = tab.first.get_attribute("class") or ""
-        aria = tab.first.get_attribute("aria-selected") or ""
-        return "active" in cls.lower() or aria == "true" or "selected" in cls.lower()
+        return (tab.first.get_attribute("aria-pressed") or "").lower() == "true"
 
     def has_view_buttons(self) -> bool:
         """是否有视图切换按钮（星座图/图谱/表格/时间线）"""
@@ -362,15 +381,20 @@ class MemoryPage:
 
 
 class KnowledgeBasePage:
-    """知识库页 /ctrl/agent/knowledge-bases"""
+    """知识库页 /ctrl/agent/knowledge-bases
+
+    新版为「目录式」布局：左侧 aside.knowledge-directory 展示知识库目录项
+    （div.knowledge-directory-item 内 button，strong=名称，small=N 个资源），
+    右侧显示选中库详情；无库级搜索框。页面就绪标识 main.agent-knowledge-page。
+    """
 
     def __init__(self, page: Page, base_url: str):
         self.page = page
         self.base_url = base_url
         self.url = f"{base_url}/ctrl/agent/knowledge-bases"
 
-    # 页面就绪标识：搜索输入框
-    _READY_SELECTOR = "input[placeholder*='搜索知识库']"
+    # 页面就绪标识：知识库目录页根容器（仅该路由存在）
+    _READY_SELECTOR = "main.agent-knowledge-page"
 
     def goto(self):
         for _attempt in range(2):
@@ -404,27 +428,47 @@ class KnowledgeBasePage:
         return "/ctrl/agent/knowledge" in self.page.url and \
             self.page.locator(self._READY_SELECTOR).count() > 0
 
-    def search(self, keyword: str):
-        inp = self.page.locator("input[placeholder*='搜索知识库']")
-        if inp.count() > 0:
-            inp.first.fill(keyword)
-            self.page.wait_for_timeout(500)
+    def _directory_items(self):
+        return self.page.locator("aside.knowledge-directory .knowledge-directory-item")
 
-    def clear_search(self):
-        inp = self.page.locator("input[placeholder*='搜索知识库']")
-        if inp.count() > 0:
-            inp.first.fill("")
-            self.page.wait_for_timeout(500)
+    def has_search_input(self) -> bool:
+        """新版目录式布局无库级搜索框（旧版遗留 input 会返回 True）"""
+        main = self.page.locator(self._READY_SELECTOR).first
+        if main.count() == 0:
+            return False
+        return main.locator("input").count() > 0
 
     def get_kb_count(self) -> int:
-        """获取知识库卡片数量"""
-        cards = self.page.locator(
-            "div.agent-panel-content div.rounded-lg.border"
-        )
-        return cards.count()
+        """知识库目录项数量"""
+        return self._directory_items().count()
+
+    def get_kb_names(self) -> list[str]:
+        """目录项名称列表（strong 元素内）"""
+        names = []
+        items = self._directory_items()
+        for i in range(items.count()):
+            strong = items.nth(i).locator("strong").first
+            if strong.count() > 0:
+                name = strong.inner_text().strip()
+                if name:
+                    names.append(name)
+        return names
+
+    def get_resource_counts(self) -> list[str]:
+        """目录项资源数文本列表（small 元素内，如 '2 个资源'）"""
+        counts = []
+        items = self._directory_items()
+        for i in range(items.count()):
+            small = items.nth(i).locator("small").first
+            if small.count() > 0:
+                counts.append(small.inner_text().strip())
+        return counts
 
     def has_create_button(self) -> bool:
-        btn = self.page.get_by_role("button", name="新建知识库")
+        main = self.page.locator(self._READY_SELECTOR).first
+        if main.count() == 0:
+            return False
+        btn = main.get_by_role("button", name="新建知识库")
         return btn.count() > 0 and btn.first.is_visible() and btn.first.is_enabled()
 
 
@@ -462,15 +506,26 @@ class TasksPage:
         return "/ctrl/agent/tasks" in self.page.url and \
             self.page.locator(self._READY_SELECTOR).count() > 0
 
+    def _type_filter_group(self):
+        """类型筛选按钮组（新版任务页顶部工具栏），全局 [role=tab] 会误中 artifacts 工作区 tab"""
+        return self.page.locator("main div[role=group][aria-label='任务类型']").first
+
     def get_tab_names(self) -> list[str]:
-        tabs = self.page.locator("[role='tab']")
-        return [t.strip() for t in tabs.all_text_contents() if t.strip()]
+        """获取类型筛选档名称（全部/HTTP/Agent）"""
+        grp = self._type_filter_group()
+        if grp.count() == 0:
+            return []
+        return [b.inner_text().strip() for b in grp.locator("button").all() if b.inner_text().strip()]
 
     def click_tab(self, name: str):
-        tab = self.page.locator("[role='tab']").filter(has_text=name).first
-        tab.wait_for(state="visible", timeout=5000)
-        tab.click()
-        self.page.wait_for_timeout(500)
+        grp = self._type_filter_group()
+        if grp.count() == 0:
+            return
+        btn = grp.locator("button", has_text=name).first
+        if btn.count() > 0:
+            btn.wait_for(state="visible", timeout=5000)
+            btn.click()
+            self.page.wait_for_timeout(1000)
 
     def get_task_count(self) -> int:
         """表格中的任务行数"""
@@ -639,22 +694,22 @@ class ApiKeyPage:
 class SidebarNavigation:
     """侧边栏导航通用操作"""
 
-    # 侧边栏菜单项 → 预期 URL 路径
+    # 侧边栏菜单项 → 预期 URL 路径（新版 UI 名称）
     NAV_ITEMS = {
         "新建智能体": "/ctrl/agent/home",
         "智能体管理": "/ctrl/agent/agents",
         "智能体编排": "/ctrl/agent/workflow",
-        "记忆": "/ctrl/agent/memor",
-        "知识库": "/ctrl/agent/knowledge",
-        "定时任务": "/ctrl/agent/tasks",
-        "组织": "/ctrl/agent/organization",
-        "API Key": "/ctrl/agent/apikeys",
+        "企业垂直大模型": "/ctrl/agent/vertical-models",
         "模型库": "/ctrl/agent/models",
-        "垂直模型库": "/ctrl/agent/vertical-models",
         "算法库": "/ctrl/agent/algorithms",
         "技能库": "/ctrl/agent/skills",
-        "MCP": "/ctrl/agent/mcp",
-        "Agent Sites": "/ctrl/agent/sites",
+        "知识库": "/ctrl/agent/knowledge-bases",
+        "插件市场": "/ctrl/agent/mcp",
+        "定时任务": "/ctrl/agent/tasks",
+        "记忆": "/ctrl/agent/memories",
+        "应用部署": "/ctrl/agent/sites",
+        "组织": "/ctrl/agent/organizations",
+        "API Key": "/ctrl/agent/apikeys",
     }
 
     def __init__(self, page: Page, base_url: str):

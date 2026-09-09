@@ -77,7 +77,12 @@ def test_meta_agent_toggle(logged_in_page, base_url):
 @pytest.mark.order(201)
 @pytest.mark.p1
 def test_restart_agent_button(logged_in_page, base_url):
-    """TC-SIDEBAR-002: 重启智能体按钮 — 点击后弹出实例选择确认弹窗"""
+    """TC-SIDEBAR-002: 重启智能体按钮 — 点击后触发实例重启请求
+
+    新版 UI 说明：Agent 卡片的「重启智能体」为单实例直启（点击即 POST
+    /instances/{id}/restart，无确认弹窗）；无运行中实例时点击为静默 no-op。
+    本用例拦截重启请求（route fulfill 假响应）仅断言点击确实发出请求，避免真重启共享实例。
+    """
     page = logged_in_page
 
     # 导航到首页确保侧边栏加载
@@ -96,69 +101,50 @@ def test_restart_agent_button(logged_in_page, base_url):
             break
         page.wait_for_timeout(1000)
 
-    # 找到第一个非共享智能体的重启按钮
-    # 非共享智能体：不包含 "共享" 文字的卡片
     all_cards = sidebar.locator("button.agent-sidebar-agent-card")
-    non_shared_restart_btn = None
+    if all_cards.count() == 0:
+        pytest.skip("侧边栏无智能体卡片（重启按钮无可作用目标）")
 
-    for i in range(all_cards.count()):
-        card = all_cards.nth(i)
-        card_text = card.inner_text()
-        if "共享" in card_text:
-            continue
-        # 找到非共享智能体，在其父容器中查找重启按钮
-        parent = card.locator("xpath=..")
-        restart_btn = parent.locator("button[title='重启智能体']")
-        if restart_btn.count() > 0:
-            non_shared_restart_btn = restart_btn.first
-            break
+    # 遍历非共享智能体卡片：点击其「重启智能体」按钮，断言发出重启请求。
+    # 新版为单实例直启（无确认弹窗），且无运行中实例时点击 no-op，故逐个尝试，
+    # 命中第一个真正发出请求的卡片即成功；全程拦截该请求避免真重启共享实例。
+    fired = {"url": None}
 
-    if non_shared_restart_btn is None:
-        pytest.skip("未找到非共享智能体的重启按钮")
+    # 用 200 + success 兜底响应代替 abort，避免浏览器记录
+    # "Failed to load resource: net::ERR_FAILED" 被 conftest 页面错误监控当作失败
+    def _block(route):
+        fired["url"] = route.request.url
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body='{"success":true,"data":{}}',
+        )
 
-    # 验证按钮可见且可点击
-    assert non_shared_restart_btn.is_visible(), "重启智能体按钮不可见"
-    assert non_shared_restart_btn.is_enabled(), "重启智能体按钮不可点击"
-
-    # 点击重启按钮
-    non_shared_restart_btn.click()
-    page.wait_for_timeout(800)
-
-    # 验证出现确认弹窗（alertdialog）
-    confirm_dialog = page.locator("[role='alertdialog']")
-    dialog_visible = False
-    for _ in range(5):
-        if confirm_dialog.count() > 0 and confirm_dialog.first.is_visible():
-            dialog_visible = True
-            break
-        page.wait_for_timeout(500)
-
-    assert dialog_visible, (
-        "点击重启智能体按钮后未弹出确认弹窗（alertdialog）"
-    )
-
-    # 验证弹窗标题包含"重启"
-    dialog_text = confirm_dialog.first.inner_text()
-    assert "重启" in dialog_text, (
-        f"重启确认弹窗内容异常，未包含'重启'关键字: '{dialog_text[:200]}'"
-    )
-
-    # 点击"稍后"按钮取消重启（不要真的重启）
-    cancel_btn = confirm_dialog.first.locator("button").filter(has_text="稍后")
-    if cancel_btn.count() > 0:
-        cancel_btn.first.click()
-        page.wait_for_timeout(500)
-    else:
-        # fallback: 按 Escape 关闭弹窗
-        page.keyboard.press("Escape")
-        page.wait_for_timeout(500)
-
-    # 验证弹窗已关闭
-    dialog_gone = (
-        confirm_dialog.count() == 0
-        or not confirm_dialog.first.is_visible()
-    )
-    assert dialog_gone, "取消后重启确认弹窗未关闭"
+    page.route("**/web/instances/*/restart", _block)
+    clicked_any = False
+    try:
+        for i in range(all_cards.count()):
+            card = all_cards.nth(i)
+            if "共享" in (card.inner_text() or ""):
+                continue
+            parent = card.locator("xpath=..")
+            restart_btn = parent.locator("button[title='重启智能体']")
+            if restart_btn.count() == 0:
+                continue
+            if not (restart_btn.first.is_visible() and restart_btn.first.is_enabled()):
+                continue
+            clicked_any = True
+            restart_btn.first.click()
+            page.wait_for_timeout(1200)
+            if fired["url"]:
+                break
+        if not clicked_any:
+            pytest.skip("未找到非共享智能体的可用重启按钮")
+        assert fired["url"], (
+            "点击重启智能体按钮未触发重启请求——所选非共享智能体可能均无运行中实例"
+        )
+    finally:
+        page.unroute("**/web/instances/*/restart", _block)
 
 
 # === SIDEBAR-03: 共享智能体只读模式 ===

@@ -66,19 +66,26 @@ class AgentPage:
             pass  # 可能已经加载完成
         return self.get_agent_cards().count()
 
+    def _search_input(self):
+        """智能体管理页搜索框（新版 group 内 textbox，placeholder=搜索智能体名称...）
+        必须作用域到 main，避免命中页面其它「搜索」输入框（strict mode 冲突）"""
+        return self.page.locator(
+            "main input[placeholder*='搜索智能体名称'], main [role='group'] input[type='search']"
+        ).first
+
     def search_agent(self, keyword: str):
         """搜索智能体"""
-        search_input = self.page.locator("input[placeholder*='搜索']")
+        search_input = self._search_input()
         search_input.wait_for(state="visible", timeout=5000)
         search_input.fill(keyword)
-        self.page.wait_for_timeout(500)
+        self.page.wait_for_timeout(600)
 
     def clear_search(self):
         """清空搜索"""
-        search_input = self.page.locator("input[placeholder*='搜索']")
+        search_input = self._search_input()
         search_input.wait_for(state="visible", timeout=5000)
         search_input.fill("")
-        self.page.wait_for_timeout(500)
+        self.page.wait_for_timeout(600)
 
     def filter_by_category(self, category: str):
         """按分类筛选（全部/通用助理/数据分析/搜索检索/监控告警/代码助手/自定义）"""

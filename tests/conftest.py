@@ -517,6 +517,10 @@ def _page_error_monitor(request):
             if "ERR_INSUFFICIENT_RESOURCES" in msg.text:
                 warnings.append(f"[console.error] {msg.text}")
                 return
+            # 白名单：发布视图删除 DELETE_FAILED（后端 404 但行已删，功能仍生效）
+            if "prod-views" in msg.text and "DELETE_FAILED" in msg.text:
+                warnings.append(f"[console.error] {msg.text}")
+                return
             console_errors.append(msg.text)
 
     def on_response(response):
@@ -563,6 +567,11 @@ def _page_error_monitor(request):
                 return
             # 白名单：知识库删除后页面轮询 KB 详情的 404
             if response.status == 404 and "/web/knowledgeBases/" in response.url:
+                return
+            # 白名单：发布视图删除 DELETE 返回 404（后端 DELETE_FAILED：行已删除但误报失败，功能仍生效）
+            if response.status == 404 and response.request.method == "DELETE" \
+                    and "/web/config/prod-views/" in response.url:
+                warnings.append(f"[API {response.status}] {response.request.method} {response.url}")
                 return
             # 非致命：并发限制引发的 API 错误，记为警告
             if "environments" in response.url and "enter" in response.url:

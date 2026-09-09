@@ -1,7 +1,28 @@
 # tests/pages/org_page.py
-"""组织管理页面 Page Object — 基于真实 DOM 结构编写"""
+"""组织管理页面 Page Object — 新版「左侧目录 + 右侧详情」双栏布局（基于真实 DOM）。
+
+页面结构（2026-09-08 对 100.105.9.16:38879 实测）：
+- main header：h1=组织管理 + button=创建组织
+- 左列 aside.org-directory[aria-label=我的组织]
+    - div.org-directory-heading（「我的组织 N」）
+    - div.org-directory-list：每项 button.org-directory-row
+        - span.org-directory-copy > strong(显示名) + small(slug)
+        - span.org-directory-role（拥有者/成员/管理员）
+- 右列 header.org-detail-header
+    - div.org-detail-identity：div.org-detail-mark(首字母) + h2(显示名) + div.org-detail-meta(slug + 复制ID)
+    - button=编辑（点击后变为 div.org-name-editor：input + 保存 + 取消）
+- 右列 body div.org-detail
+    - div.org-engine-strip：默认执行节点 select
+    - section.org-section(团队访问)：h3=成员 (N)，button=添加成员，div.org-list>div.org-list-row
+        - 成员行 div.org-list-main：strong(姓名)+span.org-role-badge(.is-member/.is-owner) + email
+        - div.org-list-actions：select(管理员/成员) + button[aria-label=确认移除成员]
+    - section.org-section(运行资源)：h3=机器 (N)，buttons=刷新/新增机器
+    - section.org-danger-zone：危险区域 + button=删除组织
+"""
+import re
+import time
+
 from playwright.sync_api import Page
-from tests.pages import locators as loc
 
 
 class OrgPage:
@@ -14,280 +35,468 @@ class OrgPage:
 
     # ==================== 导航 ====================
 
-    def goto(self):
-        """通过侧边栏导航到组织管理页面"""
-        for _attempt in range(2):
-            try:
-                self.page.goto(self.url, wait_until="domcontentloaded")
-            except Exception:
-                pass  # SPA 路由可能中断初始导航
-            self.page.wait_for_load_state("domcontentloaded")
-            # 等待 React 渲染 + 组织按钮列表渲染完成
-            try:
-                self.page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
-            except Exception:
-                pass
-            if self.page.locator("div.agent-panel-content").count() > 0:
-                break
-            try:
-                self.page.wait_for_load_state("networkidle", timeout=5000)
-            except Exception:
-                pass
-            self.page.wait_for_timeout(500)
-        # 降级：侧边栏 SPA 导航
-        if self.page.locator("div.agent-panel-content").count() == 0:
-            nav_btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="组织")
-            if nav_btn.count() > 0:
-                nav_btn.first.wait_for(state="visible", timeout=5000)
-                nav_btn.first.click()
-                try:
-                    self.page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
-                except Exception:
-                    pass
+    def goto(self, timeout: int = 15000):
+        """直接导航到组织管理页，等待目录 + 详情两栏渲染完成。"""
         try:
-            self.page.locator("div.agent-panel-body button").first.wait_for(
-                state="visible", timeout=5000
-            )
+            self.page.goto(self.url, wait_until="domcontentloaded")
         except Exception:
             pass
-
-    def goto_via_sidebar(self):
-        """通过侧边栏按钮导航"""
-        btn = self.page.locator("button.agent-sidebar-nav-item").filter(has_text="组织")
-        btn.first.wait_for(state="visible", timeout=5000)
-        btn.first.click()
-        self.page.wait_for_load_state("domcontentloaded")
+        try:
+            self.page.wait_for_load_state("networkidle", timeout=8000)
+        except Exception:
+            pass
+        try:
+            self.page.locator("aside.org-directory").first.wait_for(state="visible", timeout=timeout)
+        except Exception:
+            pass
+        self.page.wait_for_timeout(600)
 
     def is_loaded(self) -> bool:
-        return "/ctrl/agent/organization" in self.page.url and self.page.locator("div.agent-panel-body").count() > 0
+        """页面是否已加载（目录栏 + 标题存在）。"""
+        return self.page.locator("aside.org-directory").count() > 0
 
-    # ==================== 组织列表 ====================
+    def wait_loaded(self, timeout: int = 10000):
+        self.page.locator("aside.org-directory").first.wait_for(state="visible", timeout=timeout)
 
-    def get_org_buttons(self):
-        """左侧组织列表按钮"""
-        body = self.page.locator("div.agent-panel-body")
-        return body.locator("button").filter(has_text="拥有者").or_(
-            body.locator("button").filter(has_text="成员").or_(
-                body.locator("button").filter(has_text="管理员")
-            )
-        )
+    # ==================== 组织目录（左列） ====================
 
-    def get_org_count(self) -> int:
-        """组织数量"""
-        body = self.page.locator("div.agent-panel-body")
-        btns = body.locator("button")
-        count = 0
-        for i in range(btns.count()):
-            text = btns.nth(i).inner_text()
-            if "拥有者" in text or "成员" in text or "管理员" in text:
-                # 排除成员列表中的角色文本（格式不同）
-                lines = text.strip().split("\n")
-                if len(lines) == 2 and lines[1].strip() in ("拥有者", "成员", "管理员"):
-                    count += 1
-        return count
+    def directory_rows(self):
+        """左列目录行 button.org-directory-row"""
+        return self.page.locator("aside.org-directory button.org-directory-row")
 
-    def has_org(self, name: str) -> bool:
-        """列表中是否有指定组织"""
-        body = self.page.locator("div.agent-panel-body")
-        return name in body.inner_text()
-
-    def click_org(self, name: str):
-        """点击左侧组织"""
-        body = self.page.locator("div.agent-panel-body")
-        btn = body.locator("button").filter(has_text=name)
-        if btn.count() > 0:
-            btn.first.wait_for(state="visible", timeout=5000)
-            btn.first.click()
-            self.page.wait_for_timeout(1000)
+    def _row_by_name(self, name: str):
+        """按显示名精确定位目录行（行内 strong 文本 == name）。"""
+        strong = self.page.locator("strong").filter(has_text=re.compile(rf"^{re.escape(name)}$"))
+        return self.directory_rows().filter(has=strong)
 
     def get_org_names(self) -> list[str]:
-        """获取组织名称列表"""
-        body = self.page.locator("div.agent-panel-body")
-        btns = body.locator("button")
+        """获取组织显示名列表。"""
         names = []
-        for i in range(btns.count()):
-            text = btns.nth(i).inner_text().strip()
-            # 格式: "ORG_NAME\n角色"
-            lines = text.split("\n")
-            if len(lines) == 2 and lines[1].strip() in ("拥有者", "成员", "管理员"):
-                names.append(lines[0].strip())
+        for i in range(self.directory_rows().count()):
+            strong = self.directory_rows().nth(i).locator("strong").first
+            txt = strong.inner_text().strip()
+            if txt:
+                names.append(txt)
         return names
+
+    def get_org_count(self) -> int:
+        """组织数量（目录行数）。"""
+        return self.directory_rows().count()
+
+    def has_org(self, name: str) -> bool:
+        """目录中是否存在指定显示名组织。"""
+        try:
+            for i in range(self.directory_rows().count()):
+                strong = self.directory_rows().nth(i).locator("strong").first
+                if strong.inner_text().strip() == name:
+                    return True
+        except Exception:
+            return False
+        return False
+
+    def click_org(self, name: str):
+        """点击左列某组织，等待右列详情切换到该组织。"""
+        row = self._row_by_name(name)
+        if row.count() == 0:
+            row = self.directory_rows().filter(has_text=name)
+        row.first.wait_for(state="visible", timeout=8000)
+        row.first.click()
+        self._wait_org_active(name)
+
+    def _wait_org_active(self, name: str, timeout: float = 8000):
+        """等待右侧详情 identity 标题变为 name。"""
+        deadline = time.time() + timeout / 1000
+        while time.time() < deadline:
+            try:
+                h2 = self.page.locator("header.org-detail-header div.org-detail-identity h2").first
+                if h2.is_visible() and h2.inner_text().strip() == name:
+                    return
+            except Exception:
+                pass
+            self.page.wait_for_timeout(200)
+        self.page.wait_for_timeout(500)
+
+    def active_org_name(self) -> str:
+        """当前选中组织的显示名。"""
+        try:
+            h2 = self.page.locator("header.org-detail-header div.org-detail-identity h2").first
+            if h2.is_visible():
+                return h2.inner_text().strip()
+        except Exception:
+            pass
+        return ""
+
+    # ==================== 右列详情文本 ====================
+
+    def get_detail_text(self) -> str:
+        """右列详情整体文本（identity 头部 + org-detail body）。"""
+        parts = []
+        hdr = self.page.locator("header.org-detail-header")
+        if hdr.count():
+            parts.append(hdr.first.inner_text())
+        body = self.page.locator("div.org-detail")
+        if body.count():
+            parts.append(body.first.inner_text())
+        return "\n".join(parts)
+
+    def detail_body(self):
+        """右列 body div.org-detail"""
+        return self.page.locator("div.org-detail")
 
     # ==================== 创建组织 ====================
 
-    def click_create_org(self):
-        body = self.page.locator("div.agent-panel-body").first
-        btn = body.get_by_role("button", name="创建组织")
-        btn.wait_for(state="visible", timeout=5000)
-        btn.click()
-        self.page.wait_for_timeout(1000)
+    def create_org_button(self):
+        """页面顶栏「创建组织」按钮（限定 main header）。"""
+        return self.page.locator("main header button, main button").filter(has_text="创建组织").first
 
     def has_create_button(self) -> bool:
-        body = self.page.locator("div.agent-panel-body").first
-        return body.get_by_role("button", name="创建组织").count() > 0
+        return self.page.locator("button").filter(has_text="创建组织").count() > 0
 
-    # ==================== 弹窗操作 ====================
+    def click_create_org(self):
+        btn = self.page.locator("button").filter(has_text="创建组织").first
+        btn.wait_for(state="visible", timeout=8000)
+        btn.click()
+        self._wait_dialog()
+
+    # ==================== 弹窗通用 ====================
 
     def is_dialog_open(self) -> bool:
-        dialog = self.page.locator("[role=dialog]")
-        return dialog.count() > 0 and dialog.first.is_visible()
+        d = self.page.locator("[role=dialog]")
+        return d.count() > 0 and d.first.is_visible()
+
+    def dialog(self):
+        return self.page.locator("[role=dialog]").first
 
     def get_dialog_title(self) -> str:
-        dialog = self.page.locator("[role=dialog]")
-        h2 = dialog.locator("h2")
-        if h2.count() > 0:
-            return h2.first.text_content().strip()
+        d = self.page.locator("[role=dialog]")
+        h = d.locator("h2")
+        if h.count() > 0:
+            return h.first.text_content().strip()
         return ""
 
-    def fill_dialog_input(self, placeholder: str, value: str):
-        dialog = self.page.locator("[role=dialog]")
-        inp = dialog.locator(f"input[placeholder*='{placeholder}']")
-        if inp.count() > 0:
-            inp.first.wait_for(state="visible", timeout=5000)
-            inp.first.fill(value)
-        else:
-            # 尝试不带 placeholder 的 input
-            inputs = dialog.locator("input[type=text]")
-            if inputs.count() > 0:
-                inputs.first.wait_for(state="visible", timeout=5000)
-                inputs.first.fill(value)
-
-    def submit_dialog(self):
-        dialog = self.page.locator("[role=dialog]")
-        btn = loc.save_or_submit_button(dialog).or_(
-            dialog.get_by_role("button", name="确认")
-        ).first
-        btn.wait_for(state="visible", timeout=5000)
-        btn.click()
-        self.page.wait_for_timeout(1000)
+    def _wait_dialog(self, timeout: float = 5000):
+        deadline = time.time() + timeout / 1000
+        while time.time() < deadline:
+            if self.is_dialog_open():
+                return
+            self.page.wait_for_timeout(150)
+        raise AssertionError("弹窗未打开")
 
     def cancel_dialog(self):
-        dialog = self.page.locator("[role=dialog]")
-        btn = dialog.get_by_role("button", name="取消")
-        btn.wait_for(state="visible", timeout=5000)
-        btn.click()
-        self.page.wait_for_timeout(500)
+        d = self.page.locator("[role=dialog]")
+        btn = d.get_by_role("button", name="取消")
+        if btn.count() > 0:
+            btn.first.click()
+        else:
+            self.page.keyboard.press("Escape")
+        self.page.wait_for_timeout(600)
 
     def close_dialog(self):
-        dialog = self.page.locator("[role=dialog]")
-        close_btn = dialog.locator("button").filter(has_text="Close")
+        d = self.page.locator("[role=dialog]")
+        close_btn = d.locator("button").filter(has_text="Close")
         if close_btn.count() > 0:
-            close_btn.first.wait_for(state="visible", timeout=5000)
             close_btn.first.click()
         else:
             self.page.keyboard.press("Escape")
-        self.page.wait_for_timeout(500)
+        self.page.wait_for_timeout(600)
 
-    def get_form_validation_text(self) -> str:
-        dialog = self.page.locator("[role=dialog]")
-        errors = dialog.locator("[data-slot='form-message'], [role='alert']")
-        if errors.count() == 0:
-            errors = dialog.locator("p.text-red-500, p.text-destructive")
-        if errors.count() > 0:
-            return errors.first.text_content().strip()
-        return ""
+    # ==================== 创建组织弹窗字段 ====================
 
-    # ==================== 组织详情面板 ====================
+    def create_name_input(self):
+        return self.page.locator("[role=dialog] input[placeholder='组织名称']").first
 
-    def get_detail_text(self) -> str:
-        """获取右侧详情面板文本"""
-        body = self.page.locator("div.agent-panel-body").first
-        return body.inner_text()
+    def create_slug_input(self):
+        return self.page.locator("[role=dialog] input[placeholder='url-identifier']").first
+
+    def fill_create_name(self, value: str):
+        inp = self.create_name_input()
+        inp.wait_for(state="visible", timeout=5000)
+        inp.fill(value)
+
+    def fill_create_slug(self, value: str):
+        inp = self.create_slug_input()
+        inp.wait_for(state="visible", timeout=5000)
+        inp.fill(value)
+
+    def create_submit_enabled(self) -> bool:
+        btn = self.page.locator("[role=dialog] button").filter(has_text="创建").first
+        try:
+            return not btn.is_disabled()
+        except Exception:
+            return False
+
+    def click_create_submit(self):
+        btn = self.page.locator("[role=dialog] button").filter(has_text="创建").first
+        btn.wait_for(state="visible", timeout=5000)
+        try:
+            btn.click()
+        except Exception:
+            btn.click(force=True)
+        self.page.wait_for_timeout(1200)
+
+    # ==================== 编辑组织（header 内联编辑） ====================
 
     def has_edit_button(self) -> bool:
-        body = self.page.locator("div.agent-panel-body").first
-        return body.get_by_role("button", name="编辑").count() > 0
+        return self.page.locator("header.org-detail-header button").filter(has_text="编辑").count() > 0
 
     def click_edit(self):
-        body = self.page.locator("div.agent-panel-body").first
-        btn = body.get_by_role("button", name="编辑")
+        btn = self.page.locator("header.org-detail-header button").filter(has_text="编辑").first
+        btn.wait_for(state="visible", timeout=8000)
+        btn.click()
+        self.page.wait_for_timeout(800)
+
+    def is_editing(self) -> bool:
+        return self.page.locator("header.org-detail-header div.org-name-editor").count() > 0
+
+    def edit_name_input(self):
+        return self.page.locator("header.org-detail-header div.org-name-editor input").first
+
+    def save_edit(self):
+        btn = self.page.locator("header.org-detail-header div.org-name-editor button").filter(has_text="保存").first
         btn.wait_for(state="visible", timeout=5000)
         btn.click()
-        self.page.wait_for_timeout(1000)
+        self.page.wait_for_timeout(1200)
 
-    # ==================== 成员管理 ====================
+    def cancel_edit(self):
+        btn = self.page.locator("header.org-detail-header div.org-name-editor button").filter(has_text="取消").first
+        if btn.count() > 0:
+            btn.click()
+            self.page.wait_for_timeout(800)
+
+    # ==================== 成员区（右列详情） ====================
+
+    def _member_section(self):
+        """包含 h3「成员 (N)」的 org-section。"""
+        return self.page.locator(
+            "div.org-detail section.org-section"
+        ).filter(has_text=re.compile(r"成员\s*\(")).first
+
+    def member_rows(self):
+        """成员区所有 org-list-row。"""
+        sec = self._member_section()
+        return sec.locator("div.org-list-row")
 
     def get_member_count(self) -> int:
-        """获取成员数量（从标题中提取）"""
-        body = self.page.locator("div.agent-panel-body").first
-        h3 = body.locator("h3").filter(has_text="成员")
-        if h3.count() > 0:
-            import re
-            text = h3.first.text_content()
-            match = re.search(r"(\d+)", text)
-            if match:
-                return int(match.group(1))
+        """成员数量（从 h3「成员 (N)」解析）。"""
+        try:
+            h3 = self._member_section().locator("h3").filter(has_text=re.compile(r"成员\s*\(")).first
+            m = re.search(r"(\d+)", h3.inner_text())
+            if m:
+                return int(m.group(1))
+        except Exception:
+            pass
         return 0
 
+    def has_member(self, name: str) -> bool:
+        try:
+            for i in range(self.member_rows().count()):
+                strong = self.member_rows().nth(i).locator("div.org-list-main strong").first
+                if strong.inner_text().strip() == name:
+                    return True
+        except Exception:
+            return False
+        return False
+
+    def member_row(self, name: str):
+        """按姓名定位成员行（div.org-list-main strong == name）。"""
+        return self.member_rows().filter(has_text=name)
+
     def has_add_member_button(self) -> bool:
-        body = self.page.locator("div.agent-panel-body").first
-        return body.get_by_role("button", name="添加成员").count() > 0
+        sec = self._member_section()
+        return sec.get_by_role("button", name="添加成员").count() > 0
 
     def click_add_member(self):
-        body = self.page.locator("div.agent-panel-body").first
-        btn = body.get_by_role("button", name="添加成员")
+        sec = self._member_section()
+        btn = sec.get_by_role("button", name="添加成员").first
+        btn.wait_for(state="visible", timeout=8000)
+        btn.click()
+        self._wait_dialog()
+
+    # ==================== 添加成员弹窗 ====================
+
+    def add_member_search_input(self):
+        d = self.page.locator("[role=dialog]")
+        inp = d.locator("input[placeholder*='搜索']").first
+        inp.wait_for(state="visible", timeout=5000)
+        return inp
+
+    def search_add_candidate(self, keyword: str, enter: bool = True, wait: float = 2500):
+        """在添加成员弹窗输入关键词并等待候选，随后按 Enter 选中高亮候选。"""
+        inp = self.add_member_search_input()
+        inp.fill(keyword)
+        deadline = time.time() + wait / 1000
+        while time.time() < deadline:
+            if self.page.locator("[role=dialog] [role=option]").count() > 0:
+                break
+            self.page.wait_for_timeout(200)
+        if enter:
+            inp.press("Enter")
+            self.page.wait_for_timeout(1000)
+
+    def select_add_role(self, role: str = "成员"):
+        sel = self.page.locator("[role=dialog] select").first
+        sel.wait_for(state="visible", timeout=5000)
+        try:
+            sel.select_option(label=role)
+        except Exception:
+            sel.select_option(value=role)
+        self.page.wait_for_timeout(300)
+
+    def add_submit_enabled(self) -> bool:
+        btn = self.page.locator("[role=dialog] button").filter(has_text="添加").first
+        try:
+            return not btn.is_disabled()
+        except Exception:
+            return False
+
+    def click_add_submit(self):
+        btn = self.page.locator("[role=dialog] button").filter(has_text="添加").first
         btn.wait_for(state="visible", timeout=5000)
         btn.click()
-        self.page.wait_for_timeout(1000)
+        self.page.wait_for_timeout(1200)
 
-    # ==================== 危险区域 ====================
+    def add_member(self, keyword: str, role: str = "成员"):
+        """完整添加成员：搜索→Enter→选角色→点添加。返回是否成功执行。"""
+        self.search_add_candidate(keyword, enter=True)
+        # 确保已选中（Enter 后添加按钮应可用）
+        if not self.add_submit_enabled():
+            self.page.wait_for_timeout(800)
+        self.select_add_role(role)
+        if not self.add_submit_enabled():
+            return False
+        self.click_add_submit()
+        return True
 
-    def has_delete_org_button(self) -> bool:
-        body = self.page.locator("div.agent-panel-body").first
-        return body.get_by_role("button", name="删除组织").count() > 0
+    # ==================== 移除成员 ====================
 
-    def click_delete_org(self):
-        body = self.page.locator("div.agent-panel-body").first
-        btn = body.get_by_role("button", name="删除组织")
-        btn.wait_for(state="visible", timeout=5000)
-        btn.click()
-        self.page.wait_for_timeout(1000)
-
-    def has_danger_zone(self) -> bool:
-        body = self.page.locator("div.agent-panel-body").first
-        return "危险区域" in body.inner_text()
-
-    # ==================== 确认弹窗 ====================
+    def click_remove_member(self, name: str):
+        """点击成员行的「确认移除成员」按钮（打开确认弹窗）。"""
+        row = self.member_row(name).first
+        row.wait_for(state="visible", timeout=8000)
+        rm_btn = row.locator("button[aria-label='确认移除成员']").first
+        rm_btn.wait_for(state="visible", timeout=5000)
+        rm_btn.click()
+        self.page.wait_for_timeout(900)
 
     def is_alert_dialog_open(self) -> bool:
-        dialog = self.page.locator("[role=alertdialog]")
-        return dialog.count() > 0 and dialog.first.is_visible()
+        d = self.page.locator("[role=alertdialog]")
+        return d.count() > 0 and d.first.is_visible()
 
     def get_alert_dialog_text(self) -> str:
-        dialog = self.page.locator("[role=alertdialog]")
-        if dialog.count() > 0:
-            return dialog.first.inner_text().strip()
+        d = self.page.locator("[role=alertdialog]")
+        if d.count() > 0:
+            return d.first.inner_text().strip()
         return ""
 
-    def confirm_alert(self):
-        dialog = self.page.locator("[role=alertdialog]")
-        btn = loc.confirm_button(dialog).first
+    def click_alert_button(self, name: str):
+        btn = self.page.locator("[role=alertdialog] button").filter(has_text=name).first
         btn.wait_for(state="visible", timeout=5000)
+        btn.click()
+        self.page.wait_for_timeout(1200)
+
+    def cancel_alert(self):
+        btn = self.page.locator("[role=alertdialog] button").filter(has_text="取消").first
+        if btn.count() > 0:
+            btn.click()
+        else:
+            self.page.keyboard.press("Escape")
+        self.page.wait_for_timeout(600)
+
+    # ==================== 危险区域 / 删除组织 ====================
+
+    def danger_zone(self):
+        return self.page.locator("div.org-detail section.org-danger-zone").first
+
+    def has_danger_zone(self) -> bool:
+        return self.page.locator("section.org-danger-zone").count() > 0
+
+    def get_danger_text(self) -> str:
+        try:
+            return self.danger_zone().inner_text().strip()
+        except Exception:
+            return ""
+
+    def has_delete_org_button(self) -> bool:
+        return self.page.locator("section.org-danger-zone button").filter(has_text="删除组织").count() > 0
+
+    def click_delete_org(self):
+        btn = self.page.locator("section.org-danger-zone button").filter(has_text="删除组织").first
+        btn.wait_for(state="visible", timeout=8000)
         btn.click()
         self.page.wait_for_timeout(1000)
 
-    def cancel_alert(self):
-        dialog = self.page.locator("[role=alertdialog]")
-        btn = dialog.get_by_role("button", name="取消")
-        btn.wait_for(state="visible", timeout=5000)
-        btn.click()
-        self.page.wait_for_timeout(500)
+    def confirm_delete_org(self):
+        """在删除组织确认弹窗中点击「确认删除」。调用前应先读弹窗文本确认对象。"""
+        self.click_alert_button("确认删除")
+
+    # ==================== 默认执行节点 / 机器区 ====================
+
+    def engine_strip(self):
+        return self.page.locator("div.org-detail div.org-engine-strip").first
+
+    def default_node_select(self):
+        return self.page.locator("div.org-engine-strip select").first
+
+    def has_engine_strip(self) -> bool:
+        return self.page.locator("div.org-engine-strip").count() > 0
+
+    def machine_section(self):
+        return self.page.locator(
+            "div.org-detail section.org-section"
+        ).filter(has_text=re.compile(r"机器\s*\(")).first
+
+    def has_machine_region(self) -> bool:
+        return self.page.locator("div.org-detail h3").filter(has_text=re.compile(r"机器\s*\(")).count() > 0
+
+    def get_machine_count(self) -> int:
+        try:
+            h3 = self.page.locator("div.org-detail h3").filter(has_text=re.compile(r"机器\s*\(")).first
+            m = re.search(r"(\d+)", h3.inner_text())
+            if m:
+                return int(m.group(1))
+        except Exception:
+            pass
+        return 0
+
+    def has_machine_buttons(self) -> bool:
+        sec = self.machine_section()
+        btns = sec.locator("button").filter(has_text="新增机器").or_(
+            sec.locator("button").filter(has_text="刷新")
+        )
+        return btns.count() > 0
+
+    # ==================== Toast ====================
+
+    def read_toast_texts(self) -> list[str]:
+        """右上角通知区全部 toast 文本（新 toast 在 index 0）。"""
+        return self.page.evaluate("""() => {
+            const out = [];
+            for (const li of document.querySelectorAll('li')) {
+                if (!li.querySelector('button')) continue;
+                const t = (li.textContent || '').replace('Close toast', '').trim();
+                if (t) out.push(t);
+            }
+            return out;
+        }""")
+
+    def get_last_toast_text(self, timeout: float = 6000) -> str:
+        deadline = time.time() + timeout / 1000
+        while time.time() < deadline:
+            toasts = self.read_toast_texts()
+            if toasts:
+                return toasts[0]
+            self.page.wait_for_timeout(200)
+        return ""
 
     # ==================== API 拦截 ====================
 
     def intercept_api(self, url_pattern: str):
-        # 移除之前的监听器，避免累积
-
-        if hasattr(self, '_last_listener') and self._last_listener:
-
+        """设置 API 响应拦截，返回收集列表（列表实时追加）。"""
+        if getattr(self, '_last_listener', None):
             try:
-
                 self.page.remove_listener("response", self._last_listener)
-
             except Exception:
-
                 pass
-
         collected = []
 
         def on_response(resp):

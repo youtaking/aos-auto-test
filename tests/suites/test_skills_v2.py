@@ -1,1098 +1,25 @@
 # tests/suites/test_skills_v2.py
-"""技能管理 V2 回归测试（列表加载、搜索、骨架屏、Open-API）"""
+"""技能库 V2 回归测试 — 新版两栏「技能库」页面（2026-09 DOM 全量改写）
+
+覆盖：列表加载 / 搜索过滤 / 骨架屏 / API 列表与详情 / API 上传 / UI 删除 /
+文件夹导入（含同名冲突 跳过/覆盖）/ ZIP 下载 / 作用域归属筛选 /
+公开只读查看 / 公开切换 / 文本创建 / 必填校验 / 取消 / 编辑保存与取消 / 重名。
+
+铁律遵守：只自建自销，不操作系统已有数据；删除/覆盖前校验确认弹窗含目标名；
+选择器一律限定 main / catalog / dialog 容器。
+"""
 import json
 import os
+import re
+import shutil
 import tempfile
+import time
 import uuid
-import requests
-import pytest
+
 import allure
+import pytest
+import requests
 
-
-@allure.epic("技能管理")
-@pytest.mark.order(70)
-@pytest.mark.p0
-def test_skill_list_data_loads(logged_in_page, base_url):
-    """TC-SKILL-001: 技能列表数据加载 — 页面加载并展示已有技能 | ✅ 人工评审通过 |"""
-    from tests.pages.config_pages import SkillsPage
-
-    skills = SkillsPage(logged_in_page, base_url)
-    skills.goto()
-
-    assert skills.is_loaded(), "技能管理页面未加载"
-
-    count = skills.get_skill_count()
-    if count == 0:
-        pytest.skip("技能列表为空，环境无技能数据")
-    assert count > 0, "技能列表为空"
-
-    assert skills.has_upload_button(), "缺少「上传技能」按钮"
-
-
-@allure.epic("技能管理")
-@pytest.mark.order(71)
-@pytest.mark.p1
-def test_skill_search_filter(logged_in_page, base_url):
-    """TC-SKILL-005: 技能搜索过滤 — 搜索后列表实时过滤，清空恢复 | ✅ 人工评审通过 |"""
-    from tests.pages.config_pages import SkillsPage
-
-    skills = SkillsPage(logged_in_page, base_url)
-    skills.goto()
-
-    initial_count = skills.get_visible_skill_cards()
-    if initial_count == 0:
-        pytest.skip("技能列表为空，无法测试搜索")
-
-    # 从第一个技能卡片取真实名称作为搜索词
-    first_card = logged_in_page.locator("div.group.relative:not(.agent-sidebar-agent)").first
-    first_name = first_card.locator("span, h3, h4, div.font-medium").first.inner_text().strip()
-    if not first_name:
-        pytest.skip("无法获取技能名称")
-
-    # 搜索真实名称 → 应至少匹配到这一个
-    skills.search(first_name)
-    try:
-        logged_in_page.locator("div.group.relative:not(.agent-sidebar-agent):visible").first.wait_for(
-            state="visible", timeout=5000
-        )
-    except Exception:
-        pass
-    filtered_count = skills.get_visible_skill_cards()
-    assert 0 < filtered_count < initial_count, (
-        f"搜索 '{first_name}' 后数量异常: {filtered_count}（初始: {initial_count}）"
-    )
-
-    # 搜索不存在的内容 → 应为 0
-    inp = logged_in_page.locator("input[placeholder*='搜索技能']")
-    assert inp.count() > 0, "搜索框不存在"
-    inp.first.click()
-    logged_in_page.keyboard.press("Control+a")
-    logged_in_page.keyboard.press("Backspace")
-    logged_in_page.wait_for_timeout(300)
-    logged_in_page.keyboard.type("zzznonexist999", delay=50)
-    # 等待过滤生效
-    logged_in_page.wait_for_timeout(800)
-    empty_count = skills.get_visible_skill_cards()
-    # 注：React 受控输入在自动化环境中可能不触发重渲染，仅记录不强制断言
-    import allure
-    allure.attach(
-        f"搜索 'zzznonexist999' 后可见卡片: {empty_count}（预期 0）",
-        name="搜索不存在内容", attachment_type=allure.attachment_type.TEXT,
-    )
-
-    # 清空搜索恢复（轮询等待 React 列表重渲染完成）
-    skills.clear_search()
-    restored_count = 0
-    for _ in range(20):  # 最多 10s
-        logged_in_page.wait_for_timeout(500)
-        restored_count = skills.get_visible_skill_cards()
-        if restored_count >= initial_count:
-            break
-    # React 渲染延迟时刷新页面兜底
-    if restored_count < initial_count:
-        try:
-            logged_in_page.reload(wait_until="domcontentloaded")
-            logged_in_page.locator("input[placeholder*='搜索技能']").first.wait_for(
-                state="attached", timeout=10000
-            )
-            logged_in_page.wait_for_load_state("networkidle")
-            logged_in_page.wait_for_timeout(500)
-            restored_count = skills.get_visible_skill_cards()
-        except Exception:
-            pass
-    assert restored_count == initial_count, (
-        f"清空搜索后未恢复: {restored_count} vs {initial_count}"
-    )
-
-
-@allure.epic("技能管理")
-@pytest.mark.order(72)
-@pytest.mark.p1
-def test_skill_list_loading_skeleton(logged_in_page, base_url):
-    """TC-SKILL-008: 列表加载骨架屏 — 加载过程中显示骨架屏或 Spinner | ✅ 人工评审通过（修复缓存导致间歇失败）|"""
-    from tests.pages.config_pages import SkillsPage
-    import time
-
-    skills = SkillsPage(logged_in_page, base_url)
-
-    # 使用 page.route() 拦截 API 并人为延迟 3 秒，确保骨架屏必定出现
-    def delay_skills_api(route):
-        time.sleep(3)
-        route.continue_()
-
-    logged_in_page.route("**/web/config/skills*", delay_skills_api)
-
-    # 先导航到其他页面，并清除浏览器缓存（防止应用级数据缓存跳过 API）
-    try:
-        logged_in_page.goto(f"{base_url}/ctrl/agent/dashboard", wait_until="domcontentloaded")
-    except Exception:
-        pass  # SPA 路由可能中断初始导航
-    logged_in_page.wait_for_load_state("domcontentloaded")
-    logged_in_page.evaluate("() => { sessionStorage.clear(); localStorage.clear(); }")
-
-    # 导航到技能页（不等 networkidle，立即检查骨架屏）
-    logged_in_page.goto(skills.url, wait_until="commit")
-
-    # 等待骨架屏出现（用 wait_for 替代固定等待，适配 CI 慢环境）
-    skeleton = logged_in_page.locator(
-        "[data-slot='skeleton'], div.animate-pulse, [role='progressbar']"
-    )
-    had_loading = False
-    try:
-        skeleton.first.wait_for(state="visible", timeout=5000)
-        had_loading = True
-    except Exception:
-        had_loading = skills.has_skeleton_or_spinner()
-
-    # 等待 API 延迟结束 + 加载完成
-    logged_in_page.wait_for_load_state("domcontentloaded")
-
-    # 取消路由拦截
-    logged_in_page.unroute("**/web/config/skills*")
-
-    # 加载完成后骨架屏应消失（等待额外时间确保 React 渲染完成）
-    logged_in_page.wait_for_timeout(1000)
-    still_loading = skills.has_skeleton_or_spinner()
-    # 骨架屏可能因为 React 状态更新延迟，做轮询检查
-    if still_loading:
-        for _ in range(5):
-            logged_in_page.wait_for_timeout(1000)
-            still_loading = skills.has_skeleton_or_spinner()
-            if not still_loading:
-                break
-    assert not still_loading, "加载完成后骨架屏/Spinner 未消失"
-
-    # 最终页面应正常加载
-    assert skills.is_loaded(), "技能管理页面最终未加载成功"
-
-    # 骨架屏应该被捕获（因为 API 被延迟了 3 秒）
-    assert had_loading, "API 延迟 3 秒后仍未检测到骨架屏/Spinner"
-
-
-@allure.epic("技能管理")
-@pytest.mark.order(73)
-@pytest.mark.p0
-def test_skill_api_list_and_detail(logged_in_page, base_url):
-    """TC-SKILL-016: 内部 API 获取 Skill 列表和详情 | ✅ 人工评审通过（改用内部 API）|"""
-    import requests
-
-    # ── Step 1: 获取 session cookie ──
-    cookies = logged_in_page.context.cookies()
-    session_cookie = next(
-        (c for c in cookies if c["name"].startswith("better-auth")),
-        None,
-    )
-    assert session_cookie is not None, "未获取到登录 session cookie"
-    cookie_jar = {session_cookie["name"]: session_cookie["value"]}
-
-    # ── Step 2: GET /web/config/skills — 获取列表 ──
-    list_resp = requests.get(
-        f"{base_url}/web/config/skills",
-        cookies=cookie_jar,
-        timeout=10,
-    )
-    assert list_resp.status_code == 200, f"获取 Skill 列表失败: HTTP {list_resp.status_code}"
-    body = list_resp.json()
-    assert body.get("success") is True, f"API 返回 success=false: {body}"
-    items = body.get("data", {}).get("skills", [])
-    assert len(items) > 0, "Skill 列表为空"
-
-    # 验证每条 skill 有必需字段
-    first = items[0]
-    assert "name" in first, "skill 缺少 name 字段"
-
-    # ── Step 3: GET /web/config/skills/:name — 获取详情 ──
-    skill_name = first["name"]
-    detail_resp = requests.get(
-        f"{base_url}/web/config/skills/{skill_name}",
-        cookies=cookie_jar,
-        timeout=10,
-    )
-    assert detail_resp.status_code == 200, f"获取 Skill 详情失败: HTTP {detail_resp.status_code}"
-    detail_body = detail_resp.json()
-    assert detail_body.get("success") is True, f"详情 API 返回 success=false: {detail_body}"
-    detail = detail_body.get("data", {})
-    assert detail.get("name") == skill_name, f"详情名称与列表不一致: {detail.get('name')} vs {skill_name}"
-
-
-@allure.epic("技能管理")
-@pytest.mark.order(74)
-@pytest.mark.p0
-def test_skill_upload(logged_in_page, base_url):
-    """TC-SKILL-015: 内部 API 上传 Skill（POST /web/config/skills/upload）| ✅ 人工评审通过（改用内部 API）|"""
-    import json, requests
-
-    # ── Step 1: 获取 session cookie ──
-    cookies = logged_in_page.context.cookies()
-    session_cookie = next(
-        (c for c in cookies if c["name"].startswith("better-auth")),
-        None,
-    )
-    assert session_cookie is not None, "未获取到登录 session cookie"
-    cookie_jar = {session_cookie["name"]: session_cookie["value"]}
-
-    skill_name = "auto-test-skill-internal"
-    skill_content = (
-        "---\nname: auto-test-skill-internal\ndescription: 自动化测试技能(内部API上传)\n---\n\n"
-        "# Auto Test Skill (Internal API)\n\nThis is a test skill uploaded via internal API.\n"
-    )
-
-    # ── Step 2: 先清理同名残留 ──
-    list_resp = requests.get(f"{base_url}/web/config/skills", cookies=cookie_jar, timeout=10)
-    if list_resp.status_code == 200:
-        for s in list_resp.json().get("data", {}).get("skills", []):
-            if s.get("name") == skill_name:
-                requests.delete(
-                    f"{base_url}/web/config/skills/{skill_name}",
-                    cookies=cookie_jar,
-                    timeout=10,
-                )
-
-    # ── Step 3: POST /web/config/skills/upload — 上传技能 ──
-    manifest = json.dumps([{"skillName": skill_name, "relativePath": "SKILL.md"}])
-    upload_files = {
-        "manifest": (None, manifest, "application/json"),
-        "files": ("SKILL.md", skill_content, "text/markdown"),
-    }
-    resp = requests.post(
-        f"{base_url}/web/config/skills/upload",
-        files=upload_files,
-        cookies=cookie_jar,
-        timeout=15,
-    )
-    assert resp.status_code < 400, f"上传 Skill 失败: HTTP {resp.status_code}, body={resp.text[:300]}"
-    upload_body = resp.json()
-    assert upload_body.get("success") is True, f"上传返回 success=false: {upload_body}"
-
-    # ── Step 4: 验证上传后列表中能找到该技能 ──
-    list_resp = requests.get(f"{base_url}/web/config/skills", cookies=cookie_jar, timeout=10)
-    assert list_resp.status_code == 200, f"获取 Skill 列表失败: HTTP {list_resp.status_code}"
-    items = list_resp.json().get("data", {}).get("skills", [])
-    found = any(s.get("name") == skill_name for s in items)
-    assert found, f"上传后列表中未找到技能 '{skill_name}'"
-
-    # ── Step 5: 清理 — DELETE /web/config/skills/:name ──
-    del_resp = requests.delete(
-        f"{base_url}/web/config/skills/{skill_name}",
-        cookies=cookie_jar,
-        timeout=10,
-    )
-    assert del_resp.status_code < 400, f"清理测试技能失败: HTTP {del_resp.status_code}"
-
-
-@allure.epic("技能管理")
-@pytest.mark.order(75)
-@pytest.mark.p0
-def test_skill_delete_via_ui(logged_in_page, base_url):
-    """TC-SKILL-017: 内部 API 上传 + 页面 UI 删除 Skill | ✅ 人工评审通过（改用内部 API）|"""
-    import json, requests
-
-    # ── Step 1: 获取 session cookie ──
-    cookies = logged_in_page.context.cookies()
-    session_cookie = next(
-        (c for c in cookies if c["name"].startswith("better-auth")),
-        None,
-    )
-    assert session_cookie is not None, "未获取到登录 session cookie"
-    cookie_jar = {session_cookie["name"]: session_cookie["value"]}
-
-    # ── Step 2: 通过内部 API 上传临时测试技能（先清理同名残留）──
-    skill_name = "delete-ui-test-skill"
-
-    list_resp = requests.get(f"{base_url}/web/config/skills", cookies=cookie_jar, timeout=10)
-    if list_resp.status_code == 200:
-        for s in list_resp.json().get("data", {}).get("skills", []):
-            if s.get("name") == skill_name:
-                requests.delete(
-                    f"{base_url}/web/config/skills/{skill_name}",
-                    cookies=cookie_jar,
-                    timeout=10,
-                )
-
-    manifest = json.dumps([{"skillName": skill_name, "relativePath": "SKILL.md"}])
-    content = (
-        "---\nname: delete-ui-test-skill\ndescription: 页面删除测试用临时技能\n---\n\n"
-        "# Delete UI Test Skill\n\nTemp skill for delete test.\n"
-    )
-    upload_resp = requests.post(
-        f"{base_url}/web/config/skills/upload",
-        files={
-            "manifest": (None, manifest, "application/json"),
-            "files": ("SKILL.md", content, "text/markdown"),
-        },
-        cookies=cookie_jar,
-        timeout=15,
-    )
-    assert upload_resp.status_code < 400, f"预置测试技能上传失败: HTTP {upload_resp.status_code}"
-
-    # ── Step 2b: 验证上传在 API 层面生效（全量回归时服务端可能延迟写入）──
-    for _verify in range(5):
-        verify_resp = requests.get(f"{base_url}/web/config/skills", cookies=cookie_jar, timeout=10)
-        if verify_resp.status_code == 200:
-            skills_list = verify_resp.json().get("data", {}).get("skills", [])
-            if any(s.get("name") == skill_name for s in skills_list):
-                break
-        import time as _time
-        _time.sleep(1)
-    else:
-        pytest.fail(f"上传后 API 列表中未找到技能 '{skill_name}'，服务端可能写入延迟")
-
-    # ── Step 3: 导航到技能管理页面 ──
-    try:
-        logged_in_page.goto(f"{base_url}/ctrl/agent/skills", wait_until="domcontentloaded")
-    except Exception:
-        pass  # SPA 路由可能中断初始导航
-    logged_in_page.wait_for_load_state("domcontentloaded")
-    try:
-        logged_in_page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
-    except Exception:
-        pass
-
-    # ── Step 4: 找到测试技能卡片的删除按钮 ──
-    # 等待骨架屏消失（技能列表 API 加载需要时间）
-    skeleton = logged_in_page.locator("[data-slot='skeleton'], .animate-pulse")
-    try:
-        skeleton.first.wait_for(state="hidden", timeout=15000)
-    except Exception:
-        pass  # 可能已经没有骨架屏了
-
-    # 查找技能名（全量回归时 UI 渲染可能滞后于 API，刷新重试一次）
-    skill_name_el = logged_in_page.locator(f"text={skill_name}").first
-    try:
-        skill_name_el.wait_for(state="visible", timeout=15000)
-    except Exception:
-        # 用 goto 重新导航（比 reload 更彻底，能清除 SPA 内存缓存）
-        try:
-            logged_in_page.goto(f"{base_url}/ctrl/agent/skills", wait_until="networkidle")
-        except Exception:
-            try:
-                logged_in_page.goto(f"{base_url}/ctrl/agent/skills", wait_until="domcontentloaded")
-            except Exception:
-                pass
-        # 等待页面主容器
-        try:
-            logged_in_page.locator("div.agent-panel-content").first.wait_for(
-                state="attached", timeout=10000
-            )
-        except Exception:
-            pass
-        # 等待骨架屏消失
-        skeleton = logged_in_page.locator("[data-slot='skeleton'], .animate-pulse")
-        try:
-            skeleton.first.wait_for(state="hidden", timeout=12000)
-        except Exception:
-            pass
-        # 如果还没出现，轮询等待（API 已确认存在，只是 UI 渲染延迟）
-        found = False
-        for _poll in range(8):
-            el = logged_in_page.locator(f"text={skill_name}").first
-            if el.count() > 0 and el.is_visible():
-                found = True
-                break
-            logged_in_page.wait_for_timeout(1500)
-        if not found:
-            pytest.fail(f"页面中未找到技能 '{skill_name}'（重新导航后仍未出现，上传可能未生效）")
-        skill_name_el = logged_in_page.locator(f"text={skill_name}").first
-
-    card = skill_name_el.locator("xpath=ancestor::div[contains(@class,'group')]").first
-    delete_btn = card.locator("button", has_text="删除")
-    assert delete_btn.count() > 0, "测试技能卡片中未找到删除按钮"
-
-    # ── Step 5: 拦截 DELETE 响应并点击删除 ──
-    delete_result = []
-
-    def on_delete_resp(r):
-        if "skill" in r.url.lower() and r.request.method == "DELETE":
-            delete_result.append({"status": r.status, "url": r.url})
-
-    logged_in_page.on("response", on_delete_resp)
-
-    delete_btn.wait_for(state="visible", timeout=5000)
-    delete_btn.click()
-
-    # ── Step 6: 确认对话框 ──
-    confirm_btn = logged_in_page.locator("[role='alertdialog'] [data-slot='alert-dialog-action']")
-    try:
-        confirm_btn.first.wait_for(state="visible", timeout=5000)
-    except Exception:
-        pytest.fail("删除确认对话框未弹出或无确认按钮")
-    confirm_btn.first.click()
-
-    # ── Step 7: 验证 ──
-    # 7a. DELETE API 应成功
-    try:
-        logged_in_page.wait_for_function(
-            "() => true",  # just wait a tick for response interception
-            timeout=3000,
-        )
-    except Exception:
-        pass
-    logged_in_page.wait_for_timeout(1000)
-    assert len(delete_result) > 0, "未拦截到 DELETE API 请求"
-    assert delete_result[0]["status"] < 400, f"删除 API 失败: HTTP {delete_result[0]['status']}"
-
-    # 7b. 页面中该技能应消失
-    try:
-        logged_in_page.locator(f"text={skill_name}").first.wait_for(
-            state="hidden", timeout=5000
-        )
-    except Exception:
-        pass
-    remaining = logged_in_page.locator(f"text={skill_name}")
-    assert remaining.count() == 0, f"删除后页面仍显示技能 '{skill_name}'"
-
-
-# ==================== 补充测试（TC-SKILL-018 ~ 023）====================
-
-
-@allure.epic("技能管理")
-@pytest.mark.order(76)
-@pytest.mark.p0
-def test_skill_folder_upload(logged_in_page, base_url):
-    """TC-SKILL-018: 文件夹批量上传 — 通过 webkitdirectory 上传整个文件夹"""
-    from tests.pages.config_pages import SkillsPage
-
-    skills = SkillsPage(logged_in_page, base_url)
-    skills.goto()
-    assert skills.is_loaded(), "技能管理页面未加载"
-
-    # 点击上传按钮打开上传对话框
-    upload_btn = logged_in_page.get_by_role("button", name="上传技能")
-    if upload_btn.count() == 0:
-        upload_btn = logged_in_page.get_by_role("button", name="上传")
-    if upload_btn.count() == 0:
-        pytest.skip("上传按钮不存在，可能当前版本不支持 UI 上传")
-    assert upload_btn.count() > 0, "上传按钮不存在"
-    upload_btn.first.wait_for(state="visible", timeout=5000)
-    upload_btn.first.click()
-    logged_in_page.wait_for_timeout(800)
-
-    # 检查是否有文件夹上传选项
-    dialog = logged_in_page.locator("[role=dialog]")
-    if dialog.count() > 0 and dialog.first.is_visible():
-        dialog_text = dialog.first.inner_text()
-
-        # 查找文件夹上传相关按钮或文本
-        folder_btn = dialog.get_by_role("button", name="文件夹").or_(
-            dialog.locator("button").filter(has_text="文件夹")
-        )
-
-        if folder_btn.count() > 0:
-            folder_btn.first.click()
-            logged_in_page.wait_for_timeout(800)
-
-        # 验证 webkitdirectory 输入存在
-        dir_input = dialog.locator("input[webkitdirectory]")
-        has_dir_input = dir_input.count() > 0
-
-        if has_dir_input:
-            allure.attach(
-                "找到 webkitdirectory 文件输入，支持文件夹上传",
-                name="验证结果",
-                attachment_type=allure.attachment_type.TEXT,
-            )
-        else:
-            allure.attach(
-                "未找到 webkitdirectory 输入，可能浏览器不支持或 UI 未提供文件夹上传",
-                name="备注",
-                attachment_type=allure.attachment_type.TEXT,
-            )
-
-        # 关闭对话框
-        logged_in_page.keyboard.press("Escape")
-        logged_in_page.wait_for_timeout(500)
-    else:
-        pytest.skip("上传对话框未打开")
-
-
-@allure.epic("技能管理")
-@pytest.mark.order(77)
-@pytest.mark.p1
-def test_skill_download_export(logged_in_page, base_url):
-    """TC-SKILL-019: ZIP 下载导出 — 点击下载按钮，触发 ZIP 文件下载"""
-    from tests.pages.config_pages import SkillsPage
-
-    skills = SkillsPage(logged_in_page, base_url)
-    skills.goto()
-    assert skills.is_loaded(), "技能管理页面未加载"
-
-    count = skills.get_skill_count()
-    if count == 0:
-        pytest.skip("技能列表为空")
-
-    # 查找下载按钮（第一个技能卡片的下载按钮）
-    download_btn = logged_in_page.locator("button[title='下载']").or_(
-        logged_in_page.locator("button").filter(has_text="下载")
-    )
-
-    if download_btn.count() > 0 and download_btn.first.is_visible():
-        # 使用 expect_download 捕获下载
-        with logged_in_page.expect_download(timeout=15000) as dl_info:
-            download_btn.first.click()
-        download = dl_info.value
-
-        # 验证下载的文件名
-        suggested_name = download.suggested_filename
-        assert suggested_name, "下载文件名为空"
-        allure.attach(
-            f"下载文件名: {suggested_name}",
-            name="下载信息",
-            attachment_type=allure.attachment_type.TEXT,
-        )
-
-        # 验证是否为 ZIP 文件
-        assert suggested_name.endswith(".zip"), \
-            f"下载文件不是 ZIP 格式: {suggested_name}"
-
-        # 保存并验证 ZIP 内容
-        save_path = os.path.join(tempfile.gettempdir(), suggested_name)
-        download.save_as(save_path)
-        assert os.path.exists(save_path), "下载文件未保存成功"
-        assert os.path.getsize(save_path) > 0, "下载文件大小为 0"
-
-        # 清理下载的文件
-        if os.path.exists(save_path):
-            os.remove(save_path)
-    else:
-        allure.attach(
-            "未找到技能下载按钮，可能当前版本不支持下载功能",
-            name="备注",
-            attachment_type=allure.attachment_type.TEXT,
-        )
-
-
-@allure.epic("技能管理")
-@pytest.mark.order(78)
-@pytest.mark.p1
-def test_skill_group_display(logged_in_page, base_url):
-    """TC-SKILL-020: 技能分组展示 — 私有/共享分组正确显示"""
-    from tests.pages.config_pages import SkillsPage
-
-    skills = SkillsPage(logged_in_page, base_url)
-    skills.goto()
-    assert skills.is_loaded(), "技能管理页面未加载"
-
-    count = skills.get_skill_count()
-    if count == 0:
-        pytest.skip("技能列表为空")
-
-    body_text = logged_in_page.inner_text("body")
-
-    # 检查分组标题
-    has_private = any(kw in body_text for kw in ["私有", "私人", "Private", "我的"])
-    has_shared = any(kw in body_text for kw in ["共享", "公共", "Shared", "团队"])
-
-    if has_private or has_shared:
-        allure.attach(
-            f"分组检测: 私有={has_private}, 共享={has_shared}",
-            name="分组信息",
-            attachment_type=allure.attachment_type.TEXT,
-        )
-
-        # 验证分组标题元素存在
-        # 真实 DOM：sectionTitle() 渲染 div.mb-3.border-b > span (标题) + span (计数)
-        # 中文文本："私有技能" / "他人共享技能"；英文："Private" / "Shared"
-        group_headers = logged_in_page.locator(
-            "div.mb-3.border-b span, "
-            "span:text-is('私有技能'), span:text-is('他人共享技能'), "
-            "span:text-is('Private'), span:text-is('Shared')"
-        )
-        assert group_headers.count() > 0, "分组标题元素不存在"
-    else:
-        # 可能没有分组功能，验证技能卡片都存在
-        delete_btns = logged_in_page.locator("button").filter(has_text="删除")
-        assert delete_btns.count() > 0, "技能卡片未显示"
-        allure.attach(
-            "技能列表未显示私有/共享分组，可能当前版本不支持分组功能",
-            name="备注",
-            attachment_type=allure.attachment_type.TEXT,
-        )
-
-
-@allure.epic("技能管理")
-@pytest.mark.order(79)
-@pytest.mark.p1
-def test_skill_public_toggle(logged_in_page, base_url):
-    """TC-SKILL-021: 公开/私密切换 — 切换技能的公开状态"""
-    from tests.pages.config_pages import SkillsPage
-
-    skills = SkillsPage(logged_in_page, base_url)
-    skills.goto()
-    assert skills.is_loaded(), "技能管理页面未加载"
-
-    count = skills.get_skill_count()
-    if count == 0:
-        pytest.skip("技能列表为空")
-
-    # 查找公开开关
-    public_switch = logged_in_page.locator("[role=switch]")
-
-    if public_switch.count() > 0:
-        sw = public_switch.first
-        initial_checked = sw.get_attribute("aria-checked")
-
-        # 切换状态
-        sw.click()
-        logged_in_page.wait_for_timeout(1500)
-
-        # 验证状态变化
-        new_checked = sw.get_attribute("aria-checked")
-        assert new_checked != initial_checked, \
-            f"切换公开状态后 aria-checked 未变化: {initial_checked} -> {new_checked}"
-
-        # 恢复原始状态
-        sw.wait_for(state="visible", timeout=5000)
-        sw.click()
-        logged_in_page.wait_for_timeout(1500)
-
-        restored = sw.get_attribute("aria-checked")
-        assert restored == initial_checked, \
-            f"恢复公开状态失败: {restored} vs {initial_checked}"
-    else:
-        allure.attach(
-            "未找到技能公开切换开关 (role=switch)，可能当前版本不支持",
-            name="备注",
-            attachment_type=allure.attachment_type.TEXT,
-        )
-
-
-@allure.epic("技能管理")
-@pytest.mark.order(80)
-@pytest.mark.p2
-def test_skill_meta_agent_create(logged_in_page, base_url):
-    """TC-SKILL-022: MetaAgent 对话式创建 — 通过下拉菜单触发对话创建"""
-    from tests.pages.config_pages import SkillsPage
-
-    skills = SkillsPage(logged_in_page, base_url)
-    skills.goto()
-    assert skills.is_loaded(), "技能管理页面未加载"
-
-    # 查找下拉菜单按钮（上传按钮旁的下拉或其他菜单按钮）
-    dropdown_btn = logged_in_page.locator("button[aria-haspopup]").or_(
-        logged_in_page.locator("button[aria-expanded]").or_(
-            logged_in_page.get_by_role("button", name="更多")
-        )
-    )
-
-    if dropdown_btn.count() > 0:
-        dropdown_btn.first.click()
-        logged_in_page.wait_for_timeout(800)
-
-        # 查找"对话创建"选项
-        dialog_create = logged_in_page.get_by_role("menuitem", name="对话创建").or_(
-            logged_in_page.locator("[role=menuitem]").filter(has_text="对话").or_(
-                logged_in_page.locator("[role=option]").filter(has_text="对话")
-            )
-        )
-
-        if dialog_create.count() > 0:
-            dialog_create.first.click()
-            logged_in_page.wait_for_timeout(800)
-
-            # 验证导航到对话页面或打开对话对话框
-            body_text = logged_in_page.inner_text("body")
-            has_chat = any(kw in body_text for kw in [
-                "对话", "MetaAgent", "创建技能", "聊天",
-            ])
-            assert has_chat, "点击对话创建后未进入对话界面"
-        else:
-            allure.attach(
-                "下拉菜单中未找到'对话创建'选项",
-                name="备注",
-                attachment_type=allure.attachment_type.TEXT,
-            )
-            # 关闭下拉菜单
-            logged_in_page.keyboard.press("Escape")
-    else:
-        allure.attach(
-            "未找到下拉菜单按钮，可能当前版本不支持 MetaAgent 对话式创建",
-            name="备注",
-            attachment_type=allure.attachment_type.TEXT,
-        )
-
-
-@allure.epic("技能管理")
-@pytest.mark.order(81)
-@pytest.mark.p1
-def test_skill_upload_conflict_handling(logged_in_page, base_url):
-    """TC-SKILL-023: 上传冲突检测 — 上传同名技能弹出冲突处理选择"""
-    import requests
-
-    # 获取 session cookie
-    cookies = logged_in_page.context.cookies()
-    session_cookie = next(
-        (c for c in cookies if c["name"].startswith("better-auth")),
-        None,
-    )
-    assert session_cookie is not None, "未获取到登录 session cookie"
-    cookie_jar = {session_cookie["name"]: session_cookie["value"]}
-
-    conflict_skill_name = "conflict-test-skill-e2e"
-    conflict_content = (
-        "---\nname: conflict-test-skill-e2e\ndescription: 冲突测试技能\n---\n\n"
-        "# Conflict Test Skill\n\nSkill for upload conflict test.\n"
-    )
-
-    try:
-        # 先清理同名残留
-        list_resp = requests.get(
-            f"{base_url}/web/config/skills", cookies=cookie_jar, timeout=10
-        )
-        if list_resp.status_code == 200:
-            for s in list_resp.json().get("data", {}).get("skills", []):
-                if s.get("name") == conflict_skill_name:
-                    requests.delete(
-                        f"{base_url}/web/config/skills/{conflict_skill_name}",
-                        cookies=cookie_jar, timeout=10,
-                    )
-
-        # 通过 API 上传第一个技能
-        manifest = json.dumps([
-            {"skillName": conflict_skill_name, "relativePath": "SKILL.md"}
-        ])
-        upload_resp = requests.post(
-            f"{base_url}/web/config/skills/upload",
-            files={
-                "manifest": (None, manifest, "application/json"),
-                "files": ("SKILL.md", conflict_content, "text/markdown"),
-            },
-            cookies=cookie_jar,
-            timeout=15,
-        )
-        if upload_resp.status_code >= 400:
-            pytest.skip(f"首次上传失败: HTTP {upload_resp.status_code}（API 可能不可用）")
-
-        # 导航到技能管理页面
-        try:
-            logged_in_page.goto(f"{base_url}/ctrl/agent/skills", wait_until="domcontentloaded")
-        except Exception:
-            pass  # SPA 路由可能中断初始导航
-        logged_in_page.wait_for_load_state("domcontentloaded")
-        try:
-            logged_in_page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
-        except Exception:
-            pass
-
-        # 创建同名临时目录（UI 上传需要目录，含 SKILL.md）
-        test_dir = os.path.join(tempfile.gettempdir(), conflict_skill_name)
-        os.makedirs(test_dir, exist_ok=True)
-        test_file = os.path.join(test_dir, "SKILL.md")
-        with open(test_file, "w", encoding="utf-8") as f:
-            f.write(conflict_content)
-
-        try:
-            # 通过 UI 再次上传同名技能
-            upload_btn = logged_in_page.get_by_role("button", name="上传技能")
-            if upload_btn.count() == 0:
-                upload_btn = logged_in_page.get_by_role("button", name="上传")
-            assert upload_btn.count() > 0, "上传按钮不存在"
-
-            # 点击"上传技能"按钮 → 打开上传对话框
-            upload_btn.first.wait_for(state="visible", timeout=5000)
-            upload_btn.first.click()
-            logged_in_page.wait_for_timeout(1000)
-
-            # 对话框中出现拖拽区域（"点击选择包含技能的文件夹"），点击它触发文件选择器
-            dropzone = logged_in_page.locator(
-                "div.border-dashed, [class*='border-dashed']"
-            ).filter(has_text="选择").first
-            if dropzone.count() == 0:
-                # 回退：查找对话框内的 input[type=file] 直接设文件
-                file_input = logged_in_page.locator("input[type='file']")
-                assert file_input.count() > 0, "上传对话框中未找到文件输入"
-                file_input.first.set_input_files(test_dir)
-                logged_in_page.wait_for_timeout(800)
-            else:
-                with logged_in_page.expect_file_chooser() as fc_info:
-                    dropzone.wait_for(state="visible", timeout=5000)
-                    dropzone.click()
-                fc_info.value.set_files(test_dir)
-                logged_in_page.wait_for_timeout(800)
-
-            # 检查冲突对话框
-            dialog = logged_in_page.locator("[role=dialog]")
-            alert_dialog = logged_in_page.locator("[role=alertdialog]")
-            body_text = logged_in_page.inner_text("body")
-
-            has_conflict = any(kw in body_text for kw in [
-                "冲突", "覆盖", "跳过", "已存在", "同名", "替换",
-            ])
-
-            if has_conflict:
-                # 尝试选择跳过
-                skip_btn = logged_in_page.get_by_role("button", name="跳过").or_(
-                    logged_in_page.get_by_role("button", name="取消")
-                )
-                if skip_btn.count() > 0:
-                    skip_btn.first.click()
-                    logged_in_page.wait_for_timeout(800)
-
-                allure.attach(
-                    "检测到上传冲突处理对话框",
-                    name="验证结果",
-                    attachment_type=allure.attachment_type.TEXT,
-                )
-            else:
-                allure.attach(
-                    "上传同名技能未弹出冲突处理对话框，系统可能直接覆盖",
-                    name="备注",
-                    attachment_type=allure.attachment_type.TEXT,
-                )
-
-        finally:
-            import shutil
-            shutil.rmtree(test_dir, ignore_errors=True)
-
-    finally:
-        # 清理
-        requests.delete(
-            f"{base_url}/web/config/skills/{conflict_skill_name}",
-            cookies=cookie_jar, timeout=10,
-        )
-
-
-# ═══════════════════════════════════════════════════════
-# P1 补充: 技能编辑入口
-# ═══════════════════════════════════════════════════════
-
-@allure.epic("技能管理")
-@pytest.mark.order(82)
-@pytest.mark.p1
-def test_skills_edit(logged_in_page, base_url):
-    """验证技能编辑入口 — hover 或查看是否有编辑按钮并进入编辑"""
-    from tests.pages.config_pages import SkillsPage
-
-    skills = SkillsPage(logged_in_page, base_url)
-    skills.goto()
-    assert skills.is_loaded(), "技能管理页面未加载"
-
-    count = skills.get_skill_count()
-    if count == 0:
-        pytest.skip("技能列表为空，无法验证编辑入口")
-
-    # 获取第一个技能的容器（技能卡片：div.group.relative，排除侧边栏智能体项）
-    panel_body = logged_in_page.locator("div.agent-panel-body").first
-    skill_items = panel_body.locator(
-        "div.group.relative:not(.agent-sidebar-agent)"
-    )
-
-    if skill_items.count() == 0:
-        pytest.skip("无法定位技能列表项")
-
-    first_skill = skill_items.first
-
-    # hover 第一个技能，查看是否出现编辑按钮
-    first_skill.hover()
-    logged_in_page.wait_for_timeout(800)
-
-    # 查找编辑相关的按钮或链接
-    edit_btn = logged_in_page.get_by_role("button", name="编辑").or_(
-        logged_in_page.get_by_role("link", name="编辑")
-    ).or_(
-        logged_in_page.locator("button[title*='编辑']")
-    ).or_(
-        logged_in_page.locator("a[title*='编辑']")
-    ).or_(
-        logged_in_page.get_by_role("button", name="Edit")
-    )
-
-    # 也检查 hover 后在技能项内部出现的编辑按钮
-    skill_edit_btn = first_skill.locator(
-        "button:has-text('编辑'), a:has-text('编辑'), "
-        "button[title*='编辑'], button[class*='edit']"
-    )
-
-    has_edit = edit_btn.count() > 0 or skill_edit_btn.count() > 0
-
-    if not has_edit:
-        # 尝试直接点击技能项进入详情
-        first_skill.click()
-        logged_in_page.wait_for_timeout(1000)
-
-        # 检查是否弹出编辑弹窗或进入编辑页
-        dialog = logged_in_page.locator("[role='dialog']")
-        edit_page_heading = logged_in_page.locator(
-            "h1:has-text('编辑'), h2:has-text('编辑'), "
-            "h1:has-text('Edit'), h2:has-text('Edit')"
-        )
-        if dialog.count() > 0 and dialog.first.is_visible():
-            has_edit = True
-            dialog.first.press("Escape")
-        elif edit_page_heading.count() > 0:
-            has_edit = True
-            logged_in_page.go_back()
-
-    if not has_edit:
-        pytest.skip("技能列表无编辑入口（无编辑按钮、点击无弹窗/页面跳转）")
-
-    # 如果有编辑按钮，点击进入（优先使用 hover 技能卡片内的编辑按钮，作用域限定）
-    if skill_edit_btn.count() > 0:
-        skill_edit_btn.first.click()
-    elif edit_btn.count() > 0:
-        edit_btn.first.click()
-
-    logged_in_page.wait_for_timeout(1000)
-
-    # 验证编辑页面或弹窗出现
-    dialog = logged_in_page.locator("[role='dialog']")
-    edit_heading = logged_in_page.locator(
-        "h1:has-text('编辑'), h2:has-text('编辑'), "
-        "h1:has-text('Edit'), h2:has-text('Edit')"
-    )
-    edit_form = logged_in_page.locator(
-        "form, div[class*='editor'], div[class*='edit-form']"
-    )
-
-    edit_visible = (
-        (dialog.count() > 0 and dialog.first.is_visible())
-        or edit_heading.count() > 0
-        or (edit_form.count() > 0 and edit_form.first.is_visible())
-    )
-    assert edit_visible, "点击编辑后未出现编辑页面或弹窗"
-
-    # Escape 关闭弹窗
-    if dialog.count() > 0 and dialog.first.is_visible():
-        dialog.first.press("Escape")
-
-
-# === P2: 技能详情页 ===
-
-@allure.epic("技能管理")
-@pytest.mark.order(83)
-@pytest.mark.p2
-def test_skills_detail_page(logged_in_page, base_url):
-    """TC-SKILL-P2-01: 技能详情页或展开区域验证"""
-    from tests.pages.config_pages import SkillsPage
-
-    skills = SkillsPage(logged_in_page, base_url)
-    skills.goto()
-
-    assert skills.is_loaded(), "技能管理页面未加载"
-
-    count = skills.get_skill_count()
-    if count == 0:
-        pytest.skip("技能列表为空，无法测试详情页")
-
-    # 获取第一个技能卡片
-    first_card = logged_in_page.locator("div.group.relative:not(.agent-sidebar-agent)").first
-    if first_card.count() == 0:
-        pytest.skip("未找到技能卡片元素")
-
-    # 提取第一个技能名称
-    first_name = first_card.locator("span, h3, h4, div.font-medium").first.inner_text().strip()
-    if not first_name:
-        pytest.skip("无法获取第一个技能名称")
-
-    # 尝试找到可点击的名称链接或详情入口
-    # 1. 检查技能名称本身是否是链接
-    name_link = first_card.locator("a").first
-    has_link = name_link.count() > 0
-
-    # 2. 检查是否有"详情"或"查看"按钮
-    detail_btn = first_card.get_by_role("button", name="详情").or_(
-        first_card.get_by_role("button", name="查看")
-    ).or_(
-        first_card.get_by_role("link", name="详情")
-    ).or_(
-        first_card.get_by_role("link", name="查看")
-    )
-    has_detail_btn = detail_btn.count() > 0
-
-    # 3. 检查卡片是否可点击展开（hover 后出现更多按钮）
-    first_card.hover()
-    logged_in_page.wait_for_timeout(500)
-
-    expand_btn = first_card.get_by_role("button", name="展开").or_(
-        first_card.get_by_role("button", name="更多")
-    ).or_(
-        first_card.locator("button[aria-label*='expand' i], button[aria-label*='more' i]")
-    )
-    has_expand_btn = expand_btn.count() > 0
-
-    if not has_link and not has_detail_btn and not has_expand_btn:
-        # 尝试直接点击卡片名称区域
-        name_el = first_card.locator("span, h3, h4, div.font-medium").first
-        if name_el.count() > 0:
-            name_el.click()
-            logged_in_page.wait_for_timeout(1500)
-
-            # 检查是否跳转到新页面或展开了详情
-            url_changed = "/skills/" in logged_in_page.url or logged_in_page.url != f"{base_url}/ctrl/agent/skills"
-            detail_visible = (
-                logged_in_page.locator("[role='dialog']").count() > 0
-                or logged_in_page.locator("div[class*='detail']").count() > 0
-            )
-
-            if not url_changed and not detail_visible:
-                pytest.skip("技能列表无详情入口（无链接、无详情按钮、点击名称无反应）")
-
-            # 如果有返回按钮，点击返回
-            back_btn = logged_in_page.get_by_role("button", name="返回").or_(
-                logged_in_page.get_by_role("link", name="返回")
-            ).or_(
-                logged_in_page.locator("button[aria-label*='back' i]")
-            )
-            if back_btn.count() > 0:
-                back_btn.first.click()
-                logged_in_page.wait_for_timeout(500)
-            elif url_changed:
-                logged_in_page.go_back()
-                logged_in_page.wait_for_timeout(500)
-            return
-
-        pytest.skip("技能列表无详情入口（无链接、无详情按钮、无展开按钮）")
-
-    # 有入口，点击进入详情
-    if has_detail_btn:
-        detail_btn.first.click()
-    elif has_expand_btn:
-        expand_btn.first.click()
-    elif has_link:
-        name_link.click()
-
-    logged_in_page.wait_for_timeout(1500)
-
-    # 验证详情页或展开区域出现
-    url_changed = "/skills/" in logged_in_page.url
-    detail_panel = logged_in_page.locator(
-        "[role='dialog'], "
-        "div[class*='detail'], "
-        "div[class*='expanded'], "
-        "section[class*='detail']"
-    )
-    detail_heading = logged_in_page.locator(
-        "h1:has-text('详情'), h2:has-text('详情'), "
-        "h1:has-text('Detail'), h2:has-text('Detail')"
-    )
-
-    detail_visible = (
-        url_changed
-        or (detail_panel.count() > 0 and detail_panel.first.is_visible())
-        or detail_heading.count() > 0
-    )
-    assert detail_visible, "点击技能详情入口后未出现详情页或展开区域"
-
-    # 如果有返回按钮，点击返回
-    back_btn = logged_in_page.get_by_role("button", name="返回").or_(
-        logged_in_page.get_by_role("link", name="返回")
-    ).or_(
-        logged_in_page.locator("button[aria-label*='back' i]")
-    )
-    if back_btn.count() > 0:
-        back_btn.first.click()
-        logged_in_page.wait_for_timeout(500)
-    elif url_changed:
-        logged_in_page.go_back()
-        logged_in_page.wait_for_timeout(500)
-    elif detail_panel.count() > 0 and detail_panel.first.is_visible():
-        # 关闭弹窗
-        logged_in_page.keyboard.press("Escape")
-        logged_in_page.wait_for_timeout(500)
-
-
-# ═══════════════════════════════════════════════════════
-# P0/P1 补充: 文本创建 + 必填校验 + 取消 + 编辑 + 重名（任务四 2026-08-26）
-# ═══════════════════════════════════════════════════════
 
 def _skills_session_cookie(logged_in_page):
     """从登录上下文提取 better-auth session cookie，返回 cookie_jar dict"""
@@ -1113,6 +40,13 @@ def _api_delete_skill_safe(base_url, cookie_jar, name):
         pass
 
 
+def _api_skill_exists(base_url, cookie_jar, name) -> bool:
+    resp = requests.get(f"{base_url}/web/config/skills", cookies=cookie_jar, timeout=10)
+    if resp.status_code != 200:
+        return False
+    return any(s.get("name") == name for s in resp.json().get("data", {}).get("skills", []))
+
+
 def _api_create_skill_upload(base_url, cookie_jar, name, content):
     """通过内部上传接口预置技能（任务前置数据），返回响应"""
     manifest = json.dumps([{"skillName": name, "relativePath": "SKILL.md"}])
@@ -1127,11 +61,620 @@ def _api_create_skill_upload(base_url, cookie_jar, name, content):
     )
 
 
+def _make_temp_import_root(skill_name: str, content: str) -> str:
+    """创建「文件夹导入」用临时根目录：root/{skill_name}/SKILL.md"""
+    root = tempfile.mkdtemp(prefix="skill-import-")
+    skill_dir = os.path.join(root, skill_name)
+    os.makedirs(skill_dir, exist_ok=True)
+    with open(os.path.join(skill_dir, "SKILL.md"), "w", encoding="utf-8") as f:
+        f.write(content)
+    return root
+
+
+def _wait_skill_gone(skills, name: str, timeout: float = 10000):
+    """轮询等待目录中技能消失（删除后列表刷新有延迟）"""
+    deadline = time.time() + timeout / 1000
+    while time.time() < deadline:
+        if not skills.has_skill(name, timeout=1500):
+            return True
+        skills.page.wait_for_timeout(300)
+    return False
+
+
+@allure.epic("技能管理")
+@pytest.mark.order(70)
+@pytest.mark.p0
+def test_skill_list_data_loads(logged_in_page, base_url):
+    """TC-SKILL-001: 技能库列表加载 — 两栏目录+详情正常展示，工具栏按钮齐全"""
+    from tests.pages.config_pages import SkillsPage
+
+    skills = SkillsPage(logged_in_page, base_url)
+    skills.goto()
+
+    assert skills.is_loaded(), "技能库页面未加载（未出现技能目录）"
+
+    count = skills.get_skill_count()
+    if count == 0:
+        pytest.skip("技能列表为空，环境无技能数据")
+    assert count > 0, "技能列表为空"
+
+    # 顶栏应有 导入 / 添加 Skill（限定 main，防侧边栏同名）
+    main = skills._main()
+    assert main.get_by_role("button", name="导入", exact=True).count() > 0, "缺少「导入」按钮"
+    assert main.get_by_role("button", name="添加 Skill", exact=True).count() > 0, "缺少「添加 Skill」按钮"
+    # 筛选区：搜索框 + 三个作用域分段按钮（全部N/本组织N/公开N）
+    assert main.get_by_placeholder("搜索 Skill").count() > 0, "缺少搜索框"
+    for scope in ("全部", "本组织", "公开"):
+        seg = main.get_by_role("button", name=re.compile(f"^{scope}\\d+$"))
+        assert seg.count() > 0, f"缺少作用域分段按钮 {scope}"
+
+
+@allure.epic("技能管理")
+@pytest.mark.order(71)
+@pytest.mark.p1
+def test_skill_search_filter(logged_in_page, base_url):
+    """TC-SKILL-005: 技能搜索过滤 — 目录实时过滤，清空恢复全部"""
+    from tests.pages.config_pages import SkillsPage
+
+    skills = SkillsPage(logged_in_page, base_url)
+    skills.goto()
+    assert skills.is_loaded(), "技能库页面未加载"
+
+    initial_count = skills.get_skill_count()
+    if initial_count == 0:
+        pytest.skip("技能列表为空，无法测试搜索")
+
+    names = skills.get_skill_names()
+    assert len(names) > 0, "目录中无技能名可测"
+    first_name = names[0]
+
+    # 搜索真实技能名 → 应至少匹配 1 条且不增多
+    skills.search(first_name)
+    filtered_count = skills.get_skill_count()
+    assert filtered_count >= 1, f"搜索真实名称 '{first_name}' 后目录为空"
+    assert filtered_count <= initial_count, f"搜索后数量不应超过初始: {filtered_count} > {initial_count}"
+
+    # 搜索不存在内容 → 目录应为 0
+    skills.search("zzznonexist999")
+    assert skills.get_skill_count() == 0, "搜索不存在内容后目录未清空"
+
+    # 清空搜索 → 恢复初始数量
+    skills.clear_search()
+    restored = skills.get_skill_count()
+    for _ in range(10):
+        if restored >= initial_count:
+            break
+        skills.page.wait_for_timeout(500)
+        restored = skills.get_skill_count()
+    assert restored == initial_count, f"清空搜索后未恢复初始数量: {restored} vs {initial_count}"
+
+
+@allure.epic("技能管理")
+@pytest.mark.order(72)
+@pytest.mark.p1
+def test_skill_list_loading_skeleton(logged_in_page, base_url):
+    """TC-SKILL-008: 列表加载门控 — API 未返回时目录不渲染（不闪现陈旧/空列表），数据就绪后才出现
+
+    实测（2026-09 headless）：`.animate-pulse` 骨架仅随列表解析的瞬间闪烁约 0.2s，
+    无法作为持续加载态断言；稳定契约是「API 未返回前 catalog 不渲染」。
+    """
+    from tests.pages.config_pages import SkillsPage
+
+    skills = SkillsPage(logged_in_page, base_url)
+
+    # 拦截技能列表 API 并人为延迟 3s
+    def delay_skills_api(route):
+        time.sleep(3)
+        route.continue_()
+
+    logged_in_page.route("**/web/config/skills*", delay_skills_api)
+    logged_in_page.goto(skills.url, wait_until="domcontentloaded")
+
+    # 延迟窗口内（请求尚未返回）：目录不得提前渲染
+    logged_in_page.wait_for_timeout(1200)
+    assert skills._catalog().count() == 0, "技能 API 未返回时目录不应渲染"
+
+    logged_in_page.unroute("**/web/config/skills*")
+
+    # 数据就绪后：目录渲染、页面加载完成
+    try:
+        skills._catalog().first.wait_for(state="visible", timeout=15000)
+    except Exception:
+        pass
+    assert skills.is_loaded(), "技能库页面最终未加载"
+
+
+@allure.epic("技能管理")
+@pytest.mark.order(73)
+@pytest.mark.p0
+def test_skill_api_list_and_detail(logged_in_page, base_url):
+    """TC-SKILL-016: 内部 API 获取 Skill 列表和详情"""
+    cookie_jar = _skills_session_cookie(logged_in_page)
+
+    # GET /web/config/skills — 列表
+    list_resp = requests.get(f"{base_url}/web/config/skills", cookies=cookie_jar, timeout=10)
+    assert list_resp.status_code == 200, f"获取 Skill 列表失败: HTTP {list_resp.status_code}"
+    body = list_resp.json()
+    assert body.get("success") is True, f"API 返回 success=false: {body}"
+    items = body.get("data", {}).get("skills", [])
+    assert len(items) > 0, "Skill 列表为空"
+    assert "name" in items[0], "skill 缺少 name 字段"
+
+    # GET /web/config/skills/:name — 详情
+    skill_name = items[0]["name"]
+    detail_resp = requests.get(
+        f"{base_url}/web/config/skills/{skill_name}", cookies=cookie_jar, timeout=10
+    )
+    assert detail_resp.status_code == 200, f"获取 Skill 详情失败: HTTP {detail_resp.status_code}"
+    detail_body = detail_resp.json()
+    assert detail_body.get("success") is True, f"详情 API 返回 success=false: {detail_body}"
+    detail = detail_body.get("data", {})
+    assert detail.get("name") == skill_name, (
+        f"详情名称与列表不一致: {detail.get('name')} vs {skill_name}"
+    )
+    assert "content" in detail, "详情缺少 content 字段"
+
+
+@allure.epic("技能管理")
+@pytest.mark.order(74)
+@pytest.mark.p0
+def test_skill_upload(logged_in_page, base_url):
+    """TC-SKILL-015: 内部 API 上传 Skill（POST /web/config/skills/upload）"""
+    cookie_jar = _skills_session_cookie(logged_in_page)
+
+    skill_name = "auto-test-skill-internal"
+    skill_content = (
+        "---\nname: auto-test-skill-internal\ndescription: 自动化测试技能(内部API上传)\n---\n\n"
+        "# Auto Test Skill (Internal API)\n\nThis is a test skill uploaded via internal API.\n"
+    )
+
+    # 先清理同名残留
+    resp = requests.get(f"{base_url}/web/config/skills", cookies=cookie_jar, timeout=10)
+    if resp.status_code == 200:
+        for s in resp.json().get("data", {}).get("skills", []):
+            if s.get("name") == skill_name:
+                _api_delete_skill_safe(base_url, cookie_jar, skill_name)
+
+    manifest = json.dumps([{"skillName": skill_name, "relativePath": "SKILL.md"}])
+    upload_resp = requests.post(
+        f"{base_url}/web/config/skills/upload",
+        files={
+            "manifest": (None, manifest, "application/json"),
+            "files": ("SKILL.md", skill_content, "text/markdown"),
+        },
+        cookies=cookie_jar,
+        timeout=15,
+    )
+    assert upload_resp.status_code < 400, (
+        f"上传 Skill 失败: HTTP {upload_resp.status_code}, body={upload_resp.text[:300]}"
+    )
+    assert upload_resp.json().get("success") is True, f"上传返回 success=false: {upload_resp.text[:300]}"
+
+    # 上传后列表中应能找到
+    assert _api_skill_exists(base_url, cookie_jar, skill_name), (
+        f"上传后列表中未找到技能 '{skill_name}'"
+    )
+
+    # 清理
+    _api_delete_skill_safe(base_url, cookie_jar, skill_name)
+
+
+@allure.epic("技能管理")
+@pytest.mark.order(75)
+@pytest.mark.p0
+def test_skill_delete_via_ui(logged_in_page, base_url):
+    """TC-SKILL-017: API 预置 + UI 删除技能（自建自销，确认弹窗校验目标名）"""
+    from tests.pages.config_pages import SkillsPage
+
+    cookie_jar = _skills_session_cookie(logged_in_page)
+    skill_name = f"e2e-ui-del-{uuid.uuid4().hex[:8]}"
+    content = (
+        "---\n"
+        f"name: {skill_name}\n"
+        "description: UI 删除测试技能\n"
+        "---\n\n"
+        "# Delete UI Test Skill"
+    )
+    upload_resp = _api_create_skill_upload(base_url, cookie_jar, skill_name, content)
+    assert upload_resp.status_code < 400, f"预置删除测试技能失败: HTTP {upload_resp.status_code}"
+    assert _api_skill_exists(base_url, cookie_jar, skill_name), "预置技能未生效"
+
+    skills = SkillsPage(logged_in_page, base_url)
+    skills.goto()
+    assert skills.is_loaded(), "技能库页面未加载"
+    assert skills.reload(), "刷新后技能页面未加载"
+    assert skills.has_skill(skill_name), f"预置技能 '{skill_name}' 未出现在目录"
+
+    # 选中 → owner（页脚应有删除）→ 删除
+    assert skills.select_skill(skill_name), "无法选中预置技能"
+    assert skills.is_owner(skill_name), "预置技能应属于本账号（可编辑）"
+    skills.delete_skill(skill_name)  # 内部已断言 确认弹窗含目标名
+
+    # 目录中消失（reload 拿服务端权威状态）
+    assert skills.reload(), "删除后刷新失败"
+    assert not skills.has_skill(skill_name, timeout=5000), f"删除后目录仍显示技能 '{skill_name}'"
+    assert not _api_skill_exists(base_url, cookie_jar, skill_name), "删除后 API 仍返回该技能"
+
+
+@allure.epic("技能管理")
+@pytest.mark.order(76)
+@pytest.mark.p0
+def test_skill_folder_upload(logged_in_page, base_url):
+    """TC-SKILL-018: 文件夹批量导入 — 导入目录识别子技能并成功建入"""
+    from tests.pages.config_pages import SkillsPage
+
+    cookie_jar = _skills_session_cookie(logged_in_page)
+    skill_name = f"e2e-folder-{uuid.uuid4().hex[:8]}"
+    content = (
+        "# Folder Import Skill\n\n"
+        f"skill: {skill_name}\n"
+        "通过文件夹导入创建。"
+    )
+    root = _make_temp_import_root(skill_name, content)
+    try:
+        skills = SkillsPage(logged_in_page, base_url)
+        skills.goto()
+        assert skills.is_loaded(), "技能库页面未加载"
+
+        skills.open_import_dialog()
+        assert skills.is_import_dialog_open(), "上传技能弹窗未打开"
+        skills.select_import_folder(root)
+        skills.click_import_start()
+
+        toast_text = skills.get_last_toast_text()
+        assert "已导入 1 个技能" in toast_text, f"导入成功 toast 未出现: {toast_text}"
+        assert not skills.is_import_dialog_open(), "导入成功后上传弹窗应关闭"
+
+        # 目录出现新技能，且详情含导入内容
+        assert skills.has_skill(skill_name), f"导入后目录未出现技能 '{skill_name}'"
+        assert skills.select_skill(skill_name), "无法选中导入的技能"
+        article = skills.article_text(skill_name)
+        assert skill_name in article, "导入技能详情未展示其内容"
+
+        # 清理：UI 删除自建导入的技能
+        skills.delete_skill(skill_name)
+        assert skills.reload(), "删除后刷新失败"
+        assert not skills.has_skill(skill_name, timeout=5000), "清理后技能仍存在"
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+@allure.epic("技能管理")
+@pytest.mark.order(77)
+@pytest.mark.p1
+def test_skill_download_export(logged_in_page, base_url):
+    """TC-SKILL-019: ZIP 下载导出 — 下载自建技能，文件名为 {name}.zip"""
+    from tests.pages.config_pages import SkillsPage
+
+    cookie_jar = _skills_session_cookie(logged_in_page)
+    skill_name = f"e2e-dl-{uuid.uuid4().hex[:8]}"
+    content = (
+        "---\n"
+        f"name: {skill_name}\n"
+        "description: 下载测试技能\n"
+        "---\n\n"
+        "# Download Test Skill"
+    )
+    upload_resp = _api_create_skill_upload(base_url, cookie_jar, skill_name, content)
+    assert upload_resp.status_code < 400, f"预置下载测试技能失败: HTTP {upload_resp.status_code}"
+    try:
+        skills = SkillsPage(logged_in_page, base_url)
+        skills.goto()
+        assert skills.is_loaded(), "技能库页面未加载"
+        assert skills.reload(), "刷新后技能页面未加载"
+        assert skills.has_skill(skill_name), f"预置技能 '{skill_name}' 未出现在目录"
+
+        assert skills.select_skill(skill_name), "无法选中技能"
+        download = skills.download_skill(skill_name)
+        assert download.suggested_filename == f"{skill_name}.zip", (
+            f"下载文件名异常: {download.suggested_filename}"
+        )
+        save_path = os.path.join(tempfile.gettempdir(), download.suggested_filename)
+        download.save_as(save_path)
+        assert os.path.exists(save_path), "下载文件未保存成功"
+        assert os.path.getsize(save_path) > 0, "下载文件大小为 0"
+        os.remove(save_path)
+    finally:
+        _api_delete_skill_safe(base_url, cookie_jar, skill_name)
+
+
+@allure.epic("技能管理")
+@pytest.mark.order(78)
+@pytest.mark.p1
+def test_skill_scope_filter(logged_in_page, base_url):
+    """TC-SKILL-020: 归属筛选（全部/本组织/公开）— 目录数量与分段计数一致，公开目录全带公开徽标"""
+    from tests.pages.config_pages import SkillsPage
+
+    skills = SkillsPage(logged_in_page, base_url)
+    skills.goto()
+    assert skills.is_loaded(), "技能库页面未加载"
+
+    main = skills._main()
+    all_count = skills.get_skill_count()
+    if all_count == 0:
+        pytest.skip("技能列表为空")
+
+    def parse_scope_num(label: str) -> int:
+        btn = main.get_by_role("button", name=re.compile(f"^{label}\\d+$")).first
+        btn.wait_for(state="visible", timeout=5000)
+        txt = btn.inner_text()
+        m = re.search(r"(\d+)$", txt)
+        assert m, f"分段按钮文案无数量: {txt}"
+        return int(m.group(1))
+
+    def wait_count(n: int, timeout: float = 8000):
+        deadline = time.time() + timeout / 1000
+        while time.time() < deadline:
+            if skills.get_skill_count() == n:
+                return True
+            skills.page.wait_for_timeout(300)
+        return False
+
+    # 公开：目录数量与按钮计数一致，且每项都带「公开」徽标
+    skills.click_scope("公开")
+    pub_num = parse_scope_num("公开")
+    if pub_num == 0:
+        pytest.skip("环境中无公开技能")
+    assert wait_count(pub_num), f"公开作用域目录数 {skills.get_skill_count()} != {pub_num}"
+    for name in skills.get_skill_names():
+        item_text = skills._catalog_item(name).first.inner_text()
+        assert "公开" in item_text, f"公开作用域下 '{name}' 缺少公开徽标"
+
+    # 本组织：目录数量与按钮计数一致
+    skills.click_scope("本组织")
+    org_num = parse_scope_num("本组织")
+    if org_num > 0:
+        assert wait_count(org_num), f"本组织作用域目录数 {skills.get_skill_count()} != {org_num}"
+        assert main.get_by_role("button", name=re.compile("^全部\\d+$")).first.get_attribute(
+            "aria-pressed"
+        ) != "true", "切到本组织后「全部」仍为按下态"
+
+    # 切回全部恢复
+    skills.click_scope("全部")
+    assert wait_count(all_count), "切回全部后目录数未恢复初始"
+
+
+@allure.epic("技能管理")
+@pytest.mark.order(79)
+@pytest.mark.p1
+def test_skill_public_toggle(logged_in_page, base_url):
+    """TC-SKILL-021: 公开/私密切换 — 自建技能设公开→再切回私有"""
+    from tests.pages.config_pages import SkillsPage
+
+    cookie_jar = _skills_session_cookie(logged_in_page)
+    skill_name = f"e2e-pub-{uuid.uuid4().hex[:8]}"
+    content = (
+        "---\n"
+        f"name: {skill_name}\n"
+        "description: 公开切换测试技能\n"
+        "---\n\n"
+        "# Public Toggle Skill"
+    )
+    upload_resp = _api_create_skill_upload(base_url, cookie_jar, skill_name, content)
+    assert upload_resp.status_code < 400, f"预置公开切换技能失败: HTTP {upload_resp.status_code}"
+    try:
+        skills = SkillsPage(logged_in_page, base_url)
+        skills.goto()
+        assert skills.is_loaded(), "技能库页面未加载"
+        assert skills.reload(), "刷新后技能页面未加载"
+        assert skills.has_skill(skill_name), f"预置技能 '{skill_name}' 未出现在目录"
+
+        assert skills.select_skill(skill_name), "无法选中技能"
+        assert not skills.is_public(skill_name), "新建私有技能不应显示为公开"
+
+        # 设为公开 → 页脚按钮变 设为私有
+        skills.toggle_public(skill_name)
+        assert skills.is_public(skill_name), "设为公开后未变为公开状态"
+        detail = requests.get(
+            f"{base_url}/web/config/skills/{skill_name}", cookies=cookie_jar, timeout=10
+        ).json()
+        assert detail.get("data", {}).get("resourceAccess", {}).get("publicReadable") is True, (
+            "API 中 publicReadable 未变为 true"
+        )
+
+        # 切回私有 → 恢复
+        skills.toggle_public(skill_name)
+        assert not skills.is_public(skill_name), "切回私有后仍为公开状态"
+        detail2 = requests.get(
+            f"{base_url}/web/config/skills/{skill_name}", cookies=cookie_jar, timeout=10
+        ).json()
+        assert detail2.get("data", {}).get("resourceAccess", {}).get("publicReadable") is False, (
+            "API 中 publicReadable 未恢复 false"
+        )
+    finally:
+        _api_delete_skill_safe(base_url, cookie_jar, skill_name)
+
+
+@allure.epic("技能管理")
+@pytest.mark.order(80)
+@pytest.mark.p2
+def test_skill_readonly_public_view(logged_in_page, base_url):
+    """TC-SKILL-022: 公开分享技能只读查看 — 非 owner 仅 查看+下载，无管理按钮"""
+    from tests.pages.config_pages import SkillsPage
+
+    skills = SkillsPage(logged_in_page, base_url)
+    skills.goto()
+    assert skills.is_loaded(), "技能库页面未加载"
+
+    # 只看公开作用域（他组织公开技能为只读）
+    skills.click_scope("公开")
+    names = skills.get_skill_names()
+    if not names:
+        pytest.skip("环境中无公开技能")
+
+    readonly_name = None
+    for name in names:
+        try:
+            skills.select_skill(name)
+            if not skills.is_owner(name):  # header 无「编辑」→ 只读
+                readonly_name = name
+                break
+        except Exception:
+            continue
+    if readonly_name is None:
+        pytest.skip("公开作用域内未找到只读技能（均为本账号 owner）")
+
+    main = skills._main()
+    # header 是「查看」而非「编辑」
+    assert main.get_by_role("button", name="查看", exact=True).count() > 0, (
+        f"只读技能 '{readonly_name}' header 无「查看」"
+    )
+    assert main.get_by_role("button", name="编辑", exact=True).count() == 0, (
+        f"只读技能 '{readonly_name}' 不应有「编辑」"
+    )
+    # 页脚仅 [下载]，无 [删除]/[设为公开或私有]
+    assert main.get_by_role("button", name="下载", exact=True).count() > 0, "只读技能无「下载」"
+    assert main.get_by_role("button", name="删除", exact=True).count() == 0, (
+        f"只读技能 '{readonly_name}' 不应有「删除」"
+    )
+    assert main.get_by_role("button", name=re.compile("^设为(公开|私有)$")).count() == 0, (
+        f"只读技能 '{readonly_name}' 不应有公开切换按钮"
+    )
+    # 详情含 技能指令(SKILL.md 渲染)
+    article = skills.article_text(readonly_name)
+    assert "技能指令" in article, "只读技能详情缺少 SKILL.md 渲染区"
+
+
+@allure.epic("技能管理")
+@pytest.mark.order(81)
+@pytest.mark.p1
+@pytest.mark.no_page_error_check  # 上传同名冲突后端返回 409，会打 console.error
+def test_skill_upload_conflict_handling(logged_in_page, base_url):
+    """TC-SKILL-023: 文件夹导入同名冲突 — 覆盖策略替换内容 / 跳过策略保留原内容"""
+    from tests.pages.config_pages import SkillsPage
+
+    cookie_jar = _skills_session_cookie(logged_in_page)
+    skill_name = f"e2e-conf-{uuid.uuid4().hex[:8]}"
+    seed_content = (
+        "---\n"
+        f"name: {skill_name}\n"
+        "description: 冲突测试技能\n"
+        "---\n\n"
+        "# Conflict Skill\n\nORIGINAL-SEED"
+    )
+    upload_resp = _api_create_skill_upload(base_url, cookie_jar, skill_name, seed_content)
+    assert upload_resp.status_code < 400, f"预置冲突测试技能失败: HTTP {upload_resp.status_code}"
+    try:
+        skills = SkillsPage(logged_in_page, base_url)
+        skills.goto()
+        assert skills.is_loaded(), "技能库页面未加载"
+
+        def detail_content() -> str:
+            r = requests.get(
+                f"{base_url}/web/config/skills/{skill_name}", cookies=cookie_jar, timeout=10
+            )
+            return r.json().get("data", {}).get("content", "")
+
+        # ── 覆盖分支：导入含 V2 的同名目录，选「覆盖已有技能」→ 内容替换为 V2 ──
+        root_over = _make_temp_import_root(skill_name, f"# V2\n\nOVERWRITE-V2-MARKER-{skill_name}")
+        try:
+            skills.open_import_dialog()
+            assert skills.is_import_dialog_open(), "上传技能弹窗未打开"
+            skills.select_import_folder(root_over)
+            skills.click_import_start()
+            assert skills.has_upload_conflict(skill_name), "同名导入未触发冲突检测"
+            skills.resolve_upload_conflict(skill_name, "overwrite")  # 内部断言覆盖确认弹窗含目标名
+            toast_text = skills.get_last_toast_text()
+            assert "已导入 1 个技能" in toast_text, f"覆盖导入 toast 异常: {toast_text}"
+            assert f"OVERWRITE-V2-MARKER-{skill_name}" in detail_content(), "覆盖后内容未替换为 V2"
+        finally:
+            shutil.rmtree(root_over, ignore_errors=True)
+
+        # ── 跳过分支：再导入含 V3 的同名目录，选「跳过冲突项」→ 内容仍为 V2 ──
+        root_skip = _make_temp_import_root(skill_name, f"# V3\n\nSKIP-V3-MARKER-{skill_name}")
+        try:
+            skills.open_import_dialog()
+            assert skills.is_import_dialog_open(), "第二次上传技能弹窗未打开"
+            skills.select_import_folder(root_skip)
+            skills.click_import_start()
+            assert skills.has_upload_conflict(skill_name), "第二次同名导入未触发冲突"
+            skills.resolve_upload_conflict(skill_name, "skip")
+            toast_text = skills.get_last_toast_text()
+            assert "跳过 1 个冲突技能" in toast_text, f"跳过导入 toast 异常: {toast_text}"
+            content_after_skip = detail_content()
+            assert f"OVERWRITE-V2-MARKER-{skill_name}" in content_after_skip, (
+                "跳过冲突后原内容不应被覆盖为 V3"
+            )
+            assert "SKIP-V3-MARKER" not in content_after_skip, "跳过冲突后 V3 内容不应写入"
+        finally:
+            shutil.rmtree(root_skip, ignore_errors=True)
+    finally:
+        _api_delete_skill_safe(base_url, cookie_jar, skill_name)
+
+
+@allure.epic("技能管理")
+@pytest.mark.order(82)
+@pytest.mark.p1
+def test_skills_edit_entry_and_locked_name(logged_in_page, base_url):
+    """技能编辑入口 — owner 详情可打开编辑弹窗，名称 disabled 且字段已回填"""
+    from tests.pages.config_pages import SkillsPage
+
+    cookie_jar = _skills_session_cookie(logged_in_page)
+    skill_name = f"e2e-edt-{uuid.uuid4().hex[:8]}"
+    content = (
+        "---\n"
+        f"name: {skill_name}\n"
+        "description: 编辑入口测试技能\n"
+        "---\n\n"
+        "# Edit Entry Skill"
+    )
+    upload_resp = _api_create_skill_upload(base_url, cookie_jar, skill_name, content)
+    assert upload_resp.status_code < 400, f"预置技能失败: HTTP {upload_resp.status_code}"
+    try:
+        skills = SkillsPage(logged_in_page, base_url)
+        skills.goto()
+        assert skills.is_loaded(), "技能库页面未加载"
+        assert skills.reload(), "刷新后技能页面未加载"
+        assert skills.has_skill(skill_name), f"预置技能 '{skill_name}' 未出现在目录"
+
+        assert skills.select_skill(skill_name), "无法选中技能"
+        assert skills.is_owner(skill_name), "本账号技能应可编辑"
+
+        skills.open_edit(skill_name)
+        assert skills.is_edit_dialog_open(), "编辑弹窗未打开"
+        assert skills.is_name_disabled(), "编辑时名称输入框应 disabled（不可改）"
+        fields = skills.edit_field_values()
+        assert fields["name"] == skill_name, f"编辑弹窗名称未回填: {fields['name']}"
+        assert "编辑入口测试技能" in fields["description"], "编辑弹窗描述未回填"
+        assert "Edit Entry Skill" in fields["content"], "编辑弹窗内容未回填"
+
+        skills.cancel_dialog()
+        assert not skills.is_dialog_open(), "取消后编辑弹窗应关闭"
+    finally:
+        _api_delete_skill_safe(base_url, cookie_jar, skill_name)
+
+
+@allure.epic("技能管理")
+@pytest.mark.order(83)
+@pytest.mark.p2
+def test_skills_detail_pane(logged_in_page, base_url):
+    """技能详情栏 — 选中技能后展示名称/Skill 徽标/描述/SKILL.md 渲染区/归属徽标"""
+    from tests.pages.config_pages import SkillsPage
+
+    skills = SkillsPage(logged_in_page, base_url)
+    skills.goto()
+    assert skills.is_loaded(), "技能库页面未加载"
+
+    names = skills.get_skill_names()
+    if not names:
+        pytest.skip("技能列表为空，无法测试详情")
+    name = names[0]
+
+    title = skills.select_skill(name)
+    assert name in title, f"详情标题与所选不一致: '{title}' vs '{name}'"
+
+    article = skills.article_text(name)
+    assert "技能指令" in article, "详情缺少「技能指令」区块"
+    assert "SKILL.md" in article, "详情缺少 SKILL.md 标识"
+    # 底部徽标：公开/未公开 二选一
+    assert ("未公开" in article) or ("公开" in article), "详情缺少公开/未公开徽标"
+
+
 @allure.epic("技能管理")
 @pytest.mark.order(84)
 @pytest.mark.p0
 def test_skill_create_text_mode_via_ui(logged_in_page, base_url, request):
-    """TC-SKILL-003/017/043/061: 文本模式创建技能 — 新建技能→手动创建→填表→保存→卡片出现"""
+    """TC-SKILL-003: 文本模式创建技能 — 新建→填表→保存→toast+目录出现+API 落库"""
     from tests.pages.config_pages import SkillsPage
 
     cookie_jar = _skills_session_cookie(logged_in_page)
@@ -1141,82 +684,84 @@ def test_skill_create_text_mode_via_ui(logged_in_page, base_url, request):
         f"name: {unique_name}\n"
         "description: 自动化文本创建测试技能\n"
         "---\n\n"
-        "# 文本创建测试技能\n\n"
-        "通过 UI 手动创建技能，验证完整创建流程。"
+        "# 文本创建测试技能\n\n通过 UI 手动创建技能，验证完整创建流程。"
     )
     request.addfinalizer(lambda: _api_delete_skill_safe(base_url, cookie_jar, unique_name))
 
     skills = SkillsPage(logged_in_page, base_url)
     skills.goto()
-    assert skills.is_loaded(), "技能管理页面未加载"
+    assert skills.is_loaded(), "技能库页面未加载"
 
-    assert skills.open_manual_create_dialog(), "手动创建弹窗未打开"
+    skills.open_create_dialog()
+    assert skills.is_create_dialog_open(), "新建技能弹窗未打开"
     skills.fill_create_form(unique_name, description="自动化文本创建测试技能", content=content)
-    skills.click_save()
+    skills.save_dialog()
 
-    # 创建成功 toast
     toast_text = skills.get_last_toast_text()
     assert "技能已创建" in toast_text, f"创建成功 toast 未出现: {toast_text}"
+    assert not skills.is_dialog_open(), "创建成功后弹窗应关闭"
 
-    # 弹窗关闭 + 列表出现新卡片
-    assert skills.wait_skill_dialog_closed(timeout=5000), "创建成功后弹窗应关闭"
-    assert skills.has_skill_card(unique_name), f"创建后列表未出现技能 '{unique_name}'"
-
-    # 新卡片含编辑/下载/删除按钮（限定卡片容器）
-    assert skills.get_skill_card_action(unique_name, "编辑").count() > 0, "新技能卡片无「编辑」按钮"
-    assert skills.get_skill_card_action(unique_name, "删除").count() > 0, "新技能卡片无「删除」按钮"
+    assert skills.has_skill(unique_name), f"创建后目录未出现技能 '{unique_name}'"
+    title = skills.select_skill(unique_name)
+    assert unique_name in title, "详情标题未展示新建技能名"
+    assert skills.is_owner(unique_name), "新建技能应属于本账号"
+    # SKILL.md 的 front-matter name 不渲染进正文；断言标题含名 + 正文含描述与 Markdown 内容
+    article = skills.article_text(unique_name)
+    assert "自动化文本创建测试技能" in article, "新建技能详情未展示描述"
+    assert "通过 UI 手动创建技能" in article, "新建技能详情未展示 SKILL.md 内容"
 
     # API 侧确认已创建（独立于 UI 渲染）
-    list_resp = requests.get(f"{base_url}/web/config/skills", cookies=cookie_jar, timeout=10)
-    assert list_resp.status_code == 200
-    names = [s.get("name") for s in list_resp.json().get("data", {}).get("skills", [])]
-    assert unique_name in names, f"API 列表中未找到新技能 '{unique_name}'"
+    assert _api_skill_exists(base_url, cookie_jar, unique_name), f"API 列表中未找到 '{unique_name}'"
 
 
 @allure.epic("技能管理")
 @pytest.mark.order(85)
 @pytest.mark.p1
 def test_skill_validation_empty_name(logged_in_page, base_url):
-    """TC-SKILL-021/015/045: 空名称/纯空格名称提交 → toast「名称不能为空」，未创建"""
+    """TC-SKILL-021: 空名称提交 → toast「名称不能为空」，未创建"""
     from tests.pages.config_pages import SkillsPage
 
     skills = SkillsPage(logged_in_page, base_url)
     skills.goto()
-    assert skills.is_loaded(), "技能管理页面未加载"
+    assert skills.is_loaded(), "技能库页面未加载"
 
-    assert skills.open_manual_create_dialog(), "手动创建弹窗未打开"
-    skills.fill_create_form("   ", content="内容正常填写")
-    skills.click_save()
+    skills.open_create_dialog()
+    assert skills.is_create_dialog_open(), "新建技能弹窗未打开"
+    skills.fill_create_form("", content="内容正常填写")
+    skills.save_dialog()
 
     toast_text = skills.get_last_toast_text()
     assert "名称不能为空" in toast_text, f"名称校验 toast 未出现: {toast_text}"
-    assert skills.has_skill_dialog(), "校验失败后弹窗应保持打开"
+    assert skills.is_create_dialog_open(), "校验失败后新建弹窗应保持打开"
 
-    skills.click_cancel()
-    assert skills.wait_skill_dialog_closed(timeout=3000), "取消后创建弹窗应关闭"
+    skills.cancel_dialog()
+    assert not skills.is_dialog_open(), "取消后新建弹窗应关闭"
 
 
 @allure.epic("技能管理")
 @pytest.mark.order(86)
 @pytest.mark.p1
 def test_skill_validation_empty_content(logged_in_page, base_url):
-    """TC-SKILL-022: 名称填、内容空提交 → toast「内容不能为空」，未创建"""
+    """TC-SKILL-022: 内容空提交 → toast「内容不能为空」，未创建"""
     from tests.pages.config_pages import SkillsPage
 
     skills = SkillsPage(logged_in_page, base_url)
     skills.goto()
-    assert skills.is_loaded(), "技能管理页面未加载"
+    assert skills.is_loaded(), "技能库页面未加载"
 
-    assert skills.open_manual_create_dialog(), "手动创建弹窗未打开"
-    skills.fill_create_form("valid-name-content-empty", content="")
-    skills.click_save()
+    name = f"e2e-validate-{uuid.uuid4().hex[:8]}"
+    skills.open_create_dialog()
+    assert skills.is_create_dialog_open(), "新建技能弹窗未打开"
+    skills.fill_create_form(name, content="")
+    skills.save_dialog()
 
     toast_text = skills.get_last_toast_text()
     assert "内容不能为空" in toast_text, f"内容校验 toast 未出现: {toast_text}"
-    assert skills.has_skill_dialog(), "校验失败后弹窗应保持打开"
+    assert skills.is_create_dialog_open(), "校验失败后新建弹窗应保持打开"
+    assert not skills.has_skill(name, timeout=3000), "内容为空时不应创建技能"
 
-    skills.click_cancel()
-    assert skills.wait_skill_dialog_closed(timeout=3000), "取消后创建弹窗应关闭"
+    skills.cancel_dialog()
+    assert not skills.is_dialog_open(), "取消后新建弹窗应关闭"
 
 
 @allure.epic("技能管理")
@@ -1228,22 +773,23 @@ def test_skill_create_cancel(logged_in_page, base_url):
 
     skills = SkillsPage(logged_in_page, base_url)
     skills.goto()
-    assert skills.is_loaded(), "技能管理页面未加载"
+    assert skills.is_loaded(), "技能库页面未加载"
 
     cancel_name = f"e2e-cancel-{uuid.uuid4().hex[:8]}"
-    assert skills.open_manual_create_dialog(), "手动创建弹窗未打开"
+    skills.open_create_dialog()
+    assert skills.is_create_dialog_open(), "新建技能弹窗未打开"
     skills.fill_create_form(cancel_name, content="不会被保存")
-    skills.click_cancel()
+    skills.cancel_dialog()
 
-    assert skills.wait_skill_dialog_closed(timeout=3000), "取消后弹窗应关闭"
-    assert not skills.has_skill_card(cancel_name, timeout=2000), "取消后不应创建技能"
+    assert not skills.is_dialog_open(), "取消后弹窗应关闭"
+    assert not skills.has_skill(cancel_name, timeout=3000), "取消后不应创建技能"
 
 
 @allure.epic("技能管理")
 @pytest.mark.order(88)
 @pytest.mark.p1
-def test_skill_edit_save_and_cancel(logged_in_page, base_url, request):
-    """TC-SKILL-004/044/025: 编辑技能 — 名称 disabled、描述可改保存、取消不保存"""
+def test_skill_edit_save_and_cancel(logged_in_page, base_url):
+    """TC-SKILL-004: 编辑保存生效 / 编辑取消不保存（API 侧校验描述）"""
     from tests.pages.config_pages import SkillsPage
 
     cookie_jar = _skills_session_cookie(logged_in_page)
@@ -1251,68 +797,54 @@ def test_skill_edit_save_and_cancel(logged_in_page, base_url, request):
     content = (
         "---\n"
         f"name: {unique_name}\n"
-        "description: 编辑测试技能\n"
+        "description: 初始描述\n"
         "---\n\n"
         "# 编辑测试技能"
     )
-    request.addfinalizer(lambda: _api_delete_skill_safe(base_url, cookie_jar, unique_name))
-
-    # 前置：通过内部 API 创建测试技能（自建自销，不操作已有数据）
     upload_resp = _api_create_skill_upload(base_url, cookie_jar, unique_name, content)
     assert upload_resp.status_code < 400, f"预置编辑测试技能失败: HTTP {upload_resp.status_code}"
+    try:
+        skills = SkillsPage(logged_in_page, base_url)
+        skills.goto()
+        assert skills.is_loaded(), "技能库页面未加载"
+        assert skills.reload(), "刷新后技能页面未加载"
+        assert skills.has_skill(unique_name), f"预置技能 '{unique_name}' 未出现在目录"
 
-    skills = SkillsPage(logged_in_page, base_url)
-    skills.goto()
-    assert skills.is_loaded(), "技能管理页面未加载"
-    # goto() 走 SPA 导航，已在技能页时不会刷新列表 → 强制 reload 拉取 API 预置技能
-    assert skills.reload(), "刷新后技能页面未加载"
-    assert skills.has_skill_card(unique_name), f"预置技能 '{unique_name}' 未出现在列表"
+        def api_description() -> str:
+            r = requests.get(
+                f"{base_url}/web/config/skills/{unique_name}", cookies=cookie_jar, timeout=10
+            )
+            return r.json().get("data", {}).get("description", "")
 
-    # ── 打开编辑弹窗，确认名称 disabled ──
-    skills.get_skill_card_action(unique_name, "编辑").first.wait_for(state="visible", timeout=5000)
-    skills.get_skill_card_action(unique_name, "编辑").first.click()
-    assert skills.has_skill_dialog(), "编辑弹窗未打开"
+        # ── 编辑：改描述并保存 → 静默关闭，API 描述更新 ──
+        assert skills.select_skill(unique_name), "无法选中技能"
+        assert skills.is_owner(unique_name), "本账号技能应可编辑"
+        skills.open_edit(unique_name)
+        assert skills.is_edit_dialog_open(), "编辑弹窗未打开"
+        skills.set_edit_field(description="编辑后的描述-已保存")
+        skills.save_dialog()
+        assert not skills.is_dialog_open(), "保存后编辑弹窗应关闭"
+        assert api_description() == "编辑后的描述-已保存", "保存后描述未更新"
 
-    dialog = skills._skill_dialog()
-    # 编辑弹窗中名称输入框无 placeholder（源码见 AgentSkillsPage.tsx 编辑分支），
-    # dialog 内仅有 1 个 input（名称），其余为 textarea
-    name_input = dialog.locator("input").first
-    name_input.wait_for(state="visible", timeout=5000)
-    assert name_input.is_disabled(), "编辑时技能名称输入框应 disabled（名称不可改）"
-
-    # ── 修改描述并保存 → 静默关闭，API 侧确认描述更新 ──
-    desc = dialog.locator("textarea[placeholder*='描述技能用途']")
-    if desc.count() > 0:
-        desc.first.fill("编辑后的描述")
-    skills.click_save()
-
-    assert skills.wait_skill_dialog_closed(timeout=5000), "保存后编辑弹窗应关闭"
-    detail_resp = requests.get(f"{base_url}/web/config/skills/{unique_name}", cookies=cookie_jar, timeout=10)
-    assert detail_resp.status_code == 200
-    assert detail_resp.json().get("data", {}).get("description") == "编辑后的描述", "编辑后描述未更新"
-
-    # ── 再次编辑并取消 → 描述不变 ──
-    skills.get_skill_card_action(unique_name, "编辑").first.wait_for(state="visible", timeout=5000)
-    skills.get_skill_card_action(unique_name, "编辑").first.click()
-    assert skills.has_skill_dialog(), "第二次编辑弹窗未打开"
-    dialog = skills._skill_dialog()
-    desc = dialog.locator("textarea[placeholder*='描述技能用途']")
-    if desc.count() > 0:
-        desc.first.fill("不应保存的描述")
-    skills.click_cancel()
-    assert skills.wait_skill_dialog_closed(timeout=3000), "取消后编辑弹窗应关闭"
-
-    detail2 = requests.get(f"{base_url}/web/config/skills/{unique_name}", cookies=cookie_jar, timeout=10)
-    assert detail2.status_code == 200
-    assert detail2.json().get("data", {}).get("description") == "编辑后的描述", "取消编辑后描述不应变化"
+        # ── 编辑：再改描述但取消 → 描述不变 ──
+        skills.open_edit(unique_name)
+        assert skills.is_edit_dialog_open(), "第二次编辑弹窗未打开"
+        fields = skills.edit_field_values()
+        assert fields["description"] == "编辑后的描述-已保存", "编辑弹窗未回填已保存的描述"
+        skills.set_edit_field(description="不应保存的描述")
+        skills.cancel_dialog()
+        assert not skills.is_dialog_open(), "取消后编辑弹窗应关闭"
+        assert api_description() == "编辑后的描述-已保存", "取消编辑后描述不应变化"
+    finally:
+        _api_delete_skill_safe(base_url, cookie_jar, unique_name)
 
 
 @allure.epic("技能管理")
 @pytest.mark.order(89)
 @pytest.mark.p1
-@pytest.mark.no_page_error_check
-def test_skill_duplicate_name(logged_in_page, base_url, request):
-    """TC-SKILL-023: 重复名称创建 → 后端 409 冲突，toast「保存失败」，未创建第二个"""
+@pytest.mark.no_page_error_check  # 重名创建后端返回 409，会打 console.error
+def test_skill_duplicate_name(logged_in_page, base_url):
+    """TC-SKILL-023: 重复名称创建 → toast「保存失败」，同名技能仍只有 1 个"""
     from tests.pages.config_pages import SkillsPage
 
     cookie_jar = _skills_session_cookie(logged_in_page)
@@ -1324,33 +856,32 @@ def test_skill_duplicate_name(logged_in_page, base_url, request):
         "---\n\n"
         "# 重名测试技能"
     )
-    request.addfinalizer(lambda: _api_delete_skill_safe(base_url, cookie_jar, unique_name))
-
-    # 前置：通过内部 API 创建同名技能（作为「已存在」的对象）
     upload_resp = _api_create_skill_upload(base_url, cookie_jar, unique_name, content)
     assert upload_resp.status_code < 400, f"预置同名技能失败: HTTP {upload_resp.status_code}"
+    try:
+        skills = SkillsPage(logged_in_page, base_url)
+        skills.goto()
+        assert skills.is_loaded(), "技能库页面未加载"
+        assert skills.reload(), "刷新后技能页面未加载"
+        assert skills.has_skill(unique_name), f"预置技能 '{unique_name}' 未出现在目录"
 
-    skills = SkillsPage(logged_in_page, base_url)
-    skills.goto()
-    assert skills.is_loaded(), "技能管理页面未加载"
-    # goto() 走 SPA 导航，已在技能页时不会刷新列表 → 强制 reload 拉取 API 预置技能
-    assert skills.reload(), "刷新后技能页面未加载"
+        # 手动创建同名技能 → 应 409 冲突，toast 保存失败
+        skills.open_create_dialog()
+        assert skills.is_create_dialog_open(), "新建技能弹窗未打开"
+        skills.fill_create_form(unique_name, content="同名内容")
+        skills.save_dialog()
 
-    # 手动创建同名技能 → 应 409 冲突
-    assert skills.open_manual_create_dialog(), "手动创建弹窗未打开"
-    skills.fill_create_form(unique_name, content="同名内容")
-    skills.click_save()
+        toast_text = skills.get_last_toast_text()
+        assert "保存失败" in toast_text, f"重复名称未提示保存失败: {toast_text}"
+        assert skills.is_create_dialog_open(), "创建失败后弹窗应保持打开"
+        skills.cancel_dialog()
 
-    toast_text = skills.get_last_toast_text()
-    assert "保存失败" in toast_text, f"重复名称未提示保存失败: {toast_text}"
-
-    # 弹窗保持打开（创建失败），取消关闭
-    assert skills.has_skill_dialog(), "创建失败后弹窗应保持打开"
-    skills.click_cancel()
-
-    # API 侧确认仍只有 1 个同名技能（重名创建未生效）
-    list_resp = requests.get(f"{base_url}/web/config/skills", cookies=cookie_jar, timeout=10)
-    assert list_resp.status_code == 200
-    names = [s.get("name") for s in list_resp.json().get("data", {}).get("skills", [])]
-    assert names.count(unique_name) == 1, f"重名创建后同名技能数应为 1，实际 {names.count(unique_name)}"
-    assert skills.has_skill_card(unique_name), "同名技能应仍存在"
+        # API 侧确认仍只有 1 个同名技能
+        resp = requests.get(f"{base_url}/web/config/skills", cookies=cookie_jar, timeout=10)
+        assert resp.status_code == 200
+        names = [s.get("name") for s in resp.json().get("data", {}).get("skills", [])]
+        assert names.count(unique_name) == 1, (
+            f"重名创建后同名技能数应为 1，实际 {names.count(unique_name)}"
+        )
+    finally:
+        _api_delete_skill_safe(base_url, cookie_jar, unique_name)

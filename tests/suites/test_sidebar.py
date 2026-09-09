@@ -334,26 +334,26 @@ def test_knowledge_base_has_create_button(logged_in_page, base_url):
 
 @pytest.mark.order(21)
 @pytest.mark.p1
-def test_knowledge_base_search(logged_in_page, base_url):
-    """知识库搜索功能可用 | ✅ 人工评审通过 |"""
+def test_knowledge_base_directory(logged_in_page, base_url):
+    """知识库新版目录式布局：目录项渲染（名称 + 资源数）| ✅ 人工评审通过 |"""
     page = KnowledgeBasePage(logged_in_page, base_url)
     page.goto()
+    assert page.is_loaded(), "知识库页面未加载"
 
-    initial = page.get_kb_count()
-    assert isinstance(initial, int), "知识库列表加载失败"
+    # 新版为目录式布局（左侧 aside.knowledge-directory），无库级搜索框
+    assert not page.has_search_input(), \
+        "新版目录布局不应出现库级搜索输入框（旧版遗留元素）"
 
-    page.search("zzz_不存在_zzz")
-    logged_in_page.wait_for_timeout(500)
-    filtered = page.get_kb_count()
-    assert filtered == 0 or filtered < initial, (
-        f"搜索不存在内容后列表未过滤"
-        f"（initial={initial}, filtered={filtered}）"
-    )
-
-    page.clear_search()
-    restored = page.get_kb_count()
-    assert restored == initial, \
-        f"清空搜索后未恢复: {restored} vs {initial}"
+    names = page.get_kb_names()
+    assert isinstance(names, list), "知识库目录加载失败"
+    if not names:
+        pytest.skip("知识库目录为空")
+    counts = page.get_resource_counts()
+    assert len(counts) == len(names), \
+        f"目录项名称与资源数不匹配: {len(names)} vs {len(counts)}"
+    for n, c in zip(names, counts):
+        assert n, "目录项缺少名称"
+        assert "个资源" in c, f"目录项 '{n}' 缺少资源数展示: {c!r}"
 
 
 # ==================== 定时任务 ====================
@@ -598,15 +598,15 @@ def test_sidebar_nav_skills(logged_in_page, base_url):
 @pytest.mark.order(28)
 @pytest.mark.p0
 def test_sidebar_nav_mcp(logged_in_page, base_url):
-    """侧边栏导航：MCP → 可达 | ✅ 人工评审通过 |"""
+    """侧边栏导航：插件市场（MCP） → 可达 | ✅ 人工评审通过 |"""
     nav = SidebarNavigation(logged_in_page, base_url)
-    if not nav.has_nav_item("MCP"):
-        pytest.skip("侧边栏无'MCP'菜单项")
+    if not nav.has_nav_item("插件市场"):
+        pytest.skip("侧边栏无'插件市场'菜单项")
 
-    nav.click_nav("MCP")
+    nav.click_nav("插件市场")
     assert "/ctrl/agent/mcp" in logged_in_page.url, \
-        f"点击'MCP'后 URL 不正确: {logged_in_page.url}"
-    assert nav.has_panel_content(), "MCP 页面未加载"
+        f"点击'插件市场'后 URL 不正确: {logged_in_page.url}"
+    assert nav.has_panel_content(), "插件市场页面未加载"
 
     errors = _check_console_errors(logged_in_page, 500)
     assert not errors, f"导航后出现控制台错误: {errors}"
@@ -616,16 +616,16 @@ def test_sidebar_nav_mcp(logged_in_page, base_url):
 @pytest.mark.order(28)
 @pytest.mark.p0
 def test_sidebar_nav_sites(logged_in_page, base_url):
-    """侧边栏导航：AOS应用部署 → 可达 | ✅ 人工评审通过 |"""
+    """侧边栏导航：应用部署 → 可达 | ✅ 人工评审通过 |"""
     nav = SidebarNavigation(logged_in_page, base_url)
-    if not nav.has_nav_item("AOS应用部署"):
-        pytest.skip("侧边栏无'AOS应用部署'菜单项")
+    if not nav.has_nav_item("应用部署"):
+        pytest.skip("侧边栏无'应用部署'菜单项")
 
-    nav.click_nav("AOS应用部署")
+    nav.click_nav("应用部署")
     # 仅验证导航发生（URL 变化），不限定具体路径
     assert "/ctrl/agent/" in logged_in_page.url, \
-        f"点击'AOS应用部署'后 URL 不正确: {logged_in_page.url}"
-    assert nav.has_panel_content(), "AOS应用部署页面未加载"
+        f"点击'应用部署'后 URL 不正确: {logged_in_page.url}"
+    assert nav.has_panel_content(), "应用部署页面未加载"
 
     errors = _check_console_errors(logged_in_page, 500)
     assert not errors, f"导航后出现控制台错误: {errors}"
@@ -661,7 +661,7 @@ def test_sidebar_structure_integrity(logged_in_page, base_url):
             f"核心菜单项 '{item}' 不存在于侧边栏中"
 
     # 4. 配置类菜单项至少存在部分
-    config_items = ["模型库", "MCP", "技能库", "API Key"]
+    config_items = ["模型库", "插件市场", "技能库", "API Key"]
     config_found = [i for i in config_items if nav.has_nav_item(i)]
     assert len(config_found) >= 2, \
         f"配置类菜单项过少，只找到 {config_found}"

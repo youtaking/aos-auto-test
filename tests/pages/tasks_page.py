@@ -81,18 +81,28 @@ class TasksPage:
             btn.first.click()
             self.page.wait_for_timeout(1500)
 
-    # === 筛选 Tab ===
+    # === 筛选（类型过滤按钮组） ===
+
+    def _type_filter_group(self):
+        """类型筛选按钮组 div[role=group][aria-label=任务类型]（新版任务页顶部工具栏）。"""
+        return self.page.locator("main div[role=group][aria-label='任务类型']").first
 
     def get_filter_tabs(self) -> list[str]:
-        """获取筛选 Tab 名称列表"""
-        tabs = self.page.locator('[role="tab"]')
-        return [tabs.nth(i).inner_text().strip() for i in range(tabs.count())]
+        """获取类型筛选档名称（全部/HTTP/Agent）。"""
+        grp = self._type_filter_group()
+        if grp.count() == 0:
+            return []
+        return [b.inner_text().strip() for b in grp.locator("button").all()]
 
     def click_filter_tab(self, name: str):
-        """点击筛选 Tab（全部/HTTP/Agent）"""
-        tab = self.page.locator('[role="tab"]').filter(has_text=name)
-        if tab.count() > 0:
-            tab.first.click()
+        """点击类型筛选档（全部/HTTP/Agent），name 用前缀即可。"""
+        grp = self._type_filter_group()
+        if grp.count() == 0:
+            return
+        btn = grp.locator("button", has_text=name).first
+        if btn.count() > 0:
+            btn.wait_for(state="visible", timeout=5000)
+            btn.click()
             self.page.wait_for_timeout(1000)
 
     # === 表格 ===
@@ -135,24 +145,28 @@ class TasksPage:
 
     # === 搜索 ===
 
+    def _search_input(self):
+        return self.page.locator("main input[placeholder='搜索任务名称']").first
+
     def search(self, keyword: str):
-        """搜索任务"""
-        inp = self.page.locator("div.agent-panel-content input[placeholder*='搜索']")
-        if inp.count() == 0:
-            # 备选：使用第一个 input
-            inp = self.page.locator("table").locator("input")
+        """搜索任务（主内容区搜索框，服务端过滤）"""
+        inp = self._search_input()
         if inp.count() > 0:
-            inp.first.fill("")
-            inp.first.press_sequentially(keyword, delay=100)
-            self.page.wait_for_timeout(500)
+            inp.wait_for(state="visible", timeout=5000)
+            inp.click()
+            inp.fill("")
+            inp.press_sequentially(keyword, delay=80)
+            self.page.wait_for_timeout(800)
 
     def clear_search(self):
-        inp = self.page.locator("div.agent-panel-content input[placeholder*='搜索']")
-        if inp.count() == 0:
-            inp = self.page.locator("table").locator("input")
+        inp = self._search_input()
         if inp.count() > 0:
-            inp.first.fill("")
-            self.page.wait_for_timeout(500)
+            try:
+                inp.wait_for(state="visible", timeout=3000)
+            except Exception:
+                return
+            inp.fill("")
+            self.page.wait_for_timeout(800)
 
     # === 创建任务 ===
 
@@ -228,11 +242,19 @@ class TasksPage:
             inp.first.fill(url)
 
     def select_http_method(self, method: str):
-        """选择 HTTP 方法"""
+        """选择 HTTP 方法（combobox：点开 → [role=option] 选择）"""
         d = self.page.locator('[role="dialog"]')
-        sel = d.locator("select")
-        if sel.count() > 0:
-            sel.first.select_option(label=method)
+        cb = d.locator("button[role=combobox]").first
+        if cb.count() == 0:
+            return
+        cb.wait_for(state="visible", timeout=5000)
+        cb.click()
+        self.page.wait_for_timeout(400)
+        opt = self.page.get_by_role("option", name=method).first
+        if opt.count() > 0:
+            opt.wait_for(state="visible", timeout=5000)
+            opt.click()
+            self.page.wait_for_timeout(300)
 
     def fill_agent_prompt(self, prompt: str):
         """填写 Agent Prompt"""

@@ -101,42 +101,57 @@ def test_agent_create_dialog_opens(logged_in_page, base_url, request):
 
     # 1. 点击页面内容区「创建智能体」按钮
     agent_page.click_create_button()
-    logged_in_page.wait_for_timeout(800)
+    logged_in_page.wait_for_timeout(1200)
 
-    # 2. 验证内联创建表单出现
-    body_text = logged_in_page.locator("body").inner_text()
-    assert "新建Agent" in body_text, "点击创建智能体后未出现「新建Agent」表单"
-    assert all(tab in body_text for tab in ["基础", "知识库", "高级配置"]), \
-        "创建表单缺少配置 Tab"
+    # 2. 验证「新建Agent」对话框出现（新版 6-tab 配置地图：身份与指令/模型/能力与工具/知识与记忆/运行环境/共享与访问）
+    d = logged_in_page.locator("[role='dialog']").first
+    try:
+        d.wait_for(state="visible", timeout=8000)
+    except Exception:
+        pytest.fail("点击创建智能体后未出现「新建Agent」对话框")
+    dialog_text = d.inner_text()
+    assert "新建Agent" in dialog_text, f"对话框标题非「新建Agent」: {dialog_text[:80]!r}"
+    expected_tabs = ["身份与指令", "模型", "能力与工具", "知识与记忆", "运行环境", "共享与访问"]
+    for tab in expected_tabs:
+        assert tab in dialog_text, f"创建对话框缺少配置 Tab「{tab}」"
 
     # 3. 填写名称（必填）
     import uuid
     agent_name = f"manage-test-{uuid.uuid4().hex[:6]}"
-    name_input = logged_in_page.locator("input[placeholder='例如 my-agent']")
+    name_input = d.locator("input[placeholder='例如 my-agent']")
     assert name_input.count() > 0 and name_input.first.is_visible(), "名称输入框未出现"
     name_input.first.fill(agent_name)
 
     # 4. 填写描述（可选）
-    desc_input = logged_in_page.locator("input[placeholder*='可选，Agent 的简短描述']")
+    desc_input = d.locator("input[placeholder*='可选，Agent 的简短描述']")
     if desc_input.count() > 0:
         desc_input.first.fill("E2E 管理页面创建测试")
 
-    # 5. 点击「创建」按钮
-    create_btn = logged_in_page.get_by_role("button", name="创建").last
+    # 5. 点击对话框底部「创建」按钮（exact 匹配，避免命中 对话创建/创建智能体）
+    create_btn = d.get_by_role("button", name="创建", exact=True).last
     assert create_btn.is_visible(), "「创建」按钮不可见"
     create_btn.click()
-    logged_in_page.wait_for_timeout(800)
+    # 等对话框关闭（Agent 创建可能较慢）
+    try:
+        d.wait_for(state="hidden", timeout=30000)
+    except Exception:
+        pass
 
     # 注册清理（UI 创建的 agent，通过 API 删除）
     from tests.pages.agent_config_page import AgentConfigPage
     _ac = AgentConfigPage(logged_in_page, base_url)
     register_cleanup(request, lambda n=agent_name: _ac.delete_agent_api(n))
 
-    # 6. 验证创建成功 — 新智能体出现在列表中
+    # 6. 验证创建成功 — 新智能体出现在列表中（带重试轮询）
     agent_page.goto()
-    logged_in_page.wait_for_timeout(800)
-    assert agent_page.has_agent(agent_name), \
-        f"创建后智能体 '{agent_name}' 未出现在列表中"
+    found = False
+    for _i in range(8):
+        agent_page.goto()
+        if agent_page.has_agent(agent_name):
+            found = True
+            break
+        logged_in_page.wait_for_timeout(1500)
+    assert found, f"创建后智能体 '{agent_name}' 未出现在列表中"
 
     # 7. 验证数量增加
     new_count = agent_page.get_agent_count()

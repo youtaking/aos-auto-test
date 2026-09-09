@@ -76,8 +76,16 @@ def _wait_chat_ready(page, timeout_s=CHAT_READY_TIMEOUT_S) -> bool:
 
 
 def _wait_instance_url(page, timeout_s=INSTANCE_URL_TIMEOUT_S) -> bool:
-    """等 A 的 URL 进入实例会话（.../ses_inst_env_xxx_1）"""
-    return _wait_until(page, lambda: "/ses_inst_" in page.url, timeout_s)
+    """等 A 的 URL 进入实例会话。
+
+    新版 UI 进入实例聊天后 URL 形如 /ctrl/agent/chat/env_xxx/inst_xxx；
+    旧版为 .../{agentId}/ses_inst_env_xxx。两者均视为已进入。
+    """
+    def _entered():
+        if "/ses_inst_" in page.url:
+            return True
+        return "/ctrl/agent/chat/" in page.url and "/inst_" in page.url
+    return _wait_until(page, _entered, timeout_s)
 
 
 def _wait_turn_complete(page, token, quiet_s=2.0, timeout_s=TURN_TIMEOUT_S) -> str:

@@ -453,6 +453,11 @@ def test_session_search(logged_in_page, base_url):
     if not chat.is_session_dialog_open():
         assert False, "【应用Bug】会话对话框未打开（侧边栏无会话数据或渲染异常）"
 
+    # 前置条件：新版会话面板若无会话搜索框，则该功能已从新版 UI 移除 → 整条合法跳过
+    if chat.get_session_search_box() is None:
+        chat.close_session_dialog()
+        pytest.skip("新版会话面板无会话搜索输入框（会话搜索功能已从新版 UI 移除），合法跳过")
+
     # 1. 获取所有会话
     all_titles = chat.get_session_titles()
     if len(all_titles) < 2:
@@ -475,27 +480,18 @@ def test_session_search(logged_in_page, base_url):
 
     chat.search_sessions(keyword)
 
-    # 3. 验证搜索输入框可交互（DOM 过滤行为因应用实现而异，不做强断言）
-    search_input = logged_in_page.locator(
-        "input[aria-label*='搜索'], input[placeholder*='搜索']"
-    )
-    if search_input.count() == 0:
-        # 搜索输入框选择器可能变化，降级为仅验证搜索操作无报错
-        allure.attach(
-            "搜索输入框选择器未匹配（input[aria-label/placeholder*='搜索']），"
-            "搜索功能可能已改版",
-            name="备注", attachment_type=allure.attachment_type.TEXT
-        )
-    else:
-        search_val = search_input.first.input_value()
-        assert keyword in search_val, \
-            f"搜索输入框内容异常: 期望包含 '{keyword}'，实际 '{search_val}'"
+    # 3. 验证搜索输入框可交互（前置已保证存在会话搜索框，此处重新定位确保非 None）
+    search_box = chat.get_session_search_box()
+    assert search_box is not None, "会话搜索框不存在"
+    search_val = search_box.input_value()
+    assert keyword in search_val, \
+        f"搜索输入框内容异常: 期望包含 '{keyword}'，实际 '{search_val}'"
 
-        # 4. 搜索不存在的关键词 — 验证输入框可更换内容
-        chat.search_sessions("zzz_不存在_zzz_99999")
-        search_val_2 = search_input.first.input_value()
-        assert "zzz_不存在" in search_val_2, \
-            f"搜索输入框无法更换内容: '{search_val_2}'"
+    # 4. 搜索不存在的关键词 — 验证输入框可更换内容
+    chat.search_sessions("zzz_不存在_zzz_99999")
+    search_val_2 = search_box.input_value()
+    assert "zzz_不存在" in search_val_2, \
+        f"搜索输入框无法更换内容: '{search_val_2}'"
 
     # 5. 检查搜索后是否有视觉过滤效果（仅记录，不作为断言）
     filtered = chat.get_filtered_session_titles()
