@@ -247,22 +247,26 @@ def test_reconnect_resync(logged_in_page, second_browser_page, base_url):
     _open_sync_pair(a, b, base_url)
     a_chat = ChatTestPage(a, base_url)
 
+    # 注意：必须带短回复指令，裸 token（如 "rec1-xxx"）会被 my-auto-test
+    # 误当"恢复子代理线程 ID"派生子任务，陷入长循环锁死 composer，
+    # 导致后续回合与刷新重连全部失真。与同文件其他同步用例保持一致。
     token1 = f"rec1-{uuid.uuid4().hex[:6]}"
-    a_chat.send_message(token1)
+    a_chat.send_message(f"{token1} 请只回复：ok")
     assert _wait_until(a, lambda: token1 in _log_text(a), 10), "A 未显示 token1"
     # 等 AI 回合结束再发下一条（流式期间 composer 禁发，Enter 不会提交）
     _wait_turn_complete(a, token1)
     _assert_b_synced(b, token1, label="token1 用户消息")
 
-    # B 刷新重连，历史应通过初始同步恢复（等待而非瞬时断言）
+    # B 刷新重连，历史应通过初始同步恢复（等待而非瞬时断言）。
+    # 持久实例历史较多时 Yjs doc 恢复可能超过实时同步的 5s，放宽到 20s
     b.goto(b.url, wait_until="domcontentloaded")
     assert _wait_chat_ready(b), "B 刷新后未就绪"
-    assert _wait_until(b, lambda: token1 in _log_text(b), SYNC_DEADLINE_S), (
+    assert _wait_until(b, lambda: token1 in _log_text(b), 20), (
         f"B 刷新后丢失历史消息 token1。B 日志: {_log_text(b)[-200:]!r}"
     )
 
     # A 再发一条，B 重连后仍实时同步
     token2 = f"rec2-{uuid.uuid4().hex[:6]}"
-    a_chat.send_message(token2)
+    a_chat.send_message(f"{token2} 请只回复：ok")
     assert _wait_until(a, lambda: token2 in _log_text(a), 10), "A 未显示 token2"
     _assert_b_synced(b, token2, label="token2 用户消息")

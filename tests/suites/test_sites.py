@@ -147,9 +147,16 @@ def test_sites_list_edit_and_delete(logged_in_page, base_url, env_check):
     # --- 删除 ---
     sites.delete_app(test_name)
 
-    # 刷新验证删除成功
-    sites.goto()
-    assert not sites.has_app(test_name), f"删除后 {test_name} 仍在列表中"
+    # 刷新验证删除成功（重负载下删除在服务端落地可能有延迟，轮询等待而非瞬时断言）
+    deadline = time.monotonic() + 15
+    gone = False
+    while time.monotonic() < deadline:
+        sites.goto()
+        if not sites.has_app(test_name):
+            gone = True
+            break
+        sites.page.wait_for_timeout(1000)
+    assert gone, f"删除后 {test_name} 仍在列表中"
     assert sites.get_app_count() == initial_count, \
         f"删除后数量未恢复: {sites.get_app_count()} vs {initial_count}"
 
