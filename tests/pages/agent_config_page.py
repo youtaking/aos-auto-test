@@ -276,17 +276,30 @@ class AgentConfigPage:
         cards = self.page.locator("button.agent-home-template-pill")
         cards.first.wait_for(state="visible", timeout=10000)
 
-        # 填写描述并点击一键创建
+        # 填写描述并点击一键创建（AI 生成表单；生成偶发 422 解析失败，重试最多 2 次）
         desc = system_prompt if system_prompt else "创建一个通用助手，能够回答各种问题"
-        self.fill_create_description(desc)
-        quick_btn = self.get_quick_create_button()
-        quick_btn.scroll_into_view_if_needed()
-        quick_btn.wait_for(state="visible", timeout=5000)
-        quick_btn.click()
-
-        # 等待 AI 生成表单出现
         create_btn = self.page.get_by_role("button", name="创建 Agent")
-        create_btn.wait_for(state="visible", timeout=90000)
+        _created = False
+        for _attempt in range(2):
+            self.fill_create_description(desc)
+            quick_btn = self.get_quick_create_button()
+            if quick_btn.count() == 0:
+                # 页面可能停在生成失败态，回到创建页重来
+                self.goto_create()
+                self.fill_create_description(desc)
+                quick_btn = self.get_quick_create_button()
+            quick_btn.scroll_into_view_if_needed()
+            quick_btn.wait_for(state="visible", timeout=5000)
+            quick_btn.click()
+            try:
+                create_btn.wait_for(state="visible", timeout=60000)
+                _created = True
+                break
+            except Exception:
+                # AI 生成 422/超时，等 2s 后重试触发
+                self.page.wait_for_timeout(2000)
+        if not _created:
+            raise TimeoutError("一键创建后 AI 未生成「创建 Agent」按钮（重试 2 次仍失败）")
         self.page.wait_for_timeout(1000)
 
         # 替换名称

@@ -75,6 +75,31 @@ def _wait_chat_ready(page, timeout_s=CHAT_READY_TIMEOUT_S) -> bool:
     return _wait_until(page, lambda: page.locator("textarea").count() > 0, timeout_s)
 
 
+def _composer_busy(page) -> bool:
+    """composer 是否处于 AI 流式响应中（存在可见且可用的停止按钮）。
+
+    停止按钮选择器与 ChatTestPage._stop_ai_if_responding 一致，
+    且必须限定到 .chat-composer-card（侧边栏实例"停止"按钮同样渲染 lucide-square）。
+    """
+    try:
+        composer = page.locator(".chat-composer-card")
+        if composer.count() == 0:
+            return False
+        stop_btn = composer.locator("button:has(svg.lucide-square)")
+        return (
+            stop_btn.count() > 0
+            and stop_btn.first.is_visible()
+            and stop_btn.first.is_enabled()
+        )
+    except Exception:
+        return False
+
+
+def _wait_composer_free(page, timeout_s=90) -> bool:
+    """等待 composer 解锁（AI 回合真正结束，而非仅日志静默）。"""
+    return _wait_until(page, lambda: not _composer_busy(page), timeout_s)
+
+
 def _wait_instance_url(page, timeout_s=INSTANCE_URL_TIMEOUT_S) -> bool:
     """等 A 的 URL 进入实例会话。
 
@@ -253,8 +278,9 @@ def test_reconnect_resync(logged_in_page, second_browser_page, base_url):
     token1 = f"rec1-{uuid.uuid4().hex[:6]}"
     a_chat.send_message(f"{token1} 请只回复：ok")
     assert _wait_until(a, lambda: token1 in _log_text(a), 10), "A 未显示 token1"
-    # 等 AI 回合结束再发下一条（流式期间 composer 禁发，Enter 不会提交）
+    # 等 AI 回合真正结束（composer 解锁，而非仅日志静默 2s——慢速模型停顿会误判）
     _wait_turn_complete(a, token1)
+    assert _wait_composer_free(a, 120), "token1 回合结束后 composer 仍锁住"
     _assert_b_synced(b, token1, label="token1 用户消息")
 
     # B 刷新重连，历史应通过初始同步恢复（等待而非瞬时断言）。
@@ -266,7 +292,16 @@ def test_reconnect_resync(logged_in_page, second_browser_page, base_url):
     )
 
     # A 再发一条，B 重连后仍实时同步
+    # B 刷新会触发共享 doc 重连，发送前确保 A 的 composer 已解锁
+    assert _wait_composer_free(a, 90), "B 刷新后 A composer 未解锁"
     token2 = f"rec2-{uuid.uuid4().hex[:6]}"
     a_chat.send_message(f"{token2} 请只回复：ok")
+    if not _wait_until(a, lambda: token2 in _log_text(a), 5):
+        # Enter 可能在 composer 锁定瞬间被吞（文本框仍保留文本）→ 解锁后补按一次
+        _wait_composer_free(a, 60)
+        try:
+            a.locator("textarea").first.press("Enter")
+        except Exception:
+            pass
     assert _wait_until(a, lambda: token2 in _log_text(a), 10), "A 未显示 token2"
     _assert_b_synced(b, token2, label="token2 用户消息")
