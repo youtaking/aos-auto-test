@@ -457,8 +457,29 @@ class AgentConfigPage:
 
     def open_agent_config_modal(self, agent_name: str):
         """打开新版 Agent 配置 modal（6-tab 配置地图）。
-        返回 (modal_locator, agent_wrapper)；打开失败返回 (None, agent_wrapper)。
+        返回 (modal_locator, agent_wrapper)；重试后仍失败返回 (None, agent_wrapper)。
+
+        打开后校验 modal 确实绑定到目标 Agent（禁用的「名称」输入框值 == agent_name）。
+        长时间全量跑时，侧边栏可能残留上个用例的选中态，点「智能体配置」会把 modal 绑定到
+        残留/已删除的 Agent，保存时 PUT 到错误 name → 404/NOT_FOUND。校验失败即关闭重试。
         """
+        for _attempt in range(3):
+            modal, wrapper = self._open_config_modal_once(agent_name)
+            if modal is not None and self._modal_bound_to(modal, agent_name):
+                return modal, wrapper
+            # 打开失败或绑定到错误 Agent：清理叠层后重试
+            try:
+                if modal is not None:
+                    self._dismiss_modal_if_open(modal)
+                else:
+                    self._dismiss_any_dialog()
+            except Exception:
+                pass
+            self.page.wait_for_timeout(800)
+        return None, None
+
+    def _open_config_modal_once(self, agent_name):
+        """单次尝试：定位卡片 → 悬停 → 点「智能体配置」→ 等 modal 可见。"""
         self.goto_agents()
         card = self.wait_for_agent_card(agent_name)
         if card.count() == 0:
@@ -487,6 +508,16 @@ class AgentConfigPage:
             pass
         self.page.wait_for_timeout(600)
         return modal, agent_wrapper
+
+    def _modal_bound_to(self, modal, agent_name) -> bool:
+        """校验配置 modal 是否绑定到目标 Agent：读取禁用的「名称」输入框值。"""
+        try:
+            name_input = modal.locator("input[placeholder*='例如 my-agent']").first
+            if name_input.count() > 0 and name_input.is_visible():
+                return (name_input.input_value().strip() == agent_name)
+        except Exception:
+            pass
+        return False
 
     def switch_config_tab(self, modal, label: str):
         """切换 6-tab 配置地图大 tab（身份与指令/模型/能力与工具/知识与记忆/运行环境/共享与访问）。

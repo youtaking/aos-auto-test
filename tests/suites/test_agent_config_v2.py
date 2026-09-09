@@ -4,6 +4,7 @@
 """
 import json
 import re
+import time
 import uuid
 import random
 import pytest
@@ -718,13 +719,16 @@ def test_agent_028_no_skill(logged_in_page, base_url, shared_agent):
     card = ac.wait_for_agent_card(agent_name)
     assert card.count() > 0, f"列表中未找到 '{agent_name}'"
 
+    # 全量回归负载下 env-enter + 会话恢复可能明显超过 10s：轮询等待进入对话路由，
+    # 期间若出现并发上限提示则按环境限制 skip
     card.first.click(force=True)
-    try:
-        logged_in_page.wait_for_url(
-            lambda url: "/ctrl/agent/chat/" in url, timeout=10000
-        )
-    except Exception:
-        pass
+    deadline = time.monotonic() + 45
+    while time.monotonic() < deadline:
+        if "/ctrl/agent/chat/" in logged_in_page.url:
+            break
+        if _check_concurrency_limit(logged_in_page):
+            pytest.skip("服务器并发上限，无法进入对话页面")
+        logged_in_page.wait_for_timeout(500)
     logged_in_page.wait_for_load_state("domcontentloaded")
     if _check_concurrency_limit(logged_in_page):
         pytest.skip("服务器并发上限，无法进入对话页面")
@@ -859,10 +863,15 @@ def test_agent_032_edit_add_config(logged_in_page, base_url):
 
     names = ac.get_agent_names()
     assert len(names) > 0, "应有至少一个智能体"
-    print(f"\n点击第一个 Agent: '{names[0]}'（共 {len(names)} 个）")
+    # 目标 Agent 不取列表首个：侧边栏按"最近更新"排序，列表首位可能是删除用例
+    # 刚删掉、但服务端尚未从 /web/config/agents 传播的 del-test-* 残留；点击进入
+    # 会触发 env-enter 422（LAUNCH_SPEC_BUILD_FAILED），污染本用例 teardown 监控。
+    # 优先点击套件固定的 my-auto-test（持久实例，稳定可进入）。
+    target = "my-auto-test" if "my-auto-test" in names else names[0]
+    print(f"\n点击智能体: '{target}'（共 {len(names)} 个）")
 
-    # 点击第一个 Agent 进入对话
-    ac.click_agent(names[0])
+    # 点击 Agent 进入对话
+    ac.click_agent(target)
     logged_in_page.wait_for_load_state("domcontentloaded")
 
     # 对话页面应有配置相关入口
@@ -873,7 +882,7 @@ def test_agent_032_edit_add_config(logged_in_page, base_url):
             "技能", "文件", "定时任务", "站点"
         ])
         allure.attach(
-            f"Agent '{names[0]}' 对话页面配置入口: {has_config}",
+            f"Agent '{target}' 对话页面配置入口: {has_config}",
             name="配置入口",
             attachment_type=allure.attachment_type.TEXT,
         )

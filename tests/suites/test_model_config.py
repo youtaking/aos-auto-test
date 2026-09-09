@@ -843,21 +843,27 @@ def test_model_010_fetch_provider_models(logged_in_page, base_url, request):
     assert _goto_open_provider(mc, logged_in_page, display), "测试服务商未出现在目录"
     assert mc.has_section_fetch_models(), "模型区缺少「获取模型列表」按钮"
 
-    api_responses = mc.intercept_api_responses("/web/config/providers/actions/fetch-models")
-    mc.click_section_fetch_models()
+    # 「获取模型列表」点击后前端立即发出 POST fetch-models。请求事件在点击瞬间触发，
+    # 不依赖服务端探测 placeholder 上游的耗时（响应可能因上游连接/超时明显晚于数秒，
+    # 只监听 response 会在 5s 窗口内漏判）。故改为请求级捕获，确定性验证"点击触发了发现"。
+    fetch_posts = []
 
-    # POST fetch-models
-    deadline = time.time() + 5
-    fetch_calls = []
-    while time.time() < deadline:
-        fetch_calls = [r for r in api_responses if r["method"] == "POST"]
-        if fetch_calls:
-            break
-        logged_in_page.wait_for_timeout(300)
-    assert fetch_calls, "未检测到获取模型列表的 POST 请求"
+    def _on_req(req):
+        if "/fetch-models" in req.url and req.method == "POST":
+            fetch_posts.append(req.url)
 
-    # 不可达 → toast 测试失败
-    toast = _wait_toast(mc, logged_in_page, "测试失败", 10000)
+    logged_in_page.on("request", _on_req)
+    try:
+        mc.click_section_fetch_models()
+        deadline = time.time() + 8
+        while time.time() < deadline and not fetch_posts:
+            logged_in_page.wait_for_timeout(200)
+        assert fetch_posts, "未检测到获取模型列表的 POST 请求"
+    finally:
+        logged_in_page.remove_listener("request", _on_req)
+
+    # 不可达 → toast 测试失败（服务端探测 placeholder 上游耗时不定，放宽等待到 25s）
+    toast = _wait_toast(mc, logged_in_page, "测试失败", 25000)
     assert "测试失败" in toast, f"获取模型列表失败反馈缺失: {toast!r}"
 
     # 清理
