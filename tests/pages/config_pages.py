@@ -237,11 +237,23 @@ class SkillsPage:
     # ═══════════ 详情只读/状态读取 ═══════════
 
     def article_text(self, name: str) -> str:
+        """读取详情正文并轮询等待含技能名（详情内容为异步拉取，重载下可能滞后）。
+
+        调用方均断言正文含技能名；正文已渲染则首次读取即返回，未渲染时最多等 12s。
+        """
         self._ensure_selected(name)
+        deadline = time.time() + 12
+        last = ""
         try:
-            return self._main().locator("article").first.inner_text()
+            art = self._main().locator("article").first
+            while time.time() < deadline:
+                last = art.inner_text(timeout=2000)
+                if name in last:
+                    return last
+                self.page.wait_for_timeout(400)
         except Exception:
-            return ""
+            pass
+        return last
 
     def is_owner(self, name: str) -> bool:
         """owner：详情 header 有「编辑」按钮；非 owner 只读：header 是「查看」"""

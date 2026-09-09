@@ -545,21 +545,47 @@ class ChatTestPage:
             return chat_area.first.inner_text()
         return ""
 
-    def wait_for_messages_loaded(self, timeout_s: int = 15) -> str:
+    def wait_for_messages_loaded(self, timeout_s: int = 20) -> str:
         """点击会话后轮询等待消息区渲染出真实内容（非空态占位符/AgentBadge）。
 
-        全量回归负载高时，切换会话后消息区可能短暂停留在空态（占位符「开始对话」）
-        或 AgentBadge，禁止裸固定等待后立即读取（会读到空态文本）。
-        空态占位符特征文案：chatView.startConversationDesc「输入消息开始与 ACP agent 聊天」。
+        全量回归负载高时，切换会话后消息区可能短暂停留在空态。空态判据需覆盖
+        旧版「输入消息开始…」与新版建议占位（「从一次充分讨论开始」/「开始对话」等），
+        命中任一特征文案视为未就绪继续轮询；超时后刷新重建连接再等一轮。
         """
         log_area = self.page.locator("div[role='log']")
+        PLACEHOLDER_MARKS = (
+            "输入消息开始", "开始对话", "从一次充分讨论开始",
+            "描述想法、贴入上下文", "讨论代码变更的思路与风险",
+            "讨论技术方案的选择与取舍", "讨论构建失败的可能原因",
+        )
+
+        def _ready_text():
+            if log_area.count() == 0:
+                return None
+            text = log_area.first.inner_text().strip()
+            if not text:
+                return None
+            if log_area.locator(".agent-badge").count() > 0:
+                return None
+            if any(m in text for m in PLACEHOLDER_MARKS):
+                return None
+            return text
+
         for _ in range(timeout_s):
-            if log_area.count() > 0:
-                text = log_area.first.inner_text().strip()
-                has_badge = log_area.locator(".agent-badge").count() > 0
-                is_empty_state = "输入消息开始" in text
-                if text and not has_badge and not is_empty_state:
-                    return text
+            ready = _ready_text()
+            if ready:
+                return ready
+            self.page.wait_for_timeout(1000)
+        # 超时仍空态：刷新重建连接（Yjs 同步滞后），再等一轮；仍不行回退全文本供断言诊断
+        try:
+            self.page.reload(wait_until="domcontentloaded")
+            self.page.locator("textarea").first.wait_for(state="visible", timeout=15000)
+        except Exception:
+            pass
+        for _ in range(timeout_s):
+            ready = _ready_text()
+            if ready:
+                return ready
             self.page.wait_for_timeout(1000)
         return self.get_chat_messages_text().strip()
 

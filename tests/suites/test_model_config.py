@@ -641,7 +641,15 @@ def test_model_008_add_model(logged_in_page, base_url, request):
     mc.submit_dialog()
     assert _wait_dialog_gone(logged_in_page, 6000), "添加模型保存后弹窗未关闭"
 
-    post_calls = [r for r in api_responses if r["method"] == "POST"]
+    # 弹窗可能在后端响应前先行关闭（乐观关闭），重负载下 POST 响应会滞后，
+    # 轮询等待其出现；若始终无 POST 仍按失败处理（应用未发添加请求）
+    post_calls = []
+    deadline = time.monotonic() + 8
+    while time.monotonic() < deadline:
+        post_calls = [r for r in api_responses if r["method"] == "POST"]
+        if post_calls:
+            break
+        logged_in_page.wait_for_timeout(300)
     assert len(post_calls) > 0, "未检测到添加模型的 POST 请求"
 
     # 刷新验证模型区 + API

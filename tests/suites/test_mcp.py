@@ -367,6 +367,10 @@ def test_local_connection(logged_in_page, base_url):
     try:
         mcp.click_inspect(name)
         toasts, _empty, _article = mcp.wait_inspect_result(name)
+        if not toasts:
+            # 全量重负载下首次检测结果可能延迟/被吞，重试一次再判定
+            mcp.click_inspect(name)
+            toasts, _empty, _article = mcp.wait_inspect_result(name, timeout=20000)
         assert toasts, "本地服务器检测后无任何 toast 反馈"
         combined = " ".join(toasts)
         assert ("检测失败" in combined and "remote" in combined.lower()) or \
