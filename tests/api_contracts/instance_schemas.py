@@ -8,17 +8,13 @@
 INSTANCE_INFO = {
     "type": "object",
     "properties": {
-        "id": {"type": "string"},
-        "port": {"type": "number"},
-        "status": {"type": "string", "enum": ["starting", "running", "stopped", "error"]},
-        "error": {"type": ["string", "null"]},
-        "group_id": {"type": "string"},
-        "environment_id": {"type": ["string", "null"]},
-        "session_id": {"type": ["string", "null"]},
-        "instance_number": {"type": "number"},
-        "created_at": {"type": "number"},
+        "instanceUid": {"type": "string", "minLength": 1},
+        "environmentId": {"type": "string", "minLength": 1},
+        "name": {"type": "string"},
+        "status": {"type": "string", "enum": ["stopped", "starting", "running", "stopping", "unknown"]},
+        "createdAt": {"type": "string", "format": "date-time"},
     },
-    "required": ["id", "status"],
+    "required": ["instanceUid", "environmentId", "name", "status", "createdAt"],
     "additionalProperties": True,
 }
 

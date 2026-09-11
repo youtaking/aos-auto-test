@@ -5,7 +5,8 @@
 // 采用 active-stub + Proxy 模式：prodViewRepo 通过 Proxy 实时转发到当前测试的
 // stub 对象，避免 Bun mock.restore() 不清理 call count 导致的跨测试污染。
 
-import { describe, expect, test, mock, beforeEach } from "bun:test";
+import { describe, expect, test, mock, beforeEach, afterEach } from "bun:test";
+import { CreateProdViewSchema } from "@fenix/schemas/prod-view.schema";
 
 // ── Active stub 注册表 ──
 
@@ -56,19 +57,10 @@ mock.module("@fenix/repositories/prod-view", () => {
   return obj;
 });
 
-const envProxy = new Proxy({} as EnvMock, {
-  get: (_t, prop) => (activeEnv as any)[prop as string],
-});
-
-mock.module("@fenix/services/environment", () => {
-  const obj: Record<string, unknown> = {};
-  Object.defineProperty(obj, "createWebEnvironment", {
-    enumerable: true,
-    configurable: true,
-    get: () => envProxy.createWebEnvironment,
-  });
-  return obj;
-});
+mock.module("@fenix/services/environment", () => ({
+  // ESM 导出在导入时求值，必须保留稳定函数，在调用时取当前 stub。
+  createWebEnvironment: (input: unknown) => activeEnv.createWebEnvironment(input),
+}));
 
 import {
   createProdView,
@@ -77,6 +69,7 @@ import {
   updateProdView,
   deleteProdView,
   loadProdView,
+  setProdViewDeps,
 } from "@fenix/services/prod-view";
 
 const ctx = { organizationId: "org-1", userId: "user-1", role: "owner" as const };
@@ -92,11 +85,15 @@ const sampleRow = {
 };
 
 describe("prod-view 服务", () => {
+  const findInstance = mock(async (_envId: string, _userId: string) => ({ id: "instance-created-id" }) as any);
   beforeEach(() => {
     mock.restore();
     activeRepo = freshRepo();
     activeEnv = freshEnv();
+    findInstance.mockClear();
+    setProdViewDeps({ findOrCreateDefaultInstance: findInstance });
   });
+  afterEach(() => setProdViewDeps(null));
 
   // ── createProdView ──
 
@@ -317,27 +314,37 @@ describe("prod-view 服务", () => {
       }
     });
 
-    test("启用且有 agentId 时调用 createWebEnvironment（preload 未暴露该方法，仅验证依赖路径）", async () => {
-      // 注意：preload 的 environment mock 不含 createWebEnvironment，
-      // 真实调用会抛 TypeError；此处仅验证 agentId 为空时的短路路径。
-      activeRepo.getById.mockImplementation(async () => ({ ...sampleRow, agentId: null }));
+    test("启用视图为当前用户创建环境并返回持久实例", async () => {
+      activeRepo.getById.mockImplementation(async () => ({ ...sampleRow }));
       const result = await loadProdView(ctx, "pv-1");
       expect(result.success).toBe(true);
       if (result.success) {
-        expect(result.data.agentConfigId).toBeNull();
-        expect(result.data.environmentId).toBeNull();
-        expect(activeEnv.createWebEnvironment).not.toHaveBeenCalled();
+        expect(result.data).toEqual({
+          agentConfigId: sampleRow.agentId,
+          environmentId: "env-created-id",
+          instanceUid: "instance-created-id",
+          name: sampleRow.name,
+          modulesConfig: sampleRow.modulesConfig,
+        });
+        expect(activeEnv.createWebEnvironment).toHaveBeenCalledWith({
+          name: `env-${sampleRow.agentId.slice(0, 8)}`,
+          description: sampleRow.description,
+          agentConfigId: sampleRow.agentId,
+          autoStart: true,
+          userId: ctx.userId,
+          organizationId: ctx.organizationId,
+        });
+        expect(findInstance).toHaveBeenCalledWith("env-created-id", ctx.userId);
       }
     });
 
-    test("启用但无 agentId 时 environmentId 为 null", async () => {
-      activeRepo.getById.mockImplementation(async () => ({ ...sampleRow, agentId: null }));
-      const result = await loadProdView(ctx, "pv-1");
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.data.environmentId).toBeNull();
-        expect(result.data.agentConfigId).toBeNull();
-      }
+    test("创建视图必须绑定合法 agentId，不接受空值或缺失", () => {
+      expect(CreateProdViewSchema.safeParse({ name: "View", agentId: null }).success).toBe(false);
+      expect(CreateProdViewSchema.safeParse({ name: "View" }).success).toBe(false);
+      expect(CreateProdViewSchema.safeParse({ name: "View", agentId: "invalid" }).success).toBe(false);
+      expect(CreateProdViewSchema.safeParse({
+        name: "View", agentId: "01d1ac89-2c49-46ac-8b8c-a8493df4cc97",
+      }).success).toBe(true);
     });
   });
 });

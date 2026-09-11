@@ -83,28 +83,13 @@ class TestInstanceWebAPI:
                 web_client.validate_schema(item, _WEB_INSTANCE_ACTIVITY_ITEM)
 
     def test_get_instance_activity_all(self, web_client):
-        """获取所有实例活跃度（all=true）"""
-        resp = web_client.get_instance_activity(params={"all": True})
-        web_client.validate_schema(resp, _WEB_INSTANCE_ACTIVITY_DATA)
-
-        # 获取默认响应用于对比
-        resp_default = web_client.get_instance_activity()
-
-        if isinstance(resp, list):
-            for item in resp:
-                assert isinstance(item, dict)
-                web_client.validate_schema(item, _WEB_INSTANCE_ACTIVITY_ITEM)
-            # all=true 应返回不少于默认请求的数据量
-            if isinstance(resp_default, list):
-                assert len(resp) >= len(resp_default), \
-                    "all=true 返回数据量不应少于默认请求"
-        elif isinstance(resp, dict):
-            assert "instances" in resp, f"object 响应缺少 instances 字段: {list(resp.keys())}"
-            assert isinstance(resp["instances"], list)
-            assert "total" in resp, "object 响应缺少 total 字段"
-            assert isinstance(resp["total"], int)
-            for item in resp["instances"]:
-                web_client.validate_schema(item, _WEB_INSTANCE_ACTIVITY_ITEM)
+        """控制台禁止跨组织实例查询，all=true 必须返回明确的 403。"""
+        with pytest.raises(httpx.HTTPStatusError) as caught:
+            web_client.get_instance_activity(params={"all": True})
+        assert caught.value.response.status_code == 403
+        body = caught.value.response.json()
+        assert body["success"] is False
+        assert body["error"]["code"] == "FORBIDDEN"
 
     # ── Spawn Instance 测试 ──
 
@@ -117,15 +102,10 @@ class TestInstanceWebAPI:
         instance_id = None
         try:
             data = web_client.spawn_instance({"environmentId": env_id})
-            # spawn 返回 InstanceInfo（_unwrap 后的 data 部分）
-            if data is not None:
-                assert isinstance(data, dict), f"spawn 返回类型异常: {type(data)}"
-                web_client.validate_schema(data, WEB_INSTANCE_SPAWN_DATA)
-                assert "id" in data, f"spawn 响应缺少 id 字段: {list(data.keys())}"
-                instance_id = data["id"]
-                assert "status" in data, f"spawn 响应缺少 status 字段"
-                assert data["status"] in ("starting", "running", "stopped", "error"), \
-                    f"spawn status 非法: {data['status']}"
+            assert isinstance(data, dict), f"spawn 返回类型异常: {type(data)}"
+            instance_id = data.get("instanceUid")
+            web_client.validate_schema(data, WEB_INSTANCE_SPAWN_DATA)
+            assert data["environmentId"] == env_id
         except (httpx.HTTPStatusError, RuntimeError) as e:
             err_str = str(e)
             if "404" in err_str:
@@ -169,18 +149,14 @@ class TestInstanceWebAPI:
     # ── Delete Instance 测试 ──
 
     def test_delete_instance_idempotent(self, web_client):
-        """DELETE 幂等性：删除不存在的实例应返回成功（幂等）"""
-        # 源码逻辑：对已停止或不存在的实例幂等返回成功
-        try:
-            result = web_client.delete_instance("nonexistent-instance-99999")
-            # 幂等删除返回 null 或 dict
-            assert result is None or isinstance(result, (dict, type(None))), \
-                f"幂等删除返回类型异常: {type(result)}"
-        except (httpx.HTTPStatusError, RuntimeError) as e:
-            err_str = str(e)
-            # 也可能返回 403（跨组织访问）
-            assert "403" in err_str, \
-                f"幂等删除预期成功或 403，实际: {e}"
+        """删除不存在的持久实例，两次均返回 NOT_FOUND，且不产生资源。"""
+        for _ in range(2):
+            with pytest.raises(httpx.HTTPStatusError) as caught:
+                web_client.delete_instance("nonexistent-instance-99999")
+            assert caught.value.response.status_code == 404
+            body = caught.value.response.json()
+            assert body["success"] is False
+            assert body["error"]["code"] == "NOT_FOUND"
 
     def test_delete_instance_after_spawn(self, web_client):
         """启动后删除实例：生命周期测试"""
@@ -199,7 +175,7 @@ class TestInstanceWebAPI:
         if data is None or not isinstance(data, dict):
             pytest.skip("spawn 返回空，无法测试删除")
 
-        instance_id = data.get("id")
+        instance_id = data.get("instanceUid")
         if not instance_id:
             pytest.skip("spawn 未返回实例 id")
 
@@ -209,10 +185,11 @@ class TestInstanceWebAPI:
             assert result is None or isinstance(result, (dict, type(None))), \
                 f"删除实例返回类型异常: {type(result)}"
 
-            # 幂等验证：第二次删除也应成功
-            result2 = web_client.delete_instance(instance_id)
-            assert result2 is None or isinstance(result2, (dict, type(None))), \
-                f"幂等删除返回类型异常: {type(result2)}"
+            # 持久实例已被删除，再次删除返回明确的 NOT_FOUND。
+            with pytest.raises(httpx.HTTPStatusError) as caught:
+                web_client.delete_instance(instance_id)
+            assert caught.value.response.status_code == 404
+            assert caught.value.response.json()["error"]["code"] == "NOT_FOUND"
         except (httpx.HTTPStatusError, RuntimeError) as e:
             err_str = str(e)
             if "403" in err_str:

@@ -74,11 +74,17 @@ def test_special_characters(logged_in_page, base_url):
 
     # 监听 alert（XSS 检测）
     alert_triggered = []
-    logged_in_page.on("dialog", lambda d: (alert_triggered.append(True), d.dismiss()))
+    def on_dialog(dialog):
+        alert_triggered.append(True)
+        dialog.dismiss()
 
     special_msg = "🎉🚀 emoji test | 中文测试 | 日本語テスト | 한국어 | مرحبا | שלום"
-    chat.send_message(special_msg)
-    logged_in_page.wait_for_timeout(800)
+    logged_in_page.on("dialog", on_dialog)
+    try:
+        chat.send_message(special_msg)
+        logged_in_page.wait_for_timeout(800)
+    finally:
+        logged_in_page.remove_listener("dialog", on_dialog)
 
     # 验证无 XSS 弹窗
     assert len(alert_triggered) == 0, \

@@ -20,7 +20,7 @@ class TestAcpWebAPI:
     特点：
     - GET /acp/agents 返回当前组织下 ACP worker 环境列表
     - 响应为直接数组（无 {success, data} 包装）
-    - 每个 item 包含 id, agent_name, status, max_sessions, last_seen_at, created_at
+    - 每个 item 包含 id, agent_name, status, last_seen_at, created_at
     """
 
     def test_list_acp_agents(self, web_client):
@@ -40,8 +40,8 @@ class TestAcpWebAPI:
         assert isinstance(agent["id"], str), f"id 应为 string: {type(agent['id'])}"
         assert agent["status"] in ("online", "offline"), \
             f"status 应为 online/offline，实际: {agent['status']}"
-        assert isinstance(agent["max_sessions"], (int, float)), \
-            f"max_sessions 应为 number: {type(agent['max_sessions'])}"
+        assert agent["agent_name"] is None or isinstance(agent["agent_name"], str)
+        assert agent["last_seen_at"] is None or isinstance(agent["last_seen_at"], (int, float))
         assert isinstance(agent["created_at"], (int, float)), \
             f"created_at 应为 number: {type(agent['created_at'])}"
 

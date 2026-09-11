@@ -38,7 +38,7 @@ describe("sandbox API error mapping", () => {
     const error = new SandboxProviderError("cluster unavailable", "UNAVAILABLE", true);
     expect(mapSandboxApiError(error)).toEqual({
       status: 503,
-      body: { error: { code: "SERVICE_UNAVAILABLE", message: "cluster unavailable" } },
+      body: { error: { code: "SERVICE_UNAVAILABLE", message: "Sandbox service is unavailable" } },
     });
   });
 
@@ -47,7 +47,7 @@ describe("sandbox API error mapping", () => {
     const error = new SandboxProviderError("sandbox not found", "NOT_FOUND", false);
     expect(mapSandboxApiError(error)).toEqual({
       status: 404,
-      body: { error: { code: "NOT_FOUND", message: "sandbox not found" } },
+      body: { error: { code: "NOT_FOUND", message: "Sandbox resource was not found" } },
     });
   });
 
@@ -56,7 +56,7 @@ describe("sandbox API error mapping", () => {
     const error = new SandboxProviderError("invalid pool config", "INVALID_REQUEST", false);
     expect(mapSandboxApiError(error)).toEqual({
       status: 400,
-      body: { error: { code: "BAD_REQUEST", message: "invalid pool config" } },
+      body: { error: { code: "BAD_REQUEST", message: "Sandbox request is invalid" } },
     });
   });
 });

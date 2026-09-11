@@ -11,11 +11,10 @@ ACP_AGENT_ITEM = {
         "id": {"type": "string"},
         "agent_name": {"type": ["string", "null"]},
         "status": {"type": "string", "enum": ["online", "offline"]},
-        "max_sessions": {"type": "number"},
         "last_seen_at": {"type": ["number", "null"]},
         "created_at": {"type": "number"},
     },
-    "required": ["id", "status", "max_sessions", "created_at"],
+    "required": ["id", "agent_name", "status", "last_seen_at", "created_at"],
     "additionalProperties": True,
 }
 

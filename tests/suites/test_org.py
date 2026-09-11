@@ -511,14 +511,8 @@ def test_org_member_search_add(logged_in_page, base_url):
         assert search_input.count() > 0, "添加成员弹窗中无搜索输入框"
 
         # 输入 >=3 字符触发搜索
-        si = search_input.first
-        si.wait_for(state="visible", timeout=5000)
-        si.fill("perftest")
-        _wait_until(
-            lambda: logged_in_page.locator("[role=dialog] [role=option]").count() > 0,
-            timeout=8, msg="搜索结果未显示",
-        )
-        options = logged_in_page.locator("[role=dialog] [role=option]")
+        org.search_add_candidate("perftest", enter=False, wait=8000)
+        options = org.add_candidates()
         assert options.count() > 0, "搜索结果未显示"
 
         # 取消关闭（不实际添加）

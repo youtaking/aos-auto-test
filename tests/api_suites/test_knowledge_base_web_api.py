@@ -289,18 +289,23 @@ class TestKnowledgeBaseResourceAPI:
         original_enabled = resources[0].get("enabled", True)
         new_state = not original_enabled
 
+        toggled = False
         try:
             resp = web_client.toggle_knowledge_resource(kb_id, resource_id, new_state)
-            assert isinstance(resp, (dict, type(None)))
-        except (httpx.HTTPStatusError, RuntimeError) as e:
-            err_str = str(e)
-            if any(code in err_str for code in ("502", "503", "504")):
-                pytest.skip(f"资源切换服务不可用: {e}")
-            raise
+            toggled = True
+            assert isinstance(resp, dict) and resp.get("enabled") is new_state, \
+                f"资源启用状态未按请求返回: {resp}"
+        except httpx.HTTPStatusError as e:
+            pytest.fail(
+                f"资源切换失败: HTTP {e.response.status_code}, "
+                f"kb={kb_id}, resource={resource_id}, "
+                f"response={e.response.text[:2000]}"
+            )
         finally:
-            # 恢复原始状态
-            try:
-                web_client.toggle_knowledge_resource(kb_id, resource_id, original_enabled)
-            except (httpx.HTTPStatusError, RuntimeError) as e:
-                import logging
-                logging.getLogger("cleanup").warning(f"恢复资源状态失败: {e}")
+            # 仅在切换成功后恢复；保留上游错误正文，避免只看到笼统的 400。
+            if toggled:
+                try:
+                    web_client.toggle_knowledge_resource(kb_id, resource_id, original_enabled)
+                except (httpx.HTTPStatusError, RuntimeError) as e:
+                    import logging
+                    logging.getLogger("cleanup").warning(f"恢复资源状态失败: {e}")

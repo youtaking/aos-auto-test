@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { MachineConnectionTimeoutError } from "@fenix/services/machine-connection-waiter";
 import { SandboxExecutionHandler } from "@fenix/services/sandbox/sandbox-execution-handler";
 import { resetAllStubs } from "@fenix/test-utils/helpers";
 
@@ -83,6 +84,8 @@ test("retries the existing provider resource after the first ACP timeout", async
   let reads = 0;
   const handler = new SandboxExecutionHandler(manager, async () => {
     reads += 1;
+    // 显式注入首次超时，避免 1ms 墙钟预算在重启后也随机到期。
+    if (!restartCalled) throw new MachineConnectionTimeoutError("mach_sandbox_sbi_recover");
     return online;
   });
 
@@ -93,7 +96,7 @@ test("retries the existing provider resource after the first ACP timeout", async
       providerKey: "ignored",
       userId: "user_test",
       template: { type: "image", value: "ignored" },
-      runtimeConnectTimeoutMs: 1,
+      runtimeConnectTimeoutMs: 1000,
     } as never),
   ).resolves.toMatchObject({ nodeId: "mach_sandbox_sbi_recover" });
 

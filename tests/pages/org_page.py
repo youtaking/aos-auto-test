@@ -320,18 +320,20 @@ class OrgPage:
         inp.wait_for(state="visible", timeout=5000)
         return inp
 
-    def search_add_candidate(self, keyword: str, enter: bool = True, wait: float = 2500):
-        """在添加成员弹窗输入关键词并等待候选，随后按 Enter 选中高亮候选。"""
+    def add_candidates(self):
+        """真实 DOM：候选为包含 strong 姓名的 button，不是 select option。"""
+        return self.page.get_by_role("dialog").get_by_role("button").filter(
+            has=self.page.locator("strong")
+        )
+
+    def search_add_candidate(self, keyword: str, enter: bool = True, wait: float = 5000):
+        """搜索后等待候选；enter 参数保留兼容，使用点击完成选择。"""
         inp = self.add_member_search_input()
         inp.fill(keyword)
-        deadline = time.time() + wait / 1000
-        while time.time() < deadline:
-            if self.page.locator("[role=dialog] [role=option]").count() > 0:
-                break
-            self.page.wait_for_timeout(200)
+        candidates = self.add_candidates().filter(has_text=re.compile(re.escape(keyword), re.I))
+        candidates.first.wait_for(state="visible", timeout=wait)
         if enter:
-            inp.press("Enter")
-            self.page.wait_for_timeout(1000)
+            candidates.first.click()
 
     def select_add_role(self, role: str = "成员"):
         sel = self.page.locator("[role=dialog] select").first

@@ -202,7 +202,9 @@ def test_xss_protection(logged_in_page, base_url):
 
     # 监听 alert 弹窗
     alert_triggered = []
-    logged_in_page.on("dialog", lambda d: (alert_triggered.append(True), d.dismiss()))
+    def on_dialog(dialog):
+        alert_triggered.append(True)
+        dialog.dismiss()
 
     # 多种 XSS payload 测试
     xss_payloads = [
@@ -211,9 +213,13 @@ def test_xss_protection(logged_in_page, base_url):
         "<svg onload=alert('xss3')>",
     ]
 
-    for payload in xss_payloads:
-        chat.send_message(payload)
-        logged_in_page.wait_for_timeout(800)
+    logged_in_page.on("dialog", on_dialog)
+    try:
+        for payload in xss_payloads:
+            chat.send_message(payload)
+            logged_in_page.wait_for_timeout(800)
+    finally:
+        logged_in_page.remove_listener("dialog", on_dialog)
 
     # 1. 不应弹出任何 alert
     assert len(alert_triggered) == 0, \

@@ -512,6 +512,8 @@ class AgentConfigPage:
     def _modal_bound_to(self, modal, agent_name) -> bool:
         """校验配置 modal 是否绑定到目标 Agent：读取禁用的「名称」输入框值。"""
         try:
+            # 重新打开时会保留上次的配置 tab；名称仅在身份页可见。
+            self.switch_config_tab(modal, "身份与指令")
             name_input = modal.locator("input[placeholder*='例如 my-agent']").first
             if name_input.count() > 0 and name_input.is_visible():
                 return (name_input.input_value().strip() == agent_name)

@@ -127,15 +127,18 @@ def test_agent_create_dialog_opens(logged_in_page, base_url, request):
     if desc_input.count() > 0:
         desc_input.first.fill("E2E 管理页面创建测试")
 
+    # 新版表单要求显式选择模型；未选时只会切到模型 tab 提示必填，不会创建。
+    d.get_by_role("tab", name="模型 推理模型与上下文 未配置", exact=True).click()
+    model = d.get_by_role("radiogroup", name="模型", exact=True).get_by_role("radio").first
+    model.wait_for(state="visible", timeout=10000)
+    model.click()
+
     # 5. 点击对话框底部「创建」按钮（exact 匹配，避免命中 对话创建/创建智能体）
     create_btn = d.get_by_role("button", name="创建", exact=True).last
     assert create_btn.is_visible(), "「创建」按钮不可见"
     create_btn.click()
     # 等对话框关闭（Agent 创建可能较慢）
-    try:
-        d.wait_for(state="hidden", timeout=30000)
-    except Exception:
-        pass
+    d.wait_for(state="hidden", timeout=30000)
 
     # 注册清理（UI 创建的 agent，通过 API 删除）
     from tests.pages.agent_config_page import AgentConfigPage
