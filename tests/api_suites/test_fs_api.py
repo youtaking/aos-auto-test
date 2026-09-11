@@ -11,17 +11,17 @@ import pytest
 
 
 def _get_test_env(client):
-    """获取一个可用的环境，返回 env_id 或 None"""
-    try:
-        envs = client.list_environments()
-        if isinstance(envs, list) and len(envs) > 0:
-            return envs[0].get("id")
-        if isinstance(envs, dict) and "items" in envs:
-            items = envs["items"]
-            if len(items) > 0:
-                return items[0].get("id")
-    except Exception:
-        pass
+    """选择主实例正在运行的环境；文件服务绑定主实例，不能取列表首项。"""
+    envs = client.list_environments()
+    items = envs if isinstance(envs, list) else envs.get("items", [])
+    for env in items:
+        primary = env.get("instance_uid")
+        if not primary:
+            continue
+        result = client.list_environment_instances(env["id"])
+        instances = result if isinstance(result, list) else result.get("items", result.get("instances", []))
+        if any(inst.get("instanceUid") == primary and inst.get("status") == "running" for inst in instances):
+            return env["id"]
     return None
 
 

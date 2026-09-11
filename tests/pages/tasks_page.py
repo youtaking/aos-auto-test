@@ -11,8 +11,8 @@ class TasksPage:
         self.base_url = base_url
         self.url = f"{base_url}/ctrl/agent/tasks"
 
-    # 页面就绪标识：搜索输入框或定时任务按钮
-    _READY_SELECTOR = "input[placeholder*='搜索任务'], button:has-text('定时任务')"
+    # 侧栏按钮在骨架屏阶段就存在，必须等待任务内容渲染。
+    _READY_SELECTOR = "main [role='group'][aria-label='任务类型']"
 
     def goto(self):
         for _attempt in range(2):
@@ -90,8 +90,7 @@ class TasksPage:
     def get_filter_tabs(self) -> list[str]:
         """获取类型筛选档名称（全部/HTTP/Agent）。"""
         grp = self._type_filter_group()
-        if grp.count() == 0:
-            return []
+        grp.wait_for(state="visible", timeout=15000)
         return [b.inner_text().strip() for b in grp.locator("button").all()]
 
     def click_filter_tab(self, name: str):

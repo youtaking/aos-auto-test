@@ -114,7 +114,7 @@ def _wait_instance_url(page, timeout_s=INSTANCE_URL_TIMEOUT_S) -> bool:
 
 
 def _wait_turn_complete(page, token, quiet_s=2.0, timeout_s=TURN_TIMEOUT_S) -> str:
-    """等 A 的回合完成：用户消息 token 已出现 + 日志稳定 quiet_s 秒"""
+    """等 A 的回合完成：消息已出现、日志稳定且 composer 已解锁。"""
     last = _log_text(page)
     stable_since = time.monotonic()
     deadline = time.monotonic() + timeout_s
@@ -124,9 +124,13 @@ def _wait_turn_complete(page, token, quiet_s=2.0, timeout_s=TURN_TIMEOUT_S) -> s
         if cur != last:
             last = cur
             stable_since = time.monotonic()
-        elif time.monotonic() - stable_since >= quiet_s and token in last:
+        elif (
+            time.monotonic() - stable_since >= quiet_s
+            and token in last
+            and not _composer_busy(page)
+        ):
             return last
-    return _log_text(page)
+    pytest.fail(f"A 的回合在 {timeout_s}s 内未完成，消息标记: {token}")
 
 
 def _open_sync_pair(a, b, base_url, agent_name=AGENT_NAME) -> str:

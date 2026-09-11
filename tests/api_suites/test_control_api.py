@@ -36,7 +36,10 @@ def _get_active_session(client):
                     inst_list = []
 
                 for inst in inst_list:
-                    session_id = inst.get("sessionId") or inst.get("rcsSessionId")
+                    if inst.get("status") != "running":
+                        continue
+                    # 当前控制接口以持久 instanceUid 标识会话。
+                    session_id = inst.get("instanceUid") or inst.get("sessionId") or inst.get("rcsSessionId")
                     if session_id:
                         return session_id
             except Exception:

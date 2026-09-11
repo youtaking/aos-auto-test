@@ -3,7 +3,7 @@
 import re
 import time
 
-from playwright.sync_api import Page
+from playwright.sync_api import Page, TimeoutError as PlaywrightTimeoutError
 
 
 class ModelsPage:
@@ -486,7 +486,14 @@ class SkillsPage:
         )
         folder_input = dlg.locator("input[webkitdirectory]")
         folder_input.first.wait_for(state="attached", timeout=5000)
-        folder_input.first.set_input_files(folder_path)
+        try:
+            folder_input.first.set_input_files(folder_path)
+        except PlaywrightTimeoutError:
+            # Chromium 目录选择偶发未产生 input 事件。仅在仍未选中文件时重选一次；
+            # 已选文件却未被应用处理的情况继续报错，避免掩盖应用异常。
+            if folder_input.first.evaluate("el => el.files.length") != 0:
+                raise
+            folder_input.first.set_input_files(folder_path)
         self.page.wait_for_timeout(800)
 
     def _upload_dialog(self):
