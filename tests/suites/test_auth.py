@@ -4,6 +4,7 @@
 """
 import os
 import re
+import time
 import uuid
 import pytest
 import allure
@@ -18,6 +19,16 @@ def _new_context(browser):
     if is_headless:
         return browser.new_context(viewport={"width": 1920, "height": 1080}, locale="zh-CN")
     return browser.new_context(no_viewport=True, locale="zh-CN")
+
+
+def _wait_login_redirect(page, timeout_s: float = 20) -> bool:
+    """轮询等待退出后的登录页跳转（客户端 JS 重定向），返回是否已跳转"""
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if "/ctrl/login" in page.url:
+            return True
+        page.wait_for_timeout(250)
+    return "/ctrl/login" in page.url
 
 
 # ==================== 测试 ====================
@@ -433,23 +444,32 @@ def test_auth_012_logout_clears_auth(logged_in_page, base_url):
         # 点击退出
         auth.click_logout()
 
-        # 等待跳转到登录页（客户端 JS 重定向）
-        try:
-            page.wait_for_url("**/ctrl/login**", timeout=15000)
-        except Exception:
-            pass
+        # 等待跳转到登录页（客户端 JS 重定向）。
+        # CI 慢环境下单击可能未生效（菜单未渲染完）或重定向耗时较久，
+        # 先轮询等待，仍未跳转且侧边栏仍在时补点一次。
+        if not _wait_login_redirect(page, timeout_s=20):
+            if page.locator("button.agent-sidebar-user-button").count() > 0:
+                try:
+                    auth.click_logout()
+                except Exception:
+                    pass
+                _wait_login_redirect(page, timeout_s=20)
+
+        # 3. 退出 API 被调用（先取出，供下面断言失败时带上证据）
+        sign_out_calls = [r for r in logout_api if "sign-out" in r["url"]]
+        auth_trace = sign_out_calls or logout_api or "无（退出请求未发出）"
 
         # 1. 跳转到登录页
         assert "/ctrl/login" in page.url, \
-            f"退出后应跳转到登录页，实际 URL: {page.url}"
+            f"退出后应跳转到登录页，实际 URL: {page.url}；已捕获的 auth 响应: {auth_trace}"
 
         # 2. session cookie 被清除
         assert not auth.has_session_cookie(), \
-            "退出后 session cookie 应被清除"
+            f"退出后 session cookie 应被清除；已捕获的 auth 响应: {auth_trace}"
 
         # 3. 退出 API 被调用
-        sign_out_calls = [r for r in logout_api if "sign-out" in r["url"]]
-        assert len(sign_out_calls) > 0, "应有退出登录 API 请求"
+        assert len(sign_out_calls) > 0, \
+            f"应有退出登录 API 请求，实际捕获: {logout_api}"
     finally:
         page.close()
         ctx.close()

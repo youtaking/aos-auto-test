@@ -74,13 +74,59 @@ def test_meta_agent_toggle(logged_in_page, base_url):
 
 # === SIDEBAR-02: 重启智能体按钮 ===
 
+# 多实例 Agent 点击「重启智能体」后弹出的选择弹窗（AgentSidebarTree.tsx）
+_RESTART_DIALOG = "[data-slot='alert-dialog-content']"
+
+
+def _restart_dialog_visible(page) -> bool:
+    dialog = page.locator(_RESTART_DIALOG)
+    return dialog.count() > 0 and dialog.first.is_visible()
+
+
+def _dismiss_stray_dialog(page):
+    """关闭上一轮循环残留的弹窗：其 overlay 会拦截后续点击"""
+    if not _restart_dialog_visible(page):
+        return
+    page.keyboard.press("Escape")
+    try:
+        page.locator(_RESTART_DIALOG).first.wait_for(state="hidden", timeout=3000)
+    except Exception:
+        pass
+
+
+def _confirm_restart_dialog(page) -> bool:
+    """多实例选择弹窗默认全选运行中实例，点「重启选中」才会发出重启请求"""
+    dialog = page.locator(_RESTART_DIALOG)
+    try:
+        dialog.first.wait_for(state="visible", timeout=2000)
+    except Exception:
+        return False
+
+    title = (dialog.first.locator("h2, [role='heading']").first.text_content() or "").strip()
+    if "重启" not in title:
+        _dismiss_stray_dialog(page)
+        pytest.fail(f"点击重启智能体后弹出非预期弹窗: {title!r}")
+
+    confirm = dialog.first.get_by_role("button", name="重启选中", exact=True)
+    assert confirm.count() == 1, f"'重启选中' 按钮匹配 {confirm.count()} 个，预期唯一"
+    confirm.click()
+    try:
+        dialog.first.wait_for(state="hidden", timeout=5000)
+    except Exception:
+        pass
+    return True
+
+
 @pytest.mark.order(201)
 @pytest.mark.p1
 def test_restart_agent_button(logged_in_page, base_url):
     """TC-SIDEBAR-002: 重启智能体按钮 — 点击后触发实例重启请求
 
-    新版 UI 说明：Agent 卡片的「重启智能体」为单实例直启（点击即 POST
-    /instances/{id}/restart，无确认弹窗）；无运行中实例时点击为静默 no-op。
+    实测 UI 行为（AgentSidebarTree.tsx handleRestartAgent）：
+    - 1 个运行中实例：点击即 POST /instances/{id}/restart，无弹窗；
+    - ≥2 个运行中实例：先弹「重启智能体实例」选择弹窗（默认全选），
+      点「重启选中」后才发请求；
+    - 无运行中实例：仅 toast 提示，不发请求。
     本用例拦截重启请求（route fulfill 假响应）仅断言点击确实发出请求，避免真重启共享实例。
     """
     page = logged_in_page
@@ -106,7 +152,7 @@ def test_restart_agent_button(logged_in_page, base_url):
         pytest.skip("侧边栏无智能体卡片（重启按钮无可作用目标）")
 
     # 遍历非共享智能体卡片：点击其「重启智能体」按钮，断言发出重启请求。
-    # 新版为单实例直启（无确认弹窗），且无运行中实例时点击 no-op，故逐个尝试，
+    # 无运行中实例时点击 no-op，多实例时会先弹选择弹窗，故逐个尝试并处理弹窗，
     # 命中第一个真正发出请求的卡片即成功；全程拦截该请求避免真重启共享实例。
     fired = {"url": None}
 
@@ -134,8 +180,18 @@ def test_restart_agent_button(logged_in_page, base_url):
             if not (restart_btn.first.is_visible() and restart_btn.first.is_enabled()):
                 continue
             clicked_any = True
+            # 残留弹窗的 overlay 会拦截点击，先关闭再点
+            _dismiss_stray_dialog(page)
             restart_btn.first.click()
-            page.wait_for_timeout(1200)
+
+            # 轮询等待：单实例直启会立刻发请求，多实例需先确认选择弹窗
+            dialog_handled = False
+            for _ in range(12):
+                if fired["url"]:
+                    break
+                if not dialog_handled and _restart_dialog_visible(page):
+                    dialog_handled = _confirm_restart_dialog(page)
+                page.wait_for_timeout(500)
             if fired["url"]:
                 break
         if not clicked_any:

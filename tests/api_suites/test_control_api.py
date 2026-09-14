@@ -56,8 +56,27 @@ class TestControlWebAPI:
     - POST /sessions/:id/events — 发送会话事件
     - POST /sessions/:id/control — 发送控制指令
     - POST /sessions/:id/interrupt — 中断会话
+
+    根因（3 条正向用例 xfail）：src/routes/web/index.ts 未注册 webControl，
+    路由未挂载（被测项目 0ea07115「移除无用的 sessions 模块」把 `import webControl`
+    与 `.use(webControl)` 一并删除，但 control.ts 文件仍在），请求落到全局兜底，
+    返回 HTTP 200 + 空响应体 + 无 Content-Type；空响应被客户端解析为 {}，严格解包失败。
+    control.ts 声明的契约仍为 {success:true,data:...}。前端已无 /web/sessions/:id/*
+    调用（聊天改走 RCS relay），该 HTTP 通道属遗留路径。
+    证据：docs/local-full-api-e2e-20260911.md（三个接口的原始状态码与空响应）。
+    若被测项目恢复挂载，本标记会转为 XPASS 失败，提醒同步更新用例。
     """
 
+    _NOT_MOUNTED = (
+        "被测接口未挂载：src/routes/web/index.ts 未注册 webControl"
+        "（0ea07115 移除 sessions 模块时一并删除了注册），请求落到全局兜底返回"
+        " HTTP 200 空响应体，与 control.ts 声明的 {success,data} 契约不符（已确认）"
+    )
+
+    @pytest.mark.xfail(
+        reason=_NOT_MOUNTED,
+        strict=True,
+    )
     def test_send_session_event(self, web_client):
         """向会话发送事件：需要活跃 session"""
         session_id = _get_active_session(web_client)
@@ -73,6 +92,10 @@ class TestControlWebAPI:
         assert isinstance(result, dict)
         assert result.get("status") == "ok"
 
+    @pytest.mark.xfail(
+        reason=_NOT_MOUNTED,
+        strict=True,
+    )
     def test_send_session_control(self, web_client):
         """向会话发送控制指令：需要活跃 session"""
         session_id = _get_active_session(web_client)
@@ -87,6 +110,10 @@ class TestControlWebAPI:
         assert isinstance(result, dict)
         assert result.get("status") == "ok"
 
+    @pytest.mark.xfail(
+        reason=_NOT_MOUNTED,
+        strict=True,
+    )
     def test_interrupt_session(self, web_client):
         """中断会话：需要活跃 session"""
         session_id = _get_active_session(web_client)

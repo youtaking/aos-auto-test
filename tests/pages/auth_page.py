@@ -209,9 +209,11 @@ class AuthPage:
 
     def click_logout(self):
         self.click_user_button()
-        self.page.wait_for_timeout(500)
-        # 直接按文本找，不依赖 role
-        self.page.get_by_text("退出登录", exact=True).click(timeout=5000)
+        # 等待菜单项渲染完成再点击：CI 慢环境下下拉菜单弹出有延迟，
+        # 原先的直接 click 可能落空，导致退出登录未真正触发
+        logout_item = self.page.get_by_text("退出登录", exact=True)
+        logout_item.wait_for(state="visible", timeout=8000)
+        logout_item.click(timeout=8000)
         self.page.wait_for_timeout(1000)
 
     def click_change_password(self):
