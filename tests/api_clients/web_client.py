@@ -1206,7 +1206,7 @@ class WebClient(BaseClient):
     # ── Control 模块（已废弃，/web/sessions/:id/* 路由未挂载） ──
     # 被测项目 0ea07115「移除无用的 sessions 模块」在 src/routes/web/index.ts 中
     # 一并删除了 `import webControl` 与 `.use(webControl)`，control.ts 成为死代码，
-    # 请求落到全局兜底返回 HTTP 200 + 空响应体（详见 docs/app-defect-unmatched-route-empty-body.md）。
+    # 请求落到全局兜底返回 HTTP 200 + 空响应体（未匹配路由不返回 404，属应用缺陷，已单独反馈应用侧）。
     # 前端调用方已在同批提交中删除（聊天改走 RCS relay），原用例已移除，以下方法仅作契约留档。
 
     def send_session_event(self, session_id: str, data: dict) -> dict:
