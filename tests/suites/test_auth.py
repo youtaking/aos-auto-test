@@ -698,3 +698,32 @@ def test_auth_016_default_account_resources(logged_in_page, base_url):
         or re.search(r"skill", sidebar_lower)
     )
     assert has_config, f"侧边栏应有配置入口（模型库/技能库），实际内容: {sidebar_text[:300]}"
+
+
+# === TC-AUTH-017: 无权限页（/ctrl/no-access）===
+
+@allure.epic("认证登录")
+@pytest.mark.order(114)
+@pytest.mark.p1
+def test_auth_017_no_access_page(logged_in_page, base_url):
+    """无权限页渲染 403 文案，且「返回首页」跳转可用
+
+    真实 DOM 探查（2026-09-15，staging commitId da5eb543）：router basepath=/ctrl
+    （web/src/main.tsx:11），路由 /no-access 的实际地址是 /ctrl/no-access；
+    页面内容 h1=403、p=无权访问此页面、按钮=返回首页（点击跳 /agent）。
+    应用内没有任何跳转到该页的权限守卫，只能直接访问。
+    """
+    page = logged_in_page
+    page.goto(f"{base_url}/ctrl/no-access", wait_until="domcontentloaded")
+
+    h1 = page.locator("h1").first
+    h1.wait_for(state="visible", timeout=10000)
+    title = h1.inner_text().strip()
+    assert title == "403", f"无权限页标题预期「403」，实际 {title!r}"
+    assert page.get_by_text("无权访问此页面", exact=True).count() == 1, \
+        "缺少「无权访问此页面」提示文案"
+
+    back = page.get_by_role("button", name="返回首页", exact=True)
+    assert back.count() == 1, f"「返回首页」按钮匹配 {back.count()} 个，预期唯一"
+    back.click()
+    page.wait_for_url(re.compile(r"/ctrl/agent"), timeout=15000)

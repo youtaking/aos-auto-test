@@ -872,6 +872,149 @@ class ChatTestPage:
                 names.append(name)
         return names
 
+    def goto_any_agent_chat(self) -> str:
+        """进入侧边栏第一个可用 Agent 的对话页，返回该 Agent 卡片文本。
+
+        目标 Agent 在其它环境可能不存在（如 my-auto-test 仅存在于 staging），
+        用于避免用例静默跳过。侧边栏卡片真实 DOM：button.agent-sidebar-agent-card。
+        """
+        self.page.goto(f"{self.base_url}/ctrl/agent/home", wait_until="domcontentloaded")
+        self.page.wait_for_load_state("domcontentloaded")
+        self._expand_sidebar_if_collapsed()
+        cards = self.page.locator("button.agent-sidebar-agent-card")
+        for _ in range(10):
+            if cards.count() > 0:
+                break
+            self.page.wait_for_timeout(1000)
+        if cards.count() == 0:
+            return ""
+        name = cards.first.inner_text().strip()
+        cards.first.click()
+        try:
+            self.page.wait_for_url("**/chat/**", timeout=15000)
+        except Exception:
+            pass
+        # URL 变化很快，composer（textarea）要等实例连上才渲染
+        for _ in range(20):
+            if self.page.locator("textarea").count() > 0:
+                break
+            self.page.wait_for_timeout(500)
+        self._collapse_artifacts_if_open()
+        return name
+
+    # === Artifacts 文件树 CRUD（用例自建自销）===
+
+    def open_artifacts_file_tab(self):
+        """展开右侧工作区并切到「文件」Tab，等待文件树面板渲染完成。
+
+        真实 DOM（2026-09-15 探查）：面板 aside.artifacts-shell，Tab 为
+        button.artifacts-mode-tab[title=文件]（另有 站点/定时任务/发布视图），
+        文件树面板 .file-tree-panel，头部按钮 刷新 / 新建文件夹 / 上传 / 上传文件夹。
+        """
+        self.expand_artifacts_panel()
+        self.click_artifacts_tab("文件")
+        self.page.locator(".file-tree-panel__header").first.wait_for(
+            state="visible", timeout=10000
+        )
+        return self
+
+    def get_file_tree_section_text(self, scope: str) -> str:
+        """文件树分区文本（scope: workspace=工作区 / user=我的文件）"""
+        section = self.page.locator(f".file-tree-section--{scope}")
+        if section.count() == 0:
+            return ""
+        return section.first.inner_text().strip()
+
+    def _file_tree_header_button(self, title: str):
+        """文件树头部按钮（真实 DOM：.file-tree-panel__header button[title=...]）"""
+        return self.page.locator(f".file-tree-panel__header button[title='{title}']")
+
+    def create_artifact_folder(self, name: str) -> None:
+        """用文件树头部「新建文件夹」创建文件夹（新建对象，调用方负责清理）。
+
+        真实 DOM：弹出 [role=dialog]，标题「新建文件夹」、描述「输入新文件夹名称」、
+        单 input + 「确认」/「取消」；创建成功后条目落在「我的文件」区，路径 user/<name>。
+        """
+        btn = self._file_tree_header_button("新建文件夹").first
+        btn.wait_for(state="visible", timeout=5000)
+        btn.click()
+        dialog = self.page.locator("[role='dialog']")
+        dialog.wait_for(state="visible", timeout=5000)
+        title = dialog.locator("[data-slot='dialog-title']").inner_text().strip()
+        assert title == "新建文件夹", f"弹窗标题预期「新建文件夹」，实际 {title!r}"
+        desc = dialog.locator("[data-slot='dialog-description']").inner_text().strip()
+        assert desc == "输入新文件夹名称", f"弹窗描述预期「输入新文件夹名称」，实际 {desc!r}"
+        dialog.locator("input").first.fill(name)
+        dialog.get_by_role("button", name="确认", exact=True).click()
+        dialog.wait_for(state="hidden", timeout=10000)
+
+    def artifact_row(self, name: str):
+        """文件树条目行（真实 DOM：div[data-tree-item][data-node-id][data-is-dir]）。
+
+        优先按精确路径 user/<name> 匹配，兜底按文本过滤；删除等不可逆操作前
+        调用方必须断言匹配唯一。
+        """
+        row = self.page.locator(f"[data-tree-item][data-node-id='user/{name}']")
+        if row.count() == 0:
+            # 兜底按名称精确匹配（.file-tree-arborist-name[title=名称]）；
+            # 禁止 has_text 子串匹配 —— 会把 <name>-r 误判成 <name>
+            row = self.page.locator("[data-tree-item]").filter(
+                has=self.page.locator(f".file-tree-arborist-name[title='{name}']")
+            )
+        return row
+
+    def wait_for_artifact(self, name: str, present: bool = True, timeout_ms: int = 10000) -> bool:
+        """轮询等待条目出现（present=True）或消失（present=False）"""
+        for _ in range(max(1, timeout_ms // 500)):
+            if (self.artifact_row(name).count() > 0) == present:
+                return True
+            self.page.wait_for_timeout(500)
+        return (self.artifact_row(name).count() > 0) == present
+
+    def open_artifact_context_menu(self, name: str):
+        """右键文件树条目并等待菜单出现（唯一性断言，避免误操作其它条目）。
+
+        真实 DOM：菜单 div.file-tree-context-menu[role=menu]，条目为
+        引用到聊天 / 下载 ZIP / 重命名 / 移动 / 删除 / 新建文件夹 / 新建文件。
+        """
+        row = self.artifact_row(name)
+        count = row.count()
+        assert count == 1, f"文件树中「{name}」匹配到 {count} 个条目，预期唯一"
+        row.first.scroll_into_view_if_needed()
+        row.first.click(button="right")
+        menu = self.page.locator(".file-tree-context-menu")
+        menu.wait_for(state="visible", timeout=5000)
+        return menu
+
+    def rename_artifact(self, name: str, new_name: str) -> None:
+        """右键菜单重命名（菜单项「重命名」→ [role=dialog] 标题「重命名」）"""
+        menu = self.open_artifact_context_menu(name)
+        menu.get_by_role("button", name="重命名", exact=True).click()
+        dialog = self.page.locator("[role='dialog']")
+        dialog.wait_for(state="visible", timeout=5000)
+        title = dialog.locator("[data-slot='dialog-title']").inner_text().strip()
+        assert title == "重命名", f"弹窗标题预期「重命名」，实际 {title!r}"
+        dialog.locator("input").first.fill(new_name)
+        dialog.get_by_role("button", name="确认", exact=True).click()
+        dialog.wait_for(state="hidden", timeout=10000)
+
+    def delete_artifact_via_menu(self, name: str) -> None:
+        """右键菜单删除（仅供自建对象清理使用）。
+
+        防误删铁律：点击确认前必须断言确认弹窗的标题与描述指向本次操作对象，
+        确认按钮限定在 [role=alertdialog] 内，禁止全页面按按钮名搜索。
+        """
+        menu = self.open_artifact_context_menu(name)
+        menu.get_by_role("button", name="删除", exact=True).click()
+        confirm = self.page.locator("[role='alertdialog']")
+        confirm.wait_for(state="visible", timeout=5000)
+        title = confirm.locator("[data-slot='alert-dialog-title']").inner_text().strip()
+        desc = confirm.locator("[data-slot='alert-dialog-description']").inner_text().strip()
+        assert title == "删除", f"确认弹窗标题预期「删除」，实际 {title!r}"
+        assert desc == name, f"确认弹窗对象预期「{name}」，实际 {desc!r}（禁止删除非目标对象）"
+        confirm.locator("[data-slot='alert-dialog-action']").click()
+        confirm.wait_for(state="hidden", timeout=10000)
+
     # === 模型操作 ===
 
     def get_current_model_name(self) -> str:
