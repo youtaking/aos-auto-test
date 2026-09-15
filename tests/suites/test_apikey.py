@@ -33,14 +33,41 @@ def _get_keys_api(page, base_url):
     return []
 
 
+# 共享凭据保护名单：这些密钥供 CI / OpenAPI 用例使用，任何用例都不得删除
+_PROTECTED_KEY_NAMES = ("openapi-key",)
+
+
 def _register_key_cleanup(request, page, base_url, name_prefix):
-    """注册密钥清理：只删除名称包含 name_prefix 的密钥"""
+    """注册密钥清理：只删除名称包含 name_prefix 的密钥
+
+    安全约束：本页是共享账号，name_prefix 若为空串，则 `"" in name` 恒为真，
+    会把账号下所有密钥（含 openapi-key）全部删除。因此这里强制校验前缀。
+    """
+    assert name_prefix and len(name_prefix) >= 6, (
+        f"清理前缀必须非空且足够具体，实际为 {name_prefix!r}"
+    )
+
     def _cleanup():
         keys = _get_keys_api(page, base_url)
         for k in keys:
-            if name_prefix in k.get("name", ""):
+            key_name = k.get("name") or ""
+            if any(p in key_name for p in _PROTECTED_KEY_NAMES):
+                continue
+            if name_prefix in key_name:
                 _delete_key_api(page, base_url, k["id"])
     register_cleanup(request, _cleanup)
+
+
+def _revoke_test_key(ak, name: str) -> bool:
+    """吊销本次运行自建的密钥（白名单机制）。
+
+    共享账号上可能存在流水线/其他模块正在使用的密钥（如 openapi-key）。
+    这里强制要求目标名称属于本次运行生成的 _PREFIX，否则拒绝执行吊销。
+    """
+    assert _PREFIX in name, (
+        f"拒绝吊销非本次运行创建的密钥：{name!r} 不含本次运行前缀 {_PREFIX!r}"
+    )
+    return ak.click_revoke(name)
 
 
 # ==================== 测试 ====================
@@ -451,7 +478,7 @@ def test_apikey_007_delete_key(logged_in_page, base_url, request):
     initial_count = ak.get_key_count()
 
     # 点击吊销（只操作自己创建的密钥，找不到即 fail）
-    clicked = ak.click_revoke(f"del-{_PREFIX}")
+    clicked = _revoke_test_key(ak, f"del-{_PREFIX}")
     assert clicked, f"密钥 'del-{_PREFIX}' 创建成功但 UI 未显示吊销按钮"
 
     if clicked:
@@ -500,7 +527,7 @@ def test_apikey_008_delete_cancel(logged_in_page, base_url, request):
         pytest.skip("没有密钥可操作")
 
     # 点击吊销（只操作自己创建的 key）
-    clicked = ak.click_revoke(f"cancel-{_PREFIX}")
+    clicked = _revoke_test_key(ak, f"cancel-{_PREFIX}")
     if not clicked:
         pytest.skip("未找到吊销按钮")
 

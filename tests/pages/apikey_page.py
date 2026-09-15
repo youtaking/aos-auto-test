@@ -90,10 +90,28 @@ class ApiKeyPage:
         return body.get_by_role("button", name="吊销").count()
 
     def get_key_items(self):
-        """获取密钥卡片元素"""
+        """获取密钥行元素（真实 DOM：table > tbody > tr，每行一个密钥）"""
         body = self._body()
-        # 每个密钥卡片包含名称、前缀、创建时间和吊销按钮
-        return body.locator("div").filter(has=body.get_by_role("button", name="吊销"))
+        return body.locator("tr").filter(has=body.get_by_role("button", name="吊销"))
+
+    def find_key_row(self, name: str):
+        """返回名称匹配 name 的唯一密钥行 locator；未找到返回 None。
+
+        只定位到 <tr> 这一层：Playwright 的 has_text 会同时命中外层容器 div，
+        若在外层容器里取"第一个"按钮，就会点到第一行（即他人/共享密钥）的吊销按钮。
+        匹配到多行时直接失败——宁可报错也不赌哪一行才是目标。
+        """
+        if not name:
+            return None
+        rows = self._body().locator("tr").filter(has_text=name)
+        assert rows.count() <= 1, (
+            f"匹配名称 {name!r} 的密钥行应唯一，实际 {rows.count()} 行——"
+            f"匹配不唯一时拒绝操作，避免误伤其他密钥"
+        )
+        if rows.count() == 0:
+            return None
+        rows.first.wait_for(state="visible", timeout=5000)
+        return rows.first
 
     def has_key(self, name: str) -> bool:
         body = self._body()
@@ -221,28 +239,48 @@ class ApiKeyPage:
 
     # ==================== 吊销/删除 ====================
 
-    def click_revoke(self, name: str = ""):
-        """点击吊销按钮（如果指定 name，则点击对应密钥的吊销按钮）"""
-        body = self._body()
-        if name:
-            # 找到包含该名称的卡片，然后点击其吊销按钮
-            cards = body.locator("div").filter(has_text=name)
-            for i in range(cards.count()):
-                revoke_btn = cards.nth(i).get_by_role("button", name="吊销")
-                if revoke_btn.count() > 0:
-                    revoke_btn.first.wait_for(state="visible", timeout=5000)
-                    revoke_btn.first.click()
-                    self.page.wait_for_timeout(500)
-                    return True
-        else:
-            # 点击第一个吊销按钮
-            revoke_btns = body.get_by_role("button", name="吊销")
-            if revoke_btns.count() > 0:
-                revoke_btns.first.wait_for(state="visible", timeout=5000)
-                revoke_btns.first.click()
-                self.page.wait_for_timeout(500)
-                return True
-        return False
+    # 共享凭据保护名单：这些密钥供 CI / OpenAPI 用例 / 其他模块使用，任何用例都不得吊销
+    PROTECTED_KEY_NAMES = ("openapi-key",)
+
+    def click_revoke(self, name: str):
+        """点击指定密钥行的『吊销』按钮。
+
+        安全约束（本页操作的是共享账号，误删会直接打断流水线）：
+        1. 必须显式传入 name —— 不再支持"点击第一个吊销按钮"这种无差别吊销；
+        2. 只在该名称对应的 <tr> 行内点击，绝不跨行；
+        3. 命中 PROTECTED_KEY_NAMES 时不点击，直接失败。
+        """
+        if not name:
+            raise ValueError(
+                "click_revoke(name) 必须指定密钥名称：禁止对共享环境做无差别吊销"
+            )
+        row = self.find_key_row(name)
+        if row is None:
+            return False
+        # 精确名称匹配：行内必须存在"整格文本 == name"的单元格。
+        # 仅用 has_text 子串匹配时，name="abc" 会同时命中名为 "abc-2" 的密钥。
+        cells = [
+            (row.locator("td").nth(i).inner_text() or "").strip()
+            for i in range(row.locator("td").count())
+        ]
+        if name not in cells:
+            raise AssertionError(
+                f"目标行的名称单元格中没有与 {name!r} 精确相等的值，实际单元格={cells!r}"
+                f"——拒绝吊销，避免子串误匹配到其他密钥"
+            )
+        row_text = (row.inner_text() or "").strip()
+        for protected in self.PROTECTED_KEY_NAMES:
+            if protected in row_text:
+                raise AssertionError(
+                    f"拒绝吊销受保护密钥 {protected!r}（共享凭据，删除会导致 OpenAPI 用例全部失效）"
+                )
+        revoke_btn = row.get_by_role("button", name="吊销")
+        if revoke_btn.count() == 0:
+            return False
+        revoke_btn.first.wait_for(state="visible", timeout=5000)
+        revoke_btn.first.click()
+        self.page.wait_for_timeout(500)
+        return True
 
     # ==================== 确认弹窗 ====================
 
