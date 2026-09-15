@@ -30,15 +30,59 @@ def _safe_remove(path: str):
 _PREFIX = f"e2e-{uuid.uuid4().hex[:6]}"
 
 
-@pytest.fixture(autouse=True)
-def _check_embedding_models(env_check):
-    """知识库测试依赖 embedding 模型，环境未配置时全部跳过"""
+@pytest.fixture
+def embedding_required(env_check):
+    """需要 embedding 模型 / RAGFlow 索引能力的用例显式声明本 fixture
+
+    2026-09-15 评审修正：原实现为 autouse=True，导致环境无 embedding 模型时
+    整个知识库模块 28 条用例全部跳过（报表上"已覆盖"实为"未执行"）。
+    现改为按用例粒度声明：上传/解析/检索/图谱/分块等依赖向量化能力的用例显式使用，
+    列表/详情/增删改等不依赖 embedding 的用例正常执行。
+    """
     if not env_check.get("has_embedding_models", False):
-        pytest.skip("测试环境无可用的 embedding 模型，知识库测试全部跳过")
+        pytest.skip("测试环境无可用的 embedding 模型，该用例依赖向量化/索引能力")
+    return True
+
+
+def _retry_after_seconds(resp, default=65, cap=70):
+    """解析 429 响应的 Retry-After 头，返回应等待的秒数
+
+    服务端给出 Retry-After（秒或 HTTP-date）时按其等待，避免固定 65s 阻塞；
+    未给出时退回 default（限流窗口长度）。
+    """
+    raw = None
+    try:
+        raw = resp.headers.get("retry-after") or resp.headers.get("Retry-After")
+    except Exception:
+        raw = None
+    if not raw:
+        return default
+    try:
+        secs = float(raw)
+    except (TypeError, ValueError):
+        try:
+            from email.utils import parsedate_to_datetime
+            import datetime as _dt
+            target = parsedate_to_datetime(raw)
+            secs = (target - _dt.datetime.now(_dt.timezone.utc)).total_seconds()
+        except Exception:
+            return default
+    return max(1.0, min(secs + 1.0, cap))
+
+
+def _wait_rate_limit(page, resp=None, default=65):
+    """按 429 响应的 Retry-After 等待（无该头时退回 default 秒）"""
+    secs = _retry_after_seconds(resp, default=default) if resp is not None else default
+    print(f"[429] 限流中，等待 {secs:.0f}s 后重试（Retry-After 感知）...")
+    try:
+        page.goto("about:blank", wait_until="domcontentloaded", timeout=5000)
+    except Exception:
+        pass
+    page.wait_for_timeout(int(secs * 1000))
 
 
 def _create_kb_api(page, base_url, name, desc=""):
-    """创建知识库，429 时等待限流窗口后重试（最多 2 次）"""
+    """创建知识库，429 时按 Retry-After 等待后重试（最多 2 次）"""
     for attempt in range(2):
         resp = page.request.post(
             f"{base_url}/web/knowledgeBases",
@@ -47,13 +91,8 @@ def _create_kb_api(page, base_url, name, desc=""):
         )
         if resp.status != 429:
             return resp
-        # 429 限流，等待窗口重置
-        print(f"[429] _create_kb_api 被限流，等待 65s 后重试...")
-        try:
-            page.goto("about:blank", wait_until="domcontentloaded", timeout=5000)
-        except Exception:
-            pass
-        page.wait_for_timeout(65000)
+        # 429 限流，等待窗口重置（优先使用服务端给出的 Retry-After）
+        _wait_rate_limit(page, resp)
     return resp
 
 
@@ -80,12 +119,7 @@ def _delete_kb_api(page, base_url, kb_id):
     for attempt in range(3):
         resp = page.request.delete(f"{base_url}/web/knowledgeBases/{kb_id}")
         if resp.status == 429:
-            print(f"[429] _delete_kb_api 被限流，等待 65s 后重试...")
-            try:
-                page.goto("about:blank", wait_until="domcontentloaded", timeout=5000)
-            except Exception:
-                pass
-            page.wait_for_timeout(65000)
+            _wait_rate_limit(page, resp)
             continue
         if resp.status >= 500:
             print(f"[{resp.status}] _delete_kb_api 服务端错误，等待 1.5s 后重试...")
@@ -113,12 +147,7 @@ def _get_kbs_api(page, base_url):
             if r.status == 200:
                 return r.json().get("data", [])
             return []
-        print(f"[429] _get_kbs_api 被限流，等待 65s 后重试...")
-        try:
-            page.goto("about:blank", wait_until="domcontentloaded", timeout=5000)
-        except Exception:
-            pass
-        page.wait_for_timeout(65000)
+        _wait_rate_limit(page, r)
     return []
 
 
@@ -130,7 +159,11 @@ def _get_kb_detail_api(page, base_url, kb_id):
 
 
 def _goto_kb_detail(page, base_url, kb_id, max_retries=2):
-    """导航到知识库详情页，429 时等待限流窗口重置后重试"""
+    """导航到知识库详情页（?kbId=xxx），详情头渲染成功即视为就绪
+
+    就绪锚点：section.knowledge-detail-header（新版 master-detail UI）。
+    旧锚点「返回知识库列表」文案已在 web/src 全量下线（2026-09-15 评审确认）。
+    """
     for attempt in range(max_retries):
         try:
             page.goto(f"{base_url}/ctrl/agent/knowledge-bases?kbId={kb_id}",
@@ -143,13 +176,16 @@ def _goto_kb_detail(page, base_url, kb_id, max_retries=2):
                 state="attached", timeout=8000)
         except Exception:
             pass
-        # 检查详情页是否加载成功
-        body_text = page.inner_text("body")
-        if "返回知识库列表" in body_text:
+        # 检查详情页是否加载成功（详情头）
+        try:
+            page.locator("section.knowledge-detail-header").first.wait_for(
+                state="visible", timeout=10000)
             return True
+        except Exception:
+            pass
         # 页面未加载 → 可能 429，等待限流窗口重置
         if attempt < max_retries - 1:
-            print(f"[429] 知识库详情页未加载，等待 65s 限流窗口重置...")
+            print(f"[429] 知识库详情页未加载，等待限流窗口重置...")
             try:
                 page.goto("about:blank", wait_until="domcontentloaded", timeout=5000)
             except Exception:
@@ -196,8 +232,11 @@ def test_kb_001_list_loads(logged_in_page, base_url):
     body = logged_in_page.locator("div.agent-panel-body")
     assert "知识库" in body.inner_text(), "页面中未显示知识库相关内容"
 
-    # 3. 搜索框存在
-    assert kb.has_search_input(), "搜索框不存在"
+    # 3. 新版目录结构渲染（「目录 + 资源」双栏，无库级搜索框；旧 has_search_input 断言已随改版失效）
+    assert logged_in_page.get_by_text("知识库目录").count() > 0, "知识库目录标题未渲染"
+    directory_items = logged_in_page.locator(".knowledge-directory-item")
+    assert directory_items.count() > 0, \
+        "知识库目录未渲染任何知识库项（.knowledge-directory-item）"
 
 
 @allure.epic("知识库")
@@ -362,13 +401,13 @@ def test_kb_003_name_empty_validation(logged_in_page, base_url):
 @allure.epic("知识库")
 @pytest.mark.order(323)
 @pytest.mark.p0
-def test_kb_004_upload_file(logged_in_page, base_url, request):
+def test_kb_004_upload_file(logged_in_page, base_url, request, embedding_required):
     """✅ 人工评审通过 | TC-KB-004: 上传文件到知识库 — 创建临时文件，通过 UI 上传，验证文件出现在资源列表中"""
     # 创建测试知识库
     kb_name = f"upload-{_PREFIX}"
     create_resp = _create_kb_api(logged_in_page, base_url, kb_name)
-    assert create_resp.status == 200, \
-        f"创建测试知识库失败: status={create_resp.status}, body={create_resp.text()[:200]}"
+    # 统一走本模块的创建断言：仅上游 502/503/504（RagFlow 不可用）跳过，其余状态码一律失败
+    _assert_kb_created(create_resp)
     kb_id = create_resp.json()["data"]["id"]
     register_cleanup(request, lambda kid=kb_id: _delete_kb_api(logged_in_page, base_url, kid))
 
@@ -447,12 +486,12 @@ def test_kb_004_upload_file(logged_in_page, base_url, request):
 @allure.epic("知识库")
 @pytest.mark.order(326)
 @pytest.mark.p1
-def test_kb_007_delete_resource(logged_in_page, base_url, request):
+def test_kb_007_delete_resource(logged_in_page, base_url, request, embedding_required):
     """✅ 人工评审通过 | TC-KB-007: 删除知识库资源 — 先上传文件，再通过 UI 删除，验证资源消失"""
     kb_name = f"del-res-{_PREFIX}"
     create_resp = _create_kb_api(logged_in_page, base_url, kb_name)
-    assert create_resp.status == 200, \
-        f"创建测试知识库失败: status={create_resp.status}, body={create_resp.text()[:200]}"
+    # 统一走本模块的创建断言：仅上游 502/503/504（RagFlow 不可用）跳过，其余状态码一律失败
+    _assert_kb_created(create_resp)
     kb_id = create_resp.json()["data"]["id"]
     register_cleanup(request, lambda kid=kb_id: _delete_kb_api(logged_in_page, base_url, kid))
 
@@ -484,22 +523,26 @@ def test_kb_007_delete_resource(logged_in_page, base_url, request):
         assert logged_in_page.locator(f"text={file_name}").count() > 0, \
             f"上传后文件名 {file_name} 未出现"
 
-        # 2. 点击删除按钮（在包含文件名的行中找 title="删除" 的按钮）
-        file_row = logged_in_page.locator("div.group").filter(has_text=file_name)
+        # 2. 点击删除按钮（在包含文件名的资源行中找 title="删除" 的按钮）
+        #    实测 2026-09-15（正式环境）：资源列表为表格，行 = <tr>，
+        #    名称在 <div class="knowledge-resource-name">，操作列删除按钮 title="删除"（actions.delete）
+        file_row = logged_in_page.locator("div.knowledge-resource-name").filter(has_text=file_name)
         assert file_row.count() > 0, f"文件行不存在（文件名: {file_name}）"
-        delete_icon = file_row.first.locator('button[title="删除"]')
+        resource_row = file_row.first.locator("xpath=ancestor::tr[1]")
+        if resource_row.count() == 0:
+            # 兼容旧版 UI：行容器为 div.group
+            resource_row = logged_in_page.locator("div.group").filter(has_text=file_name)
+        assert resource_row.count() > 0, f"文件所在行不存在（文件名: {file_name}）"
 
+        delete_icon = resource_row.first.locator('button[title="删除"]')
         if delete_icon.count() == 0:
-            # 备选：通过 Trash2 SVG 图标定位
-            delete_icon = file_row.first.locator(
-                "svg.lucide-trash2, svg[class*='trash']"
-            ).locator("xpath=ancestor::button")
+            # 备选：通过 Trash2 SVG 图标定位（仍限定在本行内，禁止页面级兜底）
+            delete_icon = resource_row.first.locator(
+                "button:has(svg.lucide-trash2), button:has(svg[class*='trash'])"
+            )
 
-        if delete_icon.count() == 0:
-            # 最后备选：页面中最后一个 title="删除" 的按钮
-            delete_icon = logged_in_page.locator('button[title="删除"]').last
-
-        assert delete_icon.count() > 0, "删除按钮不存在"
+        assert delete_icon.count() == 1, \
+            f"资源行内删除按钮应唯一，实际 {delete_icon.count()} 个（文件名: {file_name}）"
         delete_icon.first.wait_for(state="visible", timeout=5000)
         delete_icon.first.click()
         logged_in_page.wait_for_timeout(800)
@@ -545,50 +588,11 @@ def test_kb_007_delete_resource(logged_in_page, base_url, request):
         _delete_kb_api(logged_in_page, base_url, kb_id)
 
 
-@allure.epic("知识库")
-@pytest.mark.order(327)
-@pytest.mark.p2
-def test_kb_008_search(logged_in_page, base_url):
-    """✅ 人工评审通过 | TC-KB-008: 知识库搜索 — 正向搜索存在的知识库 + 反向搜索不存在的 + 清空恢复"""
-    kb = KnowledgePage(logged_in_page, base_url)
-    kb.goto()
-
-    kbs = _get_kbs_api(logged_in_page, base_url)
-    if not kbs:
-        pytest.skip("知识库列表为空")
-
-    initial_count = kb.get_kb_count()
-
-    # 1. 正向搜索：用已有知识库名称搜索
-    kb_names = kb.get_kb_names()
-    if kb_names:
-        existing_name = kb_names[0]
-        kb.search(existing_name)
-        found_count = kb.get_kb_count()
-        assert found_count >= 1, \
-            f"搜索已有知识库 '{existing_name}' 后应至少有 1 条结果，实际 {found_count}"
-        assert found_count < initial_count or initial_count <= 1, \
-            f"搜索 '{existing_name}' 后列表未过滤（found_count={found_count}, initial_count={initial_count}）"
-
-        # 验证搜索结果的文本中包含搜索关键词
-        body = logged_in_page.locator("div.agent-panel-body").first
-        assert existing_name in body.inner_text(), \
-            f"搜索结果中未显示 '{existing_name}'"
-
-        kb.clear_search()
-        logged_in_page.wait_for_timeout(500)
-
-    # 2. 反向搜索：搜索不存在的关键词
-    kb.search("zzz_不存在的知识库_zzz")
-    filtered_count = kb.get_kb_count()
-    assert filtered_count < initial_count or filtered_count == 0, \
-        f"搜索不存在关键词后列表未过滤（filtered_count={filtered_count}, initial_count={initial_count}）"
-
-    # 清空搜索恢复
-    kb.clear_search()
-    restored = kb.get_kb_count()
-    assert restored == initial_count, \
-        f"清空搜索后数量未恢复: {restored} vs {initial_count}"
+# TC-KB-008「知识库搜索」用例已于 2026-09-15 删除：
+# 新版知识库为「目录 + 资源」双栏布局，页面无库级搜索框
+# （AgentKnowledgeBasesPage.tsx / agent-knowledge-directory.tsx 无搜索输入，
+#  i18n 仅残留 searchPlaceholder 键），后端 GET /web/knowledgeBases 亦无 keyword 参数，
+# 原用例的 kb.search() 实际不生效（搜索前后计数相同），属失效用例。
 
 
 @allure.epic("知识库")
@@ -598,8 +602,8 @@ def test_kb_009_delete_cascade(logged_in_page, base_url, request):
     """✅ 人工评审通过 | TC-KB-009: 删除知识库级联清理"""
     kb_name = f"cascade-{_PREFIX}"
     create_resp = _create_kb_api(logged_in_page, base_url, kb_name)
-    assert create_resp.status == 200, \
-        f"创建测试知识库失败: status={create_resp.status}, body={create_resp.text()[:200]}"
+    # 统一走本模块的创建断言：仅上游 502/503/504（RagFlow 不可用）跳过，其余状态码一律失败
+    _assert_kb_created(create_resp)
     kb_id = create_resp.json()["data"]["id"]
     register_cleanup(request, lambda kid=kb_id: _delete_kb_api(logged_in_page, base_url, kid))
 
@@ -638,8 +642,11 @@ def test_kb_010_detail_panel(logged_in_page, base_url):
 
     body_text = logged_in_page.inner_text("body")
 
-    # 1. 详情页导航元素
-    assert "返回知识库列表" in body_text, "详情页缺少返回按钮"
+    # 1. 详情页结构（详情头 + 名称/状态）
+    # 详情视图就绪：详情头 section.knowledge-detail-header（旧「返回知识库列表」文案已下线）
+    detail_header = logged_in_page.locator("section.knowledge-detail-header")
+    assert detail_header.count() == 1, "知识库详情头（section.knowledge-detail-header）未渲染"
+    assert detail_header.first.is_visible(), "知识库详情头不可见"
 
     # 2. 知识库名称显示
     assert kb_name in body_text, f"详情页未显示知识库名称 {kb_name}"
@@ -665,12 +672,12 @@ def test_kb_010_detail_panel(logged_in_page, base_url):
 @allure.epic("知识库")
 @pytest.mark.order(330)
 @pytest.mark.p0
-def test_kb_011_upload_duplicate_confirm(logged_in_page, base_url, request):
+def test_kb_011_upload_duplicate_confirm(logged_in_page, base_url, request, embedding_required):
     """TC-KB-011: 文件上传同名覆盖确认 — 上传同名文件应弹出覆盖确认对话框"""
     kb_name = f"dup-{_PREFIX}"
     create_resp = _create_kb_api(logged_in_page, base_url, kb_name)
-    assert create_resp.status == 200, \
-        f"创建测试知识库失败: status={create_resp.status}, body={create_resp.text()[:200]}"
+    # 统一走本模块的创建断言：仅上游 502/503/504（RagFlow 不可用）跳过，其余状态码一律失败
+    _assert_kb_created(create_resp)
     kb_id = create_resp.json()["data"]["id"]
     register_cleanup(request, lambda kid=kb_id: _delete_kb_api(logged_in_page, base_url, kid))
 
@@ -744,7 +751,7 @@ def test_kb_011_upload_duplicate_confirm(logged_in_page, base_url, request):
 @allure.epic("知识库")
 @pytest.mark.order(331)
 @pytest.mark.p1
-def test_kb_012_parse_status_polling(logged_in_page, base_url, request):
+def test_kb_012_parse_status_polling(logged_in_page, base_url, request, embedding_required):
     """TC-KB-012: 资源解析状态轮询 — 上传文件后解析状态从 pending 变为 completed"""
     kb_name = f"parse-{_PREFIX}"
     create_resp = _create_kb_api(logged_in_page, base_url, kb_name)
@@ -809,7 +816,7 @@ def test_kb_012_parse_status_polling(logged_in_page, base_url, request):
 @allure.epic("知识库")
 @pytest.mark.order(332)
 @pytest.mark.p1
-def test_kb_013_reparse_resource(logged_in_page, base_url, request):
+def test_kb_013_reparse_resource(logged_in_page, base_url, request, embedding_required):
     """TC-KB-013: 重新解析资源 — 点击重新解析，可选删除旧分块"""
     kb_name = f"reparse-{_PREFIX}"
     create_resp = _create_kb_api(logged_in_page, base_url, kb_name)
@@ -941,7 +948,7 @@ def test_kb_013_reparse_resource(logged_in_page, base_url, request):
 @allure.epic("知识库")
 @pytest.mark.order(333)
 @pytest.mark.p1
-def test_kb_014_retrieval_test_panel(logged_in_page, base_url):
+def test_kb_014_retrieval_test_panel(logged_in_page, base_url, embedding_required):
     """TC-KB-014: 检索测试面板 — 在检索测试Tab中输入查询，返回相关分块"""
     kbs = _get_kbs_api(logged_in_page, base_url)
     if not kbs:
@@ -1009,7 +1016,7 @@ def test_kb_014_retrieval_test_panel(logged_in_page, base_url):
 @allure.epic("知识库")
 @pytest.mark.order(334)
 @pytest.mark.p2
-def test_kb_015_knowledge_graph(logged_in_page, base_url):
+def test_kb_015_knowledge_graph(logged_in_page, base_url, embedding_required):
     """TC-KB-015: 知识图谱面板 — 点击知识图谱按钮，面板展示"""
     kbs = _get_kbs_api(logged_in_page, base_url)
     if not kbs:
@@ -1020,7 +1027,11 @@ def test_kb_015_knowledge_graph(logged_in_page, base_url):
         pytest.skip("429 限流导致知识库详情页无法加载")
 
     body_text = logged_in_page.inner_text("body")
-    assert "返回知识库列表" in body_text, "知识库详情页未加载"
+    body_text = logged_in_page.inner_text("body")
+    # 详情视图就绪：详情头 section.knowledge-detail-header（旧「返回知识库列表」文案已下线）
+    detail_header = logged_in_page.locator("section.knowledge-detail-header")
+    assert detail_header.count() == 1, "知识库详情头（section.knowledge-detail-header）未渲染"
+    assert detail_header.first.is_visible(), "知识库详情头不可见"
 
     # 查找知识图谱按钮
     graph_btn = loc.button_by_name_or_title(logged_in_page, "知识图谱")
@@ -1051,7 +1062,7 @@ def test_kb_015_knowledge_graph(logged_in_page, base_url):
 @allure.epic("知识库")
 @pytest.mark.order(335)
 @pytest.mark.p2
-def test_kb_016_vector_model_management(logged_in_page, base_url):
+def test_kb_016_vector_model_management(logged_in_page, base_url, embedding_required):
     """TC-KB-016: 向量模型管理 — 打开向量模型管理对话框"""
     kbs = _get_kbs_api(logged_in_page, base_url)
     if not kbs:
@@ -1062,7 +1073,11 @@ def test_kb_016_vector_model_management(logged_in_page, base_url):
         pytest.skip("429 限流导致知识库详情页无法加载")
 
     body_text = logged_in_page.inner_text("body")
-    assert "返回知识库列表" in body_text, "知识库详情页未加载"
+    body_text = logged_in_page.inner_text("body")
+    # 详情视图就绪：详情头 section.knowledge-detail-header（旧「返回知识库列表」文案已下线）
+    detail_header = logged_in_page.locator("section.knowledge-detail-header")
+    assert detail_header.count() == 1, "知识库详情头（section.knowledge-detail-header）未渲染"
+    assert detail_header.first.is_visible(), "知识库详情头不可见"
 
     # 查找向量模型管理按钮
     vector_btn = loc.button_by_name_or_title(logged_in_page, "向量模型")
@@ -1100,7 +1115,7 @@ def test_kb_016_vector_model_management(logged_in_page, base_url):
 @allure.epic("知识库")
 @pytest.mark.order(336)
 @pytest.mark.p2
-def test_kb_017_ragflow_import(logged_in_page, base_url):
+def test_kb_017_ragflow_import(logged_in_page, base_url, embedding_required):
     """TC-KB-017: RAGFlow 导入 — 打开 RAGFlow 导入对话框"""
     kb = KnowledgePage(logged_in_page, base_url)
     kb.goto()
@@ -1157,7 +1172,7 @@ def test_kb_017_ragflow_import(logged_in_page, base_url):
 @allure.epic("知识库")
 @pytest.mark.order(337)
 @pytest.mark.p2
-def test_kb_018_resource_preview(logged_in_page, base_url, request):
+def test_kb_018_resource_preview(logged_in_page, base_url, request, embedding_required):
     """TC-KB-018: 资源预览 — 点击资源预览，展示文件内容"""
     kb_name = f"preview-{_PREFIX}"
     create_resp = _create_kb_api(logged_in_page, base_url, kb_name)
@@ -1277,7 +1292,7 @@ def test_kb_018_resource_preview(logged_in_page, base_url, request):
 @allure.epic("知识库")
 @pytest.mark.order(338)
 @pytest.mark.p1
-def test_kb_019_toggle_resource_enabled(logged_in_page, base_url, request):
+def test_kb_019_toggle_resource_enabled(logged_in_page, base_url, request, embedding_required):
     """TC-KB-019: 资源启用/禁用 Switch — 切换资源的启用/禁用状态"""
     kb_name = f"toggle-{_PREFIX}"
     create_resp = _create_kb_api(logged_in_page, base_url, kb_name)
@@ -1350,7 +1365,9 @@ def test_kb_020_edit_kb_info(logged_in_page, base_url, request):
             pytest.skip("429 限流导致知识库详情页无法加载")
 
         body_text = logged_in_page.inner_text("body")
-        assert "返回知识库列表" in body_text, "知识库详情页未加载"
+        body_text = logged_in_page.inner_text("body")
+        detail_header = logged_in_page.locator("section.knowledge-detail-header")
+        assert detail_header.count() == 1, "知识库详情头（section.knowledge-detail-header）未渲染"
 
         edit_btn = loc.button_by_name_or_title(logged_in_page, "编辑")
         if edit_btn.count() > 0 and edit_btn.first.is_visible():
@@ -1415,143 +1432,61 @@ def test_kb_020_edit_kb_info(logged_in_page, base_url, request):
 @pytest.mark.order(340)
 @pytest.mark.p1
 def test_kb_021_delete_via_ui(logged_in_page, base_url, request):
-    """TC-KB-021: 知识库 UI 删除 — 在详情页点击删除按钮，确认弹窗后验证知识库消失"""
+    """TC-KB-021: 知识库 UI 删除 — 详情头「删除」按钮 + 确认弹窗（含目标名称）后校验消失
+
+    新版 UI 结构（AgentKnowledgeBasesPage.tsx:557-628）：
+    详情容器 section.knowledge-detail-header 内含 <h2>{name}</h2> 与「编辑」「删除」按钮。
+    旧锚点「返回知识库列表」+ ancestor::div[4] 已随改版失效（2026-08-18 误删事故的防护代码），
+    此处改为：详情头唯一 + h2 名称等于目标 + 删除按钮在详情头内唯一 + 确认弹窗必须包含目标名称。
+    """
     kb_name = f"del-ui-{_PREFIX}"
     create_resp = _create_kb_api(logged_in_page, base_url, kb_name, desc="UI删除测试")
     _assert_kb_created(create_resp)
     kb_id = create_resp.json()["data"]["id"]
     register_cleanup(request, lambda kid=kb_id: _delete_kb_api(logged_in_page, base_url, kid))
 
-    # 导航到知识库详情页（429 时自动等待重试）
+    # 导航到知识库详情页（?kbId=xxx，429 时自动等待重试）
     if not _goto_kb_detail(logged_in_page, base_url, kb_id):
-        pytest.skip("429 限流导致知识库详情页无法加载")
+        pytest.skip("知识库详情页未加载（可能 429 限流）")
 
-    body_text = logged_in_page.inner_text("body")
-    assert "返回知识库列表" in body_text, "知识库详情页未加载"
+    # 1. 详情头唯一，且指向目标知识库（防误删的第一道锚点）
+    detail_header = logged_in_page.locator("section.knowledge-detail-header")
+    assert detail_header.count() == 1, \
+        f"知识库详情头应唯一，实际 {detail_header.count()} 个"
+    header_name = detail_header.locator("h2").first.inner_text().strip()
+    assert header_name == kb_name, \
+        f"详情头名称与目标知识库不一致: 期望 {kb_name!r}，实际 {header_name!r}"
 
-    # 点击删除按钮 — 限定到知识库详情头部区域，避免误匹配侧边栏的 "删除智能体" 按钮
-    # DOM 结构：返回知识库列表 与 编辑/删除 在同一 header 容器中
-    return_btn = logged_in_page.get_by_role("button", name="返回知识库列表")
-    return_btn.wait_for(state="visible", timeout=5000)
-    # 向上找到包含 返回/编辑/删除 的 header 容器（第 4 级祖先）
-    kb_header = return_btn.locator("xpath=ancestor::div[4]")
-    delete_btn = kb_header.get_by_role("button", name="删除")
-    assert delete_btn.count() > 0, "知识库详情页删除按钮不存在"
-    delete_btn.wait_for(state="visible", timeout=5000)
-    delete_btn.click()
-    logged_in_page.wait_for_timeout(800)
+    # 2. 删除按钮限定在详情头内，并强制唯一（不可逆操作的安全断言）
+    delete_btn = detail_header.get_by_role("button", name="删除", exact=True)
+    assert delete_btn.count() == 1, \
+        f"详情头「删除」按钮应唯一，实际 {delete_btn.count()} 个"
+    delete_btn.first.wait_for(state="visible", timeout=5000)
+    delete_btn.first.click()
 
-    # 处理确认弹窗
-    alert_dialog = logged_in_page.locator("[role=alertdialog]")
-    dialog = logged_in_page.locator("[role=dialog]")
-    has_confirm = (
-        (alert_dialog.count() > 0 and alert_dialog.first.is_visible())
-        or (dialog.count() > 0 and dialog.first.is_visible()
-            and any(kw in dialog.first.inner_text() for kw in ["删除", "确认", "确定"]))
+    # 3. 确认弹窗（ConfirmDialog → role=alertdialog）：文案必须指向目标知识库
+    alert = logged_in_page.locator("[role=alertdialog]")
+    alert.first.wait_for(state="visible", timeout=8000)
+    dialog_text = alert.first.inner_text()
+    assert "确认删除知识库" in dialog_text, \
+        f"确认弹窗标题不是知识库删除: {dialog_text[:120]!r}"
+    assert kb_name in dialog_text, (
+        f"确认弹窗未包含目标知识库名 {kb_name!r}，禁止点击确认（防误删）：{dialog_text[:120]!r}"
+    )
+    assert "删除智能体" not in dialog_text, (
+        f"【严重】确认弹窗是关于删除智能体的，不是知识库！弹窗内容: {dialog_text[:120]!r}"
     )
 
-    if has_confirm:
-        # 安全检查：确认弹窗是关于知识库删除，而非误触的智能体删除
-        active_dialog = alert_dialog if alert_dialog.count() > 0 and alert_dialog.first.is_visible() else dialog
-        dialog_text = active_dialog.first.inner_text() if active_dialog.count() > 0 else ""
-        assert "删除智能体" not in dialog_text, (
-            f"【严重】确认弹窗是关于删除智能体的，不是知识库！弹窗内容: {dialog_text[:100]}"
-        )
+    confirm_btn = alert.first.get_by_role("button", name="确认", exact=True)
+    assert confirm_btn.count() == 1, \
+        f"确认弹窗「确认」按钮应唯一，实际 {confirm_btn.count()} 个"
+    confirm_btn.first.click()
+    alert.first.wait_for(state="hidden", timeout=15000)
 
-        confirm_btn = loc.confirm_button(alert_dialog).or_(
-            loc.confirm_button(dialog)
-        )
-        if confirm_btn.count() > 0:
-            confirm_btn.first.wait_for(state="visible", timeout=5000)
-            confirm_btn.first.click()
-            logged_in_page.wait_for_timeout(1500)
-        else:
-            # 备选：找弹窗中包含"删除"文本的按钮
-            target = alert_dialog if alert_dialog.count() > 0 else dialog
-            del_btn_in_dialog = target.get_by_role("button", name="删除").or_(
-                target.get_by_role("button", name="确认")
-            )
-            if del_btn_in_dialog.count() > 0:
-                del_btn_in_dialog.first.wait_for(state="visible", timeout=5000)
-                del_btn_in_dialog.first.click()
-                logged_in_page.wait_for_timeout(1500)
-    else:
-        # 可能 429 导致删除请求被拒、未弹出确认弹窗，等待后重试
-        print("[429] 点击删除后未弹出确认弹窗，等待限流窗口重置后重试...")
-        _wait_rate_limit_reset(logged_in_page, 65)
-        if not _goto_kb_detail(logged_in_page, base_url, kb_id):
-            pytest.skip("429 限流导致知识库详情页无法加载")
-        # 重试时也限定到 KB 头部区域
-        return_btn2 = logged_in_page.get_by_role("button", name="返回知识库列表")
-        return_btn2.wait_for(state="visible", timeout=5000)
-        kb_header2 = return_btn2.locator("xpath=ancestor::div[4]")
-        delete_btn2 = kb_header2.get_by_role("button", name="删除")
-        if delete_btn2.count() > 0:
-            delete_btn2.wait_for(state="visible", timeout=5000)
-            delete_btn2.click()
-            logged_in_page.wait_for_timeout(800)
-        alert_dialog2 = logged_in_page.locator("[role=alertdialog]")
-        dialog2 = logged_in_page.locator("[role=dialog]")
-        has_confirm2 = (
-            (alert_dialog2.count() > 0 and alert_dialog2.first.is_visible())
-            or (dialog2.count() > 0 and dialog2.first.is_visible()
-                and any(kw in dialog2.first.inner_text() for kw in ["删除", "确认", "确定"]))
-        )
-        if has_confirm2:
-            # 安全检查：确认弹窗是关于知识库删除
-            active_dialog2 = alert_dialog2 if alert_dialog2.count() > 0 and alert_dialog2.first.is_visible() else dialog2
-            dialog_text2 = active_dialog2.first.inner_text() if active_dialog2.count() > 0 else ""
-            assert "删除智能体" not in dialog_text2, (
-                f"【严重】重试后确认弹窗是关于删除智能体的！弹窗内容: {dialog_text2[:100]}"
-            )
-            confirm_btn2 = loc.confirm_button(alert_dialog2).or_(
-                loc.confirm_button(dialog2)
-            )
-            if confirm_btn2.count() > 0:
-                confirm_btn2.first.wait_for(state="visible", timeout=5000)
-                confirm_btn2.first.click()
-                logged_in_page.wait_for_timeout(1500)
-        else:
-            pytest.skip("点击删除后未弹出确认弹窗（429 重试后仍未弹出）")
-
-    # 验证：页面应回到列表或不再显示该知识库
-    logged_in_page.wait_for_timeout(1000)
-    try:
-        logged_in_page.goto(
-            f"{base_url}/ctrl/agent/knowledge-bases",
-            wait_until="domcontentloaded",
-        )
-    except Exception:
-        pass
-    logged_in_page.wait_for_load_state("domcontentloaded")
-    try:
-        logged_in_page.locator("div.agent-panel-content").first.wait_for(
-            state="attached", timeout=8000
-        )
-    except Exception:
-        pass
-
-    # API 验证知识库已删除
+    # 4. 结果校验：API 列表中不再存在该知识库
     kbs = _get_kbs_api(logged_in_page, base_url)
-    exists = any(k["id"] == kb_id for k in kbs)
-
-    # 如果仍然存在，可能是确认删除的请求被 429 拦截，等待后重试
-    if exists:
-        print("[429] UI 删除确认可能因限流未生效，等待 65s 后通过 API 验证并重试...")
-        _wait_rate_limit_reset(logged_in_page, 65)
-        # 再次检查
-        kbs2 = _get_kbs_api(logged_in_page, base_url)
-        exists = any(k["id"] == kb_id for k in kbs2)
-        if exists:
-            # 确认按钮的请求被 429 拦截了，此时 UI 重试意义不大，用 API 完成删除
-            # 但断言 UI 确认流程已走通（弹窗已弹出且确认按钮已点击）
-            del_resp = _delete_kb_api(logged_in_page, base_url, kb_id)
-            assert del_resp.status == 200, \
-                f"429 重试后 API 删除也失败: status={del_resp.status}"
-            kbs3 = _get_kbs_api(logged_in_page, base_url)
-            exists = any(k["id"] == kb_id for k in kbs3)
-
-    assert not exists, f"UI 删除后知识库仍在列表中: {kb_name}"
+    assert not any(k["id"] == kb_id for k in kbs), \
+        f"UI 删除后知识库仍存在: {kb_name}"
 
 
 # ==================== 分块详情 Sheet 补充测试（TC-KB-GAP-01 ~ 05）====================
@@ -1560,7 +1495,7 @@ def test_kb_021_delete_via_ui(logged_in_page, base_url, request):
 @allure.epic("知识库")
 @pytest.mark.order(341)
 @pytest.mark.p1
-def test_kb_gap_01_chunk_sheet_open(logged_in_page, base_url):
+def test_kb_gap_01_chunk_sheet_open(logged_in_page, base_url, embedding_required):
     """TC-KB-GAP-01: 分块详情 Sheet 打开 — 点击资源文件名链接，Sheet 从右侧滑出"""
     kbs = _get_kbs_api(logged_in_page, base_url)
     if not kbs:
@@ -1623,7 +1558,7 @@ def test_kb_gap_01_chunk_sheet_open(logged_in_page, base_url):
 @allure.epic("知识库")
 @pytest.mark.order(342)
 @pytest.mark.p1
-def test_kb_gap_02_chunk_toggle_enabled(logged_in_page, base_url, request):
+def test_kb_gap_02_chunk_toggle_enabled(logged_in_page, base_url, request, embedding_required):
     """TC-KB-GAP-02: 分块详情 Sheet — 切片启用/禁用切换"""
     kb_name = f"chunk-toggle-{_PREFIX}"
     create_resp = _create_kb_api(logged_in_page, base_url, kb_name)
@@ -1656,16 +1591,18 @@ def test_kb_gap_02_chunk_toggle_enabled(logged_in_page, base_url, request):
         assert logged_in_page.locator(f"text={file_name}").count() > 0, \
             f"上传后文件名 {file_name} 未出现"
 
-        # 等待解析完成
+        # 等待解析完成：以「目标资源 chunkCount > 0」为准
+        # （原实现取 resources[0] 且只看 status，列表顺序不保证 + status=ready 时切片可能尚未生成）
         for _ in range(12):
             resp = logged_in_page.request.get(
                 f"{base_url}/web/knowledgeBases/{kb_id}/resources"
             )
             if resp.status == 200:
                 resources = resp.json().get("data", [])
-                if resources and (resources[0].get("status") or "") in (
-                    "completed", "success", "done", "indexed", "ready"
-                ):
+                target = next(
+                    (r for r in resources if r.get("sourceName") == file_name), None
+                )
+                if target and (target.get("chunkCount") or 0) > 0:
                     break
             time.sleep(5)
 
@@ -1679,7 +1616,7 @@ def test_kb_gap_02_chunk_toggle_enabled(logged_in_page, base_url, request):
 
         kb_page = KnowledgePage(logged_in_page, base_url)
 
-        # 打开 Sheet
+        # 打开 Sheet（open_chunk_sheet 内部已等待切片渲染完成）
         opened = kb_page.open_chunk_sheet(file_name)
         assert opened, "分块详情 Sheet 未打开"
 
@@ -1710,7 +1647,7 @@ def test_kb_gap_02_chunk_toggle_enabled(logged_in_page, base_url, request):
 @allure.epic("知识库")
 @pytest.mark.order(343)
 @pytest.mark.p1
-def test_kb_gap_03_chunk_search(logged_in_page, base_url):
+def test_kb_gap_03_chunk_search(logged_in_page, base_url, embedding_required):
     """TC-KB-GAP-03: 分块详情 Sheet — 搜索切片"""
     kbs = _get_kbs_api(logged_in_page, base_url)
     if not kbs:
@@ -1773,7 +1710,7 @@ def test_kb_gap_03_chunk_search(logged_in_page, base_url):
 @allure.epic("知识库")
 @pytest.mark.order(344)
 @pytest.mark.p2
-def test_kb_gap_04_chunk_text_mode_toggle(logged_in_page, base_url):
+def test_kb_gap_04_chunk_text_mode_toggle(logged_in_page, base_url, embedding_required):
     """TC-KB-GAP-04: 分块详情 Sheet — 全文/省略切换"""
     kbs = _get_kbs_api(logged_in_page, base_url)
     if not kbs:
@@ -1834,7 +1771,7 @@ def test_kb_gap_04_chunk_text_mode_toggle(logged_in_page, base_url):
 @allure.epic("知识库")
 @pytest.mark.order(345)
 @pytest.mark.p1
-def test_kb_gap_05_chunk_sheet_close(logged_in_page, base_url):
+def test_kb_gap_05_chunk_sheet_close(logged_in_page, base_url, embedding_required):
     """TC-KB-GAP-05: 分块详情 Sheet — 关闭（Escape / Close 按钮）"""
     kbs = _get_kbs_api(logged_in_page, base_url)
     if not kbs:
@@ -1885,119 +1822,25 @@ def test_kb_gap_05_chunk_sheet_close(logged_in_page, base_url):
         kb_page.close_chunk_sheet()
 
 
-@allure.epic("知识库")
-@pytest.mark.order(346)
-@pytest.mark.p2
-def test_kb_gap_06_clear_record(logged_in_page, base_url):
-    """TC-KB-GAP-06: 清除记录按钮 — 需要 remoteExists=false 的知识库"""
-    kb_page = KnowledgePage(logged_in_page, base_url)
-    kb_page.goto()
-
-    # 检查是否存在 "清除记录" 按钮
-    clear_btns = logged_in_page.evaluate("""() => {
-        return Array.from(document.querySelectorAll('button')).filter(b =>
-            (b.textContent || '').includes('清除记录') && b.offsetParent !== null
-        ).length;
-    }""")
-
-    if clear_btns == 0:
-        pytest.skip(
-            "当前测试环境无 remoteExists=false 的知识库，"
-            "'清除记录'按钮不可见。此功能需要 RAGFlow 端已删除但本地记录仍在的知识库。"
-        )
-
-    # 如果有清除记录按钮，点击并验证
-    btn = logged_in_page.locator("button:has-text('清除记录')").first
-    btn.wait_for(state="visible", timeout=5000)
-    btn.click()
-    logged_in_page.wait_for_timeout(1000)
-
-    # 验证按钮消失（记录已清除）
-    remaining = logged_in_page.evaluate("""() => {
-        return Array.from(document.querySelectorAll('button')).filter(b =>
-            (b.textContent || '').includes('清除记录') && b.offsetParent !== null
-        ).length;
-    }""")
-    assert remaining < clear_btns, \
-        f"清除记录后按钮数未减少: {clear_btns} → {remaining}"
+# TC-KB-GAP-06「清除记录」用例已于 2026-09-15 删除：
+# 「清除记录」文案在 web/src 全量源码中 0 命中，功能已下线；
+# 原用例内部 clear_btns == 0 → pytest.skip 恒成立（静默跳过掩盖失效），故删除。
 
 
-# ═══════════════════════════════════════════════════════
-# P1 补充: 知识库批量操作
-# ═══════════════════════════════════════════════════════
-
-@allure.epic("知识库")
-@pytest.mark.order(347)
-@pytest.mark.p1
-def test_knowledge_batch_operations(logged_in_page, base_url):
-    """验证知识库批量操作 — checkbox 批量选择后验证操作工具栏出现"""
-    kb_page = KnowledgePage(logged_in_page, base_url)
-    kb_page.goto()
-
-    # 等待列表加载
-    logged_in_page.wait_for_timeout(2000)
-
-    # 查找列表中的 checkbox（批量选择）
-    panel_body = logged_in_page.locator("div.agent-panel-body").first
-    checkboxes = panel_body.locator(
-        "input[type='checkbox'], [role='checkbox']"
-    )
-
-    if checkboxes.count() == 0:
-        # 尝试查找表头的全选 checkbox
-        header_checkbox = logged_in_page.locator(
-            "thead input[type='checkbox'], "
-            "th [role='checkbox'], "
-            "th input[type='checkbox']"
-        )
-        if header_checkbox.count() > 0:
-            checkboxes = header_checkbox
-
-    if checkboxes.count() == 0:
-        pytest.skip("知识库列表中无 checkbox，不支持批量操作")
-
-    # 点击第一个 checkbox 选中
-    first_checkbox = checkboxes.first
-    if not first_checkbox.is_checked():
-        first_checkbox.click()
-        logged_in_page.wait_for_timeout(1000)
-
-    # 验证批量操作工具栏出现
-    batch_toolbar = logged_in_page.locator(
-        "div[class*='batch'], div[class*='toolbar'], "
-        "div[class*='action-bar'], div[class*='bulk']"
-    )
-    batch_buttons = logged_in_page.get_by_role("button", name="批量删除").or_(
-        logged_in_page.get_by_role("button", name="批量")
-    ).or_(
-        logged_in_page.get_by_role("button", name="删除")
-    ).or_(
-        logged_in_page.locator("button:has-text('批量')")
-    )
-
-    has_toolbar = batch_toolbar.count() > 0 and batch_toolbar.first.is_visible()
-    has_batch_btn = batch_buttons.count() > 0
-
-    # 也检查页面底部或顶部是否出现了操作提示
-    panel_text = logged_in_page.locator("div.agent-panel").first.inner_text()
-    has_selection_text = any(kw in panel_text for kw in
-                            ["已选择", "已选", "selected", "选中", "项已选"])
-
-    # 取消选择（恢复原始状态，不操作数据）
-    if first_checkbox.is_checked():
-        first_checkbox.click()
-        logged_in_page.wait_for_timeout(500)
-
-    assert has_toolbar or has_batch_btn or has_selection_text, \
-        "选中 checkbox 后未出现批量操作工具栏、批量按钮或选择提示"
-
+# TC-KB-P1「知识库批量操作」用例已于 2026-09-15 删除：
+# 当前 UI 已无批量选择能力 —— web/src 全量源码中 Checkbox 仅用于「重新解析」弹窗
+# （AgentKnowledgeBasesPage.tsx:21 引入、:995 使用），知识库列表与资源表均无 checkbox 列
+# （agent-knowledge-resources.tsx 无 Checkbox 引用）。
+# 原用例在 staging 与正式环境（fenix-agent.pazhoulab-huangpu.com）实跑均恒 skip
+# （「知识库列表中无 checkbox」），且断言本身为 OR + [class*='batch'] 猜测选择器，
+# 属「静默跳过掩盖失效」，故删除。
 
 # === P2: 知识库列表分页 ===
 
 @allure.epic("知识库")
 @pytest.mark.order(348)
 @pytest.mark.p2
-def test_knowledge_pagination(logged_in_page, base_url):
+def test_knowledge_pagination(logged_in_page, base_url, embedding_required):
     """TC-KB-P2-01: 知识库列表分页控件验证"""
     kb = KnowledgePage(logged_in_page, base_url)
     kb.goto()
@@ -2093,7 +1936,7 @@ def test_knowledge_pagination(logged_in_page, base_url):
 @allure.epic("知识库")
 @pytest.mark.order(349)
 @pytest.mark.p2
-def test_knowledge_create_all_fields(logged_in_page, base_url):
+def test_knowledge_create_all_fields(logged_in_page, base_url, embedding_required):
     """验证知识库创建弹窗的所有未覆盖字段 — 仅验证字段存在，不填写不提交"""
     kb = KnowledgePage(logged_in_page, base_url)
     kb.goto()

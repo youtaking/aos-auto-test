@@ -1222,12 +1222,15 @@ def test_refresh_during_reply(logged_in_page, base_url):
                     if len(last_reply) > 50 and "思考中" not in last_reply:
                         reply_ok = True
                         break
-            # 如果有 "重试重连" 按钮，点击它
-            retry_btn = logged_in_page.get_by_role("button", name="重试重连")
-            if retry_btn.count() > 0 and retry_btn.first.is_visible():
-                retry_btn.first.click()
-                logged_in_page.wait_for_timeout(1000)
-                continue
+            # 若出现"Agent 未连接"占位，点击其中的重连按钮
+            # （旧「重试重连」文案在 web/src 全量源码 0 命中，已清理死分支）
+            reconnect_area = logged_in_page.locator("div.agent-welcome-empty")
+            if reconnect_area.count() > 0 and reconnect_area.first.is_visible():
+                reconnect_btn = reconnect_area.locator("button")
+                if reconnect_btn.count() > 0 and reconnect_btn.first.is_visible():
+                    reconnect_btn.first.click()
+                    logged_in_page.wait_for_timeout(1000)
+                    continue
             logged_in_page.wait_for_timeout(1000)
         if reply_ok:
             break
@@ -1268,6 +1271,13 @@ def test_refresh_during_reply(logged_in_page, base_url):
         f"AI 回复仍是重连占位文本: '{last_reply[:50]}'"
     assert len(last_reply) > 50, \
         f"AI 回复过短（{len(last_reply)}字），可能被打断: '{last_reply[:50]}'"
+    # 回复内容完整性（长度≠内容正确）：必须是含中文的完整句子，且不含错误占位文本
+    assert re.search(r"[\u4e00-\u9fff]", last_reply), \
+        f"AI 回复不含中文正文: '{last_reply[:60]}'"
+    assert re.search(r"[。！？.!?]", last_reply), \
+        f"AI 回复不是完整句子（无句末标点）: '{last_reply[:60]}'"
+    assert not re.search(r"(失败|错误|异常|超时|timeout|Error)", last_reply), \
+        f"AI 回复包含错误信息，可能被打断: '{last_reply[:80]}'"
 
 
 # ═══════════════════════════════════════════════════════

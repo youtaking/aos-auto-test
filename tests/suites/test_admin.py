@@ -3,6 +3,8 @@
 覆盖 Observer 观察中心、人员管理、系统日志三个子页面
 Master Key 认证流程 + 各子页面功能验证
 """
+import re
+
 import pytest
 import allure
 from tests.pages.admin_page import AdminPage
@@ -86,12 +88,24 @@ def test_admin_002_observer_center(admin_page_obj, master_key):
     assert admin_page_obj.is_observer_loaded(), \
         "Observer 观察中心页面未加载"
 
-    # 2. 统计卡片数据
+    # 2. 统计卡片数据（四张卡齐全 + 数值格式 + 与汇总行交叉校验）
+    assert admin_page_obj.wait_observer_stats_ready(), \
+        "观察中心统计卡片未在超时内全部渲染（实测四卡由接口异步返回）"
     stats = admin_page_obj.get_observer_stats()
-    assert "观察总数" in stats, "缺少'观察总数'统计卡片"
-    assert "活跃 machine" in stats, "缺少'活跃 machine'统计卡片"
-    assert "一致性问题" in stats, "缺少'一致性问题'统计卡片"
-    assert "最后更新" in stats, "缺少'最后更新'统计卡片"
+    for label in ["观察总数", "活跃 machine", "一致性问题", "最后更新"]:
+        assert label in stats, f"缺少'{label}'统计卡片，当前: {stats}"
+
+    for label in ["观察总数", "活跃 machine", "一致性问题"]:
+        assert re.fullmatch(r"\d+", stats[label]), \
+            f"「{label}」统计值应为整数，实际: {stats[label]!r}"
+    assert re.fullmatch(r"\d{2}:\d{2}:\d{2}", stats["最后更新"]), \
+        f"「最后更新」应为 HH:MM:SS 时间，实际: {stats['最后更新']!r}"
+
+    # 观察总数必须与汇总行「已核对: N」一致
+    checked = admin_page_obj.get_observer_checked_count()
+    assert checked >= 0, "未找到「已核对: N」汇总行"
+    assert int(stats["观察总数"]) == checked, \
+        f"观察总数({stats['观察总数']}) 与「已核对: {checked}」不一致"
 
     # 3. Tab 列表
     tabs = admin_page_obj.get_observer_tabs()
@@ -103,17 +117,14 @@ def test_admin_002_observer_center(admin_page_obj, master_key):
     assert admin_page_obj.has_refresh_button(), "缺少'刷新'按钮"
     assert admin_page_obj.has_exit_button(), "缺少'退出'按钮"
 
-    # 5. 侧边栏导航
+    # 5. 侧边栏导航：逐项断言 5 个导航入口齐全（实测 2026-09-15：Observer 观察中心/沙盒管理/人员管理/模型网关/系统日志）
     nav_links = admin_page_obj.get_nav_links()
-    assert len(nav_links) > 0, "侧边栏无任何导航链接"
-    assert any(kw in link for link in nav_links for kw in ["Observer", "观察"]), \
-        f"侧边栏缺少 Observer 导航链接，当前: {nav_links}"
-    assert any("人员管理" in link for link in nav_links), \
-        f"侧边栏缺少'人员管理'导航链接，当前: {nav_links}"
-    assert any("系统日志" in link for link in nav_links), \
-        f"侧边栏缺少'系统日志'导航链接，当前: {nav_links}"
-    assert any("沙盒管理" in link for link in nav_links), \
-        f"侧边栏缺少'沙盒管理'导航链接，当前: {nav_links}"
+    expected_nav = ["Observer 观察中心", "沙盒管理", "人员管理", "模型网关", "系统日志"]
+    for name in expected_nav:
+        assert any(name in link for link in nav_links), \
+            f"侧边栏缺少「{name}」导航链接，当前: {nav_links}"
+    assert len(nav_links) >= len(expected_nav), \
+        f"侧边栏导航项少于预期 {len(expected_nav)} 项，当前: {nav_links}"
 
     # "返回主控制台"链接
     return_link = admin_page_obj.page.locator("a:has-text('返回')")
@@ -143,9 +154,13 @@ def test_admin_003_people_management(admin_page_obj, master_key):
     assert any("刷新" in b for b in buttons), \
         f"人员管理页缺少'刷新'按钮，当前按钮: {buttons}"
 
-    # 3. 页面内容非空（有人员树数据）
-    main_text = admin_page_obj.page.locator("main").inner_text()
-    assert len(main_text.strip()) > 0, "人员管理页面内容为空"
+    # 3. 人员树已渲染用户数据（含"N 位用户"统计与注册邮箱）
+    #    实测：人员树异步加载约 1s，标题可见时仍处于「加载中…」，必须等待渲染完成
+    main_text = admin_page_obj.wait_people_tree()
+    assert re.search(r"\d+\s*位用户", main_text), \
+        f"人员管理页未渲染用户数量统计，main_text 前200字符: {main_text[:200]!r}"
+    assert re.search(r"[\w.+-]+@[\w-]+\.[\w.]+", main_text), \
+        f"人员管理页未渲染任何用户邮箱，main_text 前200字符: {main_text[:200]!r}"
 
     # 4. 验证页面描述文本
     main_text_lower = main_text.lower()
@@ -177,9 +192,12 @@ def test_admin_004_system_logs(admin_page_obj, master_key):
     assert admin_page_obj.has_log_search_input(), \
         "缺少日志搜索输入框"
 
-    # 4. 日志文件列表非空
+    # 4. 日志文件列表非空且文件名格式正确（实测格式：rcs[.<channel>].YYYY-MM-DD.log）
     log_files = admin_page_obj.get_log_files()
-    assert len(log_files) > 0, "日志文件列表为空"
+    assert log_files, "日志文件列表为空"
+    bad = [f for f in log_files
+           if not re.match(r"^rcs(\.[a-z]+)?\.\d{4}-\d{2}-\d{2}\.log", f.strip())]
+    assert not bad, f"日志文件名格式异常: {bad[:5]}"
 
     # 5. 验证有当日日志文件
     from datetime import date

@@ -387,13 +387,8 @@ def test_apikey_006c_close_button_bottom(logged_in_page, base_url, request):
         logged_in_page, base_url, ak, "close-bottom"
     )
 
-    # 找到底部的"关闭"按钮
+    # 找到底部的"关闭"按钮（源码仅渲染「关闭」；原「我知道了」兜底文案在 web/src 中 0 命中，已清理）
     close_btn = dialog.get_by_role("button", name="关闭")
-    if close_btn.count() == 0:
-        # 兼容：可能文案为"确定"或"我知道了"
-        close_btn = dialog.get_by_role("button", name="确定").or_(
-            dialog.get_by_role("button", name="我知道了")
-        )
 
     assert close_btn.count() > 0, "创建后弹窗底部未找到关闭按钮"
     close_btn.first.click()

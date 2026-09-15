@@ -166,6 +166,16 @@ class ViewsPage:
             btn.first.click()
             self.page.wait_for_timeout(900)
 
+    def has_empty_state(self) -> bool:
+        """是否显示空状态（空态创建入口文本即提示：点击 + 创建发布视图）"""
+        empty = self._empty_state()
+        return empty.count() > 0 and empty.first.is_visible()
+
+    def get_card_texts(self) -> list:
+        """视图卡片文本列表（每张卡片含名称 + 启用状态 + 操作按钮）"""
+        cards = self._cards()
+        return [cards.nth(i).inner_text().strip() for i in range(cards.count())]
+
     def get_page_text(self) -> str:
         """获取内容面板文本"""
         shell = self._shell()

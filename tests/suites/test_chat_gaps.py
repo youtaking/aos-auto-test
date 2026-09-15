@@ -266,11 +266,13 @@ def test_slash_command(logged_in_page, base_url):
     # 输入 / 触发命令候选
     chat.type_slash_command()
 
-    # 验证候选列表出现
-    has_popup = chat.has_slash_popup()
-    if not has_popup:
-        # 可能当前智能体没有配置 Slash 命令，跳过
-        pytest.skip("输入 / 后未弹出命令候选列表（当前智能体可能未配置 Slash 命令）")
+    # 断言候选列表出现（实测 DOM: div.chat-command-menu + span.chat-command-menu-name）
+    assert chat.is_command_menu_visible(), \
+        "输入 / 后未出现命令候选菜单面板（div.chat-command-menu）"
+    items = chat.get_command_menu_items()
+    assert len(items) > 0, "命令候选菜单面板内无任何候选项（span.chat-command-menu-name）"
+    assert items[0].startswith("/"), \
+        f"命令候选首项应以 / 开头，实际: {items[0]!r}（全部候选项: {items[:5]}）"
 
     # 按 Escape 关闭
     logged_in_page.keyboard.press("Escape")
@@ -295,10 +297,11 @@ def test_at_file_reference(logged_in_page, base_url):
     # 输入 @ 触发文件引用
     chat.type_at_reference()
 
-    # 验证候选列表出现
-    has_popup = chat.has_at_popup()
-    if not has_popup:
-        pytest.skip("输入 @ 后未弹出文件引用列表（当前智能体可能未配置文件树）")
+    # 断言弹层出现（实测：[role=dialog] + heading「选择文件」+ 按钮「上传文件」）
+    assert chat.has_at_popup(), \
+        "输入 @ 后未弹出文件引用弹层（缺少 [role=dialog] 的 heading「选择文件」）"
+    assert logged_in_page.get_by_role("button", name="上传文件").count() > 0, \
+        "文件引用弹层内缺少「上传文件」入口"
 
     # 按 Escape 关闭
     logged_in_page.keyboard.press("Escape")
@@ -318,23 +321,14 @@ def test_skill_button_toolbar(logged_in_page, base_url):
         pytest.skip("未能导航到 my-auto-test 聊天页")
     chat.create_new_session()
 
-    # 点击技能按钮
-    skill_btn = logged_in_page.get_by_role("button", name="技能")
-    if skill_btn.count() == 0:
-        pytest.skip("当前对话页无「技能」按钮")
-    skill_btn.first.wait_for(state="visible", timeout=3000)
-
+    # 点击 composer 工具栏「技能」按钮（页面级重名按钮已有唯一性断言保护）
     chat.click_skill_button()
 
-    # 验证弹出了面板或列表
-    has_panel = chat.has_popup_or_panel()
-    if not has_panel:
-        # 技能按钮可能无响应（未绑定技能），记录但不失败
-        allure.attach(
-            "点击技能按钮后未弹出面板（当前智能体可能未绑定技能）",
-            name="备注", attachment_type=allure.attachment_type.TEXT
-        )
-        return
+    # 断言命令菜单面板出现（实测为内嵌面板 div.chat-command-menu，非弹层）
+    assert chat.is_command_menu_visible(), \
+        "点击「技能」后未出现命令菜单面板（div.chat-command-menu）"
+    items = chat.get_command_menu_items()
+    assert len(items) > 0, "命令菜单面板内无任何候选项（span.chat-command-menu-name）"
 
     # 按 Escape 关闭
     logged_in_page.keyboard.press("Escape")
@@ -354,18 +348,10 @@ def test_file_button_toolbar(logged_in_page, base_url):
     chat.create_new_session()
 
     # 点击文件按钮（输入区左侧，非 Artifacts 面板 Tab）
-    chat.click_file_button()
+    # 实测：该按钮直接触发原生文件选择器，DOM 无可见变化，只能断言 filechooser 事件
+    assert chat.open_file_picker(), \
+        "点击 composer「文件」按钮后未触发原生文件选择器（filechooser 事件未发生）"
 
-    # 验证弹出了面板或列表
-    has_panel = chat.has_popup_or_panel()
-    if not has_panel:
-        allure.attach(
-            "点击文件按钮后未弹出面板（当前智能体可能未配置文件树）",
-            name="备注", attachment_type=allure.attachment_type.TEXT
-        )
-        return
-
-    # 按 Escape 关闭
     logged_in_page.keyboard.press("Escape")
     logged_in_page.wait_for_timeout(300)
 
@@ -570,14 +556,11 @@ def test_loading_state(logged_in_page, base_url):
             break
         logged_in_page.wait_for_timeout(500)
 
-    # 等待加载完成
-    try:
-        logged_in_page.locator("textarea").first.wait_for(
-            state="visible", timeout=20000
-        )
-    except Exception:
-        pytest.skip("进入对话页后输入框未出现（20 秒超时）")
+    # 断言最终态：composer 就绪（输入框稳定可见 + 发送按钮存在）
+    assert chat.is_composer_ready(), \
+        "进入对话页后 20 秒内 composer 未就绪（输入框不可见或缺少发送按钮）"
 
+    # Spinner 为可选证据（加载快时可能观察不到），不影响结论
     if not has_spinner:
         allure.attach(
             "进入对话页时未检测到加载 Spinner（加载过快或无 Spinner 设计）",

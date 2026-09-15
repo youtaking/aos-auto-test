@@ -98,26 +98,38 @@ class ChannelsPage:
 
     # ── 列表操作 ──
 
+    # 绑定卡片选择器（实测 2026-09-15 DOM：AgentChannelsPage.tsx:136 渲染为
+    # className="group rounded-lg border border-border-light ..."，必须同时带 border 类，
+    # 旧写法 div.group.rounded-lg.border-border-light 实测 0 命中）
+    _CARD_SELECTOR = "div.group.rounded-lg.border.border-border-light"
+
     def get_binding_count(self) -> int:
         """获取绑定卡片数量（排除侧边栏的 agent-sidebar-agent）"""
-        return self.page.locator("div.group.rounded-lg.border-border-light").count()
+        return self.page.locator(self._CARD_SELECTOR).count()
 
     def has_binding(self, platform: str) -> bool:
         """列表中是否有指定平台的绑定"""
         return (
-            self.page.locator("div.group.rounded-lg.border-border-light")
+            self.page.locator(self._CARD_SELECTOR)
             .filter(has_text=platform)
             .count()
             > 0
         )
 
     def delete_binding(self, platform: str):
-        """删除指定平台的绑定（点击删除按钮）"""
-        card = self.page.locator("div.group.rounded-lg.border-border-light").filter(has_text=platform).first
-        card.hover()  # 删除按钮 hover 时才显示
-        delete_btn = card.get_by_role("button", name="btn.delete").or_(
-            card.get_by_role("button", name="删除")
+        """删除指定平台的绑定（点击卡片内唯一删除按钮）
+
+        注意：卡片内仅渲染一个删除按钮（源码 t("btn.delete"），当前部署文案未翻译 → 实测文本为 "btn.delete"）。
+        """
+        card = self.page.locator(self._CARD_SELECTOR).filter(has_text=platform)
+        assert card.count() == 1, \
+            f"匹配平台 {platform!r} 的渠道卡片应唯一，实际 {card.count()} 个"
+        card.first.hover()  # 删除按钮 hover 时才显示
+        delete_btn = card.first.get_by_role("button", name="btn.delete").or_(
+            card.first.get_by_role("button", name="删除")
         )
+        assert delete_btn.count() == 1, \
+            f"渠道卡片内删除按钮应唯一，实际 {delete_btn.count()} 个"
         delete_btn.wait_for(state="visible", timeout=5000)
         delete_btn.click()
 

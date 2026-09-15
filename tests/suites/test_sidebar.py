@@ -69,8 +69,9 @@ def test_workflow_search(logged_in_page, base_url):
     page.search("zzz_不存在_zzz")
     logged_in_page.wait_for_timeout(500)
     filtered = page.get_workflow_count()
-    assert filtered == 0 or filtered < initial, (
-        f"搜索不存在内容后列表未过滤"
+    # 搜索不存在的关键词应命中 0 条（原 OR 断言 filtered<initial 会放过"仍剩 1 条"的失效场景）
+    assert filtered == 0, (
+        f"搜索不存在关键词后仍有结果未过滤"
         f"（initial={initial}, filtered={filtered}）"
     )
 
@@ -472,8 +473,9 @@ def test_apikey_search(logged_in_page, base_url):
     page.search("zzz_不存在_zzz")
     logged_in_page.wait_for_timeout(500)
     filtered = page.get_key_count()
-    assert filtered == 0 or filtered < initial, (
-        f"搜索不存在内容后列表未过滤"
+    # 搜索不存在的关键词应命中 0 条（原 OR 断言会放过"仍剩 1 条"的失效场景）
+    assert filtered == 0, (
+        f"搜索不存在关键词后仍有结果未过滤"
         f"（initial={initial}, filtered={filtered}）"
     )
 

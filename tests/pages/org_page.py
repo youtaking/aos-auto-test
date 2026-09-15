@@ -450,6 +450,19 @@ class OrgPage:
     def has_machine_region(self) -> bool:
         return self.page.locator("div.org-detail h3").filter(has_text=re.compile(r"机器\s*\(")).count() > 0
 
+    def get_machine_section_title(self) -> str:
+        """机器区域标题原文（如「机器 (1)」）"""
+        h3 = self.page.locator("div.org-detail h3").filter(has_text=re.compile(r"机器\s*\(")).first
+        try:
+            h3.wait_for(state="visible", timeout=5000)
+            return h3.inner_text().strip()
+        except Exception:
+            return ""
+
+    def get_machine_rows_count(self) -> int:
+        """机器区域内实际渲染的机器行数（.org-list-row，限定在机器 section 内）"""
+        return self.machine_section().locator(".org-list-row").count()
+
     def get_machine_count(self) -> int:
         try:
             h3 = self.page.locator("div.org-detail h3").filter(has_text=re.compile(r"机器\s*\(")).first

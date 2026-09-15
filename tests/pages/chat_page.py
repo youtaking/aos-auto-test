@@ -104,7 +104,14 @@ class ChatPage:
                     reconnect_btn = reconnect_area.locator("button")
                     if reconnect_btn.count() > 0 and reconnect_btn.first.is_visible():
                         reconnect_btn.first.click()
-                        self.page.wait_for_timeout(3000)
+                        # 条件等待：重连后输入框出现即可提前返回（替代固定 3s 延迟）
+                        try:
+                            self.page.locator("textarea").first.wait_for(
+                                state="visible", timeout=3000
+                            )
+                            return
+                        except Exception:
+                            pass
                         continue
                 self.page.wait_for_timeout(2000)
 

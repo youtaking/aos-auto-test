@@ -1,6 +1,5 @@
 # tests/pages/chat_test_page.py
 """对话聊天测试 Page Object — 会话管理、消息交互、文件上传、Markdown 渲染"""
-import re
 from playwright.sync_api import Page
 
 
@@ -112,13 +111,9 @@ class ChatTestPage:
                         )
                         if reconnect_btn.count() > 0:
                             reconnect_btn.first.click()
-                            self.page.wait_for_timeout(5000)
-                            if self.page.locator("textarea").count() > 0:
+                            if self._wait_for_composer(5000):
                                 self._collapse_artifacts_if_open()
                                 return
-
-                        # 间隔等待，让连接充分恢复
-                        self.page.wait_for_timeout(3000)
 
                         # 第二层：再点击 agent 卡片重新连接
                         card2 = self.page.locator("button.agent-sidebar-agent-card").filter(has_text=agent_name)
@@ -133,8 +128,10 @@ class ChatTestPage:
                             except Exception:
                                 pass
 
-                        # 间隔等待
-                        self.page.wait_for_timeout(3000)
+                        # 间隔等待：等 composer 出现（条件等待，最长 3s）
+                        if self._wait_for_composer(3000):
+                            self._collapse_artifacts_if_open()
+                            return
 
                         # 第三层：跳回 home 再重新进入
                         try:
@@ -145,7 +142,7 @@ class ChatTestPage:
                         except Exception:
                             pass
                         self.page.wait_for_load_state("domcontentloaded")
-                        self.page.wait_for_timeout(3000)
+                        self._wait_for_composer(3000)
                         for _w in range(5):
                             if self.page.locator("button.agent-sidebar-agent-card").count() > 0:
                                 break
@@ -163,6 +160,22 @@ class ChatTestPage:
                                 pass
         # 最终回退
         self.page.wait_for_timeout(2000)
+
+    def _wait_for_composer(self, timeout_ms: int = 5000) -> bool:
+        """条件等待 composer 输入框可见（替代固定 wait_for_timeout 延迟）"""
+        try:
+            self.page.locator("textarea").first.wait_for(
+                state="visible", timeout=timeout_ms
+            )
+            return True
+        except Exception:
+            return False
+
+    def is_composer_ready(self) -> bool:
+        """composer 是否可用（输入框稳定可见 + 发送按钮存在），最长等 20s"""
+        if not self._wait_for_composer(20000):
+            return False
+        return self._composer_toolbar().locator("button[aria-label='发送']").count() == 1
 
     def is_on_chat_page(self) -> bool:
         """当前是否在聊天页面（URL 包含 /chat/ 且有 textarea）"""
@@ -928,78 +941,121 @@ class ChatTestPage:
 
     # === Slash 命令 / @ 引用 ===
 
+    def _composer_toolbar(self):
+        """composer 工具栏容器 — textarea 上溯 2 层
+
+        实测（2026-09-15 DOM 探查）该容器内 4 个按钮：
+        button.chat-composer-plugin（技能）、button.chat-composer-file（文件，aria-label=添加图片或文件）、
+        新会话、发送（aria-label=发送）。
+        注意：页面级 get_by_role("button", name="技能") 会命中 2 个，必须限定到本容器。
+        """
+        return self.page.locator("textarea").first.locator("xpath=../..")
+
+    def _command_menu(self):
+        """命令菜单面板（输入 / 或点击「技能」触发）
+
+        实测 DOM: div.chat-command-menu.chat-command-menu--panel，
+        内含搜索框 + button.chat-command-menu-item > span.chat-command-menu-name（/compact、/goal…）。
+        该菜单是内嵌面板，不产生 [role=dialog] 或遮罩层。
+        """
+        return self.page.locator("div.chat-command-menu")
+
+    def get_command_menu_items(self) -> list:
+        """命令菜单候选项名称列表（如 ['/compact', '/goal', ...]），未打开时返回 []"""
+        menu = self._command_menu()
+        if menu.count() == 0:
+            return []
+        names = menu.first.locator(".chat-command-menu-name")
+        return [names.nth(i).inner_text().strip() for i in range(names.count())]
+
+    def is_command_menu_visible(self) -> bool:
+        """命令菜单是否可见（条件等待，不消耗固定延迟）"""
+        menu = self._command_menu()
+        if menu.count() == 0:
+            return False
+        try:
+            menu.first.wait_for(state="visible", timeout=5000)
+            return True
+        except Exception:
+            return False
+
     def type_slash_command(self) -> bool:
-        """在输入框输入 / 触发命令候选列表"""
+        """在输入框输入 / 触发命令候选列表，并条件等待菜单出现"""
         textarea = self.page.locator("textarea").first
         textarea.wait_for(state="visible", timeout=10000)
         textarea.click()
         textarea.fill("")
         textarea.press_sequentially("/", delay=50)
-        self.page.wait_for_timeout(800)
+        if not self.is_command_menu_visible():
+            self.page.wait_for_timeout(800)
         return True
 
     def has_slash_popup(self) -> bool:
-        """是否有 Slash 命令候选列表弹出
-        真实 DOM: div.rounded-xl 内包含 /commandName 按钮，无 role/data-slot 属性
-        """
-        # 检测方式：查找文本以 / 开头的按钮（命令候选项）
-        slash_buttons = self.page.locator(
-            "button:visible"
-        ).filter(has_text=re.compile(r"^/[a-z]"))
-        return slash_buttons.count() > 0
+        """是否有 Slash 命令候选列表弹出（实测为内嵌命令菜单面板）"""
+        return len(self.get_command_menu_items()) > 0
 
     def type_at_reference(self) -> bool:
-        """在输入框输入 @ 触发文件引用候选列表"""
+        """在输入框输入 @ 触发文件引用候选列表，并条件等待弹层出现"""
         textarea = self.page.locator("textarea").first
         textarea.wait_for(state="visible", timeout=10000)
         textarea.click()
         textarea.fill("")
         textarea.press_sequentially("@", delay=50)
-        self.page.wait_for_timeout(800)
+        try:
+            self.page.get_by_role("heading", name="选择文件").first.wait_for(
+                state="visible", timeout=5000
+            )
+        except Exception:
+            self.page.wait_for_timeout(800)
         return True
 
     def has_at_popup(self) -> bool:
-        """是否有 @ 文件引用候选列表弹出
-        真实 DOM: <dialog> 元素，标题为"选择文件"
-        """
-        dialog = self.page.get_by_role("dialog")
-        if dialog.count() == 0:
-            return False
-        # 检查是否包含"选择文件"标题
-        heading = dialog.get_by_role("heading", name="选择文件")
+        """是否有 @ 文件引用候选列表弹出（实测：[role=dialog] + heading「选择文件」）"""
+        heading = self.page.get_by_role("heading", name="选择文件")
         return heading.count() > 0 and heading.first.is_visible()
 
     # === 工具栏按钮 ===
 
+    def _composer_skill_button(self):
+        btn = self._composer_toolbar().locator("button.chat-composer-plugin")
+        assert btn.count() == 1, \
+            f"composer 工具栏「技能」按钮应唯一（chat-composer-plugin），实际 {btn.count()} 个"
+        return btn.first
+
+    def _composer_file_button(self):
+        btn = self._composer_toolbar().locator("button.chat-composer-file")
+        assert btn.count() == 1, \
+            f"composer 工具栏「文件」按钮应唯一（chat-composer-file），实际 {btn.count()} 个"
+        return btn.first
+
     def click_skill_button(self):
-        """点击输入框左侧"技能"按钮"""
-        btn = self.page.get_by_role("button", name="技能")
-        if btn.count() > 0:
-            btn.first.click(force=True)
+        """点击 composer 工具栏「技能」按钮，并条件等待命令菜单出现"""
+        btn = self._composer_skill_button()
+        btn.wait_for(state="visible", timeout=5000)
+        btn.click()
+        if not self.is_command_menu_visible():
             self.page.wait_for_timeout(800)
 
     def click_file_button(self):
-        """点击输入框左侧"文件"按钮"""
-        btn = self.page.get_by_role("button", name="文件")
-        # 排除 Artifacts 面板中的"文件"Tab
-        input_area = self.page.locator("textarea").locator("xpath=../../..")
-        file_btns = input_area.locator("button").filter(has_text="文件")
-        if file_btns.count() > 0:
-            file_btns.first.click(force=True)
-            self.page.wait_for_timeout(800)
-        elif btn.count() > 0:
-            btn.first.click(force=True)
-            self.page.wait_for_timeout(800)
+        """点击 composer 工具栏「文件」按钮（触发原生文件选择器）"""
+        btn = self._composer_file_button()
+        btn.wait_for(state="visible", timeout=5000)
+        btn.click()
 
-    def has_popup_or_panel(self) -> bool:
-        """点击工具栏按钮后是否弹出了面板/列表"""
-        popup = self.page.locator(
-            "div[role='dialog'], div[role='listbox'], div[role='menu'], "
-            "div[data-slot='popover'], div[class*='popover']"
-        )
-        if popup.count() > 0:
-            return popup.first.is_visible()
-        return False
+    def open_file_picker(self) -> bool:
+        """点击 composer 工具栏「文件」按钮，等待原生文件选择器弹出
+
+        实测行为：该按钮直接触发原生 FileChooser，DOM 上**不产生任何可见变化**，
+        因此只能用 filechooser 事件断言，不能断言面板/弹层。
+        """
+        btn = self._composer_file_button()
+        btn.wait_for(state="visible", timeout=5000)
+        try:
+            with self.page.expect_file_chooser(timeout=5000):
+                btn.click()
+            return True
+        except Exception:
+            return False
 
     # === Artifacts 面板 Tabs ===
 

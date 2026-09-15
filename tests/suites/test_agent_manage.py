@@ -56,12 +56,14 @@ def test_agent_search_no_result(logged_in_page, base_url):
     agent_page.goto()
     agent_page.search_agent("zzz_不存在的智能体_zzz")
     # 搜索后应无可匹配的智能体（可见卡片为 0 或显示空状态提示）
+    # 原 OR 断言拆分：先断言列表被完全过滤，再断言空状态提示出现
+    # （实测 2026-09-15：过滤为空时渲染「暂无智能体 / 点击右上角创建第一个智能体」）
     visible_count = agent_page.get_agent_count()
-    has_empty_state = logged_in_page.locator(
-        "text=暂无, text=没有结果, text=empty, text=no result, text=无数据"
-    ).count() > 0
-    assert visible_count == 0 or has_empty_state, \
-        f"搜索不存在的智能体后列表未过滤且无空状态提示，visible_count={visible_count}, has_empty_state={has_empty_state}"
+    assert visible_count == 0, \
+        f"搜索不存在的智能体后列表未过滤，仍有 {visible_count} 个可见智能体"
+    empty_state = logged_in_page.locator("text=暂无智能体")
+    assert empty_state.count() > 0, \
+        "搜索结果为空时未显示空状态提示（「暂无智能体」）"
     agent_page.clear_search()
 
 

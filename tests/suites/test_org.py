@@ -7,6 +7,7 @@
 - 涉及成员增删/角色变更/删除组织的用例，全部在自建组织上执行，测完 API 删除。
 """
 import json
+import re
 import time
 import uuid
 import pytest
@@ -637,7 +638,13 @@ def test_org_machine_management(logged_in_page, base_url):
                 msg="组织详情无机器区域")
 
     assert org.has_machine_region(), "组织详情中未找到机器管理标题"
-    assert org.get_machine_count() >= 0, "机器数量异常"
+    # 机器数断言：标题「机器 (N)」的 N 必须等于机器区域实际渲染的行数（原 >= 0 永真）
+    machine_title = org.get_machine_section_title()
+    assert re.fullmatch(r"机器\s*\(\d+\)", machine_title.strip()), \
+        f"机器区域标题格式异常: {machine_title!r}"
+    assert org.get_machine_count() == org.get_machine_rows_count(), \
+        (f"「{machine_title}」计数与机器列表行数不一致: "
+         f"标题={org.get_machine_count()}, 行数={org.get_machine_rows_count()}")
     assert org.has_machine_buttons(), "机器区域缺少新增机器/刷新按钮"
 
 

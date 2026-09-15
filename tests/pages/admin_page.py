@@ -1,5 +1,8 @@
 # tests/pages/admin_page.py
 """Admin 管理面板 Page Object — 基于真实 DOM"""
+import re
+import time
+
 from playwright.sync_api import Page
 
 
@@ -62,19 +65,60 @@ class AdminPage:
         except Exception:
             return False
 
-    def get_observer_stats(self) -> dict:
-        """获取观察中心统计卡片数据"""
-        stats = {}
+    def get_content_area(self):
+        """返回 Admin 当前页面的内容区定位器
+
+        实测 2026-09-15：`/ctrl/admin` 布局层为 `main.ml-56.flex-1`（routes/admin.tsx:59），
+        而 AdminObserverPage.tsx:106 会在其中再嵌一个 `<main class="mx-auto max-w-7xl ...">`。
+        因此直接 `locator("main")` 在观察中心页会命中 2 个元素（strict mode 冲突）。
+        统一取「最内层 main」作为页面内容区；只有布局层 main 的页面（人员管理/系统日志等）取其本身。
+        """
+        mains = self.page.locator("main")
+        count = mains.count()
+        if count == 0:
+            return mains
+        return mains.nth(count - 1)
+
+    def wait_observer_stats_ready(self, timeout_ms: int = 15000) -> bool:
+        """等待观察中心 4 张统计卡的标签全部渲染
+
+        实测 2026-09-15：卡片数值由接口异步返回（`最后更新` 为本地时钟先行渲染），
+        标题可见不代表卡片已就绪，直接读取会静默漏卡。
+        """
         labels = ["观察总数", "活跃 machine", "一致性问题", "最后更新"]
-        for label in labels:
-            el = self.page.locator(f"p:has-text('{label}')")
-            if el.count() > 0:
-                # 值在紧邻的下一个 p 中
-                parent = el.first.locator("xpath=..")
-                values = parent.locator("p")
-                if values.count() >= 2:
-                    stats[label] = values.nth(1).inner_text().strip()
-        return stats
+        deadline = time.time() + timeout_ms / 1000
+        while time.time() < deadline:
+            if all(self.page.locator(f"p:text-is('{lb}')").count() > 0 for lb in labels):
+                return True
+            self.page.wait_for_timeout(200)
+        return False
+
+    def get_observer_stats(self) -> dict:
+        """获取观察中心统计卡片数据（等待卡片就绪后解析 label→value）"""
+        labels = ["观察总数", "活跃 machine", "一致性问题", "最后更新"]
+        stats = {}
+        deadline = time.time() + 15
+        while True:
+            stats = {}
+            for label in labels:
+                el = self.page.locator(f"p:text-is('{label}')")
+                if el.count() > 0:
+                    # 值在紧邻的下一个 p 中（AdminObserverPage 卡片结构：<p>label</p><p>value</p>）
+                    parent = el.first.locator("xpath=..")
+                    values = parent.locator("p")
+                    if values.count() >= 2:
+                        stats[label] = values.nth(1).inner_text().strip()
+            if len(stats) == len(labels) or time.time() > deadline:
+                return stats
+            self.page.wait_for_timeout(200)
+
+    def get_observer_checked_count(self) -> int:
+        """解析「已核对: N」汇总行中的 N（用于交叉校验观察总数）"""
+        el = self.page.get_by_text(re.compile(r"已核对[:：]\s*\d+"))
+        if el.count() == 0:
+            return -1
+        m = re.search(r"(\d+)", el.first.inner_text())
+        return int(m.group(1)) if m else -1
 
     def get_observer_tabs(self) -> list:
         """获取观察中心 Tab 列表"""
@@ -109,6 +153,23 @@ class AdminPage:
             return True
         except Exception:
             return False
+
+    def wait_people_tree(self, timeout_ms: int = 20000) -> str:
+        """等待人员树渲染完成，返回内容区文本
+
+        实测 2026-09-15：标题先渲染，随后页面显示「加载中…」，
+        人员归属树（含「N 位用户」与邮箱）由接口异步返回，约 1s 后出现。
+        未就绪即读取会得到只有表头的文本，导致误判。
+        """
+        area = self.get_content_area()
+        deadline = time.time() + timeout_ms / 1000
+        text = ""
+        while time.time() < deadline:
+            text = area.inner_text()
+            if re.search(r"\d+\s*位用户", text):
+                return text
+            self.page.wait_for_timeout(200)
+        return text
 
     def has_people_buttons(self) -> list:
         """获取人员管理页的功能按钮"""

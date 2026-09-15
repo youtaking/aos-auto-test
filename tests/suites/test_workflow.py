@@ -424,8 +424,11 @@ class TestWorkflow:
             pytest.skip("未找到运行记录链接")
         link.first.click()
         logged_in_page.wait_for_timeout(1500)
-        assert "tab=runs" in logged_in_page.url or "运行记录" in logged_in_page.url, \
+        # 实测（2026-09-15）：点击「运行记录」链接后 URL 变为 /ctrl/agent/workflow?tab=runs
+        assert "tab=runs" in logged_in_page.url, \
             f"点击运行记录后 URL 未切换，当前 URL: {logged_in_page.url}"
+        assert "运行记录" in logged_in_page.locator("body").inner_text(), \
+            "运行记录页未渲染「运行记录」相关内容"
 
     # === 触发器 CRUD ===
 
@@ -669,14 +672,17 @@ class TestWorkflow:
             panel = logged_in_page.locator("div.agent-panel-content, main")
             assert react_flow.count() > 0 or panel.count() > 0, \
                 f"编辑器画布和内容面板均未加载（react_flow={react_flow.count()}, panel={panel.count()}）"
-            # 验证编辑器工具栏或控制面板可见
+            # 验证编辑器工具栏可见（实测有效选择器：data-tooltip / wf-meta-trigger-btn；
+            # 旧 button[title*='撤销'|'重做'|'zoom'] 在 web/src 全量源码 0 命中，已清理）
             toolbar = logged_in_page.locator(
-                "button[title*='撤销'], button[title*='重做'], "
-                "button[title*='zoom'], button[title*='Zoom']"
+                "button[data-tooltip*='打开 / 关闭 YAML'], "
+                "button[data-tooltip='应用 YAML'], "
+                "button[data-tooltip='工作流设置'], "
+                "button.wf-meta-trigger-btn"
             )
-            # 工具栏或画布至少有一个
-            assert toolbar.count() > 0 or react_flow.count() > 0, \
-                f"编辑器工具栏和画布均未找到（工具栏={toolbar.count()}, react_flow={react_flow.count()}）"
+            assert toolbar.count() > 0, \
+                (f"编辑器工具栏未找到（data-tooltip / wf-meta-trigger-btn 均 0 命中），"
+                 f"react_flow={react_flow.count()}")
         finally:
             if created:
                 _delete_workflow_api(logged_in_page, base_url, wf_id)

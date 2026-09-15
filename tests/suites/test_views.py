@@ -143,10 +143,19 @@ class TestViews:
         v.goto()
         assert v.is_loaded(), "发布视图 Tab 未加载"
 
-        has_views = v.get_view_count() > 0
-        has_empty = logged_in_page.get_by_text("点击 + 创建发布视图").count() > 0
-        assert has_views or has_empty, \
-            f"既无视图列表也无空状态提示，has_views={has_views}, has_empty={has_empty}"
+        # 原 OR 断言拆分为两条独立断言：空态必须显示创建入口；非空必须有卡片内容
+        view_count = v.get_view_count()
+        if view_count == 0:
+            assert v.has_empty_state(), (
+                "无视图时未显示空状态创建入口（「点击 + 创建发布视图」）"
+            )
+        else:
+            card_texts = v.get_card_texts()
+            assert len(card_texts) == view_count, \
+                f"视图卡片数量与渲染卡片数不一致: count={view_count}, texts={len(card_texts)}"
+            assert all(t.strip() for t in card_texts), \
+                f"存在空白视图卡片: {card_texts}"
+            assert v.has_create_button(), "有视图时缺少创建入口（头部 + 按钮）"
 
     # === 创建视图 ===
 

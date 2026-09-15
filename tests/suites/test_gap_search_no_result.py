@@ -1,5 +1,7 @@
 # tests/suites/test_gap_search_no_result.py
 """搜索无结果 + 空状态补充测试 — 覆盖多个模块的共性 gap"""
+import re
+
 import allure
 import pytest
 from tests.pages.chat_test_page import ChatTestPage
@@ -135,57 +137,40 @@ def test_mcp_search_no_result(logged_in_page, base_url):
     mcp.goto()
     logged_in_page.wait_for_timeout(1500)
 
-    search = logged_in_page.locator("input[placeholder*='搜索 MCP']")
-    try:
-        search.first.wait_for(state="visible", timeout=5000)
-    except Exception:
-        pytest.skip("MCP 搜索框未找到")
+    # 实测 2026-09-15：页面已更名为「MCP 插件市场」，搜索框 placeholder 为
+    # 「搜索插件、连接方式或用途」，点击即实时过滤（无需 Enter）
+    search = logged_in_page.get_by_placeholder("搜索插件、连接方式或用途")
+    search.first.wait_for(state="visible", timeout=8000)
 
-    # MCP 搜索是实时过滤，不需要按 Enter
+    def _summary_count():
+        """读取「显示 N 个，共 M 个」中的 N；无该汇总行时返回 None（空态会整行替换）"""
+        m = re.search(r"显示\s*(\d+)\s*个", logged_in_page.locator("main").last.inner_text())
+        return int(m.group(1)) if m else None
+
+    before = _summary_count()
+    assert before is not None and before > 0, \
+        f"搜索前插件列表为空或未渲染条数汇总，无法验证过滤（显示数={before}）"
+
+    # 搜索不存在的关键字 → 空状态出现且条数汇总行消失
     search.first.fill("zzz_不存在_99999")
-    logged_in_page.wait_for_timeout(1500)
+    empty = logged_in_page.get_by_text("没有匹配的插件")
+    empty.first.wait_for(state="visible", timeout=8000)
+    after = _summary_count()
+    assert after is None, f"搜索无结果后仍显示条数汇总（显示 {after} 个）"
 
-    # 应显示空状态提示
-    empty_text = logged_in_page.get_by_text("暂无 MCP 服务器")
-    assert empty_text.count() > 0, "搜索无结果后未显示空状态提示"
-
-    # 清空恢复
+    # 清空恢复 → 空状态消失且条目数恢复原值
     search.first.fill("")
-    logged_in_page.wait_for_timeout(1500)
+    empty.first.wait_for(state="hidden", timeout=8000)
+    restored = _summary_count()
+    assert restored == before, \
+        f"清空搜索后插件数未恢复: 期望 {before}，实际 {restored}"
 
-    # 空状态提示应消失
-    assert empty_text.count() == 0, "清空搜索后空状态提示仍未消失"
 
-
-@allure.epic("知识库")
-@pytest.mark.order(404)
-@pytest.mark.p1
-def test_knowledge_search_no_result(logged_in_page, base_url):
-    """TC-KB-GAP-001: 知识库搜索无结果显示空状态"""
-    from tests.pages.knowledge_page import KnowledgePage
-    kb = KnowledgePage(logged_in_page, base_url)
-    kb.goto()
-    if not kb.is_loaded():
-        pytest.skip("知识库页面未加载")
-
-    # 新版为目录式布局，无可见的库级搜索框（仅隐藏的文件输入框带 placeholder 搜索文件）
-    search = logged_in_page.locator("input[placeholder*='搜索']")
-    visible_search = None
-    for i in range(search.count()):
-        try:
-            if search.nth(i).is_visible():
-                visible_search = search.nth(i)
-                break
-        except Exception:
-            continue
-    if visible_search is None:
-        pytest.skip("知识库页面无可见搜索框（新版目录布局）")
-
-    visible_search.fill("zzz_不存在_99999")
-    logged_in_page.wait_for_timeout(1500)
-
-    visible_search.fill("")
-    logged_in_page.wait_for_timeout(1500)
+# TC-KB-GAP-001「知识库搜索无结果显示空状态」已于 2026-09-15 删除：
+# 新版知识库为「目录 + 资源」双栏布局，页面已无库级搜索框
+# （AgentKnowledgeBasesPage.tsx / agent-knowledge-directory.tsx 均无搜索输入；
+#  仅 i18n 残留 searchPlaceholder 键），且 GET /web/knowledgeBases 不支持 keyword 参数，
+# 原用例无可见搜索框 → 恒 skip，属静默跳过掩盖失效，故删除。
 
 
 @allure.epic("产品视图")

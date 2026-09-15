@@ -1,5 +1,7 @@
 # tests/pages/knowledge_page.py
 """知识库管理页面 Page Object — 基于真实 DOM 结构编写"""
+import time
+
 from playwright.sync_api import Page
 from tests.pages import locators as loc
 
@@ -234,17 +236,46 @@ class KnowledgePage:
     # ==================== 分块详情 Sheet ====================
 
     def open_chunk_sheet(self, resource_name: str) -> bool:
-        """点击资源文件名打开分块详情 Sheet"""
-        btn = self.page.locator(
-            f"button.font-semibold.truncate:has-text('{resource_name}')"
+        """点击资源文件名打开分块详情 Sheet
+
+        实测 2026-09-15（正式环境）：资源列表为表格
+        （agent-knowledge-resources.tsx:104-117），文件名按钮为
+        `<div.knowledge-resource-name>` 内的 `<button title={sourceName}>`（无 class），
+        旧选择器 `button.font-semibold.truncate:has-text(...)` 命中 0 → 恒返回 False。
+        仅当 chunkCount > 0 时才渲染 button，否则渲染 <strong>（不可点，返回 False 合理）。
+        """
+        btn = self.page.locator("div.knowledge-resource-name button").filter(
+            has_text=resource_name
         )
+        if btn.count() == 0:
+            # 兼容旧版 UI：文件名本身带 font-semibold truncate
+            btn = self.page.locator(
+                f"button.font-semibold.truncate:has-text('{resource_name}')"
+            )
         if btn.count() == 0:
             return False
         btn.first.wait_for(state="visible", timeout=5000)
         btn.first.click()
-        # 等待 Sheet 渲染 + 异步内容加载
-        self.page.wait_for_timeout(3000)
-        return self.is_chunk_sheet_open()
+        # Sheet 打开（搜索框可见）→ 再等切片列表渲染完成
+        if not self.is_chunk_sheet_open():
+            return False
+        self._wait_chunk_sheet_chunks()
+        return True
+
+    def _wait_chunk_sheet_chunks(self, timeout_ms: int = 20000) -> bool:
+        """等待分块详情 Sheet 内的切片渲染完成（以 [role=switch] 出现为准）
+
+        实测 2026-09-15（正式环境）：Sheet 打开后搜索框先行渲染，
+        切片条目（含启用 Switch）随后异步加载；立即读取会得到 0 个切片，
+        导致调用方误判（曾致 test_kb_gap_02 偶发失败）。
+        """
+        dialog = self.page.locator("[role=dialog][data-state=open]")
+        deadline = time.time() + timeout_ms / 1000
+        while time.time() < deadline:
+            if dialog.locator("[role=switch]").count() > 0:
+                return True
+            self.page.wait_for_timeout(200)
+        return False
 
     def is_chunk_sheet_open(self) -> bool:
         """分块详情 Sheet 是否已打开（通过搜索输入框判断）"""

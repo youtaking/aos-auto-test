@@ -58,13 +58,25 @@ def test_auth_001_login_success(logged_in_page, base_url):
     logged_in_page.locator("button.agent-sidebar-user-button").wait_for(
         state="visible", timeout=10000
     )
-    user_name = auth.get_user_name()
-    assert len(user_name) > 0, "侧边栏应显示用户名"
+    user_name = auth.get_user_name().strip()
+    assert user_name, "侧边栏用户按钮未显示用户名"
 
-    # 4. cookie 名称
+    # 3.1 侧边栏展示的用户必须与登录会话一致（比对会话接口返回的 name/email）
+    session_resp = logged_in_page.request.get(f"{base_url}/api/auth/get-session")
+    assert session_resp.status == 200, f"会话接口异常: status={session_resp.status}"
+    session_user = (session_resp.json() or {}).get("user") or {}
+    identifiers = [v for v in (session_user.get("name"), session_user.get("email")) if v]
+    assert identifiers, f"会话接口未返回用户信息: {session_resp.text()[:200]!r}"
+    assert any(ident in user_name for ident in identifiers), \
+        f"侧边栏用户名 {user_name!r} 与会话用户 {identifiers} 不匹配"
+
+    # 4. 会话 cookie 名称符合 better-auth 约定
     cookies = logged_in_page.context.cookies()
     session_cookies = [c for c in cookies if "session" in c["name"].lower()]
-    assert len(session_cookies) > 0, "应存在 session cookie"
+    assert session_cookies, "应存在 session cookie"
+    cookie_names = sorted(c["name"] for c in session_cookies)
+    assert any("better-auth" in name for name in cookie_names), \
+        f"未找到 better-auth 会话 cookie，实际: {cookie_names}"
 
 
 @allure.epic("认证登录")

@@ -34,8 +34,12 @@ def test_algorithms_list_not_empty(logged_in_page, base_url):
     algo = AlgorithmsPage(logged_in_page, base_url)
     algo.goto()
     count = algo.get_algo_count()
-    if count == 0:
-        pytest.skip("算法库列表为空，环境无算法数据")
+    # 算法数据为前端硬编码（AlgorithmsPage 内静态清单），正常渲染必然非空；
+    # 数量为 0 说明页面结构变更或渲染失败，必须失败而不是静默跳过
+    assert count > 0, (
+        f"算法库列表为空（count={count}）：前端硬编码数据不应为空，"
+        "请检查页面结构是否变更"
+    )
 
 
 @allure.epic("算法库")
