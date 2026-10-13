@@ -1,0 +1,2 @@
+repo=vectorize-io/hindsight
+commit=12f2d54f643baddacb98cd547c89b1a50c5c3dcc

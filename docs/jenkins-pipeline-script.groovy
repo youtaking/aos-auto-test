@@ -179,6 +179,24 @@ pipeline {
                     sh '''
                     set +x
                         echo ">>> Building runtime image (this may take a few minutes)..."
+                        # 预置 hindsight marketplace，并把 Dockerfile 里的联网 clone 改为本地目录源：
+                        # 上游 vectorize-io/hindsight 主干树 225MB（含 30MB jar 与大量文档截图），而 peri 对 marketplace
+                        # 的 git clone 硬编码 30s 超时（peri-middlewares/src/plugin/marketplace/fetch.rs），
+                        # 构建期必然报 "clone 超时: deadline has elapsed"（#191/#192/#194 都卡在这里）。
+                        # 只改写本次构建上下文里的副本，不动被测仓库；副本与刷新方式见 ci/vendor/README.md。
+                        if [ -d ../autotest/ci/vendor/hindsight-marketplace ]; then
+                            mkdir -p docker/vendor
+                            rm -rf docker/vendor/hindsight-marketplace
+                            cp -r ../autotest/ci/vendor/hindsight-marketplace docker/vendor/
+                            if grep -q '^RUN peri plugin marketplace add vectorize-io/hindsight' Dockerfile; then
+                                sed -i 's|^RUN peri plugin marketplace add vectorize-io/hindsight.*|COPY docker/vendor/hindsight-marketplace/ /root/.claude/plugins/marketplaces/hindsight/\nRUN peri plugin marketplace add /root/.claude/plugins/marketplaces/hindsight|' Dockerfile
+                                echo "peri marketplace 已改为本地目录源（预置副本，不联网 clone）"
+                            else
+                                echo "Dockerfile 里没有 peri marketplace 的 clone 行，跳过改写"
+                            fi
+                        else
+                            echo "未找到 ci/vendor/hindsight-marketplace，Dockerfile 仍会走联网 clone"
+                        fi
                         docker build -t __PROJECT_NAME__:__BUILD_NUMBER__ .
                         echo "    Runtime image built."
 
