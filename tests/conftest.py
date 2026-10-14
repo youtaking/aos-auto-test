@@ -624,8 +624,12 @@ def _page_error_monitor(request):
         if "Failed to load agent config" in err_text:
             warnings.append(f"[JS] {err_text}")
             return
-        # 非致命：系统日志文件过大导致搜索 413（环境数据，非功能缺陷）
-        if "Log file is too large" in err_text:
+        # 非致命：日志源过大导致搜索 413（环境数据，非功能缺陷）
+        # 新版 AdminLogsPage 挂载时自动选中首个日志源；当该源（当日 app 日志）超过服务端
+        # 50MB 上限时，useEffect 的 `void runAsync()` 会抛出未处理 rejection，页面已用
+        # role=alert 展示错误。文案随 UI 改版由 "Log file is too large to search" 变为
+        # "Log source is too large to read"，两个文案都需匹配。
+        if "too large to read" in err_text or "Log file is too large" in err_text:
             warnings.append(f"[JS] {err_text}")
             return
         # 非致命：浏览器资源耗尽导致 CSS 预加载失败（长时间会话环境问题，非功能缺陷）

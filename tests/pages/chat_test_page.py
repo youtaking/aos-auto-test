@@ -68,11 +68,11 @@ class ChatTestPage:
         self._expand_sidebar_if_collapsed()
         # 等待侧边栏 Agent 列表加载（API 异步返回，全量回归时可能较慢）
         for _w in range(10):
-            all_cards = self.page.locator("button.agent-sidebar-agent-card")
+            all_cards = self.page.locator("button.agent-tree-card")
             if all_cards.count() > 0:
                 break
             self.page.wait_for_timeout(1000)
-        card = self.page.locator("button.agent-sidebar-agent-card").filter(has_text=agent_name)
+        card = self.page.locator("button.agent-tree-card").filter(has_text=agent_name)
         if card.count() == 0:
             return  # Agent 不在列表中（可能环境未配置）
         card.first.scroll_into_view_if_needed()
@@ -94,7 +94,7 @@ class ChatTestPage:
             except Exception:
                 if _attempt < 2:
                     # 重试：重新查找并点击卡片
-                    card = self.page.locator("button.agent-sidebar-agent-card").filter(has_text=agent_name)
+                    card = self.page.locator("button.agent-tree-card").filter(has_text=agent_name)
                     if card.count() > 0:
                         try:
                             card.first.click()
@@ -116,7 +116,7 @@ class ChatTestPage:
                                 return
 
                         # 第二层：再点击 agent 卡片重新连接
-                        card2 = self.page.locator("button.agent-sidebar-agent-card").filter(has_text=agent_name)
+                        card2 = self.page.locator("button.agent-tree-card").filter(has_text=agent_name)
                         if card2.count() > 0:
                             card2.first.click()
                             try:
@@ -144,10 +144,10 @@ class ChatTestPage:
                         self.page.wait_for_load_state("domcontentloaded")
                         self._wait_for_composer(3000)
                         for _w in range(5):
-                            if self.page.locator("button.agent-sidebar-agent-card").count() > 0:
+                            if self.page.locator("button.agent-tree-card").count() > 0:
                                 break
                             self.page.wait_for_timeout(1000)
-                        card3 = self.page.locator("button.agent-sidebar-agent-card").filter(has_text=agent_name)
+                        card3 = self.page.locator("button.agent-tree-card").filter(has_text=agent_name)
                         if card3.count() > 0:
                             card3.first.click()
                             try:
@@ -175,7 +175,9 @@ class ChatTestPage:
         """composer 是否可用（输入框稳定可见 + 发送按钮存在），最长等 20s"""
         if not self._wait_for_composer(20000):
             return False
-        return self._composer_toolbar().locator("button[aria-label='发送']").count() == 1
+        return self.page.locator(
+            ".chat-composer-island button[data-slot='chat-composer-send']"
+        ).count() == 1
 
     def is_on_chat_page(self) -> bool:
         """当前是否在聊天页面（URL 包含 /chat/ 且有 textarea）"""
@@ -206,15 +208,20 @@ class ChatTestPage:
         return self.page.locator("button[title='新会话']")
 
     def _stop_ai_if_responding(self):
-        """如果 AI 正在回复（composer 发送区停止按钮 lucide-square 可见且可用），点击停止。
+        """如果 AI 正在回复，点击 composer 发送区的「停止」按钮。
 
-        注意：必须限定到 composer 容器。侧边栏"实例停止"按钮同样渲染 svg.lucide-square，
-        且实例处于 stopping 状态时 disabled——全页面选择器会误匹配并卡死在 click() 等待 enabled。
+        新版 UI：composer 容器 .chat-composer-island，发送/停止为同一按钮
+        button[data-slot='chat-composer-send']（idle 时 aria-label=发送 且 disabled；
+        流式时 aria-label=停止 且可用，图标 lucide-square）。
+        必须限定到 composer 容器：侧边栏"实例停止"按钮同样渲染 svg.lucide-square，
+        且 stopping 状态时 disabled——全页面选择器会误匹配并卡死在 click() 等待 enabled。
         """
-        composer = self.page.locator(".chat-composer-card")
-        if composer.count() == 0:
+        island = self.page.locator(".chat-composer-island")
+        if island.count() == 0:
             return
-        stop_btn = composer.locator("button:has(svg.lucide-square)")
+        stop_btn = island.locator(
+            "button[data-slot='chat-composer-send'][aria-label='停止']"
+        )
         if stop_btn.count() > 0 and stop_btn.first.is_visible() and stop_btn.first.is_enabled():
             stop_btn.first.click()
             self.page.wait_for_timeout(1500)
@@ -244,20 +251,44 @@ class ChatTestPage:
             self.page.wait_for_timeout(800)
 
     def create_new_session(self):
-        """先停止 AI 回复（如有），确保面板钉住，再点击"新会话"按钮创建新会话"""
+        """等待新会话空态后再允许发消息，避免固定延迟后仍向旧会话发送。
+
+        新版 UI：会话面板头部的 `+` 按钮为 button[title='新会话']；空态为
+        section[data-slot='chat-empty-state']（不再是 [role='log'] 内的旧类名）。
+        """
         self._stop_ai_if_responding()
         self._ensure_session_panel_pinned()
-        new_btn = self._get_new_session_button()
-        if new_btn.count() > 0 and new_btn.first.is_visible():
-            new_btn.first.click()
-            self.page.wait_for_timeout(1500)
-        else:
-            self.page.wait_for_timeout(1000)
+        # 入口随面板状态异步渲染：优先侧边栏「新会话」（title），回退 composer 岛内同名按钮。
+        new_btn = self.page.locator("button[title='新会话']:visible").first
+        try:
+            new_btn.wait_for(state="visible", timeout=15000)
+        except Exception:
+            new_btn = self.page.locator(
+                ".chat-composer-island button:visible"
+            ).filter(has_text="新会话").first
+            new_btn.wait_for(state="visible", timeout=10000)
+        assert new_btn.count() >= 1, "新会话按钮不存在"
+        new_btn.click()
+        # 等待新会话空态；若上一会话仍在流式导致未切换，停止后再点一次，重试一轮。
+        empty = self.page.locator("[data-slot='chat-empty-state']")
+        for _ in range(2):
+            try:
+                empty.first.wait_for(state="visible", timeout=15000)
+                break
+            except Exception:
+                self._stop_ai_if_responding()
+                try:
+                    new_btn.click()
+                except Exception:
+                    pass
+        self.page.locator("textarea").first.wait_for(state="visible", timeout=15000)
 
     def get_session_header_title(self) -> str:
         """获取当前活跃会话标题"""
-        # 钉住状态：侧边栏中 bg-brand/8 高亮的会话
-        active = self.page.locator("div[class*='bg-brand/8'] span.truncate")
+        # 新版 UI：侧边栏会话列表中处于选中态的按钮带 aria-current='page'
+        active = self.page.locator(
+            "nav[aria-label] button[aria-current='page'] span.truncate"
+        )
         if active.count() > 0:
             title = active.first.inner_text().strip()
             if title:
@@ -322,35 +353,6 @@ class ChatTestPage:
             except Exception:
                 pass  # 跳过不可见或已卸载的元素（ScrollArea 虚拟渲染）
         return titles
-
-    def get_session_search_box(self):
-        """定位会话面板搜索框（排除 Artifacts 文件树的「搜索文件」输入框）。
-
-        新版 UI：文件树 File 面板带独立「搜索文件」搜索框，必须排除；
-        若新版会话列表面板不再提供会话搜索框，则返回 None（功能移除）。
-        """
-        cands = self.page.locator(
-            "input[aria-label*='搜索'], input[placeholder*='搜索']"
-        )
-        for i in range(cands.count()):
-            in_shell = cands.nth(i).evaluate(
-                "el => !!el.closest('aside.artifacts-shell')"
-            )
-            if not in_shell:
-                return cands.nth(i)
-        return None
-
-    def search_sessions(self, keyword: str):
-        """在会话搜索框输入关键词过滤会话；无会话搜索框则 no-op（避免误填文件树搜索框）"""
-        box = self.get_session_search_box()
-        if box is None:
-            return
-        box.fill(keyword)
-        self.page.wait_for_timeout(500)
-
-    def get_filtered_session_titles(self) -> list[str]:
-        """获取搜索过滤后的会话标题（与 get_session_titles 相同，过滤由前端完成）"""
-        return self.get_session_titles()
 
     def click_session(self, title: str):
         """点击侧边栏中指定标题的会话（优先精确匹配，回退前缀匹配）"""
@@ -490,30 +492,33 @@ class ChatTestPage:
         return self.page.locator("textarea").first.input_value()
 
     def is_send_button_disabled(self) -> bool:
-        """发送按钮是否禁用"""
-        textarea_parent = self.page.locator("textarea").locator("xpath=../../..")
-        btns = textarea_parent.locator("button")
-        # Btn 2 is the send button (svg, no text)
-        if btns.count() >= 3:
-            return btns.nth(2).is_disabled()
-        return True
+        """发送按钮是否禁用（新版：composer 岛内 button[data-slot='chat-composer-send']）"""
+        btn = self.page.locator(
+            ".chat-composer-island button[data-slot='chat-composer-send']"
+        )
+        if btn.count() == 0:
+            return True
+        return btn.first.is_disabled()
 
     def is_skill_button_disabled(self) -> bool:
         """技能按钮是否禁用（流式响应期间应禁用）"""
-        textarea_parent = self.page.locator("textarea").locator("xpath=../../..")
-        btns = textarea_parent.locator("button")
-        if btns.count() >= 1:
-            return btns.nth(0).is_disabled()
-        return False
+        btn = self.page.locator(
+            ".chat-composer-island button[data-slot='chat-composer-plugin']"
+        )
+        if btn.count() == 0:
+            return False
+        return btn.first.is_disabled()
 
     def click_send_button_during_streaming(self):
         """在流式响应期间点击停止生成按钮。
 
-        必须限定到 composer 容器。侧边栏"实例停止"按钮同样渲染 svg.lucide-square，
-        且实例处于 stopping 状态时 disabled——全页面选择器会误匹配并卡死在 click() 等待 enabled。
+        新版 UI：发送/停止为同一按钮 button[data-slot='chat-composer-send']，
+        流式时其 aria-label 变为「停止」。必须限定到 .chat-composer-island：
+        侧边栏"实例停止"按钮同样渲染 svg.lucide-square，且 stopping 状态时 disabled——
+        全页面选择器会误匹配并卡死在 click() 等待 enabled。
         """
-        composer = self.page.locator(".chat-composer-card")
-        if composer.count() == 0:
+        island = self.page.locator(".chat-composer-island")
+        if island.count() == 0:
             # fallback：从 textarea 向上找编辑区容器，取其中的按钮
             textarea_parent = self.page.locator("textarea").locator("xpath=../..")
             btns = textarea_parent.locator("button")
@@ -521,9 +526,9 @@ class ChatTestPage:
                 btns.first.click()
                 self.page.wait_for_timeout(2000)
             return
-        stop_btn = composer.locator("button:has(svg.lucide-square)")
-        if stop_btn.count() > 0 and stop_btn.first.is_visible() and stop_btn.first.is_enabled():
-            stop_btn.first.click()
+        send_btn = island.locator("button[data-slot='chat-composer-send']")
+        if send_btn.count() > 0 and send_btn.first.is_visible() and send_btn.first.is_enabled():
+            send_btn.first.click()
             self.page.wait_for_timeout(2000)
 
     def try_send_empty(self):
@@ -705,29 +710,28 @@ class ChatTestPage:
     def _get_upload_button(self):
         """获取文件树面板头部的"上传"按钮。
 
-        新版 UI：File 面板内存在两个 lucide-upload 按钮——面板 header 操作区
-        （button[title='上传']）与"我的文件"小节按钮（.file-tree-section-upload）。
+        新版 UI：File 面板内有两个 title=上传 的按钮——面板 header 操作区
+        （.file-tree-panel__actions 内）与"我的文件"小节按钮
+        （class 为 .file-tree-section-upload-button 且 data-slot='file-tree-section-upload'）。
         需排除后者，避免 strict mode 多元素冲突。消息输入区附件按钮是另一图标，不在此列。
         """
         return self.page.locator(
-            "button[title='上传']:not(.file-tree-section-upload)"
+            "button[title='上传']:not(.file-tree-section-upload-button)"
         )
 
     def _get_file_input(self):
-        """获取隐藏的文件上传 input[type=file]（通过上传按钮所在的 panel 内查找）"""
-        upload_btn = self._get_upload_button()
-        if upload_btn.count() == 0:
-            return None
-        # 在上传按钮的最近共同祖先中查找隐藏 file input
-        panel = upload_btn.first.locator("xpath=ancestor::div[@data-panel='true']")
-        if panel.count() == 0:
-            panel = upload_btn.first.locator("xpath=ancestor::div[contains(@class,'agent-panel')]")
-        if panel.count() > 0:
-            inp = panel.locator("input[type='file']")
-            if inp.count() > 0:
-                return inp.first
-        # fallback: 全局查找隐藏 file input
-        inp = self.page.locator("input[type='file'][style*='display: none'], input[type='file'][style*='display:none']")
+        """获取隐藏的文件上传 input[type=file]。
+
+        新版 UI：文件树面板 header 操作区尾部有两个 hidden input——常规上传
+        （multiple，无 webkitdirectory）与上传文件夹（带 webkitdirectory）。
+        取前者；限定在 aside.artifacts-shell 内避免与其它 input 冲突。
+        """
+        inp = self.page.locator(
+            "aside.artifacts-shell input[type='file']:not([webkitdirectory])"
+        )
+        if inp.count() > 0:
+            return inp.first
+        inp = self.page.locator("input[type='file']:not([webkitdirectory])")
         if inp.count() > 0:
             return inp.first
         return self.page.locator("input[type='file']").first
@@ -876,12 +880,12 @@ class ChatTestPage:
         """进入侧边栏第一个可用 Agent 的对话页，返回该 Agent 卡片文本。
 
         目标 Agent 在其它环境可能不存在（如 my-auto-test 仅存在于 staging），
-        用于避免用例静默跳过。侧边栏卡片真实 DOM：button.agent-sidebar-agent-card。
+        用于避免用例静默跳过。侧边栏卡片真实 DOM：button.agent-tree-card。
         """
         self.page.goto(f"{self.base_url}/ctrl/agent/home", wait_until="domcontentloaded")
         self.page.wait_for_load_state("domcontentloaded")
         self._expand_sidebar_if_collapsed()
-        cards = self.page.locator("button.agent-sidebar-agent-card")
+        cards = self.page.locator("button.agent-tree-card")
         for _ in range(10):
             if cards.count() > 0:
                 break
@@ -907,27 +911,36 @@ class ChatTestPage:
     def open_artifacts_file_tab(self):
         """展开右侧工作区并切到「文件」Tab，等待文件树面板渲染完成。
 
-        真实 DOM（2026-09-15 探查）：面板 aside.artifacts-shell，Tab 为
-        button.artifacts-mode-tab[title=文件]（另有 站点/定时任务/发布视图），
-        文件树面板 .file-tree-panel，头部按钮 刷新 / 新建文件夹 / 上传 / 上传文件夹。
+        真实 DOM（2026-10 新版探查）：面板 aside.artifacts-shell，Tab 为
+        button.artifacts-mode-tab[title=文件]（另有 站点/定时任务/发布视图/调用链），
+        文件树头部操作区 .file-tree-panel__actions，按钮 刷新 / 新建文件夹 / 上传 / 上传文件夹。
         """
         self.expand_artifacts_panel()
         self.click_artifacts_tab("文件")
-        self.page.locator(".file-tree-panel__header").first.wait_for(
+        self.page.locator(".file-tree-panel__actions").first.wait_for(
             state="visible", timeout=10000
         )
         return self
 
     def get_file_tree_section_text(self, scope: str) -> str:
-        """文件树分区文本（scope: workspace=工作区 / user=我的文件）"""
-        section = self.page.locator(f".file-tree-section--{scope}")
+        """文件树分区文本（scope: workspace=工作区 / user=我的文件）
+
+        新版 DOM：两个 <section> 以 data-upload-target 区分——
+        工作区 section[data-upload-target='']，我的文件 section[data-upload-target='user']。
+        """
+        sel = (
+            "section[data-upload-target='user']"
+            if scope == "user"
+            else "section[data-upload-target='']"
+        )
+        section = self.page.locator(sel)
         if section.count() == 0:
             return ""
         return section.first.inner_text().strip()
 
     def _file_tree_header_button(self, title: str):
-        """文件树头部按钮（真实 DOM：.file-tree-panel__header button[title=...]）"""
-        return self.page.locator(f".file-tree-panel__header button[title='{title}']")
+        """文件树头部按钮（真实 DOM：.file-tree-panel__actions button[title=...]）"""
+        return self.page.locator(f".file-tree-panel__actions button[title='{title}']")
 
     def create_artifact_folder(self, name: str) -> None:
         """用文件树头部「新建文件夹」创建文件夹（新建对象，调用方负责清理）。
@@ -956,11 +969,9 @@ class ChatTestPage:
         """
         row = self.page.locator(f"[data-tree-item][data-node-id='user/{name}']")
         if row.count() == 0:
-            # 兜底按名称精确匹配（.file-tree-arborist-name[title=名称]）；
+            # 兜底：data-node-id 以 /<name> 结尾（如其它分区路径）；
             # 禁止 has_text 子串匹配 —— 会把 <name>-r 误判成 <name>
-            row = self.page.locator("[data-tree-item]").filter(
-                has=self.page.locator(f".file-tree-arborist-name[title='{name}']")
-            )
+            row = self.page.locator(f"[data-tree-item][data-node-id$='/{name}']")
         return row
 
     def wait_for_artifact(self, name: str, present: bool = True, timeout_ms: int = 10000) -> bool:
@@ -982,7 +993,7 @@ class ChatTestPage:
         assert count == 1, f"文件树中「{name}」匹配到 {count} 个条目，预期唯一"
         row.first.scroll_into_view_if_needed()
         row.first.click(button="right")
-        menu = self.page.locator(".file-tree-context-menu")
+        menu = self.page.locator(".file-tree-context-menu-panel")
         menu.wait_for(state="visible", timeout=5000)
         return menu
 
@@ -1018,36 +1029,25 @@ class ChatTestPage:
     # === 模型操作 ===
 
     def get_current_model_name(self) -> str:
-        """获取当前选中模型名称（从 composer meta 区域的 span[title] 读取）
+        """获取当前选中模型名称。
 
-        meta 区第一个 span[title] 是 agent 名（内嵌 lucide-shield 图标），
-        模型名 span 无图标，需跳过 agent 名 span 取真正的模型名。
+        新版 UI：composer 岛内模型显示为 [data-slot='chat-composer-model']，
+        title 形如「opus (qwen3.7-flash)」，文本为模型名「qwen3.7-flash」。
         """
-        composer_meta = self.page.locator("div.chat-composer-meta")
-        if composer_meta.count() == 0:
+        model_el = self.page.locator("[data-slot='chat-composer-model']")
+        if model_el.count() == 0:
             return ""
-        model_spans = composer_meta.locator("span[title]")
-        for i in range(model_spans.count()):
-            span = model_spans.nth(i)
-            if span.locator(".lucide-shield").count() == 0:
-                title = span.get_attribute("title")
-                if title:
-                    return title
-        # 回退：旧版本 meta 区可能没有 agent 名 span，取第一个
-        if model_spans.count() > 0:
-            return (model_spans.first.get_attribute("title")
-                    or model_spans.first.inner_text().strip())
-        return ""
+        title = model_el.first.get_attribute("title")
+        if title and title.strip():
+            return title.strip()
+        return model_el.first.inner_text().strip()
 
     def open_model_selector(self) -> bool:
         """打开模型选择器下拉列表，返回是否成功"""
-        composer_meta = self.page.locator("div.chat-composer-meta")
-        if composer_meta.count() == 0:
+        model_el = self.page.locator("[data-slot='chat-composer-model']")
+        if model_el.count() == 0:
             return False
-        model_span = composer_meta.locator("span[title]").first
-        if model_span.count() == 0:
-            return False
-        model_span.click()
+        model_el.first.click()
         self.page.wait_for_timeout(800)
         return True
 
@@ -1085,14 +1085,16 @@ class ChatTestPage:
     # === Slash 命令 / @ 引用 ===
 
     def _composer_toolbar(self):
-        """composer 工具栏容器 — textarea 上溯 2 层
+        """composer 工具栏容器 — .chat-composer-island
 
-        实测（2026-09-15 DOM 探查）该容器内 4 个按钮：
-        button.chat-composer-plugin（技能）、button.chat-composer-file（文件，aria-label=添加图片或文件）、
-        新会话、发送（aria-label=发送）。
+        实测（2026-10 新版 DOM 探查）该容器内按钮用 data-slot 标注：
+        button[data-slot='chat-composer-plugin']（技能）、
+        button[data-slot='chat-composer-file']（文件，aria-label=添加图片或文件）、
+        新会话（无 data-slot，文本「新会话」）、
+        button[data-slot='chat-composer-send']（发送/停止）。
         注意：页面级 get_by_role("button", name="技能") 会命中 2 个，必须限定到本容器。
         """
-        return self.page.locator("textarea").first.locator("xpath=../..")
+        return self.page.locator(".chat-composer-island")
 
     def _command_menu(self):
         """命令菜单面板（输入 / 或点击「技能」触发）
@@ -1160,13 +1162,13 @@ class ChatTestPage:
     # === 工具栏按钮 ===
 
     def _composer_skill_button(self):
-        btn = self._composer_toolbar().locator("button.chat-composer-plugin")
+        btn = self._composer_toolbar().locator("button[data-slot='chat-composer-plugin']")
         assert btn.count() == 1, \
             f"composer 工具栏「技能」按钮应唯一（chat-composer-plugin），实际 {btn.count()} 个"
         return btn.first
 
     def _composer_file_button(self):
-        btn = self._composer_toolbar().locator("button.chat-composer-file")
+        btn = self._composer_toolbar().locator("button[data-slot='chat-composer-file']")
         assert btn.count() == 1, \
             f"composer 工具栏「文件」按钮应唯一（chat-composer-file），实际 {btn.count()} 个"
         return btn.first

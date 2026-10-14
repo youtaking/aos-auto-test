@@ -130,8 +130,14 @@ def test_agent_create_dialog_opens(logged_in_page, base_url, request):
         desc_input.first.fill("E2E 管理页面创建测试")
 
     # 新版表单要求显式选择模型；未选时只会切到模型 tab 提示必填，不会创建。
-    d.get_by_role("tab", name="模型 推理模型与上下文 未配置", exact=True).click()
-    model = d.get_by_role("radiogroup", name="模型", exact=True).get_by_role("radio").first
+    model_tab = d.get_by_role("tab").filter(has_text="模型").first
+    model_tab.wait_for(state="visible", timeout=8000)
+    model_tab.click()
+    logged_in_page.wait_for_timeout(600)
+    rg = d.get_by_role("radiogroup", name="模型", exact=True)
+    if rg.count() == 0:
+        rg = d.locator("[role='radiogroup']").first
+    model = rg.get_by_role("radio").first
     model.wait_for(state="visible", timeout=10000)
     model.click()
 

@@ -3,9 +3,10 @@
 
 对应 2026-09-15 E2E 覆盖率评审报告 §4.2（模型网关用量页 UI 零覆盖）。
 真实 DOM 探查时间：2026-09-15（staging commitId da5eb543，与线上一致）：
-  入口：模型库 /ctrl/agent/models → 左侧 aside.models-provider-index nav>button 逐个选中，
+  入口：模型库 /ctrl/agent/models → 左侧 nav[aria-label='服务商'] button 逐个选中
+        （新版目录容器 class 已改为 agent-catalog-index），
         详情头部 .models-provider-detail__header 出现「我的用量」按钮者即 gateway Provider
-        （实测 7 个 Provider 中索引 4 为 gateway；不依赖名称，逐项探测）
+        （实测 7 个 Provider 中索引 6 为「全局模型网关」；不依赖名称，逐项探测）
   页面：h1「我的用量 · <provider 显示名>」、副标题「仅统计通过当前 Gateway Provider 发起的调用…」、
         「返回模型」按钮（回 /ctrl/agent/models）、「全局共享预算」说明块、
         「本周期预算使用」卡（$已用/$总额 或「暂未设置预算」、额度状态、剩余额度/下次重置/预算周期）、
@@ -27,7 +28,7 @@ USAGE_BTN = "我的用量"
 def _open_gateway_usage(page, base_url) -> str:
     """从模型库选中 gateway Provider 并进入「我的用量」页，返回所选 Provider 名"""
     page.goto(f"{base_url}{MODELS_PATH}", wait_until="domcontentloaded")
-    nav = page.locator("aside.models-provider-index nav button")
+    nav = page.locator("nav[aria-label='服务商'] button")
     nav.first.wait_for(state="visible", timeout=15000)
     detail = page.locator(".models-provider-detail__header")
     for i in range(nav.count()):

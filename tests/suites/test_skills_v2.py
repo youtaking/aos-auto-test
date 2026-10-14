@@ -468,8 +468,9 @@ def test_skill_public_toggle(logged_in_page, base_url):
         detail = requests.get(
             f"{base_url}/web/config/skills/{skill_name}", cookies=cookie_jar, timeout=10
         ).json()
-        assert detail.get("data", {}).get("resourceAccess", {}).get("publicReadable") is True, (
-            "API 中 publicReadable 未变为 true"
+        # 新版 API 公开语义迁移到 scope.visibility（旧 resourceAccess.publicReadable 已下线）
+        assert detail.get("data", {}).get("scope", {}).get("visibility") == "public", (
+            f"API 中 scope.visibility 未变为 public: {detail.get('data', {}).get('scope')}"
         )
 
         # 切回私有 → 恢复
@@ -478,8 +479,8 @@ def test_skill_public_toggle(logged_in_page, base_url):
         detail2 = requests.get(
             f"{base_url}/web/config/skills/{skill_name}", cookies=cookie_jar, timeout=10
         ).json()
-        assert detail2.get("data", {}).get("resourceAccess", {}).get("publicReadable") is False, (
-            "API 中 publicReadable 未恢复 false"
+        assert detail2.get("data", {}).get("scope", {}).get("visibility") == "private", (
+            f"API 中 scope.visibility 未恢复 private: {detail2.get('data', {}).get('scope')}"
         )
     finally:
         _api_delete_skill_safe(base_url, cookie_jar, skill_name)

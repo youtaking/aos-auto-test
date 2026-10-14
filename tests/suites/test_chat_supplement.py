@@ -2,6 +2,8 @@
 """对话聊天补充测试 — 流式响应、Artifacts、复制消息、删除会话、SSE 稳定性"""
 import allure
 import pytest
+import re
+from playwright.sync_api import expect
 from tests.pages.chat_test_page import ChatTestPage
 
 
@@ -42,40 +44,34 @@ def test_chat_streaming(logged_in_page, base_url):
         pass
 
 
+def _open_bound_site_panel(page, base_url):
+    """新版工作区使用 tab 角色；等待真实站点预览，不把定位失败当成缺数据。"""
+    chat = ChatTestPage(page, base_url)
+    chat.goto_agent_chat("my-auto-test")
+    expect(page.locator("textarea").first).to_be_visible()
+    panel = page.locator("aside.artifacts-shell")
+    expect(panel).to_have_count(1)
+    if "is-collapsed" in (panel.get_attribute("class") or "").split():
+        opener = page.locator("button.artifacts-open-button")
+        expect(opener).to_have_count(1)
+        opener.click()
+    expect(panel).not_to_have_class(re.compile(r"\bis-collapsed\b"))
+    sites = panel.get_by_role("tab", name="站点", exact=True)
+    expect(sites).to_have_count(1)
+    sites.click()
+    expect(sites).to_have_attribute("aria-selected", "true")
+    frame = panel.locator("iframe[src*='/web/site/deploy/']")
+    expect(frame).to_have_count(1, timeout=15000)
+    expect(frame).to_be_visible(timeout=15000)
+    return panel, frame
+
+
 @allure.epic("对话")
 @pytest.mark.order(61)
 @pytest.mark.p1
 def test_chat_artifacts_panel(logged_in_page, base_url):
-    """TC-CHAT-SUP-002: Artifacts 面板检测"""
-    chat = ChatTestPage(logged_in_page, base_url)
-    chat.goto_agent_chat("my-auto-test")
-    assert chat.is_chat_loaded(), "聊天页面未加载"
-
-    # 确保 Artifacts 面板已展开（批量跑时面板可能被前面的用例折叠或展开）
-    expand_btn = logged_in_page.locator("button[title='显示内容面板']")
-    if expand_btn.count() > 0 and expand_btn.first.is_visible():
-        expand_btn.first.click(force=True)
-        logged_in_page.wait_for_timeout(500)
-
-    # 点击"站点"按钮显示 Artifacts 面板
-    site_btn = logged_in_page.get_by_role("button", name="站点")
-    if site_btn.count() == 0:
-        pytest.skip("当前 Agent 无「站点」按钮（未绑定 Site）")
-    if not site_btn.first.is_visible():
-        pytest.skip("「站点」按钮不可见（Artifacts 面板可能未展开）")
-    site_btn.first.click(force=True)
-    try:
-        logged_in_page.locator("iframe").first.wait_for(state="visible", timeout=10000)
-    except Exception:
-        # 未绑定 Site 时应用显示"未绑定站点"空态（数据前置条件），无 iframe 属正常
-        if "未绑定站点" in logged_in_page.locator("body").inner_text():
-            pytest.skip("当前 Agent 未绑定 Site，「站点」Tab 显示空态（数据前置条件不满足）")
-        pytest.fail("点击「站点」后 Artifacts iframe 未出现")
-
-    # 验证 iframe 可见
-    iframe = logged_in_page.locator("iframe")
-    assert iframe.count() > 0, "Artifacts iframe 不存在"
-    assert iframe.first.is_visible(), "Artifacts iframe 不可见"
+    """TC-CHAT-SUP-002: 新版站点页签激活并显示部署预览。"""
+    _open_bound_site_panel(logged_in_page, base_url)
 
 
 @allure.epic("对话")
@@ -263,79 +259,20 @@ def test_chat_sse_connection_stability(logged_in_page, base_url):
 @pytest.mark.order(65)
 @pytest.mark.p1
 def test_chat_artifacts_panel_collapse_expand(logged_in_page, base_url):
-    """TC-CHAT-SUP-006: Artifacts 侧面板折叠/展开"""
-    chat = ChatTestPage(logged_in_page, base_url)
-    chat.goto_agent_chat("my-auto-test")
-    assert chat.is_chat_loaded(), "聊天页面未加载"
-
-    # 确保 Artifacts 面板已展开
-    expand_btn = logged_in_page.locator("button[title='显示内容面板']")
-    if expand_btn.count() > 0 and expand_btn.first.is_visible():
-        expand_btn.first.click(force=True)
-        logged_in_page.wait_for_timeout(500)
-
-    # 先点击「站点」按钮显示 Artifacts 面板
-    site_btn = logged_in_page.get_by_role("button", name="站点")
-    if site_btn.count() == 0:
-        pytest.skip("当前 Agent 无「站点」按钮（未绑定 Site）")
-    if not site_btn.first.is_visible():
-        pytest.skip("「站点」按钮不可见（Artifacts 面板可能未展开）")
-    site_btn.first.click(force=True)
-    try:
-        logged_in_page.locator("iframe").first.wait_for(state="visible", timeout=10000)
-    except Exception:
-        # 未绑定 Site 时应用显示"未绑定站点"空态（数据前置条件），无 iframe 属正常
-        if "未绑定站点" in logged_in_page.locator("body").inner_text():
-            pytest.skip("当前 Agent 未绑定 Site，「站点」Tab 显示空态（数据前置条件不满足）")
-        pytest.fail("点击「站点」后 Artifacts iframe 未出现")
-
-    iframe = logged_in_page.locator("iframe")
-    assert iframe.count() > 0 and iframe.first.is_visible(), "Artifacts iframe 不可见"
-
-    # 查找折叠/展开按钮（面板级别或 iframe 周围的操作按钮）
-    collapse_btn = logged_in_page.locator(
-        "button[title*='折叠'], button[title*='收起'], "
-        "button[title*='collapse'], button[aria-label*='collapse'], "
-        "button[aria-label*='折叠']"
+    """TC-CHAT-SUP-006: 工作区关闭后重新打开，保持原站点预览。"""
+    panel, frame = _open_bound_site_panel(logged_in_page, base_url)
+    original_src = frame.get_attribute("src")
+    close = panel.get_by_role("button", name="关闭右侧工作区", exact=True)
+    expect(close).to_have_count(1)
+    close.click()
+    expect(panel).to_have_class(re.compile(r"\bis-collapsed\b"))
+    opener = logged_in_page.locator("button.artifacts-open-button")
+    expect(opener).to_have_count(1)
+    expect(opener).to_be_visible()
+    opener.click()
+    expect(panel).not_to_have_class(re.compile(r"\bis-collapsed\b"))
+    expect(panel.get_by_role("tab", name="站点", exact=True)).to_have_attribute(
+        "aria-selected", "true"
     )
-    expand_btn = logged_in_page.locator(
-        "button[title*='展开'], button[title*='expand'], "
-        "button[aria-label*='expand'], button[aria-label*='展开']"
-    )
-
-    if collapse_btn.count() == 0 and expand_btn.count() == 0:
-        allure.attach(
-            "未找到 Artifacts 折叠/展开按钮（功能未实现或按钮选择器不匹配）",
-            name="备注",
-            attachment_type=allure.attachment_type.TEXT,
-        )
-        return
-
-    if collapse_btn.count() > 0:
-        # 点击折叠
-        collapse_btn.first.click()
-        logged_in_page.wait_for_timeout(800)
-
-        # 折叠后 iframe 应该不可见或消失
-        iframe_after_collapse = logged_in_page.locator("iframe")
-        collapsed = iframe_after_collapse.count() == 0 or \
-            not iframe_after_collapse.first.is_visible()
-
-        if expand_btn.count() > 0:
-            # 点击展开
-            expand_btn.first.click()
-            logged_in_page.wait_for_timeout(800)
-
-            # 展开后 iframe 应该重新可见
-            iframe_after_expand = logged_in_page.locator("iframe")
-            assert iframe_after_expand.count() > 0 and \
-                iframe_after_expand.first.is_visible(), \
-                "Artifacts 面板展开后 iframe 不可见"
-        else:
-            assert collapsed, "Artifacts 面板点击折叠后 iframe 仍可见"
-    else:
-        allure.attach(
-            "仅有展开按钮，无折叠按钮，跳过折叠/展开循环测试",
-            name="备注",
-            attachment_type=allure.attachment_type.TEXT,
-        )
+    expect(frame).to_be_visible(timeout=15000)
+    expect(frame).to_have_attribute("src", original_src)

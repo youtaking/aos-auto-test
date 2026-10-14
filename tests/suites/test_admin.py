@@ -177,7 +177,11 @@ def test_admin_003_people_management(admin_page_obj, master_key):
 @pytest.mark.order(93)
 @pytest.mark.p0
 def test_admin_004_system_logs(admin_page_obj, master_key):
-    """TC-ADMIN-004: 系统日志 — 页面加载、日志文件列表、搜索"""
+    """TC-ADMIN-004: 系统日志 — 页面加载、日志源列表、搜索区
+
+    新版 UI（1b80cdfa 起）：日志不再以 `rcs.*.log` 文件名按钮呈现，而是「日期 + 类型徽标」
+    的日志源按钮（服务端只暴露 sourceId=app-YYYY-MM-DD / error-YYYY-MM-DD）。
+    """
     _ensure_authenticated(admin_page_obj, master_key)
 
     # 1. 导航到系统日志
@@ -188,30 +192,32 @@ def test_admin_004_system_logs(admin_page_obj, master_key):
     # 2. 刷新按钮
     assert admin_page_obj.has_refresh_button(), "缺少'刷新'按钮"
 
-    # 3. 搜索输入框
-    assert admin_page_obj.has_log_search_input(), \
-        "缺少日志搜索输入框"
+    # 3. 搜索区元素齐全（输入框 / 仅显示 error 行 / 搜索按钮）
+    assert admin_page_obj.has_log_search_input(), "缺少日志搜索输入框"
+    assert admin_page_obj.has_log_error_only_checkbox(), "缺少'仅显示 error 行'复选框"
+    assert admin_page_obj.has_log_search_button(), "缺少'搜索'按钮"
 
-    # 4. 日志文件列表非空且文件名格式正确（实测格式：rcs[.<channel>].YYYY-MM-DD.log）
-    log_files = admin_page_obj.get_log_files()
-    assert log_files, "日志文件列表为空"
-    bad = [f for f in log_files
-           if not re.match(r"^rcs(\.[a-z]+)?\.\d{4}-\d{2}-\d{2}\.log", f.strip())]
-    assert not bad, f"日志文件名格式异常: {bad[:5]}"
+    # 4. 日志源列表非空，每条为「日期 + 应用日志/错误日志」
+    sources = admin_page_obj.get_log_sources()
+    assert sources, "日志源列表为空"
+    for s in sources:
+        assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", s["date"]), f"日志源日期格式异常: {s}"
+        assert s["kind"] in ("应用日志", "错误日志"), f"日志源类型异常: {s}"
 
-    # 5. 验证有当日日志文件
+    # 5. 验证有当日日志源
     from datetime import date
     today = date.today().strftime("%Y-%m-%d")
-    has_today = any(today in f for f in log_files)
-    assert has_today, f"未找到当日 ({today}) 的日志文件，当前文件: {log_files[:5]}"
+    assert any(s["date"] == today for s in sources), \
+        f"未找到当日 ({today}) 的日志源，当前: {sources[:5]}"
 
-    # 6. 验证有错误日志文件
-    has_error_logs = any("err" in f for f in log_files)
-    # 错误日志可能存在也可能不存在，不做强制断言
-    if has_error_logs:
+    # 6. 应用日志源必须存在；错误日志源取决于当日是否有错误，不强制断言
+    assert any(s["kind"] == "应用日志" for s in sources), \
+        f"缺少'应用日志'源，当前: {sources}"
+    error_sources = [s for s in sources if s["kind"] == "错误日志"]
+    if error_sources:
         allure.attach(
-            f"发现错误日志文件: {[f for f in log_files if 'err' in f][:5]}",
-            name="错误日志",
+            f"发现错误日志源: {[s['date'] for s in error_sources][:5]}",
+            name="错误日志源",
             attachment_type=allure.attachment_type.TEXT,
         )
 
@@ -273,18 +279,18 @@ def test_admin_subpages(admin_page_obj, master_key):
         if admin_page_obj.is_logs_page_loaded():
             entered_subpage = True
             # 验证日志页面功能元素
-            log_files = admin_page_obj.get_log_files()
+            sources = admin_page_obj.get_log_sources()
             has_search = admin_page_obj.has_log_search_input()
 
             allure.attach(
-                f"日志文件数: {len(log_files)}, 搜索框: {has_search}",
+                f"日志源数: {len(sources)}, 搜索框: {has_search}",
                 name="系统日志子页面",
                 attachment_type=allure.attachment_type.TEXT,
             )
 
-            # 至少有搜索框或日志文件列表
-            assert len(log_files) > 0 or has_search, \
-                "系统日志页面既无日志文件列表也无搜索框"
+            # 至少有搜索框或日志源列表
+            assert len(sources) > 0 or has_search, \
+                "系统日志页面既无日志源列表也无搜索框"
 
     if not entered_subpage and any("人员管理" in link for link in nav_links):
         admin_page_obj.click_nav_link("人员管理")

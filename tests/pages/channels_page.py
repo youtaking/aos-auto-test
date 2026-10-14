@@ -41,15 +41,21 @@ class ChannelsPage:
     # ── 创建按钮 ──
 
     def click_create_button(self):
-        """点击创建绑定按钮"""
-        # 真实 DOM: button "btn.create"（i18n key）或翻译后的文本
-        btn = self.page.locator("button").filter(has_text="btn.create")
+        """点击创建绑定按钮（新版文案：新建绑定）
+
+        注意：旧写法用 name="新建" 会先命中侧边栏「新建智能体」，导致点错。
+        必须用完整文案「新建绑定」，并限定在 main 区域内。
+        """
+        btn = self.page.locator("main").get_by_role("button", name="新建绑定")
         if btn.count() == 0:
-            btn = self.page.get_by_role("button", name="新建").or_(
-                self.page.get_by_role("button", name="创建")
-            )
+            btn = self.page.get_by_role("button", name="新建绑定")
         btn.first.wait_for(state="visible", timeout=5000)
-        btn.first.click()
+        # 通道列表头部的悬浮/邻接元素可能拦截指针事件，用 JS click 更稳
+        try:
+            btn.first.click()
+        except Exception:
+            btn.first.evaluate("el => el.click()")
+        self.page.wait_for_timeout(500)
 
     # ── 创建弹窗 ──
 
@@ -57,18 +63,25 @@ class ChannelsPage:
         return self.page.get_by_role("dialog").count() > 0
 
     def fill_platform(self, value: str):
-        """填写平台名称（placeholder='telegram'）"""
-        input_el = self.page.get_by_role("dialog").get_by_placeholder("telegram")
+        """填写平台名称（新版 placeholder='选择平台'）"""
+        dialog = self.page.get_by_role("dialog")
+        input_el = dialog.get_by_placeholder("选择平台")
+        if input_el.count() == 0:
+            input_el = dialog.get_by_role("textbox").first
         input_el.wait_for(state="visible", timeout=5000)
         input_el.fill(value)
 
     def fill_chat_id(self, value: str):
-        """填写 chatId（弹窗内第二个 textbox）"""
+        """填写 chatId（label「聊天 ID（可选，留空匹配全部）」）"""
         dialog = self.page.get_by_role("dialog")
-        inputs = dialog.get_by_role("textbox")
-        # 第一个是 platform（placeholder=telegram），第二个是 chatId
-        inputs.nth(1).wait_for(state="visible", timeout=5000)
-        inputs.nth(1).fill(value)
+        input_el = dialog.get_by_role(
+            "textbox", name="聊天 ID（可选，留空匹配全部）"
+        )
+        if input_el.count() == 0:
+            # 兜底：第二个 textbox（第一个是平台）
+            input_el = dialog.get_by_role("textbox").nth(1)
+        input_el.wait_for(state="visible", timeout=5000)
+        input_el.fill(value)
 
     def select_agent(self, agent_name: str):
         """在 Agent 下拉中选择"""
@@ -152,22 +165,21 @@ class ChannelsPage:
 
     # ── 搜索 ──
 
+    def _search_input(self):
+        """渠道搜索框（新版 placeholder='搜索绑定...'）"""
+        inp = self.page.locator("input[placeholder='搜索绑定...']")
+        if inp.count() == 0:
+            inp = self.page.locator("input[placeholder*='搜索']").first
+        return inp
+
     def search(self, query: str):
         """在搜索框输入关键词"""
-        search_input = self.page.get_by_role("textbox").filter(
-            has=self.page.locator("[placeholder='searchPlaceholder']")
-        ).or_(
-            self.page.locator("[placeholder='searchPlaceholder']")
-        )
+        search_input = self._search_input()
         search_input.wait_for(state="visible", timeout=5000)
         search_input.fill(query)
 
     def clear_search(self):
-        search_input = self.page.get_by_role("textbox").filter(
-            has=self.page.locator("[placeholder='searchPlaceholder']")
-        ).or_(
-            self.page.locator("[placeholder='searchPlaceholder']")
-        )
+        search_input = self._search_input()
         search_input.wait_for(state="visible", timeout=5000)
         search_input.fill("")
 

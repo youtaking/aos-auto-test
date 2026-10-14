@@ -9,6 +9,7 @@ import time
 import uuid
 import pytest
 import allure
+from playwright.sync_api import expect
 from tests.pages.knowledge_page import KnowledgePage
 from tests.pages import locators as loc
 from tests.conftest import register_cleanup
@@ -1309,39 +1310,35 @@ def test_kb_019_toggle_resource_enabled(logged_in_page, base_url, request, embed
         if not _goto_kb_detail(logged_in_page, base_url, kb_id):
             pytest.skip("429 限流导致知识库详情页无法加载")
 
-        # 上传文件
-        upload_btn = logged_in_page.get_by_role("button", name="上传")
-        assert upload_btn.count() > 0, "上传按钮不存在"
+        # 只操作本用例新建知识库中的资源，等待上传响应后再读取开关。
+        main = logged_in_page.locator("main.agent-knowledge-page")
+        upload_btn = main.get_by_role("button", name="上传", exact=True)
+        expect(upload_btn).to_have_count(1)
         with logged_in_page.expect_file_chooser() as fc_info:
-            upload_btn.first.wait_for(state="visible", timeout=5000)
-            upload_btn.first.click()
-        fc_info.value.set_files(test_file)
-        logged_in_page.wait_for_load_state("domcontentloaded")
-        try:
-            logged_in_page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
-        except Exception:
-            pass
-
-        # 查找资源行的 Switch
-        switch = logged_in_page.locator("[role='switch']")
-        if switch.count() > 0:
-            initial_checked = switch.first.get_attribute("aria-checked")
-            switch.first.wait_for(state="visible", timeout=5000)
-            switch.first.click()
-            logged_in_page.wait_for_timeout(1500)
-            new_checked = switch.first.get_attribute("aria-checked")
-            assert new_checked != initial_checked, \
-                f"切换后状态未变化: {initial_checked} → {new_checked}"
-        else:
-            resp = logged_in_page.request.get(
-                f"{base_url}/web/knowledgeBases/{kb_id}/resources"
-            )
-            assert resp.status == 200, "资源列表 API 不可访问"
-            allure.attach(
-                "资源行未找到 Switch 控件",
-                name="备注",
-                attachment_type=allure.attachment_type.TEXT,
-            )
+            upload_btn.click()
+        upload_url = f"{base_url}/web/knowledgeBases/{kb_id}/resources/upload"
+        with logged_in_page.expect_response(
+            lambda response: response.url == upload_url and response.request.method == "POST",
+            timeout=60000,
+        ) as upload_info:
+            fc_info.value.set_files(test_file)
+        upload_response = upload_info.value
+        assert upload_response.ok, (
+            f"上传失败: HTTP {upload_response.status}, {upload_response.text()[:500]}"
+        )
+        row = main.get_by_role("row").filter(has_text=os.path.basename(test_file))
+        expect(row).to_have_count(1, timeout=15000)
+        switch = row.get_by_role("switch")
+        expect(switch).to_have_count(1)
+        expect(switch).to_be_visible()
+        initial_checked = switch.get_attribute("aria-checked")
+        assert initial_checked in ("true", "false")
+        expected = "false" if initial_checked == "true" else "true"
+        switch.click()
+        expect(switch).to_have_attribute("aria-checked", expected)
+        # 刷新后仍保持状态，验证已保存而不是仅有乐观 UI 更新。
+        logged_in_page.reload(wait_until="domcontentloaded")
+        expect(switch).to_have_attribute("aria-checked", expected, timeout=15000)
     finally:
         if os.path.exists(test_file):
             _safe_remove(test_file)
@@ -1480,7 +1477,15 @@ def test_kb_021_delete_via_ui(logged_in_page, base_url, request):
     confirm_btn = alert.first.get_by_role("button", name="确认", exact=True)
     assert confirm_btn.count() == 1, \
         f"确认弹窗「确认」按钮应唯一，实际 {confirm_btn.count()} 个"
-    confirm_btn.first.click()
+    with logged_in_page.expect_response(
+        lambda response: response.url == f"{base_url}/web/knowledgeBases/{kb_id}"
+        and response.request.method == "DELETE",
+        timeout=30000,
+    ) as deletion:
+        confirm_btn.first.click()
+    assert deletion.value.ok, (
+        f"删除接口失败: HTTP {deletion.value.status}, {deletion.value.text()[:500]}"
+    )
     alert.first.wait_for(state="hidden", timeout=15000)
 
     # 4. 结果校验：API 列表中不再存在该知识库

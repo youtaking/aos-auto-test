@@ -11,8 +11,9 @@ class WorkflowPage:
         self.base_url = base_url
         self.url = f"{base_url}/ctrl/agent/workflow"
 
-    # 页面就绪标识：副标题（仅工作流页面有，不依赖懒加载）
-    _READY_SELECTOR = "text=管理工作流与运行历史"
+    # 页面就绪标识：新版副标题（仅工作流页面有，不依赖懒加载）
+    # 旧版 "管理工作流与运行历史" 已改为 "管理与编排工作流"
+    _READY_SELECTOR = "text=管理与编排工作流"
 
     def goto(self):
         for _attempt in range(2):
@@ -47,6 +48,21 @@ class WorkflowPage:
             return False
         return self.page.locator(self._READY_SELECTOR).count() > 0
 
+    def is_space_blocked(self) -> bool:
+        """工作流空间不可用状态（blocked）。
+
+        新版工作流依赖「组织工作流空间」，未初始化时列表/新建/画布全部禁用，
+        并提示「尚未初始化工作流空间」；点击初始化会 POST /web/workflow-v2/org-app，
+        当平台工作流账号不可用时返回 503（PLATFORM_SESSION_UNAVAILABLE），
+        页面提示「平台工作流账号当前不可用」。两种提示都代表功能不可用。
+        """
+        try:
+            body = self.page.locator("body").inner_text()
+        except Exception:
+            return False
+        return ("尚未初始化工作流空间" in body) or \
+            ("平台工作流账号" in body and "不可用" in body)
+
     def search(self, keyword: str):
         """搜索工作流"""
         inp = self.page.locator("input[placeholder*='搜索工作流']")
@@ -80,12 +96,14 @@ class WorkflowPage:
     # ── 创建工作流（UI 全流程） ──
 
     def create_workflow(self, name: str, description: str = "") -> str:
-        """通过 UI 创建工作流：点击新建 → 填表 → 创建并编辑
+        """通过 UI 创建工作流：点击新建 → 填表 → 创建并打开
         返回工作流 ID（从跳转后的 URL 中提取）
-        真实 DOM: dialog[role='dialog'] > heading "新建工作流"
-          textbox "名称 *" (placeholder='my-workflow')
-          textbox "描述" (placeholder='工作流描述（可选）')
-          button "创建并编辑"
+        新版真实 DOM: 工作流列表页 header
+          button "新建工作流" →
+          dialog[role='dialog']:
+            input#workflow-create-name (placeholder='例如：客服问答流程')
+            textarea#workflow-create-desc (placeholder='工作流描述（可选）')
+            button "创建并打开"
         """
         btn = self.page.get_by_role("button", name="新建工作流")
         btn.wait_for(state="visible", timeout=5000)
@@ -95,19 +113,25 @@ class WorkflowPage:
         dialog.wait_for(state="visible", timeout=5000)
 
         # 填写名称
-        name_input = dialog.get_by_role("textbox", name="名称 *")
-        name_input.wait_for(state="visible", timeout=5000)
-        name_input.fill(name)
+        name_input = dialog.locator("#workflow-create-name").or_(
+            dialog.get_by_role("textbox", name="名称 *")
+        )
+        name_input.first.wait_for(state="visible", timeout=5000)
+        name_input.first.fill(name)
 
         # 填写描述（可选）
         if description:
-            desc_input = dialog.get_by_role("textbox", name="描述")
-            desc_input.fill(description)
+            desc_input = dialog.locator("#workflow-create-desc").or_(
+                dialog.get_by_role("textbox", name="描述")
+            )
+            desc_input.first.fill(description)
 
-        # 点击"创建并编辑"
-        create_btn = dialog.get_by_role("button", name="创建并编辑")
-        create_btn.wait_for(state="visible", timeout=5000)
-        create_btn.click()
+        # 点击"创建并打开"（旧版为"创建并编辑"）
+        create_btn = dialog.get_by_role("button", name="创建并打开").or_(
+            dialog.get_by_role("button", name="创建并编辑")
+        )
+        create_btn.first.wait_for(state="visible", timeout=5000)
+        create_btn.first.click()
 
         # 等待跳转到编辑器页面
         self.page.wait_for_timeout(2000)
@@ -276,10 +300,13 @@ class WorkflowPage:
     # ── 编辑器导航 ──
 
     def go_back_to_list(self):
-        """从编辑器或版本页面回到工作流列表"""
-        breadcrumb = self.page.get_by_role("link", name="工作流")
-        if breadcrumb.count() > 0:
-            breadcrumb.first.click()
+        """从编辑器或版本页面回到工作流列表。
+        新版编辑页提供「返回列表」按钮；旧版为面包屑 <a>工作流</a>。"""
+        back_btn = self.page.get_by_role("button", name="返回列表")
+        if back_btn.count() == 0:
+            back_btn = self.page.get_by_role("link", name="工作流")
+        if back_btn.count() > 0:
+            back_btn.first.click()
             self.page.wait_for_timeout(1500)
         else:
             self.goto()

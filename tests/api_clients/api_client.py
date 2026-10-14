@@ -49,6 +49,20 @@ class ApiClient(BaseClient):
         resp.raise_for_status()
         return resp.content
 
+    def _system_raw_response(self, path: str, params: dict | None = None) -> "httpx.Response":
+        """System API 专用 GET，返回原始 httpx.Response（供需要读响应头的用例使用）"""
+        import httpx
+        headers = {"Authorization": f"Bearer {self._system_api_key}"}
+        resp = httpx.get(
+            f"{self.base_url}{path}",
+            params=params,
+            headers=headers,
+            timeout=30,
+            verify=False,
+        )
+        resp.raise_for_status()
+        return resp
+
     def _system_request(self, method: str, path: str, params: dict | None = None, json: dict | None = None) -> dict:
         """System API 通用请求：用 system_api_key 替代用户 Key，复用重试/节流逻辑
 
@@ -393,28 +407,28 @@ class ApiClient(BaseClient):
             raise RuntimeError(f"System API error: {code} - {message}")
         return resp.get("data")
 
-    def list_system_log_files(self) -> dict:
-        """列出系统日志文件
-        GET /api/system/logs → {success, data: {files: [...]}}
-        返回 data 部分：{files: [{name, size, modifiedAt, isErrorLog}]}
+    def list_system_log_sources(self) -> dict:
+        """列出可检索的日志源
+        GET /api/system/logs → {success, data: {sources: [...]}}
+        返回 data 部分：{sources: [{id, kind, date, size, modifiedAt}]}
         """
         resp = self._system_get("/api/system/logs")
         return self._unwrap(resp)
 
     def search_system_logs(self, params: dict) -> dict:
-        """搜索系统日志内容
-        GET /api/system/logs/search?file=xxx&q=yyy&errorOnly=false&limit=500
-        → {success, data: {file, entries, totalMatches, truncated}}
+        """检索系统日志投影
+        GET /api/system/logs/search?sourceId=xxx&q=yyy&errorOnly=false&limit=500
+        → {success, data: {source, entries, totalMatches, truncated}}
         返回 data 部分
         """
         resp = self._system_get("/api/system/logs/search", params=params)
         return self._unwrap(resp)
 
-    def download_system_log(self, file_name: str) -> bytes:
-        """下载系统日志文件（返回原始字节，非 JSON）
-        GET /api/system/logs/download?file=xxx → text/plain stream
+    def download_system_log(self, source_id: str) -> bytes:
+        """导出系统日志投影为 JSON Lines（返回原始字节，非 JSON 包装）
+        GET /api/system/logs/download?sourceId=xxx → application/x-ndjson
         """
-        return self._system_get_raw("/api/system/logs/download", params={"file": file_name})
+        return self._system_get_raw("/api/system/logs/download", params={"sourceId": source_id})
 
     # ── System Observer 模块（/api/system/observer，System API Key 认证） ──
 

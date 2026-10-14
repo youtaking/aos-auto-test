@@ -865,15 +865,6 @@ class WebClient(BaseClient):
         resp = self.put(f"/web/organizations/{org_id}/members/{member_id}", json={"role": role})
         return self._unwrap(resp)
 
-    # ── Meta Agent 模块 ──
-
-    def ensure_meta_agent(self) -> dict:
-        """确保 Meta Agent 可用
-        POST /web/meta-agent/ensure → {success, data: {environmentId, instanceId, status, apiKey}}
-        """
-        resp = self.post("/web/meta-agent/ensure")
-        return self._unwrap(resp)
-
     # ── Agent Generation 模块 ──
 
     def generate_agent(self, prompt: str) -> dict:

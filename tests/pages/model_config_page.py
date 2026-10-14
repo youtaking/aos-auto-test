@@ -145,18 +145,30 @@ class ModelConfigPage:
                 return buttons.nth(i)
         return None
 
-    def open_provider(self, display: str):
-        """点击目录服务商，进入右侧详情。"""
-        btn = self._find_button(display)
-        if btn is None:
-            raise AssertionError(f"目录中未找到服务商 '{display}'")
-        btn.click()
-        # 等待详情区渲染（h2 == 显示名）
-        h2 = self.page.locator("main h2")
-        try:
-            h2.first.wait_for(state="visible", timeout=8000)
-        except Exception:
-            pass
+    def open_provider(self, display: str, timeout: float = 20000):
+        """点击目录服务商，进入右侧详情。
+
+        目录列表异步加载：从外部 goto 后立即点击时目标项可能尚未渲染，
+        或列表请求瞬时失败导致目录为空。此处轮询等待目标出现，缺失则重载重试
+        （最多 3 轮），全部失败才报错。
+        """
+        for attempt in range(3):
+            if self.has_provider(display, timeout=timeout):
+                btn = self._find_button(display)
+                btn.click()
+                # 等待详情区渲染（h2 == 显示名）
+                h2 = self.page.locator("main h2")
+                try:
+                    h2.first.wait_for(state="visible", timeout=8000)
+                except Exception:
+                    pass
+                return
+            if attempt < 2:
+                try:
+                    self.goto()
+                except Exception:
+                    pass
+        raise AssertionError(f"目录中未找到服务商 '{display}'")
 
     # ==================== 详情区（服务商） ====================
 
@@ -239,9 +251,13 @@ class ModelConfigPage:
         return [s.strip() for s in sec.locator("strong").all_inner_texts() if s.strip()]
 
     def model_row(self, display: str):
-        """定位指定显示名的模型行（含 测试/编辑/删除 按钮的最外层行）。"""
+        """定位指定显示名的模型行（含 测试/编辑/删除 按钮的最外层行）。
+
+        新版 DOM：section.models-model-catalog > div.models-model-list > div.models-model-row
+        必须锁定 div.models-model-row，不能泛化 div+has_text（.first 会命中祖先容器）。
+        """
         sec = self.page.locator(self._MODEL_SECTION).first
-        return sec.locator("div", has_text=display).first
+        return sec.locator("div.models-model-row", has_text=display).first
 
     def model_row_text(self, display: str) -> str:
         """模型行的完整文本（含行内连通性结果标记，如 失败/成功）。"""

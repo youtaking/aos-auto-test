@@ -43,8 +43,10 @@ class ChatPage:
 
     def get_sidebar_agents(self) -> list[str]:
         """获取左侧边栏的智能体列表（滚动到底部确保获取完整列表）"""
-        # 实际可滚动容器是 div.agent-sidebar-tree
-        container = self.page.locator("div.agent-sidebar-tree")
+        # 新版 UI：可滚动容器 .agent-sidebar-nav（旧版为 agent-sidebar-tree）
+        container = self.page.locator(
+            ".agent-sidebar-nav, .agent-sidebar-tree-wrap, .agent-sidebar-tree"
+        )
         if container.count() > 0:
             # 验证侧边栏可滚动（内容高度 > 可视高度）
             scroll_info = container.first.evaluate("""el => ({
@@ -64,7 +66,7 @@ class ChatPage:
             self._sidebar_scrollable = False
             self._sidebar_scroll_info = {}
 
-        items = self.page.locator("button.agent-sidebar-agent-card").all()
+        items = self.page.locator("button.agent-tree-card").all()
         return [i.inner_text().strip() for i in items if i.inner_text().strip()]
 
     def is_sidebar_scrollable(self) -> bool:
@@ -77,11 +79,11 @@ class ChatPage:
 
     def get_sidebar_agent_count(self) -> int:
         """获取侧边栏智能体数量"""
-        return self.page.locator("button.agent-sidebar-agent-card").count()
+        return self.page.locator("button.agent-tree-card").count()
 
     def click_sidebar_agent(self, name: str):
         """点击侧边栏的某个智能体"""
-        card = self.page.locator("button.agent-sidebar-agent-card").filter(has_text=name)
+        card = self.page.locator("button.agent-tree-card").filter(has_text=name)
         # 等待卡片出现（sidebar 可能还在渲染中），最长 10 秒
         try:
             card.first.wait_for(state="visible", timeout=10000)

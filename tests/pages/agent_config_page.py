@@ -105,19 +105,19 @@ class AgentConfigPage:
     # ==================== 智能体列表 ====================
 
     def get_agent_count(self) -> int:
-        return self.page.locator("button.agent-sidebar-agent-card").count()
+        return self.page.locator("button.agent-tree-card").count()
 
     def get_agent_names(self) -> list[str]:
-        cards = self.page.locator("button.agent-sidebar-agent-card")
+        cards = self.page.locator("button.agent-tree-card")
         names = []
         for i in range(cards.count()):
-            # 从名称 div 直接提取，避免拼接组织标识
-            name_el = cards.nth(i).locator("div.text-\\[13px\\].font-semibold").first
+            # 新版侧边栏卡片：名称 div 带 title 属性，组织标识为独立 span
+            name_el = cards.nth(i).locator("div[title]").first
             if name_el.count() > 0:
-                name = name_el.text_content().strip()
+                name = (name_el.get_attribute("title") or name_el.text_content() or "").strip()
             else:
                 # fallback: 去掉 ORG_001 和已知后缀
-                text = cards.nth(i).text_content().strip()
+                text = (cards.nth(i).text_content() or "").strip()
                 name = text.replace("ORG_001_new", "").replace("ORG_001", "").replace("公开", "").replace("共享", "").strip()
             if name:
                 names.append(name)
@@ -129,7 +129,7 @@ class AgentConfigPage:
 
     def _scroll_sidebar_to_load(self):
         """滚动侧边栏到底部触发懒加载，再滚回顶部"""
-        container = self.page.locator("div.agent-sidebar-tree")
+        container = self.page.locator("div.agent-tree")
         if container.count() > 0:
             container.first.evaluate("el => el.scrollTop = el.scrollHeight")
             self.page.wait_for_timeout(800)
@@ -140,7 +140,7 @@ class AgentConfigPage:
         """等待 agent 卡片出现在侧边栏，滚动触发懒加载，找不到时自动刷新重试。
         返回 card locator（count > 0 表示找到），供后续操作使用。
         """
-        card = self.page.locator("button.agent-sidebar-agent-card").filter(has_text=name)
+        card = self.page.locator("button.agent-tree-card").filter(has_text=name)
         for attempt in range(retries + 1):
             # 先滚动侧边栏触发懒加载
             self._scroll_sidebar_to_load()
@@ -149,7 +149,7 @@ class AgentConfigPage:
                 self.page.wait_for_timeout(300)
                 return card
             # 逐段向下滚动，查找未渲染的卡片
-            container = self.page.locator("div.agent-sidebar-tree")
+            container = self.page.locator("div.agent-tree")
             if container.count() > 0:
                 scroll_height = container.first.evaluate("el => el.scrollHeight")
                 step = 200
@@ -166,7 +166,7 @@ class AgentConfigPage:
                 self.page.wait_for_timeout(2000)
                 self.page.reload(wait_until="domcontentloaded")
                 self.page.wait_for_timeout(1000)
-                card = self.page.locator("button.agent-sidebar-agent-card").filter(has_text=name)
+                card = self.page.locator("button.agent-tree-card").filter(has_text=name)
         return card
 
     def click_agent(self, name: str, retries: int = 2):
@@ -189,7 +189,7 @@ class AgentConfigPage:
 
     def click_agent_in_main(self, name: str):
         """在主内容区点击智能体卡片"""
-        badge = self.page.locator(f"div.agent-badge[data-badge-name='{name}']")
+        badge = self.page.locator(f"div.agent-badge-card[data-badge-name='{name}']")
         if badge.count() > 0:
             badge.first.wait_for(state="visible", timeout=5000)
             badge.first.click()
@@ -421,15 +421,22 @@ class AgentConfigPage:
         self.page.wait_for_load_state("domcontentloaded")
 
     def get_last_message(self) -> str:
-        """获取最后一条 AI 回复"""
-        messages = self.page.locator("div[role='log'] > div")
-        if messages.count() == 0:
-            messages = self.page.locator("div.agent-chat-area > div")
+        """只读取最后一条助手正文，排除用户历史消息和折叠的思考过程。"""
+        log = self.page.locator("[role='log']")
+        if log.count() == 0:
+            return ""
+        # 新版部署 DOM：助手气泡 [class*='group/assistant']，正文在 .chat-markdown-content-styles
+        # （思考过程在 data-slot='collapsible' 内，不在正文容器，天然排除）
+        turns = log.first.locator("[class*='group/assistant']")
+        if turns.count() > 0:
+            bodies = turns.last.locator("[class*='chat-markdown-content-styles']")
+            if bodies.count() > 0:
+                return "\n".join(bodies.all_inner_texts()).strip()
+            return turns.last.inner_text().strip()
+        # 旧版兜底
+        messages = log.first.locator(".chat-assistant-message")
         if messages.count() > 0:
-            try:
-                return messages.last.text_content(timeout=5000).strip()
-            except Exception:
-                return ""
+            return "\n".join(messages.last.locator(".chat-markdown-content").all_inner_texts()).strip()
         return ""
 
     # ==================== 右侧面板（技能/文件/配置） ====================
@@ -488,7 +495,7 @@ class AgentConfigPage:
         self._dismiss_any_dialog()
         self.page.wait_for_timeout(300)
         agent_wrapper = card.first.locator(
-            "xpath=ancestor::div[contains(@class,'agent-sidebar-agent')]"
+            "xpath=ancestor::div[contains(concat(' ', normalize-space(@class), ' '), ' group ')][1]"
         )
         agent_wrapper.hover()
         config_btn = agent_wrapper.locator('button[title="智能体配置"]')
@@ -573,13 +580,22 @@ class AgentConfigPage:
         return group
 
     def _cap_bound_names(self, panel) -> set:
-        """已绑定项集合（从「移除 xxx」chips 的 aria-label 提取）"""
+        """已绑定项集合（新版：绑定态由 aria-checked=true 的 checkbox 表示，名称即 aria-label）"""
         bound = set()
-        chips = panel.locator("button[aria-label^='移除 ']")
-        for i in range(chips.count()):
-            lab = chips.nth(i).get_attribute("aria-label") or ""
-            bound.add(lab.replace("移除 ", "").strip())
+        cbs = panel.locator("[role='checkbox'][aria-checked='true']")
+        for i in range(cbs.count()):
+            lab = (cbs.nth(i).get_attribute("aria-label") or "").strip()
+            if lab:
+                bound.add(lab)
         return bound
+
+    def _cap_checkbox(self, panel, name: str):
+        """按 aria-label 精确匹配面板内 checkbox，找不到返回 None"""
+        cbs = panel.locator("[role='checkbox']")
+        for i in range(cbs.count()):
+            if (cbs.nth(i).get_attribute("aria-label") or "").strip() == name:
+                return cbs.nth(i)
+        return None
 
     def _cap_selected_count(self, panel) -> int:
         """解析「已选 N 项」数量；解析失败退回 chips 数量"""
@@ -602,17 +618,22 @@ class AgentConfigPage:
 
     def bind_cap_item(self, panel, name: str):
         """通过 candidate checkbox 绑定一个 item（技能/MCP/Sites/知识库共用结构）"""
-        cb = panel.get_by_role("checkbox", name=name).first
+        cb = self._cap_checkbox(panel, name)
+        if cb is None:
+            raise AssertionError(f"未找到候选 checkbox: {name!r}（无法绑定）")
         cb.scroll_into_view_if_needed()
         cb.wait_for(state="visible", timeout=5000)
         cb.click(force=True)
         self.page.wait_for_timeout(600)
 
     def unbind_cap_item(self, panel, name: str):
-        """点击「移除 name」chip 解除绑定"""
-        chip = panel.get_by_role("button", name=re.compile(rf"^移除 {re.escape(name)}$"))
-        chip.first.wait_for(state="visible", timeout=5000)
-        chip.first.click()
+        """取消绑定：点击 aria-label==name 的 checkbox 取消勾选（新版无「移除」chip，绑定态即勾选态）"""
+        cb = self._cap_checkbox(panel, name)
+        if cb is None:
+            raise AssertionError(f"未找到已绑定项 checkbox: {name!r}（无法解绑）")
+        cb.scroll_into_view_if_needed()
+        cb.wait_for(state="visible", timeout=5000)
+        cb.click(force=True)
         self.page.wait_for_timeout(600)
 
     def save_edit_modal(self, modal, restart: bool = True, timeout_s: int = 20):
@@ -818,7 +839,7 @@ class AgentConfigPage:
 
     def _enter_chat_and_wait_ready(self, agent_name: str, timeout_ms: int = 45000) -> bool:
         """重启后进入 Agent 对话页，轮询聊天输入框稳定可见（最长 timeout_ms）"""
-        card = self.page.locator("button.agent-sidebar-agent-card").filter(has_text=agent_name)
+        card = self.page.locator("button.agent-tree-card").filter(has_text=agent_name)
         if card.count() > 0:
             try:
                 card.first.scroll_into_view_if_needed()

@@ -4,22 +4,24 @@
 /api/system/logs 系统日志接口（System API Key 认证）
 响应格式：{success: true, data: {...}} 包装
 
-端点：
-- GET /api/system/logs → 日志文件列表
-- GET /api/system/logs/search → 搜索日志内容
-- GET /api/system/logs/download → 下载日志文件（text/plain，非 JSON）
+新契约（1b80cdfa 起，安全重设计）：
+- 不暴露日志文件路径/原始文件名，客户端只能拿到服务端枚举的日志源 id（形如 app-YYYY-MM-DD / error-YYYY-MM-DD）
+- GET /api/system/logs → 枚举日志源
+- GET /api/system/logs/search?sourceId=.. → 在指定日志源内检索（投影 + 脱敏后的行）
+- GET /api/system/logs/download?sourceId=.. → 导出同一投影为 JSON Lines（application/x-ndjson）
 """
 
 # ── 通用字段 ──
 
-SYSTEM_LOG_FILE = {
+SYSTEM_LOG_SOURCE = {
     "type": "object",
-    "required": ["name", "size"],
+    "required": ["id", "kind", "date", "size", "modifiedAt"],
     "properties": {
-        "name": {"type": "string"},
-        "size": {"type": "integer"},
+        "id": {"type": "string"},
+        "kind": {"type": "string", "enum": ["app", "error"]},
+        "date": {"type": "string"},
+        "size": {"type": "integer", "minimum": 0},
         "modifiedAt": {"type": "string"},
-        "isErrorLog": {"type": "boolean"},
     },
     "additionalProperties": True,
 }
@@ -47,22 +49,22 @@ SYSTEM_LOG_SEARCH_ENTRY = {
 
 # ── 响应 Schema ──
 
-SYSTEM_LOG_FILES_RESPONSE = {
+SYSTEM_LOG_SOURCES_RESPONSE = {
     "type": "object",
-    "required": ["files"],
+    "required": ["sources"],
     "properties": {
-        "files": {"type": "array", "items": SYSTEM_LOG_FILE},
+        "sources": {"type": "array", "items": SYSTEM_LOG_SOURCE},
     },
     "additionalProperties": True,
 }
 
 SYSTEM_LOG_SEARCH_RESPONSE = {
     "type": "object",
-    "required": ["file", "entries", "totalMatches"],
+    "required": ["source", "entries", "totalMatches", "truncated"],
     "properties": {
-        "file": SYSTEM_LOG_FILE,
+        "source": SYSTEM_LOG_SOURCE,
         "entries": {"type": "array", "items": SYSTEM_LOG_SEARCH_ENTRY},
-        "totalMatches": {"type": "integer"},
+        "totalMatches": {"type": "integer", "minimum": 0},
         "truncated": {"type": "boolean"},
     },
     "additionalProperties": True,

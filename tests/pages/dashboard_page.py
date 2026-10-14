@@ -1,6 +1,6 @@
 # tests/pages/dashboard_page.py
 """Dashboard 页面 Page Object"""
-from playwright.sync_api import Page
+from playwright.sync_api import Page, TimeoutError
 
 
 class DashboardPage:
@@ -17,10 +17,10 @@ class DashboardPage:
                 pass  # SPA 路由可能中断初始导航
             self.page.wait_for_load_state("domcontentloaded")
             try:
-                self.page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
-            except Exception:
+                self.page.get_by_role("heading", name="系统概览", exact=True).wait_for(timeout=15000)
+            except TimeoutError:
                 pass
-            if self.page.locator("div.agent-panel-content").count() > 0:
+            if self.is_loaded():
                 break
             try:
                 self.page.wait_for_load_state("networkidle", timeout=5000)
@@ -29,10 +29,13 @@ class DashboardPage:
             self.page.wait_for_timeout(500)
 
     def is_loaded(self) -> bool:
-        return (
-            "dashboard" in self.page.url.lower()
-            and self.page.locator("h1, h2").filter(has_text="系统概览").count() > 0
-        )
+        if "/ctrl/agent/dashboard" not in self.page.url:
+            return False
+        try:
+            self.page.get_by_role("heading", name="系统概览", exact=True).wait_for(timeout=15000)
+            return True
+        except TimeoutError:
+            return False
 
     def has_sidebar(self) -> bool:
         return self.page.locator("nav, aside, aside.agent-sidebar").first.is_visible()

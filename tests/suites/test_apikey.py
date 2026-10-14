@@ -7,6 +7,7 @@ import uuid
 import re
 import pytest
 import allure
+from playwright.sync_api import expect
 from tests.pages.apikey_page import ApiKeyPage
 from tests.pages import locators as loc
 from tests.conftest import register_cleanup
@@ -174,32 +175,39 @@ def test_apikey_003_name_empty_validation(logged_in_page, base_url):
     """✅ 人工评审通过 | TC-APIKEY-003: 名称为空时创建拦截"""
     ak = ApiKeyPage(logged_in_page, base_url)
     ak.goto()
-    initial_count = ak.get_key_count()
+    before = logged_in_page.request.get(f"{base_url}/web/api-keys")
+    assert before.status == 200, "读取密钥列表失败"
+    initial_ids = {key["id"] for key in before.json()["data"]}
 
     ak.click_create_key()
     assert ak.is_dialog_open(), "弹窗未打开"
 
     dialog = logged_in_page.locator("[role=dialog]")
-    save_btn = loc.save_or_submit_button(dialog)
+    name_input = dialog.locator("#api-key-name")
+    expect(name_input).to_have_value("")
+    create_requests = []
 
-    if save_btn.count() > 0:
-        is_disabled = save_btn.first.is_disabled()
-        if is_disabled:
-            assert save_btn.first.is_disabled(), "保存按钮在名称为空时被禁用"
-        else:
-            save_btn.first.click(force=True)
-            logged_in_page.wait_for_timeout(800)
-            has_error = len(ak.get_form_validation_text()) > 0
-            dialog_still_open = ak.is_dialog_open()
-            assert has_error or dialog_still_open, \
-                f"名称为空时未触发校验拦截（has_error={has_error}, dialog_still_open={dialog_still_open}）"
+    def track_create(req):
+        if req.method == "POST" and req.url.split("?")[0].endswith("/web/api-keys"):
+            create_requests.append(req.url)
 
-    ak.close_dialog()
-
-    # 验证数量未变
-    ak.goto()
-    assert ak.get_key_count() == initial_count, \
-        "名称为空时密钥被创建了"
+    logged_in_page.on("request", track_create)
+    try:
+        save_btn = dialog.get_by_role("button", name="保存", exact=True)
+        expect(save_btn).to_have_count(1)
+        save_btn.click()
+        expect(logged_in_page.locator("[data-sonner-toast]").filter(
+            has_text="请输入密钥名称"
+        )).to_be_visible()
+        expect(dialog).to_be_visible()
+        assert not create_requests, "空名称不应发出创建密钥请求"
+        after = logged_in_page.request.get(f"{base_url}/web/api-keys")
+        assert after.status == 200, "重新读取密钥列表失败"
+        assert {key["id"] for key in after.json()["data"]} == initial_ids, \
+            "空名称提交后服务端密钥集合发生变化"
+    finally:
+        logged_in_page.remove_listener("request", track_create)
+        ak.close_dialog()
 
 
 @allure.epic("API密钥")

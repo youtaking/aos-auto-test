@@ -206,17 +206,28 @@ def test_memories_detail_modal(logged_in_page, base_url, env_check):
     mem.goto()
     assert mem.is_loaded(), "记忆页面未加载"
 
-    # 查找记忆列表项（卡片/行）
+    # 查找记忆列表项（新版表格视图行 <tr class="... cursor-pointer">，或卡片）
     content = logged_in_page.locator("div.agent-panel-content")
     items = content.locator(
         "[data-slot='card'], div.rounded-lg.border, "
-        "div.cursor-pointer, tr[data-row-key]"
+        "div.cursor-pointer, tr[data-row-key], "
+        "table tbody tr, tr.cursor-pointer"
     )
     if items.count() == 0:
-        # 无数据时应显示空状态
+        # 无数据时应显示空状态。新版记忆页计数器形如「共 0 条记忆」。
+        import re as _re
         body_text = logged_in_page.locator("div.agent-panel-body").inner_text()
         body_text_lower = body_text.lower()
-        assert any(kw in text for kw, text in [("暂无", body_text), ("no data", body_text_lower), ("empty", body_text_lower)]), \
+        empty_ok = (
+            any(kw in text for kw, text in [
+                ("暂无", body_text),
+                ("no data", body_text_lower),
+                ("empty", body_text_lower),
+            ])
+            or bool(_re.search(r"0\s*条记忆", body_text))
+            or ("暂无" in body_text)
+        )
+        assert empty_ok, \
             f"无数据项时未显示空状态提示，body_text 前200字符: {body_text[:200]!r}"
         return  # 无数据，空状态验证通过
 

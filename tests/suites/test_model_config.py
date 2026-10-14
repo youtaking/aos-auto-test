@@ -6,11 +6,12 @@
 - 资源范围 div[role=group][aria-label='资源范围'] 下 全部/本组织/公开
 - 左目录 nav[aria-label='服务商'] button（strong=显示名），nav 顺序 == GET /web/config/providers 顺序
 - 服务商详情头 = main 内「含删除按钮」的 header（共享 external 无此头 → 只读）
-- 模型行 = main article section 内 div，含 strong(显示名)+code(模型ID)+测试/编辑/删除
+- 模型行 = main article section 内 div.models-model-row，含 strong(显示名)+code(模型ID)+测试/编辑/删除
 - 模型行「测试」对不可达 URL → 行内插入「失败」标记（POST /test-model 快速返回 5xx）
 - 模型区头「获取模型列表」→ POST fetch-models；不可达 → toast 测试失败
-- 新建/编辑弹窗内「可用模型列表 获取模型列表」→ 不可达 → 区内文本 CONFIG_TEST_REQUEST_FAILED
-- 共享开关 = article 内 [role=switch]（= publicReadable，切换 PUT ?name=resourceKey）
+- 新建/编辑弹窗内「可用模型列表 获取模型列表」→ 不可达 → 区内文本「测试请求失败」
+- 共享开关 = article 内 [role=switch]（= publicReadable，切换 PUT ?name=<provider.id>）
+- Provider 资源键 = 列表项的 id 字段（旧 resourceKey 已移除；另含 providerId=uuid）
 - 新建弹窗仅 ID（标识符）required；不填 API Key 可创建（keyHint=*******）
 - 新增模型弹窗仅 模型ID required，默认输入/输出模态=[text]，思考开关默认开
 - 已知应用 bug：模型「启用思考模式」不持久化（仅提示不硬断言）
@@ -164,14 +165,16 @@ def _wait_toast(mc, page, expected, timeout_ms=9000) -> str:
 
 
 def _goto_open_provider(mc, page, display) -> bool:
-    """导航到模型库并打开指定服务商详情（429 时等待限流后重试）。"""
+    """导航到模型库并打开指定服务商详情。
+
+    目录异步加载导致的时序竞争由 mc.open_provider 内部轮询等待 + 重载兜底，
+    此处只需捕获“确实不存在”的失败并返回 False。
+    """
     mc.goto()
-    if not mc.has_provider(display):
-        _wait_rate_limit_reset(page)
-        mc.goto()
-    if not mc.has_provider(display):
+    try:
+        mc.open_provider(display)
+    except AssertionError:
         return False
-    mc.open_provider(display)
     return mc.detail_h2() == display
 
 
@@ -226,8 +229,9 @@ def _add_model_via_api(page, base_url, resource_key, model_id, model_name):
 
 
 def _resource_key_of(page, base_url, provider_id) -> str:
+    """Provider 资源键 = 列表项 id（新版 API 已移除 resourceKey）。"""
     providers = _get_providers_via_api(page, base_url)
-    return next((p.get("resourceKey", "") for p in providers if p.get("id") == provider_id), "")
+    return next((p.get("id", "") for p in providers if p.get("id") == provider_id), "")
 
 
 def _api_models_of(page, base_url, resource_key) -> list:
@@ -541,7 +545,7 @@ def test_model_006b_edit_provider_other_fields(logged_in_page, base_url, request
     deadline = time.time() + 10
     got_err = False
     while time.time() < deadline:
-        if "CONFIG_TEST_REQUEST_FAILED" in mc.available_models_text():
+        if "测试请求失败" in mc.available_models_text():
             got_err = True
             break
         logged_in_page.wait_for_timeout(400)
@@ -1067,10 +1071,10 @@ def test_model_016_openapi_provider_crud(logged_in_page, base_url, request):
     found = any(p["id"] == provider_id for p in providers)
     assert found, f"Provider '{provider_id}' 未出现在列表中"
 
-    # 3. 获取详情（需要 resourceKey）
+    # 3. 获取详情（资源键 = Provider id）
     provider_data = next(p for p in providers if p["id"] == provider_id)
-    resource_key = provider_data.get("resourceKey", "")
-    assert resource_key, "Provider 没有 resourceKey"
+    resource_key = provider_data.get("id", "")
+    assert resource_key, "Provider 没有 id"
 
     detail = _get_provider_detail_via_api(logged_in_page, base_url, resource_key)
     assert detail is not None, "获取 Provider 详情失败"
@@ -1118,7 +1122,7 @@ def test_model_017_openapi_model_crud(logged_in_page, base_url, request):
         provider_data = next((p for p in providers if p["id"] == provider_id), None)
     if not provider_data:
         pytest.skip(f"Provider 创建失败（status={create_resp.status}，可能并发上限）")
-    resource_key = provider_data.get("resourceKey", "")
+    resource_key = provider_data.get("id", "")
 
     model_id = f"model-crud-{_TEST_PREFIX}"
 
@@ -1351,7 +1355,7 @@ def test_model_023_openapi_cascade_delete(logged_in_page, base_url, request):
         providers = _get_providers_via_api(logged_in_page, base_url)
         provider_data = next((p for p in providers if p["id"] == provider_id), None)
     assert provider_data, f"Provider '{provider_id}' 创建后未出现在列表中"
-    resource_key = provider_data["resourceKey"]
+    resource_key = provider_data["id"]
 
     # 添加多个模型（429 时等待重试）
     model_ids = [f"cascade-m1-{_TEST_PREFIX}", f"cascade-m2-{_TEST_PREFIX}"]
@@ -1425,7 +1429,7 @@ def test_model_024_openapi_connectivity_test(logged_in_page, base_url, request):
         (p for p in providers if p["id"] == provider_id), None
     )
     assert provider_data, "Provider 创建失败"
-    resource_key = provider_data["resourceKey"]
+    resource_key = provider_data["id"]
 
     # 测试联通性（通过 fetch-models 端点）
     test_resp = logged_in_page.request.post(
@@ -1567,7 +1571,7 @@ def test_model_api_key_auto_fetch(logged_in_page, base_url, request):
     deadline = time.time() + 10
     got_err = False
     while time.time() < deadline:
-        if "CONFIG_TEST_REQUEST_FAILED" in mc.available_models_text():
+        if "测试请求失败" in mc.available_models_text():
             got_err = True
             break
         logged_in_page.wait_for_timeout(400)
@@ -1672,7 +1676,7 @@ def test_model_batch_add(logged_in_page, base_url, request):
     deadline = time.time() + 10
     got_err = False
     while time.time() < deadline:
-        if "CONFIG_TEST_REQUEST_FAILED" in mc.available_models_text():
+        if "测试请求失败" in mc.available_models_text():
             got_err = True
             break
         logged_in_page.wait_for_timeout(400)

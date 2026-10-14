@@ -48,13 +48,18 @@ class AgentPage:
         return self.page.locator("h1, h2").filter(has_text="智能体管理").count() > 0
 
     def get_agent_cards(self):
-        """获取主内容区所有智能体卡片元素（div.agent-badge）"""
-        return self.page.locator("div.agent-badge")
+        """获取主内容区所有智能体卡片元素（新版：div.agent-badge-card）"""
+        return self.page.locator("div.agent-badge-card")
 
     def get_agent_names(self) -> list[str]:
-        """获取当前显示的智能体名称列表（从 div.agent-badge-name 提取）"""
-        name_elements = self.page.locator("div.agent-badge-name")
-        return [name_elements.nth(i).inner_text().strip() for i in range(name_elements.count())]
+        """获取当前显示的智能体名称列表（新版：卡片 data-badge-name 属性）"""
+        cards = self.get_agent_cards()
+        names = []
+        for i in range(cards.count()):
+            nm = (cards.nth(i).get_attribute("data-badge-name") or "").strip()
+            if nm:
+                names.append(nm)
+        return names
 
     def get_agent_count(self) -> int:
         """获取当前显示的智能体卡片数量（等待加载完成）"""
@@ -87,11 +92,19 @@ class AgentPage:
         search_input.fill("")
         self.page.wait_for_timeout(600)
 
+    def _filter_bar(self):
+        """分类筛选按钮所在容器（新版：div.mb-7.flex.flex-wrap.items-center.gap-2）"""
+        return self.page.locator("div.mb-7.flex.flex-wrap.items-center.gap-2").first
+
     def filter_by_category(self, category: str):
         """按分类筛选（全部/通用助理/数据分析/搜索检索/监控告警/代码助手/自定义）"""
-        btn = self.page.get_by_role("button", name=category)
-        btn.wait_for(state="visible", timeout=5000)
-        btn.click()
+        bar = self._filter_bar()
+        scope = bar if bar.count() > 0 else self.page.locator("main")
+        btn = scope.get_by_role("button", name=category, exact=True)
+        if btn.count() == 0:
+            btn = scope.get_by_role("button", name=category)
+        btn.first.wait_for(state="visible", timeout=5000)
+        btn.first.click()
         self.page.wait_for_timeout(500)
 
     def click_create_button(self):
@@ -151,7 +164,7 @@ class AgentPage:
 
     def has_agent(self, name: str) -> bool:
         """列表中是否包含指定名称的智能体（通过 data-badge-name 属性精确匹配）"""
-        return self.page.locator(f"div.agent-badge[data-badge-name='{name}']").count() > 0
+        return self.page.locator(f"div.agent-badge-card[data-badge-name='{name}']").count() > 0
 
     def enter_agent(self, name: str):
         """进入某个智能体对话"""
@@ -162,10 +175,15 @@ class AgentPage:
         self.page.wait_for_load_state("domcontentloaded")
 
     def get_filter_buttons(self) -> list[str]:
-        """获取所有分类筛选按钮的文字（从「全部」按钮的父容器中动态获取）"""
-        all_btn = self.page.get_by_role("button", name="全部")
-        if all_btn.count() == 0:
-            return []
-        parent = all_btn.first.locator("..")
-        buttons = parent.locator("button")
+        """获取所有分类筛选按钮的文字（从筛选容器中动态获取）"""
+        bar = self._filter_bar()
+        if bar.count() == 0:
+            all_btn = self.page.get_by_role("button", name="全部", exact=True)
+            if all_btn.count() == 0:
+                # 回退：旧版相对定位
+                all_btn = self.page.get_by_role("button", name="全部")
+                if all_btn.count() == 0:
+                    return []
+            bar = all_btn.first.locator("..")
+        buttons = bar.locator("button")
         return [b.strip() for b in buttons.all_text_contents()]

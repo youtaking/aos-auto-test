@@ -83,6 +83,23 @@ def _get_or_create_workflow(page, base_url):
     return wf.get("id"), True
 
 
+def _require_workflow_space(logged_in_page, base_url):
+    """前置检查：工作流空间可用，否则 skip。
+
+    新版工作流依赖「组织工作流空间」。未初始化时列表/新建/画布全部禁用；
+    点击初始化会 POST /web/workflow-v2/org-app，平台工作流账号不可用时返回
+    503（PLATFORM_SESSION_UNAVAILABLE），页面提示「平台工作流账号当前不可用」。
+    这类用例依赖外部工作流引擎服务尚可用的前置条件，缺失时在用例开头 skip。
+    """
+    wf = WorkflowPage(logged_in_page, base_url)
+    wf.goto()
+    if wf.is_space_blocked():
+        pytest.skip(
+            "工作流空间未初始化 / 平台工作流账号不可用(HTTP 503 "
+            "PLATFORM_SESSION_UNAVAILABLE)，无法进入编辑器/运行日志"
+        )
+
+
 @allure.epic("工作流")
 class TestWorkflow:
     """工作流 /ctrl/agent/workflow"""
@@ -117,7 +134,14 @@ class TestWorkflow:
         if "404" in text and "页面未找到" in text:
             pytest.skip("工作流页面返回 404，路由可能未注册")
         if count == 0:
-            assert any(kw in text.lower() for kw in ["暂无", "空", "no data", "empty"]), \
+            # 新版工作流页在空间未初始化/平台账号不可用时展示明确的「无法使用」说明态，
+            # 该说明态同样属于「无数据 + 有提示」的合法状态。
+            empty_ok = (
+                any(kw in text.lower() for kw in ["暂无", "空", "no data", "empty"])
+                or ("尚未初始化工作流空间" in text)
+                or ("工作流空间" in text and "无法使用" in text)
+            )
+            assert empty_ok, \
                 f"工作流列表无数据且无空状态提示 (text片段={text[:80]})"
 
     # === 创建工作流 ===
@@ -221,6 +245,7 @@ class TestWorkflow:
     @pytest.mark.p1
     def test_workflow_save_draft(self, logged_in_page, base_url):
         """TC-WF-006: 工作流保存草稿 — 编辑器中保存按钮可见可点击"""
+        _require_workflow_space(logged_in_page, base_url)
         wf_id, created = _get_or_create_workflow(logged_in_page, base_url)
         if not wf_id:
             pytest.skip("无法获取或创建工作流 ID")
@@ -264,6 +289,7 @@ class TestWorkflow:
     @pytest.mark.p1
     def test_workflow_publish(self, logged_in_page, base_url):
         """TC-WF-007: 工作流发布 — 发布按钮可见"""
+        _require_workflow_space(logged_in_page, base_url)
         wf_id, created = _get_or_create_workflow(logged_in_page, base_url)
         if not wf_id:
             pytest.skip("无法获取或创建工作流 ID")
@@ -300,6 +326,7 @@ class TestWorkflow:
     @allure.epic("工作流")
     def test_workflow_versions(self, logged_in_page, base_url, request):
         """TC-WF-008: 工作流版本管理 — 创建→发布→版本历史→恢复到草稿 全流程（UI）"""
+        _require_workflow_space(logged_in_page, base_url)
         wf = WorkflowPage(logged_in_page, base_url)
         wf_name = f"e2e-wf-ver-{_PREFIX}"
 
@@ -641,6 +668,7 @@ class TestWorkflow:
     @pytest.mark.p0
     def test_workflow_canvas_editor(self, logged_in_page, base_url):
         """TC-WF-012: 工作流画布编辑 — ReactFlow 画布加载，节点可见"""
+        _require_workflow_space(logged_in_page, base_url)
         wf_id, created = _get_or_create_workflow(logged_in_page, base_url)
         if not wf_id:
             pytest.skip("无法获取或创建工作流 ID")
@@ -900,6 +928,7 @@ class TestWorkflow:
     @allure.epic("工作流")
     def test_workflow_yaml_side_panel(self, logged_in_page, base_url):
         """TC-WF-018: YAML 侧滑面板 — 编辑器中 YAML 面板打开、编辑、应用 YAML 全流程"""
+        _require_workflow_space(logged_in_page, base_url)
         wf_id, created = _get_or_create_workflow(logged_in_page, base_url)
         if not wf_id:
             pytest.skip("无法获取或创建工作流 ID")
@@ -1256,6 +1285,7 @@ class TestWorkflow:
     @pytest.mark.p1
     def test_workflow_runs_filter_tabs(self, logged_in_page, base_url):
         """TC-WF-GAP-04: 运行记录筛选 Tab — 5 个筛选 Tab 均可点击并切换"""
+        _require_workflow_space(logged_in_page, base_url)
         try:
             logged_in_page.goto(
                 f"{base_url}/ctrl/agent/workflow?tab=runs",
@@ -1305,6 +1335,7 @@ class TestWorkflow:
     @pytest.mark.p1
     def test_workflow_runs_search(self, logged_in_page, base_url):
         """TC-WF-GAP-05: 运行记录搜索 — 搜索框输入无匹配字符串后数据消失，清空后恢复"""
+        _require_workflow_space(logged_in_page, base_url)
         try:
             logged_in_page.goto(
                 f"{base_url}/ctrl/agent/workflow?tab=runs",
@@ -1361,6 +1392,7 @@ class TestWorkflow:
     @pytest.mark.p1
     def test_workflow_runs_refresh(self, logged_in_page, base_url):
         """TC-WF-GAP-06: 运行记录刷新 — 点击刷新按钮后页面无报错，表格或空状态仍存在"""
+        _require_workflow_space(logged_in_page, base_url)
         try:
             logged_in_page.goto(
                 f"{base_url}/ctrl/agent/workflow?tab=runs",

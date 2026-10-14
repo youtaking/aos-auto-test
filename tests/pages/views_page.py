@@ -70,7 +70,8 @@ class ViewsPage:
                     "el => el.classList.contains('is-active')"
                 )
                 if not is_active:
-                    tab.first.click(force=True)
+                    # 真实点击可能被悬浮层拦截，统一走 JS click
+                    tab.first.evaluate("el => el.click()")
                     self.page.wait_for_timeout(1200)
                 if self._tab_content_ready():
                     return True
@@ -93,6 +94,26 @@ class ViewsPage:
 
     # ---------- 对外接口 ----------
 
+    def _expand_sidebar_if_collapsed(self):
+        """左侧 Agent 侧边栏若被折叠（localStorage 持久化），先展开"""
+        sidebar = self.page.locator("aside.agent-sidebar")
+        if sidebar.count() == 0:
+            return
+        try:
+            is_collapsed = sidebar.first.evaluate(
+                "el => el.classList.contains('collapsed')"
+            )
+        except Exception:
+            return
+        if is_collapsed:
+            toggle = self.page.locator("button.agent-sidebar-toggle")
+            if toggle.count() > 0:
+                try:
+                    toggle.first.click()
+                except Exception:
+                    toggle.first.evaluate("el => el.click()")
+                self.page.wait_for_timeout(800)
+
     def goto(self, agent_name: str = "my-auto-test"):
         """导航到指定 Agent 内容面板的「发布视图」Tab"""
         try:
@@ -102,22 +123,41 @@ class ViewsPage:
         except Exception:
             pass
         self.page.wait_for_load_state("domcontentloaded")
+        self._expand_sidebar_if_collapsed()
 
-        # 点击 Agent 卡片进入其内容/聊天页
-        card = self.page.locator("button.agent-sidebar-agent-card").filter(has_text=agent_name)
+        # 新版侧边栏 Agent 卡片类名为 button.agent-tree-card
+        card = self.page.locator("button.agent-tree-card").filter(has_text=agent_name)
         for _ in range(12):
             if card.count() > 0:
                 break
             self.page.wait_for_timeout(1000)
         if card.count() == 0:
             return
-        card.first.scroll_into_view_if_needed()
-        self.page.wait_for_timeout(300)
-        card.first.click()
-        self.page.wait_for_timeout(1500)
+
+        # 点击卡片会触发 POST /web/environments/{id}/enter 进入对话页。
+        # 1) 卡片右上角悬浮操作栏会拦截指针事件 → 必须 JS click。
+        # 2) 首次 enter 可能 500（实例冷启动竞争）→ 需重试直到 URL 变为 /chat/。
+        for _attempt in range(5):
+            if "/chat/" in self.page.url:
+                break
+            card = self.page.locator("button.agent-tree-card").filter(has_text=agent_name)
+            if card.count() == 0:
+                break
+            try:
+                card.first.scroll_into_view_if_needed()
+                card.first.evaluate("el => el.click()")
+            except Exception:
+                pass
+            for _ in range(10):
+                if "/chat/" in self.page.url:
+                    break
+                self.page.wait_for_timeout(600)
         if "/chat/" not in self.page.url:
-            card.first.evaluate("el => el.click()")
-            self.page.wait_for_timeout(2500)
+            return
+        try:
+            self.page.locator("textarea").first.wait_for(state="visible", timeout=15000)
+        except Exception:
+            pass
 
         # 展开 ArtifactsPanel 并激活「发布视图」Tab
         self._activate_prod_view()
@@ -131,7 +171,7 @@ class ViewsPage:
         shell = self._shell()
         other = shell.locator("button.artifacts-mode-tab").filter(has_text="文件")
         if other.count() > 0:
-            other.first.click()
+            other.first.evaluate("el => el.click()")
             self.page.wait_for_timeout(600)
         self._activate_prod_view()
 

@@ -1111,7 +1111,8 @@ def test_search_task(logged_in_page, base_url, request):
 @pytest.mark.order(815)
 @pytest.mark.p1
 def test_tasks_execution_history(logged_in_page, base_url):
-    """验证定时任务执行历史 — 展开任务详情查看执行记录或日志"""
+    """验证定时任务执行历史 — 新版 UI 无行内展开，
+    执行历史入口为行尾「更多操作」菜单 →「日志」，弹出执行日志对话框。"""
     tasks = TasksPage(logged_in_page, base_url)
     tasks.goto()
     assert tasks.is_loaded(), "定时任务页面未加载"
@@ -1121,52 +1122,38 @@ def test_tasks_execution_history(logged_in_page, base_url):
     if task_count == 0:
         pytest.skip("任务列表为空，无法验证执行历史")
 
-    # 点击第一个任务展开详情（尝试多种展开入口）
-    panel_body = logged_in_page.locator("div.agent-panel-body").first
-    rows = panel_body.locator("tr, [role='row'], div[class*='task-item'], div[class*='cursor-pointer']")
+    names = tasks.get_task_names()
+    assert names, "无法获取任务名称"
+    target = names[0]
 
-    expanded = False
-    if rows.count() > 0:
-        # 尝试点击第一行展开
-        rows.first.click()
-        logged_in_page.wait_for_timeout(1000)
-        expanded = True
+    # 打开行尾「更多操作」菜单 → 日志
+    tasks.open_row_menu(target)
+    menu = logged_in_page.locator('[role="menu"]')
+    assert menu.count() > 0, "三点菜单未弹出"
+    log_item = menu.locator('[role="menuitem"]').filter(has_text="日志")
+    assert log_item.count() > 0, "行菜单中无'日志'选项"
+    log_item.first.wait_for(state="visible", timeout=5000)
+    log_item.first.click()
+    logged_in_page.wait_for_timeout(1500)
+
+    # 验证「执行日志」对话框出现，且含执行记录/空态内容
+    dialog = logged_in_page.locator('[role="dialog"]')
+    assert dialog.count() > 0, "点击日志后未弹出执行日志对话框"
+    dialog_text = dialog.first.inner_text()
+    history_keywords = ["执行日志", "执行记录", "日志", "历史", "运行记录",
+                        "暂无", "成功", "失败"]
+    assert any(kw in dialog_text for kw in history_keywords), \
+        f"执行日志对话框无执行历史相关内容: {dialog_text[:150]!r}"
+
+    # 关闭对话框
+    close_btn = dialog.locator("button").filter(has_text="Close").or_(
+        dialog.locator("button").filter(has_text="关闭")
+    )
+    if close_btn.count() > 0:
+        close_btn.first.click()
     else:
-        # 尝试通过任务名称点击
-        task_names = panel_body.locator("td:first-child, div[class*='name'], span[class*='name']")
-        if task_names.count() > 0:
-            task_names.first.click()
-            logged_in_page.wait_for_timeout(1000)
-            expanded = True
-
-    if not expanded:
-        pytest.skip("无法找到任务展开入口")
-
-    # 验证展开区域有执行历史或日志相关信息
-    panel_text = panel_body.inner_text()
-    history_keywords = ["执行历史", "执行记录", "日志", "历史", "log", "history",
-                        "execution", "运行记录", "最近执行", "上次执行"]
-    has_history = any(kw in panel_text.lower() for kw in [k.lower() for k in history_keywords])
-
-    # 也检查是否有展开的子面板或详情区域
-    detail_panels = logged_in_page.locator(
-        "div[class*='detail'], div[class*='expand'], div[class*='history'], "
-        "div[class*='log'], section[class*='history'], section[class*='log']"
-    )
-    has_detail = detail_panels.count() > 0
-
-    # 检查是否有 "执行历史" 相关的 Tab 或链接
-    history_tabs = logged_in_page.get_by_role("tab", name="执行").or_(
-        logged_in_page.get_by_role("link", name="执行")
-    ).or_(
-        logged_in_page.get_by_role("tab", name="历史")
-    ).or_(
-        logged_in_page.get_by_role("tab", name="日志")
-    )
-    has_history_tab = history_tabs.count() > 0
-
-    assert has_history or has_detail or has_history_tab, \
-        "任务展开区域未找到执行历史、日志或详情信息"
+        logged_in_page.keyboard.press("Escape")
+    logged_in_page.wait_for_timeout(500)
 
 
 # ═══════════════════════════════════════════════════════

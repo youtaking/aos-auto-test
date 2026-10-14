@@ -272,7 +272,7 @@ def test_create_new_agent(logged_in_page, base_url, request):
 
     # 10. 等待左侧列表刷新，验证新建的 Agent 出现（用修改后的名称匹配）
     logged_in_page.wait_for_timeout(1000)
-    cards = logged_in_page.locator("button.agent-sidebar-agent-card")
+    cards = logged_in_page.locator("button.agent-tree-card")
     found = False
     for _ in range(10):
         for i in range(cards.count()):
@@ -514,7 +514,7 @@ def test_agent_023_system_prompt_effective(logged_in_page, base_url):
             except Exception:
                 pass
             logged_in_page.wait_for_load_state("domcontentloaded")
-            card = logged_in_page.locator("button.agent-sidebar-agent-card").filter(has_text=agent_name)
+            card = logged_in_page.locator("button.agent-tree-card").filter(has_text=agent_name)
             if card.count() > 0:
                 card.first.click()
                 logged_in_page.wait_for_load_state("networkidle")
@@ -1158,6 +1158,18 @@ def test_refresh_during_reply(logged_in_page, base_url):
         logged_in_page.wait_for_timeout(2000)
         _collapse_artifacts_panel(logged_in_page)
     ta_first.wait_for(state="visible", timeout=15000)
+    # 新建会话以保证隔离。chat_test_page.create_new_session 依赖 [role='log'] .chat-empty-state，
+    # 该选择器在部署版 UI 不存在（部署版空态为 [data-slot='chat-empty-state']），且 chat_test_page
+    # 归其它任务所有（不可改），故本用例内联实现：只点「新会话」，不依赖空态断言。
+    try:
+        new_btn = logged_in_page.locator(
+            "button[title='新会话']:visible, button.chat-composer-new-session:visible"
+        ).first
+        new_btn.wait_for(state="visible", timeout=8000)
+        new_btn.click()
+        logged_in_page.wait_for_timeout(1500)
+    except Exception as _e:
+        print(f"  [新会话] 新建会话入口不可用，沿用当前会话: {_e}")
 
     # 2. 记录刷新前的消息数量
     chat_url = logged_in_page.url
@@ -1219,7 +1231,12 @@ def test_refresh_during_reply(logged_in_page, base_url):
                 if ("重连中" not in log_text and "连接已断开" not in log_text
                         and sent_marker in log_text):
                     last_reply = ac.get_last_message()
-                    if len(last_reply) > 50 and "思考中" not in last_reply:
+                    # 停止按钮容器：新版部署为 .chat-composer-island，兼容旧 .chat-composer-card
+                    stop_button = logged_in_page.locator(
+                        ".chat-composer-card button:has(svg.lucide-square), "
+                        ".chat-composer-island button:has(svg.lucide-square)"
+                    )
+                    if len(last_reply) > 50 and stop_button.count() == 0:
                         reply_ok = True
                         break
             # 若出现"Agent 未连接"占位，点击其中的重连按钮
@@ -1244,6 +1261,7 @@ def test_refresh_during_reply(logged_in_page, base_url):
         _collapse_artifacts_panel(logged_in_page)
 
     # 7. 获取最后一条 AI 回复，检查是否完整（不被打断）
+    assert reply_ok, "刷新后未在等待时间内收到本次会话完整助手回复"
     # 先打印页面状态辅助调试
     log_area_debug = logged_in_page.locator("div[role='log']")
     if log_area_debug.count() > 0:

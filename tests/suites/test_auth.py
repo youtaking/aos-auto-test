@@ -356,11 +356,15 @@ def test_auth_008_token_expired_redirect(logged_in_page, base_url):
             page.goto(f"{base_url}/ctrl/agent/chat", wait_until="domcontentloaded")
         except Exception:
             pass  # SPA 路由可能中断初始导航
-        page.wait_for_timeout(800)
+
+        # 客户端 JS 校验 session 后才重定向，SPA 冷加载 + 异步 session 检查
+        # 需要数秒（实测 URL 会先停在 /chat 再 /chat/chat，最后才跳到 /login），
+        # 故轮询等待而非固定 timeout。
+        redirected = _wait_login_redirect(page, timeout_s=15)
 
         # 应自动跳转到登录页
-        assert "/ctrl/login" in page.url, \
-            "Token 过期后应自动跳转到登录页"
+        assert redirected, \
+            f"Token 过期后应自动跳转到登录页，实际 URL: {page.url}"
     finally:
         page.close()
         ctx.close()

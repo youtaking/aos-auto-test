@@ -83,11 +83,12 @@ def test_dashboard_recent_agents(logged_in_page, base_url):
     dashboard = DashboardPage(logged_in_page, base_url)
     dashboard.goto()
 
-    content = logged_in_page.locator("div.agent-panel-content")
-    assert content.count() > 0, "Dashboard 内容区域不存在"
+    content = logged_in_page.locator("main")
+    assert content.count() == 1, "Dashboard 主内容区应唯一"
 
     # 等待侧边栏 agent 卡片加载（API 异步）
-    sidebar_agents = logged_in_page.locator("button.agent-sidebar-agent-card")
+    # 新版 UI 侧边栏 Agent 卡片类名已由 agent-sidebar-agent-card 改为 agent-tree-card
+    sidebar_agents = logged_in_page.locator("button.agent-tree-card")
     for _w in range(10):
         if sidebar_agents.count() > 0:
             break

@@ -274,18 +274,17 @@ def test_create_new_session(logged_in_page, base_url):
         f"新建会话后页面中未显示当前 agent 名称 '{agent_name}'"
 
     # 7. 模型名称在输入框区域显示（不写死具体模型名，只验证非空）
-    composer_card = logged_in_page.locator("div.chat-composer-card")
-    assert composer_card.count() > 0, "输入框卡片（chat-composer-card）不存在"
-    # 模型名在 chat-composer-meta 区域，span[title] 包含模型名
-    composer_meta = composer_card.locator("div.chat-composer-meta")
-    assert composer_meta.count() > 0, "输入框 meta 区域（chat-composer-meta）不存在"
-    model_span = composer_meta.locator("span[title]")
+    #    新版 UI：composer 玻璃卡片为 .chat-composer-island（旧版 .chat-composer-card 已移除），
+    #    模型名在 [data-slot='chat-composer-model']（title 属性承载完整模型名）。
+    composer_card = logged_in_page.locator("div.chat-composer-island")
+    assert composer_card.count() > 0, "输入框卡片（chat-composer-island）不存在"
+    model_span = logged_in_page.locator("[data-slot='chat-composer-model']")
     # 模型名异步加载：CI 全量负载下点新会话后 meta 可能短暂空载，轮询等待而非裸 count()
     for _ in range(15):
         if model_span.count() > 0:
             break
         logged_in_page.wait_for_timeout(1000)
-    assert model_span.count() > 0, "未找到模型名称展示区域（span[title]）"
+    assert model_span.count() > 0, "未找到模型名称展示区域（data-slot=chat-composer-model）"
     model_title = model_span.first.get_attribute("title") or model_span.first.inner_text().strip()
     assert model_title.strip(), "模型名称为空"
 
@@ -461,86 +460,6 @@ def test_session_list_loads(logged_in_page, base_url):
     for title in titles:
         assert title.strip(), "存在空标题的会话"
 
-    chat.close_session_dialog()
-
-
-# === TC-CHAT-028: 会话搜索功能 ===
-
-@pytest.mark.order(60)
-@pytest.mark.p1
-def test_session_search(logged_in_page, base_url):
-    """✅ 人工评审通过 | 会话搜索功能（TC-CHAT-028）"""
-    chat = ChatTestPage(logged_in_page, base_url)
-    chat.goto_agent_chat("my-auto-test")
-    if not chat.is_on_chat_page():
-        pytest.skip("未能导航到 my-auto-test 聊天页（Agent 可能不在列表中或环境异常）")
-
-    chat.open_session_dialog()
-    # 增加重试等待会话列表加载
-    if not chat.is_session_dialog_open():
-        for _ in range(5):
-            logged_in_page.wait_for_timeout(1000)
-            if chat.is_session_dialog_open():
-                break
-    if not chat.is_session_dialog_open():
-        assert False, "【应用Bug】会话对话框未打开（侧边栏无会话数据或渲染异常）"
-
-    # 前置条件：新版会话面板若无会话搜索框，则该功能已从新版 UI 移除 → 整条合法跳过
-    if chat.get_session_search_box() is None:
-        chat.close_session_dialog()
-        pytest.skip("新版会话面板无会话搜索输入框（会话搜索功能已从新版 UI 移除），合法跳过")
-
-    # 1. 获取所有会话
-    all_titles = chat.get_session_titles()
-    if len(all_titles) < 2:
-        chat.close_session_dialog()
-        pytest.skip("需要至少 2 个会话才能测试搜索")
-
-    # 2. 找一个在所有标题中只出现一次的关键词
-    # 策略：用最长标题的前 6 字符（通常是独特的）
-    longest_title = max(all_titles, key=len)
-    keyword = longest_title[:6] if len(longest_title) >= 6 else longest_title
-    # 计算关键词出现在多少个标题中
-    matching_count = sum(1 for t in all_titles if keyword.lower() in t.lower())
-    if matching_count == len(all_titles):
-        # 所有标题都包含此关键词（极端情况），用完整标题
-        keyword = longest_title
-        matching_count = sum(1 for t in all_titles if keyword.lower() in t.lower())
-    if matching_count >= len(all_titles):
-        chat.close_session_dialog()
-        pytest.skip(f"无法找到独特关键词（'{keyword}' 匹配所有 {len(all_titles)} 个标题）")
-
-    chat.search_sessions(keyword)
-
-    # 3. 验证搜索输入框可交互（前置已保证存在会话搜索框，此处重新定位确保非 None）
-    search_box = chat.get_session_search_box()
-    assert search_box is not None, "会话搜索框不存在"
-    search_val = search_box.input_value()
-    assert keyword in search_val, \
-        f"搜索输入框内容异常: 期望包含 '{keyword}'，实际 '{search_val}'"
-
-    # 4. 搜索不存在的关键词 — 验证输入框可更换内容
-    chat.search_sessions("zzz_不存在_zzz_99999")
-    search_val_2 = search_box.input_value()
-    assert "zzz_不存在" in search_val_2, \
-        f"搜索输入框无法更换内容: '{search_val_2}'"
-
-    # 5. 检查搜索后是否有视觉过滤效果（仅记录，不作为断言）
-    filtered = chat.get_filtered_session_titles()
-    if len(filtered) < len(all_titles):
-        allure.attach(
-            f"搜索 '{keyword}' 后过滤生效: {len(filtered)}/{len(all_titles)}",
-            name="搜索过滤效果", attachment_type=allure.attachment_type.TEXT
-        )
-    else:
-        allure.attach(
-            f"搜索后 DOM 未过滤（{len(filtered)} 条不变），"
-            f"可能是视觉过滤或搜索功能未生效",
-            name="备注", attachment_type=allure.attachment_type.TEXT
-        )
-
-    # 清理
-    chat.search_sessions("")
     chat.close_session_dialog()
 
 

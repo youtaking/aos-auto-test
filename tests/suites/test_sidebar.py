@@ -50,9 +50,12 @@ def test_workflow_page_loads(logged_in_page, base_url):
 @pytest.mark.order(19)
 @pytest.mark.p1
 def test_workflow_has_create_button(logged_in_page, base_url):
-    """智能体编排页面有新建工作流按钮（可见+可点击）| ✅ 人工评审通过 |"""
+    """智能体编排页面有新建工作流按钮（可见+可点击）| ✅ 人工评审通过 |
+    前置：工作流空间已初始化且平台工作流账号可用，否则按钮被禁用无法校验。"""
     page = WorkflowPage(logged_in_page, base_url)
     page.goto()
+    if page.is_space_blocked():
+        pytest.skip("工作流空间未初始化 / 平台工作流账号不可用(503)，新建按钮被禁用，无法校验")
     assert page.has_create_button(), "智能体编排页面没有「新建工作流」按钮或按钮不可见/不可点击"
 
 
@@ -114,8 +117,11 @@ def test_workflow_create_and_return(logged_in_page, base_url):
 
     # ── Step 2: 点击新建工作流 → 弹窗填写 → 创建 ──
     create_btn_locator = logged_in_page.get_by_role("button", name="新建工作流")
-    if create_btn_locator.count() == 0:
-        pytest.skip("新建工作流按钮不存在（工作流模块可能未完全启用）")
+    if create_btn_locator.count() == 0 or not create_btn_locator.first.is_enabled():
+        pytest.skip(
+            "新建工作流按钮不存在或被禁用"
+            "（工作流空间未初始化 / 平台工作流账号不可用(503)）"
+        )
     create_btn_locator.first.wait_for(state="visible", timeout=5000)
     create_btn_locator.first.click()
     logged_in_page.wait_for_timeout(1500)
@@ -123,13 +129,16 @@ def test_workflow_create_and_return(logged_in_page, base_url):
     dialog = logged_in_page.locator("[role='dialog']")
     assert dialog.count() > 0, "新建工作流对话框未弹出"
 
-    logged_in_page.locator("#wf-name").wait_for(state="visible", timeout=5000)
-    logged_in_page.locator("#wf-name").fill(wf_name)
-    logged_in_page.locator("#wf-desc").wait_for(state="visible", timeout=5000)
-    logged_in_page.locator("#wf-desc").fill("自动化测试创建的工作流")
+    # 新版输入框 id：workflow-create-name / workflow-create-desc
+    logged_in_page.locator("#workflow-create-name").wait_for(state="visible", timeout=5000)
+    logged_in_page.locator("#workflow-create-name").fill(wf_name)
+    logged_in_page.locator("#workflow-create-desc").wait_for(state="visible", timeout=5000)
+    logged_in_page.locator("#workflow-create-desc").fill("自动化测试创建的工作流")
 
-    # 等待 React state 更新 → "创建并编辑"按钮变为可用
-    create_btn = dialog.locator("button").filter(has_text="创建并编辑")
+    # 等待 React state 更新 → "创建并打开"按钮变为可用（旧版为"创建并编辑"）
+    create_btn = dialog.locator("button").filter(has_text="创建并打开")
+    if create_btn.count() == 0:
+        create_btn = dialog.locator("button").filter(has_text="创建并编辑")
     try:
         create_btn.first.wait_for(state="visible", timeout=3000)
         # 等按钮 enabled（fill 后 React 异步更新 createName state）
@@ -137,7 +146,8 @@ def test_workflow_create_and_return(logged_in_page, base_url):
             """() => {
                 const btns = document.querySelectorAll('[role="dialog"] button');
                 for (const b of btns) {
-                    if (b.textContent.includes('创建并编辑') && !b.disabled) return true;
+                    const t = b.textContent || '';
+                    if ((t.includes('创建并打开') || t.includes('创建并编辑')) && !b.disabled) return true;
                 }
                 return false;
             }""",

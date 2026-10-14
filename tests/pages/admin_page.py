@@ -190,27 +190,30 @@ class AdminPage:
         except Exception:
             return False
 
-    def get_log_files(self) -> list:
-        """获取日志文件列表（文件按钮为异步加载，先等待首个 .log 按钮出现）"""
+    def get_log_sources(self) -> list:
+        """获取日志源列表（异步加载）
+
+        实测 2026-10-14 新版 AdminLogsPage：日志源不再以 `rcs.*.log` 文件名按钮呈现，
+        改为「日期 + 类型徽标」按钮 —— `<button>2026-10-14 <Badge>应用日志|错误日志</Badge></button>`，
+        可访问名称为「2026-10-14 应用日志」。返回 [{date, kind, text}]，按 DOM 顺序。
+        """
         main = self.page.locator("main")
         if main.count() == 0:
             return []
         try:
-            main.locator("button", has_text=".log").first.wait_for(
+            main.locator("button", has_text=re.compile("应用日志|错误日志")).first.wait_for(
                 state="visible", timeout=8000
             )
         except Exception:
             pass
         buttons = main.get_by_role("button")
-        files = []
+        sources = []
         for i in range(buttons.count()):
             text = buttons.nth(i).inner_text().strip()
-            if text.endswith(".log") or "ERROR" in text:
-                # 去掉 "ERROR" 后缀
-                name = text.replace("ERROR", "").strip()
-                if name:
-                    files.append(name)
-        return files
+            m = re.match(r"^(\d{4}-\d{2}-\d{2})\s*(应用日志|错误日志)$", text)
+            if m:
+                sources.append({"date": m.group(1), "kind": m.group(2), "text": text})
+        return sources
 
     def get_log_search_input(self):
         return self.page.locator("input[placeholder*='关键字']")
@@ -218,6 +221,31 @@ class AdminPage:
     def has_log_search_input(self) -> bool:
         inp = self.get_log_search_input()
         return inp.count() > 0 and inp.first.is_visible()
+
+    def get_log_error_only_checkbox(self):
+        return self.page.locator("main").get_by_role("checkbox", name="仅显示 error 行")
+
+    def has_log_error_only_checkbox(self) -> bool:
+        box = self.get_log_error_only_checkbox()
+        try:
+            box.first.wait_for(state="visible", timeout=5000)
+            return True
+        except Exception:
+            return False
+
+    def has_log_search_button(self) -> bool:
+        """搜索卡片内的「搜索」按钮（限定 main，避免命中其他区域）"""
+        btn = self.page.locator("main").get_by_role("button", name="搜索", exact=True)
+        try:
+            btn.first.wait_for(state="visible", timeout=5000)
+            return True
+        except Exception:
+            return False
+
+    def get_log_result_alert(self) -> str:
+        """搜索结果区的错误提示文本（如日志源超限 413），无错误时返回空串"""
+        alert = self.page.locator("main").locator("[role=alert]")
+        return alert.first.inner_text().strip() if alert.count() > 0 else ""
 
     # ── 沙盒管理 ──
 
@@ -231,18 +259,18 @@ class AdminPage:
             return False
 
     def get_sandbox_tabs(self) -> list:
-        """沙盒管理页双 Tab 按钮文本（沙盒管理 / Cluster 管理）"""
-        buttons = self.page.locator("main").get_by_role("button")
-        tabs = []
-        for i in range(buttons.count()):
-            text = buttons.nth(i).inner_text().strip()
-            if text in ("沙盒管理", "Cluster 管理"):
-                tabs.append(text)
-        return tabs
+        """沙盒管理页双 Tab 按钮文本（沙盒管理 / Cluster 管理）
+
+        实测：新 UI 的 Tab 为 Radix Tabs，容器 role=tablist，子项 role=tab，
+        并非 role=button。用 get_by_role("button") 会漏掉全部 Tab（命中 0 个）。
+        """
+        tabs_el = self.page.locator("main").get_by_role("tab")
+        return [tabs_el.nth(i).inner_text().strip() for i in range(tabs_el.count())]
 
     def click_sandbox_tab(self, name: str):
-        """切换到指定沙盒 Tab"""
-        self.page.locator("main").get_by_role("button", name=name).click()
+        """切换到指定沙盒 Tab（role=tab，非 button）"""
+        self.page.locator("main").get_by_role("tab", name=name).click()
+        self.page.wait_for_timeout(1500)
 
     def has_sandbox_create_pool_button(self) -> bool:
         btn = self.page.locator("main").get_by_role("button", name="新建资源池")
