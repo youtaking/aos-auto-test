@@ -51,11 +51,14 @@ def _open_bound_site_panel(page, base_url):
     expect(page.locator("textarea").first).to_be_visible()
     panel = page.locator("aside.artifacts-shell")
     expect(panel).to_have_count(1)
-    if "is-collapsed" in (panel.get_attribute("class") or "").split():
+    # 折叠态标记：新版 UI 把原 CSS 类 `.is-collapsed { display:none }` 改为 `hidden` 工具类
+    # （见 apps/web/src/pages/agent-panel/chat-workspace-artifacts.tsx），折叠时面板整体不可见、
+    # 内部 [role=tab] 退出无障碍树，故必须先展开再定位页签。
+    if "hidden" in (panel.get_attribute("class") or "").split():
         opener = page.locator("button.artifacts-open-button")
         expect(opener).to_have_count(1)
         opener.click()
-    expect(panel).not_to_have_class(re.compile(r"\bis-collapsed\b"))
+    expect(panel).not_to_have_class(re.compile(r"\bhidden\b"))
     sites = panel.get_by_role("tab", name="站点", exact=True)
     expect(sites).to_have_count(1)
     sites.click()
@@ -265,12 +268,12 @@ def test_chat_artifacts_panel_collapse_expand(logged_in_page, base_url):
     close = panel.get_by_role("button", name="关闭右侧工作区", exact=True)
     expect(close).to_have_count(1)
     close.click()
-    expect(panel).to_have_class(re.compile(r"\bis-collapsed\b"))
+    expect(panel).to_have_class(re.compile(r"\bhidden\b"))
     opener = logged_in_page.locator("button.artifacts-open-button")
     expect(opener).to_have_count(1)
     expect(opener).to_be_visible()
     opener.click()
-    expect(panel).not_to_have_class(re.compile(r"\bis-collapsed\b"))
+    expect(panel).not_to_have_class(re.compile(r"\bhidden\b"))
     expect(panel.get_by_role("tab", name="站点", exact=True)).to_have_attribute(
         "aria-selected", "true"
     )

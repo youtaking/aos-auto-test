@@ -256,23 +256,31 @@ def test_model_display_consistency(logged_in_page, base_url):
 @pytest.mark.order(75)
 @pytest.mark.p1
 def test_slash_command(logged_in_page, base_url):
-    """TC-CHAT-GAP-006: Slash 命令触发候选列表"""
+    """TC-CHAT-GAP-006: Slash 命令触发候选列表
+
+    说明：slash 面板只在 Agent 公布了可用命令（commands.length>0）时才打开。
+    my-auto-test 未绑定任何技能/命令（技能徽标仅来自 1 个 MCP），故本用例改用
+    已公布内置命令的「智能通用助手」（compact/goal/loop…）。
+    """
     chat = ChatTestPage(logged_in_page, base_url)
-    chat.goto_agent_chat("my-auto-test")
+    chat.goto_agent_chat("智能通用助手")
     if not chat.is_on_chat_page():
-        pytest.skip("未能导航到 my-auto-test 聊天页")
+        pytest.skip("未能导航到「智能通用助手」聊天页（Agent 未配置）")
     chat.create_new_session()
 
     # 输入 / 触发命令候选
     chat.type_slash_command()
 
-    # 断言候选列表出现（实测 DOM: div.chat-command-menu + span.chat-command-menu-name）
+    # 断言候选列表出现（实测 DOM: div.chat-command-surface + button.chat-command-row）
     assert chat.is_command_menu_visible(), \
-        "输入 / 后未出现命令候选菜单面板（div.chat-command-menu）"
+        "输入 / 后未出现命令候选面板（div.chat-command-surface）"
     items = chat.get_command_menu_items()
-    assert len(items) > 0, "命令候选菜单面板内无任何候选项（span.chat-command-menu-name）"
-    assert items[0].startswith("/"), \
-        f"命令候选首项应以 / 开头，实际: {items[0]!r}（全部候选项: {items[:5]}）"
+    assert len(items) > 0, "命令候选面板内无任何候选项（button.chat-command-row）"
+    # 新版 UI：行首 / 前缀已由 Sparkles 图标替代，候选项为裸命令名
+    assert not items[0].startswith("/"), \
+        f"新版命令候选项不应带 / 前缀，实际: {items[0]!r}"
+    assert "compact" in items, \
+        f"「智能通用助手」应公布内置 compact 命令，实际候选项: {items[:10]}"
 
     # 按 Escape 关闭
     logged_in_page.keyboard.press("Escape")
@@ -324,11 +332,14 @@ def test_skill_button_toolbar(logged_in_page, base_url):
     # 点击 composer 工具栏「技能」按钮（页面级重名按钮已有唯一性断言保护）
     chat.click_skill_button()
 
-    # 断言命令菜单面板出现（实测为内嵌面板 div.chat-command-menu，非弹层）
+    # 断言命令菜单面板出现（实测为内嵌面板 div.chat-command-surface，非弹层）
     assert chat.is_command_menu_visible(), \
-        "点击「技能」后未出现命令菜单面板（div.chat-command-menu）"
+        "点击「技能」后未出现命令菜单面板（div.chat-command-surface）"
+    # 工具栏模式标志：面板内含搜索输入框（slash 模式无）
+    assert chat.command_menu_has_search_input(), \
+        "「技能」工具栏面板应含搜索输入框（工具栏模式），实际未找到 input[type=text]"
     items = chat.get_command_menu_items()
-    assert len(items) > 0, "命令菜单面板内无任何候选项（span.chat-command-menu-name）"
+    assert len(items) > 0, "命令菜单面板内无任何候选项（button.chat-command-row）"
 
     # 按 Escape 关闭
     logged_in_page.keyboard.press("Escape")

@@ -1097,21 +1097,45 @@ class ChatTestPage:
         return self.page.locator(".chat-composer-island")
 
     def _command_menu(self):
-        """命令菜单面板（输入 / 或点击「技能」触发）
+        """命令/技能菜单面板（输入 / 或点击「技能」触发）
 
-        实测 DOM: div.chat-command-menu.chat-command-menu--panel，
-        内含搜索框 + button.chat-command-menu-item > span.chat-command-menu-name（/compact、/goal…）。
+        实测（2026-10 新版 UI）DOM：div.chat-command-surface（面板形态追加
+        chat-command-surface--panel，输入岛内为内嵌面板），候选项为
+        button.chat-command-row（图标 svg + 名称 span + 描述 span）。
+        旧语义类 div.chat-command-menu / span.chat-command-menu-name 已随改版删除。
+        名称不再带 / 前缀（行首 / 由 Sparkles 图标替代）。
         该菜单是内嵌面板，不产生 [role=dialog] 或遮罩层。
         """
-        return self.page.locator("div.chat-command-menu")
+        return self.page.locator("div.chat-command-surface")
 
     def get_command_menu_items(self) -> list:
-        """命令菜单候选项名称列表（如 ['/compact', '/goal', ...]），未打开时返回 []"""
+        """命令菜单候选项名称列表（无 / 前缀，如 ['compact', 'goal', ...]），未打开时返回 []
+
+        实测：每条候选项为 button.chat-command-row，其第一个 <span> 为名称、第二个为描述；
+        Agent 绑定的 MCP 项同属 .chat-command-row（图标为 Plug），本方法一并返回。
+        """
         menu = self._command_menu()
         if menu.count() == 0:
             return []
-        names = menu.first.locator(".chat-command-menu-name")
-        return [names.nth(i).inner_text().strip() for i in range(names.count())]
+        rows = menu.first.locator("button.chat-command-row")
+        names = []
+        for i in range(rows.count()):
+            spans = rows.nth(i).locator("span")
+            if spans.count() > 0:
+                names.append(spans.first.inner_text().strip())
+        return names
+
+    def command_menu_has_search_input(self) -> bool:
+        """菜单面板是否为工具栏模式（含搜索输入框）
+
+        实测（2026-10 新版 UI）：点击「技能」工具栏按钮 → showSearch=true（面板顶部有
+        搜索输入框，命令行上方有「Skills」分组标题）；输入 / → slash 模式（无搜索框，
+        焦点留在 textarea）。据此可精确区分两种触发方式的面板形态。
+        """
+        menu = self._command_menu()
+        if menu.count() == 0:
+            return False
+        return menu.first.locator("input[type='text']").count() > 0
 
     def is_command_menu_visible(self) -> bool:
         """命令菜单是否可见（条件等待，不消耗固定延迟）"""
@@ -1124,16 +1148,29 @@ class ChatTestPage:
         except Exception:
             return False
 
-    def type_slash_command(self) -> bool:
-        """在输入框输入 / 触发命令候选列表，并条件等待菜单出现"""
+    def type_slash_command(self, timeout_ms: int = 9000) -> bool:
+        """在输入框输入 / 触发命令候选列表，并条件等待菜单出现
+
+        仅当 Agent 公布了可用命令（commands.length>0）时 slash 面板才会打开——
+        未绑定任何技能/命令的 Agent 输入 / 不会弹出面板，故此处重试以覆盖
+        session/new 后 available_commands_update 异步到达的竞态。
+        """
         textarea = self.page.locator("textarea").first
         textarea.wait_for(state="visible", timeout=10000)
         textarea.click()
         textarea.fill("")
-        textarea.press_sequentially("/", delay=50)
-        if not self.is_command_menu_visible():
-            self.page.wait_for_timeout(800)
-        return True
+        per_try = max(timeout_ms // 3, 1000)
+        for _ in range(3):
+            textarea.press_sequentially("/", delay=50)
+            try:
+                self.page.locator("div.chat-command-surface").first.wait_for(
+                    state="visible", timeout=per_try
+                )
+                return True
+            except Exception:
+                textarea.fill("")
+                self.page.wait_for_timeout(500)
+        return False
 
     def has_slash_popup(self) -> bool:
         """是否有 Slash 命令候选列表弹出（实测为内嵌命令菜单面板）"""
