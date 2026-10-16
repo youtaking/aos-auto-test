@@ -5,11 +5,13 @@ import { describe, expect, test, mock, beforeEach } from "bun:test";
 let mockEnsureSystemAdmin: ReturnType<typeof mock>;
 let mockSyncSkills: ReturnType<typeof mock>;
 
-mock.module("@fenix/services/system-admin", () => ({
+// 新版源码的依赖入口（apps/server/src/services/sync-builtin.ts 顶部静态导入）：
+// ensureSystemAdmin 来自 @fenix/identity/server，builtin skill 同步来自 @fenix/agent-config/server。
+mock.module("@fenix/identity/server", () => ({
   ensureSystemAdmin: mockEnsureSystemAdmin,
 }));
 
-mock.module("@fenix/services/meta-agent", () => ({
+mock.module("@fenix/agent-config/server", () => ({
   syncBuiltinSkillsToSystemAdmin: mockSyncSkills,
 }));
 

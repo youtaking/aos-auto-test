@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { MachineConnectionTimeoutError } from "@fenix/services/machine-connection-waiter";
-import { SandboxExecutionHandler } from "@fenix/services/sandbox/sandbox-execution-handler";
-import { resetAllStubs } from "@fenix/test-utils/helpers";
+import { resetAllStubs } from "@fenix/platform-sdk/testing";
+import { MachineConnectionTimeoutError } from "@src/resource-machine/server/services/machine-connection-waiter";
+import { SandboxExecutionHandler } from "@src/resource-sandbox/server/services/sandbox-execution-handler";
 
 afterEach(() => {
   resetAllStubs();

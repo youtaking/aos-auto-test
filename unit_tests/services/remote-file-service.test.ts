@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { selectRemoteMachineId } from "@fenix/services/remote-file-service";
+import { selectRemoteMachineId } from "@src/resource-machine/server/services/remote-file-service";
 
 describe("remote file machine resolution", () => {
   // 显式 Sandbox AgentNode 必须使用 sandbox_instance 绑定的 Machine ID。

@@ -3,7 +3,7 @@ import {
   normalizeChineseMainlandPhoneNumber,
   buildPhoneTempEmail,
   isEmailIdentifier,
-} from "@fenix/services/phone-number";
+} from "@src/identity/services/phone-number";
 
 describe("phone-number", () => {
   test("归一化带 +86 前缀的手机号", () => {

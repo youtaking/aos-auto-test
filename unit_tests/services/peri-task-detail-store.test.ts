@@ -8,7 +8,7 @@
 
 import { describe, expect, test, beforeEach, mock } from "bun:test";
 
-import { createPeriTaskDetailStore } from "@fenix/services/peri-task-detail-store";
+import { createPeriTaskDetailStore } from "@src/model-management/services/peri-task-detail-store";
 
 // ── Y.Doc 替身（最小接口，让真实 getPeriTasksMap 走通） ──
 

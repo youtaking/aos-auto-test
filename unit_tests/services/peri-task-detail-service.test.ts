@@ -20,7 +20,7 @@ class NotFoundError extends Error {
   }
 }
 
-mock.module("@fenix/errors", () => ({
+mock.module("@fenix/platform-sdk", () => ({
   NotFoundError,
 }));
 
@@ -63,7 +63,7 @@ function truncateByUtf8Bytes(value: string, byteLimit: number): string {
 
 // ── 导入被测函数 ──
 
-import { getPeriTaskDetail } from "@fenix/services/peri-task-detail-service";
+import { getPeriTaskDetail } from "@src/model-management/services/peri-task-detail-service";
 
 // ── 测试辅助 ──
 

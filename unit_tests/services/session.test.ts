@@ -1,18 +1,23 @@
 // session.test.ts — EventBus 会话状态管理测试
 // 测试目标：updateSessionStatus / archiveSession / getSession / resolveExistingSessionId
 // 业务意图：验证 RCS 侧 SSE/EventBus 的最小会话接口正确性
-// 方法：使用 session.ts 自带的 DI 注入点（_setEventService / _setUuid）避免 mock.module 路径歧义
+// 方法：session 事件总线已下沉为宿主绑定的端口（session-event-bus-port），
+// 测试用 bindSessionEventBusPort 注入替身总线，uuid 仍走 _setUuid 注入点，
+// 避免 mock.module 的路径歧义。
 
-import { describe, expect, test, beforeEach, mock } from "bun:test";
+import { describe, expect, test, beforeEach, afterEach, mock } from "bun:test";
 
 import {
   updateSessionStatus,
   archiveSession,
   getSession,
   resolveExistingSessionId,
-  _setEventService,
   _setUuid,
-} from "@fenix/services/session";
+} from "@src/agent-runtime/services/session";
+import {
+  bindSessionEventBusPort,
+  resetSessionEventBusPort,
+} from "@src/agent-runtime/server/services/session-event-bus-port";
 
 // ── 测试替身 ──
 
@@ -38,10 +43,15 @@ describe("session 管理", () => {
     });
 
     _setUuid(fakeUuid);
-    _setEventService({
+    bindSessionEventBusPort({
       getAllBuses: () => mockBuses,
       removeBus: mockRemoveBus,
     } as any);
+  });
+
+  afterEach(() => {
+    // 端口是模块级单例，解除绑定避免泄漏到下一条用例（含其他文件）。
+    resetSessionEventBusPort();
   });
 
   // ── updateSessionStatus ──

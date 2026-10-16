@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { EnvironmentStartupLock } from "@fenix/services/environment-startup-lock";
+import { EnvironmentStartupLock } from "@src/agent-runtime/services/environment-startup-lock";
 
 describe("environment startup lock", () => {
   // 同一环境的并发启动请求只能执行一次，并共享启动结果。

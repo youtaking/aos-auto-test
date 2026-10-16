@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { waitForMachineConnection } from "@fenix/services/machine-connection-waiter";
+import { waitForMachineConnection } from "@src/resource-machine/server/services/machine-connection-waiter";
 
 // 已存在的沙盒应先立即查询 Machine 状态，在线时不进入轮询等待。
 test("resolves immediately when the machine is already online", async () => {

@@ -4,9 +4,13 @@
 //
 // 采用 active-stub + Proxy 模式：prodViewRepo 通过 Proxy 实时转发到当前测试的
 // stub 对象，避免 Bun mock.restore() 不清理 call count 导致的跨测试污染。
+//
+// 外部依赖注入方式（新版）：createWebEnvironment / findOrCreateDefaultInstance 已改为
+// 服务自带的「端口」，统一经 setProdViewDeps() 注入，不再需要 mock.module 覆盖
+// @fenix/services/environment。
 
 import { describe, expect, test, mock, beforeEach, afterEach } from "bun:test";
-import { CreateProdViewSchema } from "@fenix/schemas/prod-view.schema";
+import { CreateProdViewSchema } from "@src/resource-prod-view/server/schemas/prod-view.schema";
 
 // ── Active stub 注册表 ──
 
@@ -47,7 +51,7 @@ const repoProxy = new Proxy({} as RepoMock, {
   get: (_t, prop) => (activeRepo as any)[prop as string],
 });
 
-mock.module("@fenix/repositories/prod-view", () => {
+mock.module("@src/resource-prod-view/server/repositories/prod-view", () => {
   const obj: Record<string, unknown> = {};
   Object.defineProperty(obj, "prodViewRepo", {
     enumerable: true,
@@ -57,11 +61,6 @@ mock.module("@fenix/repositories/prod-view", () => {
   return obj;
 });
 
-mock.module("@fenix/services/environment", () => ({
-  // ESM 导出在导入时求值，必须保留稳定函数，在调用时取当前 stub。
-  createWebEnvironment: (input: unknown) => activeEnv.createWebEnvironment(input),
-}));
-
 import {
   createProdView,
   getProdView,
@@ -70,9 +69,12 @@ import {
   deleteProdView,
   loadProdView,
   setProdViewDeps,
-} from "@fenix/services/prod-view";
+} from "@src/resource-prod-view/server/services/prod-view";
 
-const ctx = { organizationId: "org-1", userId: "user-1", role: "owner" as const };
+// 新版领域服务不认识 actor：组织范围与访问者由调用方（Facade）以显式位置参数给出，
+// 不再接收 { organizationId, userId, role } 上下文对象。
+const ORG_ID = "org-1";
+const USER_ID = "user-1";
 
 const sampleRow = {
   id: "pv-1",
@@ -91,7 +93,11 @@ describe("prod-view 服务", () => {
     activeRepo = freshRepo();
     activeEnv = freshEnv();
     findInstance.mockClear();
-    setProdViewDeps({ findOrCreateDefaultInstance: findInstance });
+    setProdViewDeps({
+      // ESM 导出在导入时求值，必须保留稳定函数，在调用时取当前 stub。
+      createWebEnvironment: (input: any) => activeEnv.createWebEnvironment(input),
+      findOrCreateDefaultInstance: findInstance,
+    });
   });
   afterEach(() => setProdViewDeps(null));
 
@@ -100,7 +106,7 @@ describe("prod-view 服务", () => {
   describe("createProdView", () => {
     test("正常创建返回 success + 数据", async () => {
       const input = { name: "New View", description: "desc", agentId: "agent-1", modulesConfig: {} };
-      const result = await createProdView(ctx, input);
+      const result = await createProdView(ORG_ID, USER_ID, input);
       expect(result.success).toBe(true);
       if (result.success) {
         expect(result.data).toEqual(
@@ -115,7 +121,7 @@ describe("prod-view 服务", () => {
 
     test("repo.create 接收 organizationId 和 createdBy 等字段", async () => {
       const input = { name: "V", description: "d", agentId: "a", modulesConfig: {} };
-      await createProdView(ctx, input);
+      await createProdView(ORG_ID, USER_ID, input);
       expect(activeRepo.create).toHaveBeenCalledWith(
         expect.objectContaining({
           organizationId: "org-1",
@@ -131,7 +137,7 @@ describe("prod-view 服务", () => {
   describe("getProdView", () => {
     test("存在时返回 success + 数据", async () => {
       activeRepo.getById.mockImplementation(async () => sampleRow);
-      const result = await getProdView(ctx, "pv-1");
+      const result = await getProdView(ORG_ID, "pv-1");
       expect(result.success).toBe(true);
       if (result.success) {
         expect(result.data).toEqual(sampleRow);
@@ -140,7 +146,7 @@ describe("prod-view 服务", () => {
 
     test("不存在时返回 NOT_FOUND", async () => {
       activeRepo.getById.mockImplementation(async () => null);
-      const result = await getProdView(ctx, "pv-missing");
+      const result = await getProdView(ORG_ID, "pv-missing");
       expect(result.success).toBe(false);
       if (!result.success) {
         expect(result.error.code).toBe("NOT_FOUND");
@@ -150,7 +156,7 @@ describe("prod-view 服务", () => {
 
     test("repo.getById 使用正确的 orgId + id", async () => {
       activeRepo.getById.mockImplementation(async () => sampleRow);
-      await getProdView(ctx, "pv-1");
+      await getProdView(ORG_ID, "pv-1");
       expect(activeRepo.getById).toHaveBeenCalledWith("org-1", "pv-1");
     });
   });
@@ -160,7 +166,7 @@ describe("prod-view 服务", () => {
   describe("listProdViews", () => {
     test("无过滤器返回空列表", async () => {
       activeRepo.listByOrg.mockImplementation(async () => []);
-      const result = await listProdViews(ctx);
+      const result = await listProdViews(ORG_ID);
       expect(result.success).toBe(true);
       if (result.success) {
         expect(result.data).toEqual([]);
@@ -170,7 +176,7 @@ describe("prod-view 服务", () => {
     test("返回 repo 结果列表", async () => {
       const rows = [sampleRow, { ...sampleRow, id: "pv-2" }];
       activeRepo.listByOrg.mockImplementation(async () => rows);
-      const result = await listProdViews(ctx);
+      const result = await listProdViews(ORG_ID);
       if (result.success) {
         expect(result.data).toHaveLength(2);
         expect(result.data[0].id).toBe("pv-1");
@@ -180,19 +186,19 @@ describe("prod-view 服务", () => {
 
     test("按 agentId 过滤", async () => {
       activeRepo.listByOrg.mockImplementation(async () => [sampleRow]);
-      await listProdViews(ctx, { agentId: "agent-config-1" });
+      await listProdViews(ORG_ID, { agentId: "agent-config-1" });
       expect(activeRepo.listByOrg).toHaveBeenCalledWith("org-1", { agentId: "agent-config-1" });
     });
 
     test("按 enabled 过滤", async () => {
       activeRepo.listByOrg.mockImplementation(async () => [sampleRow]);
-      await listProdViews(ctx, { enabled: true });
+      await listProdViews(ORG_ID, { enabled: true });
       expect(activeRepo.listByOrg).toHaveBeenCalledWith("org-1", { enabled: true });
     });
 
     test("同时按 agentId + enabled 过滤", async () => {
       activeRepo.listByOrg.mockImplementation(async () => []);
-      await listProdViews(ctx, { agentId: "a", enabled: false });
+      await listProdViews(ORG_ID, { agentId: "a", enabled: false });
       expect(activeRepo.listByOrg).toHaveBeenCalledWith("org-1", { agentId: "a", enabled: false });
     });
   });
@@ -204,7 +210,7 @@ describe("prod-view 服务", () => {
       activeRepo.getById.mockImplementation(async () => sampleRow);
       activeRepo.update.mockImplementation(async () => ({ ...sampleRow, name: "Updated" }));
 
-      const result = await updateProdView(ctx, "pv-1", {
+      const result = await updateProdView(ORG_ID, "pv-1", {
         name: "Updated",
         description: "new desc",
         modulesConfig: { chat: false },
@@ -219,7 +225,7 @@ describe("prod-view 服务", () => {
     test("repo.update 接收正确的更新字段", async () => {
       activeRepo.getById.mockImplementation(async () => sampleRow);
       const input = { name: "X", description: "Y", modulesConfig: {}, enabled: true };
-      await updateProdView(ctx, "pv-1", input);
+      await updateProdView(ORG_ID, "pv-1", input);
 
       expect(activeRepo.update).toHaveBeenCalledWith("org-1", "pv-1", {
         name: "X",
@@ -231,7 +237,7 @@ describe("prod-view 服务", () => {
 
     test("不存在时返回 NOT_FOUND", async () => {
       activeRepo.getById.mockImplementation(async () => null);
-      const result = await updateProdView(ctx, "pv-missing", {
+      const result = await updateProdView(ORG_ID, "pv-missing", {
         name: "X",
         description: "Y",
         modulesConfig: {},
@@ -245,7 +251,7 @@ describe("prod-view 服务", () => {
 
     test("不存在时不调用 repo.update", async () => {
       activeRepo.getById.mockImplementation(async () => null);
-      await updateProdView(ctx, "pv-missing", {
+      await updateProdView(ORG_ID, "pv-missing", {
         name: "X",
         description: "Y",
         modulesConfig: {},
@@ -262,7 +268,7 @@ describe("prod-view 服务", () => {
       activeRepo.getById.mockImplementation(async () => sampleRow);
       activeRepo.delete.mockImplementation(async () => true);
 
-      const result = await deleteProdView(ctx, "pv-1");
+      const result = await deleteProdView(ORG_ID, "pv-1");
       expect(result.success).toBe(true);
       if (result.success) {
         expect(result.data).toEqual({ ok: true });
@@ -271,7 +277,7 @@ describe("prod-view 服务", () => {
 
     test("不存在时返回 NOT_FOUND 且不调用 delete", async () => {
       activeRepo.getById.mockImplementation(async () => null);
-      const result = await deleteProdView(ctx, "pv-missing");
+      const result = await deleteProdView(ORG_ID, "pv-missing");
       expect(result.success).toBe(false);
       if (!result.success) {
         expect(result.error.code).toBe("NOT_FOUND");
@@ -283,7 +289,7 @@ describe("prod-view 服务", () => {
       activeRepo.getById.mockImplementation(async () => sampleRow);
       activeRepo.delete.mockImplementation(async () => false);
 
-      const result = await deleteProdView(ctx, "pv-1");
+      const result = await deleteProdView(ORG_ID, "pv-1");
       expect(result.success).toBe(false);
       if (!result.success) {
         expect(result.error.code).toBe("DELETE_FAILED");
@@ -297,7 +303,7 @@ describe("prod-view 服务", () => {
   describe("loadProdView", () => {
     test("不存在返回 NOT_FOUND", async () => {
       activeRepo.getById.mockImplementation(async () => null);
-      const result = await loadProdView(ctx, "pv-missing");
+      const result = await loadProdView(ORG_ID, USER_ID, "pv-missing");
       expect(result.success).toBe(false);
       if (!result.success) {
         expect(result.error.code).toBe("NOT_FOUND");
@@ -306,7 +312,7 @@ describe("prod-view 服务", () => {
 
     test("已禁用返回 DISABLED", async () => {
       activeRepo.getById.mockImplementation(async () => ({ ...sampleRow, enabled: false }));
-      const result = await loadProdView(ctx, "pv-1");
+      const result = await loadProdView(ORG_ID, USER_ID, "pv-1");
       expect(result.success).toBe(false);
       if (!result.success) {
         expect(result.error.code).toBe("DISABLED");
@@ -316,7 +322,7 @@ describe("prod-view 服务", () => {
 
     test("启用视图为当前用户创建环境并返回持久实例", async () => {
       activeRepo.getById.mockImplementation(async () => ({ ...sampleRow }));
-      const result = await loadProdView(ctx, "pv-1");
+      const result = await loadProdView(ORG_ID, USER_ID, "pv-1");
       expect(result.success).toBe(true);
       if (result.success) {
         expect(result.data).toEqual({
@@ -331,10 +337,10 @@ describe("prod-view 服务", () => {
           description: sampleRow.description,
           agentConfigId: sampleRow.agentId,
           autoStart: true,
-          userId: ctx.userId,
-          organizationId: ctx.organizationId,
+          userId: USER_ID,
+          organizationId: ORG_ID,
         });
-        expect(findInstance).toHaveBeenCalledWith("env-created-id", ctx.userId);
+        expect(findInstance).toHaveBeenCalledWith("env-created-id", USER_ID);
       }
     });
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildTrustedOrigins } from "@fenix/auth/trusted-origins";
+import { buildTrustedOrigins } from "@src/identity/auth/trusted-origins";
 
 describe("trusted origins", () => {
   test("includes local dev origin and configured public URLs", () => {

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { OpenSandboxClusterProvider } from "@fenix/sandbox-provider";
-import { registerConfiguredSandboxProviders } from "@fenix/services/sandbox";
-import { SandboxProviderRegistry } from "@fenix/services/sandbox/sandbox-provider-registry";
+import { registerConfiguredSandboxProviders } from "@src/resource-sandbox/server/services";
+import { SandboxProviderRegistry } from "@src/resource-sandbox/server/services/sandbox-provider-registry";
 
 describe("sandbox provider configuration", () => {
   // 完整配置时应注册 OpenSandbox Cluster Provider。

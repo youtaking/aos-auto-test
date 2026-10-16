@@ -1,7 +1,10 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import type { SandboxInstance, SandboxPool } from "@fenix/db/schema";
-import { SandboxManager } from "@fenix/services/sandbox/sandbox-manager";
-import { resetAllStubs, stubCoreBootstrap, stubRegistry } from "@fenix/test-utils/helpers";
+import { describe, expect, test } from "bun:test";
+import type { SandboxInstance, SandboxPool } from "@fenix/resource-sandbox/db";
+import { SandboxManager } from "@src/resource-sandbox/server/services/sandbox-manager";
+
+// Machine 身份创建 / 运行时路由释放已改为 SandboxManager 的显式注入点
+// （deps.createMachine / deps.releaseRuntime），不再经宿主 test-utils 的替身注册表，
+// 因此本文件不再 import stubRegistry / stubCoreBootstrap / resetAllStubs。
 
 const resources = {
   cpu: 0.5,
@@ -40,23 +43,17 @@ function makeInstance(overrides: Partial<SandboxInstance> = {}): SandboxInstance
 }
 
 describe("SandboxManager machine identity", () => {
-  afterEach(() => {
-    resetAllStubs();
-  });
-
   // 新建 Instance 必须先绑定稳定的 machine_id，并把它注入 Provider 配置环境变量。
   test("creates a machine identity and passes RCS_MACHINE_ID to the provider", async () => {
     let machineInput: Record<string, unknown> | undefined;
     let providerInput: Record<string, unknown> | undefined;
     const instance = makeInstance({ resolvedConfig: undefined as never });
-    stubRegistry({
-      createSandboxMachine: async (input: Record<string, unknown>) => {
-        machineInput = input;
-      },
-    });
 
     const manager = new SandboxManager({
       pools: { findById: async () => pool },
+      createMachine: (async (input: Record<string, unknown>) => {
+        machineInput = input;
+      }) as never,
       instances: {
         findActive: async () => null,
         create: async (input) => {
@@ -100,14 +97,12 @@ describe("SandboxManager machine identity", () => {
     let machineInput: Record<string, unknown> | undefined;
     const periPool = { ...pool, extra: { agent_type: "peri" } } as SandboxPool;
     const instance = makeInstance({ resolvedConfig: undefined as never });
-    stubRegistry({
-      createSandboxMachine: async (input: Record<string, unknown>) => {
-        machineInput = input;
-      },
-    });
 
     const manager = new SandboxManager({
       pools: { findById: async () => periPool },
+      createMachine: (async (input: Record<string, unknown>) => {
+        machineInput = input;
+      }) as never,
       instances: {
         findActive: async () => null,
         create: async (input) => {
@@ -149,6 +144,7 @@ describe("SandboxManager machine identity", () => {
     } as SandboxPool;
     const manager = new SandboxManager({
       pools: { findById: async () => workspacePool },
+      createMachine: (async () => {}) as never,
       instances: {
         findActive: async () => null,
         create: async (input) => {
@@ -323,12 +319,10 @@ describe("SandboxManager machine identity", () => {
     let destroyed = false;
     let unregistered: string | undefined;
     let deleted: string | undefined;
-    stubCoreBootstrap({
-      unregisterRemoteNode: (machineId: string) => {
+    const manager = new SandboxManager({
+      releaseRuntime: (machineId: string) => {
         unregistered = machineId;
       },
-    });
-    const manager = new SandboxManager({
       instances: {
         findActive: async () => instance,
         findByIdForUser: async () => instance,

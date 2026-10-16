@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { machine, sandboxInstance, sandboxPool } from "@fenix/db/schema";
+import { machine } from "@fenix/resource-machine/db";
+import { sandboxInstance, sandboxPool } from "@fenix/resource-sandbox/db";
 
 describe("sandbox schema", () => {
   // 沙盒实例必须保存稳定的 Machine 身份，供 Provider 创建前注入运行时配置。

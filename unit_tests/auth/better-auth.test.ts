@@ -1,8 +1,10 @@
 // better-auth.test.ts — Better Auth 导出验证
 //
-// 被测模块 src/auth/better-auth.ts 的 auth 实例在全局 preload 中被 mock
-// （见 fenix-source/src/test-utils/setup-mocks.ts）。本测试验证该 mock 导出
-// 的结构完整性，以及 auth.api 各方法可通过 lazy stub 机制访问。
+// 被测模块 packages/platform/identity/src/auth/better-auth.ts 在全局 preload 中被 mock
+// （见 apps/server/src/test-utils/setup-mocks.ts）。新版模块不再导出顶层 `auth` 常量，
+// 改为 `getAuth()` 惰性构造单例（identity 是纯库，构造期依赖宿主基础设施），
+// 因此本测试经 getAuth() 取实例，验证该 mock 导出的结构完整性，
+// 以及 auth.api 各方法可通过 lazy stub 机制访问。
 //
 // 源码关键配置（人工审查记录）：
 //   - session.expiresIn = 60*60*24*7 = 604800 秒（7 天）
@@ -12,7 +14,9 @@
 //   - plugins: organization, phoneNumber（含手机号校验器）, apiKey
 
 import { describe, expect, test, beforeEach, mock } from "bun:test";
-import { auth } from "@fenix/auth/better-auth";
+import { getAuth, resetAuth } from "@src/identity/auth/better-auth";
+
+const auth = getAuth();
 
 describe("better-auth 导出", () => {
   beforeEach(() => {
@@ -74,5 +78,12 @@ describe("better-auth 导出", () => {
     const req = new Request("http://localhost/api/auth/session");
     const result = await auth.handler(req);
     expect(result.status).toBe(200);
+  });
+
+  // ── resetAuth ──
+
+  test("resetAuth 可重复调用且实例仍可用", () => {
+    resetAuth();
+    expect(typeof getAuth().handler).toBe("function");
   });
 });

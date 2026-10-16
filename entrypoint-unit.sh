@@ -1,7 +1,6 @@
 #!/bin/sh
 set -e
 
-FENIX_SRC="/app/fenix-source-parent/src"
 FENIX_ROOT="/app/fenix-source-parent"
 CACHE_DIR="/app/cache"
 TEST_ROOT="${TEST_ROOT:-/app/tests}"
@@ -9,7 +8,7 @@ TEST_ROOT="${TEST_ROOT:-/app/tests}"
 WORKSPACE_ROOT="/workspace"
 
 echo "=== Unit Test Runner ==="
-echo "    Source: $FENIX_SRC"
+echo "    Source: $FENIX_ROOT (apps/server/src + packages/*)"
 echo "    Tests:  $TEST_ROOT"
 echo "    Cache:  $CACHE_DIR"
 echo "    Workspace: $WORKSPACE_ROOT"
@@ -90,10 +89,24 @@ fi
 #    （/workspace/packages/sandbox-provider，entrypoint 从 FENIX_ROOT 复制的那份），两份物理
 #    文件使 instanceof / toBeInstanceOf 全部失败。修复：sandbox-provider 也指到 workspace
 #    拷贝 ${WORKSPACE_ROOT}/packages/sandbox-provider，与被测代码走同一份。
-#    历史坑2：不能去掉 @fenix/* 通配——测试大量 import @fenix/auth/*、@fenix/routes/*、
-#    @fenix/services/*、@fenix/db/* 等 src/ 下模块（不是 workspace 包），必须映射到
-#    ${FENIX_ROOT}/src/*。@fenix/chat-channel 等顶层包无 src/ 对应目录，bun 会 fallback
+#    历史坑2：不能去掉 @fenix/* 通配——测试大量 import @fenix/db/*、@fenix/services/*、
+#    @fenix/test-utils/* 等宿主服务端模块（不是 workspace 包），必须映射到
+#    ${FENIX_ROOT}/apps/server/src/*。@fenix/chat-channel 等顶层包无对应目录，bun 会 fallback
 #    到 node_modules（workspace 包）解析。
+#    历史坑3：FenixAgent 于 2026-09-17（bda524de3）删除了顶层 src/，代码拆成
+#    apps/server/src/（宿主）+ packages/*（业务包）。旧映射 ${FENIX_ROOT}/src/* 因此指向
+#    不存在的目录，bun test 一启动就报 preload not found。现按新布局重新映射：
+#      - @fenix/*      → ${FENIX_ROOT}/apps/server/src/*（db、services、test-utils 等仍在此）
+#      - @src/<包>/*   → ${WORKSPACE_ROOT}/packages/**/<包>/src/*（已下沉到各 package 的内部模块）
+#    为什么 @src/* 必须指 ${WORKSPACE_ROOT} 而不是 ${FENIX_ROOT}：宿主代码内部 import
+#    `@fenix/<包>/...` 会经 node_modules 落到 workspace 拷贝（bun install 建的 workspace 链接），
+#    若 @src/* 指挂载的原始源码，同一个包会加载两份物理文件。多数情况无害，但只要该包用
+#    「模块配置 / 端口绑定」做 DI（如 agent-runtime 的 workspaceRoot、session-event-bus-port），
+#    用例装配进 A 实例、被测函数从 B 实例读取，就会「静默不生效」——测试照常通过，测的却是默认值。
+#    与历史坑1 同因同解：全部指到 workspace 拷贝。
+#    为什么用 @src/ 前缀而不是包名：各 package 的 exports 只暴露 . / db / module / server /
+#    web，不暴露单个 service 文件，用包名做通配会与 package 自身的 exports 抢解析。
+# 注意：下面是 heredoc 生成的纯 JSON，不能写 // 注释，只能靠这里的 shell 注释说明。
 echo ">>> Generating tsconfig.json..."
 cat > "$WORKSPACE_ROOT/tests/tsconfig.json" << TSEOF
 {
@@ -107,7 +120,13 @@ cat > "$WORKSPACE_ROOT/tests/tsconfig.json" << TSEOF
     "paths": {
       "@fenix/sandbox-provider": ["${WORKSPACE_ROOT}/packages/sandbox-provider/src"],
       "@fenix/sandbox-provider/*": ["${WORKSPACE_ROOT}/packages/sandbox-provider/src/*"],
-      "@fenix/*": ["${FENIX_ROOT}/src/*"]
+      "@fenix/*": ["${FENIX_ROOT}/apps/server/src/*"],
+      "@src/resource-sandbox/*": ["${WORKSPACE_ROOT}/packages/resources/sandbox/src/*"],
+      "@src/resource-machine/*": ["${WORKSPACE_ROOT}/packages/resources/machine/src/*"],
+      "@src/resource-prod-view/*": ["${WORKSPACE_ROOT}/packages/resources/prod-view/src/*"],
+      "@src/model-management/*": ["${WORKSPACE_ROOT}/packages/resources/model-management/src/*"],
+      "@src/identity/*": ["${WORKSPACE_ROOT}/packages/platform/identity/src/*"],
+      "@src/agent-runtime/*": ["${WORKSPACE_ROOT}/packages/agent-runtime/src/*"]
     }
   },
   "include": ["**/*.ts"]
@@ -115,11 +134,13 @@ cat > "$WORKSPACE_ROOT/tests/tsconfig.json" << TSEOF
 TSEOF
 
 # 2b. 生成 bunfig.toml（preload setup-globals + setup-mocks，确保 mock.module() 生效）
+#     preload 路径必须与 FenixAgent 根 bunfig.toml 一致：test-utils 随 src/ 一起迁到了
+#     apps/server/src/test-utils/，不再位于仓库根 src/ 下。
 echo ">>> Generating bunfig.toml..."
 cat > "$WORKSPACE_ROOT/tests/bunfig.toml" << BFEOF
 [test]
 root = "."
-preload = ["${FENIX_SRC}/test-utils/setup-globals.ts", "${FENIX_SRC}/test-utils/setup-mocks.ts"]
+preload = ["${FENIX_ROOT}/apps/server/src/test-utils/setup-globals.ts", "${FENIX_ROOT}/apps/server/src/test-utils/setup-mocks.ts"]
 BFEOF
 
 # 3. 安装依赖（从 workspace 根目录运行，正确解析 workspace:* 依赖）
