@@ -31,15 +31,23 @@ fi
 # 创建 workspace 包的软链（指向真实包目录，让 bun 能解析 workspace:* 依赖及其源码）
 # 注意：bun 对 symlink 解析有时不可靠（尤其在 Docker 跨 volume 时），
 # 所以同时预创建 node_modules 条目作为双保险
+#
+# 必须按根 package.json 声明的 workspaces glob（packages/*、packages/*/*）逐层枚举，
+# 并保留相对路径复制：只扫 packages/* 一层会漏掉 packages/resources/*、
+# packages/platform/* 下的包，bun 就会报 "@fenix/resource-xxx@workspace:* failed to resolve"。
+# 不要用 packages/*/*/* 兜底——那一层会扫到各包自己的 node_modules。
+# （根 glob 还声明了 apps/*，但没有任何 workspace:* 依赖指向它，故不复制。）
 mkdir -p "$WORKSPACE_ROOT/packages"
-for pkg_dir in "$FENIX_ROOT/packages"/*/; do
-  if [ -f "${pkg_dir}package.json" ]; then
-    pkg_dir_name=$(basename "$pkg_dir")
+for pkg_json in "$FENIX_ROOT"/packages/*/package.json "$FENIX_ROOT"/packages/*/*/package.json; do
+  if [ -f "$pkg_json" ]; then
+    pkg_dir=${pkg_json%/package.json}
+    pkg_rel=${pkg_dir#"$FENIX_ROOT"/}
     # 读取 package.json 中的实际 name（如 @fenix/claude-code 而非 plugin-claude-code）
-    pkg_json_name=$(bun -e "console.log(require('${pkg_dir}package.json').name)" 2>/dev/null || echo "")
+    pkg_json_name=$(bun -e "console.log(require('${pkg_json}').name)" 2>/dev/null || echo "")
 
-    # 方式1：复制到 packages/（比 symlink 更可靠，bun 对跨 volume symlink 有兼容性问题）
-    cp -r "${pkg_dir%/}" "$WORKSPACE_ROOT/packages/$pkg_dir_name" 2>/dev/null || ln -sfn "${pkg_dir%/}" "$WORKSPACE_ROOT/packages/$pkg_dir_name"
+    # 方式1：按原相对路径复制到 workspace（比 symlink 更可靠，bun 对跨 volume symlink 有兼容性问题）
+    mkdir -p "$WORKSPACE_ROOT/$(dirname "$pkg_rel")"
+    cp -r "$pkg_dir" "$WORKSPACE_ROOT/$pkg_rel" 2>/dev/null || ln -sfn "$pkg_dir" "$WORKSPACE_ROOT/$pkg_rel"
 
     # 方式2：将所有 workspace 包加到根 package.json 的 dependencies，
     # 并将其依赖也加到根 dependencies，强制 bun 安装并 hoist 所有依赖
@@ -48,7 +56,7 @@ for pkg_dir in "$FENIX_ROOT/packages"/*/; do
       bun -e "
 const fs = require('fs');
 const rootPkg = JSON.parse(fs.readFileSync('./package.json', 'utf8'));
-const wsPkg = JSON.parse(fs.readFileSync('./packages/$pkg_dir_name/package.json', 'utf8'));
+const wsPkg = JSON.parse(fs.readFileSync('./$pkg_rel/package.json', 'utf8'));
 if (!rootPkg.dependencies) rootPkg.dependencies = {};
 // 加 workspace 包本身
 rootPkg.dependencies['$pkg_json_name'] = 'workspace:*';
@@ -142,11 +150,12 @@ if [ "$NEED_INSTALL" = "true" ]; then
   echo "    Lockfile changed or no cache, running bun install in workspace root..."
   cd "$WORKSPACE_ROOT"
 
-  # 诊断：列出 workspace 包（显示目录名 + package.json name）
+  # 诊断：列出 workspace 包（显示相对路径 + package.json name；必须覆盖两级，
+  # 否则 packages/resources/* 这类包在日志里不可见，出问题很难定位）
   echo "    Workspace packages:"
-  for pkg in "$WORKSPACE_ROOT/packages"/*/; do
+  for pkg in "$WORKSPACE_ROOT/packages"/*/ "$WORKSPACE_ROOT/packages"/*/*/; do
     if [ -f "${pkg}package.json" ]; then
-      dir_name=$(basename "$pkg")
+      dir_name=${pkg#"$WORKSPACE_ROOT"/}
       json_name=$(bun -e "console.log(require('${pkg}package.json').name || '?')" 2>/dev/null || echo "parse_error")
       is_link=$( [ -L "${pkg%/}" ] && echo "symlink" || echo "copy" )
       echo "      $dir_name → $json_name ($is_link)"
