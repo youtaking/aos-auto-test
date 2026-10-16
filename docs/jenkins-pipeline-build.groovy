@@ -140,6 +140,47 @@ pipeline {
                     rm -f /tmp/fenix.tar.gz
                     echo "    App: $(ls app/ | wc -l) files/dirs in app/"
 
+                    # 预取 peri 安装脚本到构建上下文：构建机访问 raw.githubusercontent.com 会被
+                    # 重置，而 Dockerfile 里的 `curl ... | bash` 把下载失败吞成 exit 0，于是镜像
+                    # "构建成功"却缺 peri，随后 peri 调用 127 使 Build 阶段整体失败（#216~#231）。
+                    # 用与 download_repo 同款的多代理轮换先把脚本下好，Build 阶段再让 Dockerfile
+                    # 走构建上下文里的本地副本。区别：产物是纯文本脚本而非 tar 包，故用 grep 校验
+                    # 内容而非 tar tzf。
+                    download_file() {
+                        local url="$1"
+                        local output="$2"
+                        local marker="$3"
+                        local proxies="https://gh-proxy.com https://mirror.ghproxy.com https://ghfast.top https://ghproxy.net"
+                        for proxy in "" $proxies; do
+                            if [ -n "$proxy" ]; then
+                                full_url="${proxy}/${url}"
+                            else
+                                full_url="$url"
+                            fi
+                            echo "    Trying: ${full_url}"
+                            for i in 1 2 3; do
+                                if curl --fail -SL --connect-timeout 10 --max-time 120 \
+                                  "${full_url}" -o "${output}" 2>/dev/null; then
+                                    if [ -s "${output}" ] && { [ -z "${marker}" ] || grep -qF -- "${marker}" "${output}"; }; then
+                                        echo "    OK (proxy: ${proxy:-direct})"
+                                        return 0
+                                    fi
+                                fi
+                                echo "    Attempt $i failed, retrying..."
+                                sleep 3
+                            done
+                            echo "    Proxy ${proxy:-direct} failed, trying next..."
+                        done
+                        echo "    ERROR: All proxies failed!"
+                        return 1
+                    }
+
+                    echo ">>> Pre-fetching peri installer into build context..."
+                    PERI_INSTALL_URL="https://raw.githubusercontent.com/konghayao/peri/main/scripts/install.sh"
+                    mkdir -p app/docker/vendor
+                    download_file "${PERI_INSTALL_URL}" "app/docker/vendor/peri-install.sh" "PERI_INSTALL_DIR"
+                    echo "    peri installer: $(wc -c < app/docker/vendor/peri-install.sh) bytes"
+
                     echo ">>> Downloading test code (__TEST_REPO_BRANCH__)..."
                     download_repo \
                       "__TEST_ARCHIVE_URL__" \
@@ -182,6 +223,31 @@ pipeline {
                     sh '''
                     set +x
                         echo ">>> Building runtime image (this may take a few minutes)..."
+                        # 应用 Dockerfile 用 BuildKit 的 COPY --parents 优化层缓存；本 Jenkins 容器无 buildx，
+                        # legacy builder 会静默拍平子包 package.json、冲掉根 manifest。这里换成本地 builder 支持的
+                        # 等价写法（整目录 COPY，保留结构），只改本次构建上下文里的副本，不动被测仓库。
+                        if grep -qF -- 'COPY --parents packages/**/package.json' Dockerfile; then
+                            python3 -c "s=open('Dockerfile',encoding='utf-8').read();s=s.replace('COPY --parents packages/**/package.json ./','COPY packages/ ./packages/');open('Dockerfile','w',encoding='utf-8').write(s);print('已替换 COPY --parents -> COPY packages/')"
+                        else
+                            echo 'Dockerfile 无 COPY --parents 行，跳过'
+                        fi
+
+                        # peri 安装改走构建上下文里的预置脚本（Clone Repos 阶段已用多代理轮换下好）：
+                        # 原命令从被重置的 raw.githubusercontent.com 取 install.sh，且 `curl | bash`
+                        # 把下载失败吞成 exit 0，导致镜像"构建成功"却缺 peri（#216~#231 的 127）。
+                        # 改成 COPY 本地脚本 + 显式 bash 执行；只改本次构建上下文的副本，不动被测仓库。
+                        if grep -qF -- 'raw.githubusercontent.com/konghayao/peri/main/scripts/install.sh' Dockerfile; then
+                            python3 -c "p='Dockerfile';s=open(p,encoding='utf-8').read();old='RUN export PERI_INSTALL_DIR=/opt/.peri-binary && curl -fsSL https://raw.githubusercontent.com/konghayao/peri/main/scripts/install.sh | bash';new='COPY docker/vendor/peri-install.sh /tmp/peri-install.sh'+chr(10)+'RUN export PERI_INSTALL_DIR=/opt/.peri-binary && bash /tmp/peri-install.sh </dev/null';open(p,'w',encoding='utf-8').write(s.replace(old,new))"
+                            if grep -qF -- 'COPY docker/vendor/peri-install.sh' Dockerfile; then
+                                echo "peri 安装已改为本地预置脚本（不联网取 install.sh）"
+                            else
+                                echo "ERROR: peri 安装行未按预期改写，Dockerfile 与预期不符"
+                                exit 1
+                            fi
+                        else
+                            echo "Dockerfile 里没有 peri install.sh 行，跳过改写（可能上游已自行处理）"
+                        fi
+
                         # 预置 hindsight marketplace，并把 Dockerfile 里的联网 clone 改为本地目录源：
                         # 上游 vectorize-io/hindsight 主干树 225MB（含 30MB jar 与大量文档截图），而 peri 对 marketplace
                         # 的 git clone 硬编码 30s 超时（peri-middlewares/src/plugin/marketplace/fetch.rs），
