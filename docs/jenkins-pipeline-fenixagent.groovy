@@ -252,10 +252,13 @@ pipeline {
                         # 超时，注入 GIT_CONFIG_* 也传不到 peri 的 git 子进程（实测）。marketplace 快照已由
                         # Clone Repos 预取到构建上下文，这里把 Dockerfile 改成「COPY 本地目录 + add 本地路径」，
                         # 彻底不走网络。只改本次构建上下文里的 Dockerfile 副本，不动被测仓库。
+                        # 注意 COPY 目标必须是 /root/.claude/plugins/marketplaces/<name>/：实测 peri 对
+                        # directory 型 marketplace 只在 marketplaces 目录下解析插件（放 /tmp 会 add 成功但
+                        # install 报「插件未找到」），与上游原有的 vendor 手法一致。
                         if grep -qF -- 'peri plugin marketplace add KonghaYao/hindsight-plugin' Dockerfile; then
-                            python3 -c "p='Dockerfile';s=open(p,encoding='utf-8').read();NL=chr(10);s=s.replace('ARG CACHE_BUST=unset','COPY docker/vendor/hindsight-plugin/ /tmp/hindsight-plugin/'+NL+'ARG CACHE_BUST=unset');s=s.replace('&& peri plugin marketplace add KonghaYao/hindsight-plugin','&& peri plugin marketplace add /tmp/hindsight-plugin');open(p,'w',encoding='utf-8').write(s)"
-                            if grep -qF -- 'COPY docker/vendor/hindsight-plugin/ /tmp/hindsight-plugin/' Dockerfile && grep -qF -- 'peri plugin marketplace add /tmp/hindsight-plugin' Dockerfile; then
-                                echo "peri marketplace 已改为本地目录（不 clone github）"
+                            python3 -c "p='Dockerfile';s=open(p,encoding='utf-8').read();NL=chr(10);M='/root/.claude/plugins/marketplaces/hindsight-plugin';s=s.replace('ARG CACHE_BUST=unset','COPY docker/vendor/hindsight-plugin/ '+M+'/'+NL+'ARG CACHE_BUST=unset');s=s.replace('&& peri plugin marketplace add KonghaYao/hindsight-plugin','&& peri plugin marketplace add '+M);open(p,'w',encoding='utf-8').write(s)"
+                            if grep -qF -- 'COPY docker/vendor/hindsight-plugin/ /root/.claude/plugins/marketplaces/hindsight-plugin/' Dockerfile && grep -qF -- 'peri plugin marketplace add /root/.claude/plugins/marketplaces/hindsight-plugin' Dockerfile; then
+                                echo "peri marketplace 已改预置本地目录（不 clone github）"
                             else
                                 echo "ERROR: peri marketplace add 行未按预期改写，Dockerfile 与预期不符"
                                 exit 1
