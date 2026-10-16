@@ -97,13 +97,23 @@ fi
 #    apps/server/src/（宿主）+ packages/*（业务包）。旧映射 ${FENIX_ROOT}/src/* 因此指向
 #    不存在的目录，bun test 一启动就报 preload not found。现按新布局重新映射：
 #      - @fenix/*      → ${FENIX_ROOT}/apps/server/src/*（db、services、test-utils 等仍在此）
-#      - @src/<包>/*   → ${WORKSPACE_ROOT}/packages/**/<包>/src/*（已下沉到各 package 的内部模块）
-#    为什么 @src/* 必须指 ${WORKSPACE_ROOT} 而不是 ${FENIX_ROOT}：宿主代码内部 import
+#      - @src/<包>/*   → 见下，按「preload 替身登记在哪棵树」逐包决定
+#    为什么 @src/<包>/* 大多指 ${WORKSPACE_ROOT} 而不是 ${FENIX_ROOT}：宿主代码内部 import
 #    `@fenix/<包>/...` 会经 node_modules 落到 workspace 拷贝（bun install 建的 workspace 链接），
 #    若 @src/* 指挂载的原始源码，同一个包会加载两份物理文件。多数情况无害，但只要该包用
 #    「模块配置 / 端口绑定」做 DI（如 agent-runtime 的 workspaceRoot、session-event-bus-port），
 #    用例装配进 A 实例、被测函数从 B 实例读取，就会「静默不生效」——测试照常通过，测的却是默认值。
 #    与历史坑1 同因同解：全部指到 workspace 拷贝。
+#    历史坑4（例外：identity 必须指 ${FENIX_ROOT}）：preload 的 setup-mocks.ts 位于
+#    ${FENIX_ROOT}/apps/server/src/test-utils/，其中一批替身用「相对路径」登记
+#      mock.module("../../../../packages/platform/identity/src/{auth/better-auth,db,config,
+#                  repositories/user-config,services/system-api}")
+#    相对路径经解析落在 ${FENIX_ROOT}/packages/platform/identity/src/*。mock.module 按解析后的
+#    物理路径生效，若 @src/identity/* 指 workspace 拷贝，测试加载的是另一个物理文件，替身不生效
+#    ——better-auth.test.ts 因此会真的去 buildAuth，撞上「应用基础设施尚未初始化」而整文件失败。
+#    故 identity 包单独指回 ${FENIX_ROOT}，与替身登记的路径对齐。
+#    判据：某包的内部模块若被 preload 以「相对路径」mock，该包就必须指 ${FENIX_ROOT}；
+#    否则指 ${WORKSPACE_ROOT}（与 node_modules / 测试包的替身同树）。
 #    为什么用 @src/ 前缀而不是包名：各 package 的 exports 只暴露 . / db / module / server /
 #    web，不暴露单个 service 文件，用包名做通配会与 package 自身的 exports 抢解析。
 # 注意：下面是 heredoc 生成的纯 JSON，不能写 // 注释，只能靠这里的 shell 注释说明。
@@ -125,7 +135,7 @@ cat > "$WORKSPACE_ROOT/tests/tsconfig.json" << TSEOF
       "@src/resource-machine/*": ["${WORKSPACE_ROOT}/packages/resources/machine/src/*"],
       "@src/resource-prod-view/*": ["${WORKSPACE_ROOT}/packages/resources/prod-view/src/*"],
       "@src/model-management/*": ["${WORKSPACE_ROOT}/packages/resources/model-management/src/*"],
-      "@src/identity/*": ["${WORKSPACE_ROOT}/packages/platform/identity/src/*"],
+      "@src/identity/*": ["${FENIX_ROOT}/packages/platform/identity/src/*"],
       "@src/agent-runtime/*": ["${WORKSPACE_ROOT}/packages/agent-runtime/src/*"]
     }
   },
