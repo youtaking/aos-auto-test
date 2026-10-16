@@ -232,14 +232,14 @@ pipeline {
                             echo 'Dockerfile 无 COPY --parents 行，跳过'
                         fi
 
-                        # peri 安装改走构建上下文里的预置脚本（Clone Repos 阶段已用多代理轮换下好）：
-                        # 原命令从被重置的 raw.githubusercontent.com 取 install.sh，且 `curl | bash`
-                        # 把下载失败吞成 exit 0，导致镜像"构建成功"却缺 peri（#216~#231 的 127）。
-                        # 改成 COPY 本地脚本 + 显式 bash 执行；只改本次构建上下文的副本，不动被测仓库。
+                        # peri 安装：install.sh 已由 Clone Repos 预取到构建上下文；但 installer 自己还要从
+                        # github.com 下二进制，而构建机直连 github.com 不稳定（#232 实测 129s 连接超时）。
+                        # installer 原生支持 GITHUB_PROXY/GITHUB_API_PROXY，这里轮换镜像代理，全失败才退出。
+                        # （原命令 `curl | bash` 会把下载失败吞成 exit 0，镜像"构建成功"却缺 peri → #216~#231 的 127）
                         if grep -qF -- 'raw.githubusercontent.com/konghayao/peri/main/scripts/install.sh' Dockerfile; then
-                            python3 -c "p='Dockerfile';s=open(p,encoding='utf-8').read();old='RUN export PERI_INSTALL_DIR=/opt/.peri-binary && curl -fsSL https://raw.githubusercontent.com/konghayao/peri/main/scripts/install.sh | bash';new='COPY docker/vendor/peri-install.sh /tmp/peri-install.sh'+chr(10)+'RUN export PERI_INSTALL_DIR=/opt/.peri-binary && bash /tmp/peri-install.sh </dev/null';open(p,'w',encoding='utf-8').write(s.replace(old,new))"
+                            python3 -c "p='Dockerfile';s=open(p,encoding='utf-8').read();NL=chr(10);D=chr(36);old='RUN export PERI_INSTALL_DIR=/opt/.peri-binary && curl -fsSL https://raw.githubusercontent.com/konghayao/peri/main/scripts/install.sh | bash';new='COPY docker/vendor/peri-install.sh /tmp/peri-install.sh'+NL+'RUN export PERI_INSTALL_DIR=/opt/.peri-binary && for P in https://gh-proxy.com https://ghfast.top https://ghproxy.net https://mirror.ghproxy.com; do echo peri-install-via='+D+'P; GITHUB_PROXY='+D+'P/https://github.com GITHUB_API_PROXY='+D+'P/https://api.github.com bash /tmp/peri-install.sh </dev/null && exit 0; done; echo ERROR-peri-install-failed-on-all-proxies; exit 1';open(p,'w',encoding='utf-8').write(s.replace(old,new))"
                             if grep -qF -- 'COPY docker/vendor/peri-install.sh' Dockerfile; then
-                                echo "peri 安装已改为本地预置脚本（不联网取 install.sh）"
+                                echo "peri 安装已改为本地预置脚本 + 镜像代理（不直连 github.com）"
                             else
                                 echo "ERROR: peri 安装行未按预期改写，Dockerfile 与预期不符"
                                 exit 1
@@ -248,23 +248,20 @@ pipeline {
                             echo "Dockerfile 里没有 peri install.sh 行，跳过改写（可能上游已自行处理）"
                         fi
 
-                        # 预置 hindsight marketplace，并把 Dockerfile 里的联网 clone 改为本地目录源：
-                        # 上游 vectorize-io/hindsight 主干树 225MB（含 30MB jar 与大量文档截图），而 peri 对 marketplace
-                        # 的 git clone 硬编码 30s 超时（peri-middlewares/src/plugin/marketplace/fetch.rs），
-                        # 构建期必然报 "clone 超时: deadline has elapsed"（#191/#192/#194 都卡在这里）。
-                        # 只改写本次构建上下文里的副本，不动被测仓库；副本与刷新方式见 ci/vendor/README.md。
-                        if [ -d ../autotest/ci/vendor/hindsight-marketplace ]; then
-                            mkdir -p docker/vendor
-                            rm -rf docker/vendor/hindsight-marketplace
-                            cp -r ../autotest/ci/vendor/hindsight-marketplace docker/vendor/
-                            if grep -q '^RUN peri plugin marketplace add vectorize-io/hindsight' Dockerfile; then
-                                sed -i 's|^RUN peri plugin marketplace add vectorize-io/hindsight.*|COPY docker/vendor/hindsight-marketplace/ /root/.claude/plugins/marketplaces/hindsight/\nRUN peri plugin marketplace add /root/.claude/plugins/marketplaces/hindsight|' Dockerfile
-                                echo "peri marketplace 已改为本地目录源（预置副本，不联网 clone）"
+                        # peri marketplace add 走的是 git CLI（实测：把 git 的 url.insteadOf 指向不存在的主机，
+                        # peri 立刻报 Could not resolve host），所以给它注入一次性的 GIT_CONFIG_* 环境变量，
+                        # 让这次 clone 走 gh-proxy。用环境变量而非 git config --global：不落盘、不影响运行时
+                        # git 行为、也不会被后续层继承；同样只作用于本次构建上下文里的 Dockerfile 副本。
+                        if grep -qF -- 'peri plugin marketplace add KonghaYao/hindsight-plugin' Dockerfile; then
+                            python3 -c "p='Dockerfile';s=open(p,encoding='utf-8').read();old='&& peri plugin marketplace add KonghaYao/hindsight-plugin';new='&& GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=url.https://gh-proxy.com/https://github.com/.insteadOf GIT_CONFIG_VALUE_0=https://github.com/ peri plugin marketplace add KonghaYao/hindsight-plugin';open(p,'w',encoding='utf-8').write(s.replace(old,new))"
+                            if grep -qF -- 'GIT_CONFIG_KEY_0=url.https://gh-proxy.com' Dockerfile; then
+                                echo "peri marketplace clone 已改走 gh-proxy（GIT_CONFIG_* 注入）"
                             else
-                                echo "Dockerfile 里没有 peri marketplace 的 clone 行，跳过改写"
+                                echo "ERROR: peri marketplace add 行未按预期改写，Dockerfile 与预期不符"
+                                exit 1
                             fi
                         else
-                            echo "未找到 ci/vendor/hindsight-marketplace，Dockerfile 仍会走联网 clone"
+                            echo "Dockerfile 里没有 KonghaYao/hindsight-plugin 的 marketplace add 行，跳过改写"
                         fi
                         docker build -t __PROJECT_NAME__:__BUILD_NUMBER__ .
                         echo "    Runtime image built."
