@@ -181,6 +181,19 @@ pipeline {
                     download_file "${PERI_INSTALL_URL}" "app/docker/vendor/peri-install.sh" "PERI_INSTALL_DIR"
                     echo "    peri installer: $(wc -c < app/docker/vendor/peri-install.sh) bytes"
 
+                    # 预取 hindsight marketplace 快照到构建上下文：peri 的 `plugin marketplace add <owner/repo>`
+                    # 内部用 git CLI clone 且硬编码 30s 超时（peri-middlewares/src/plugin/marketplace/fetch.rs），
+                    # 构建机直连 github.com 必然超时（#233 Step 63）；实测给 peri 注入 GIT_CONFIG_* 也传不到
+                    # 它的 git 子进程。改成预取仓库快照，Build 阶段让 Dockerfile 用本地目录做 marketplace add，
+                    # 全程不走网络。用 download_repo（自动校验 tar 完整性 + 多代理轮换）。
+                    echo ">>> Pre-fetching hindsight marketplace into build context..."
+                    HINDSIGHT_MARKET_URL="https://github.com/KonghaYao/hindsight-plugin/archive/refs/heads/main.tar.gz"
+                    download_repo "${HINDSIGHT_MARKET_URL}" /tmp/hindsight-plugin.tar.gz
+                    mkdir -p app/docker/vendor/hindsight-plugin
+                    tar xzf /tmp/hindsight-plugin.tar.gz --strip-components=1 -C app/docker/vendor/hindsight-plugin
+                    rm -f /tmp/hindsight-plugin.tar.gz
+                    echo "    hindsight marketplace: $(find app/docker/vendor/hindsight-plugin -type f | wc -l) files"
+
                     echo ">>> Downloading test code (__TEST_REPO_BRANCH__)..."
                     download_repo \
                       "__TEST_ARCHIVE_URL__" \
@@ -248,14 +261,14 @@ pipeline {
                             echo "Dockerfile 里没有 peri install.sh 行，跳过改写（可能上游已自行处理）"
                         fi
 
-                        # peri marketplace add 走的是 git CLI（实测：把 git 的 url.insteadOf 指向不存在的主机，
-                        # peri 立刻报 Could not resolve host），所以给它注入一次性的 GIT_CONFIG_* 环境变量，
-                        # 让这次 clone 走 gh-proxy。用环境变量而非 git config --global：不落盘、不影响运行时
-                        # git 行为、也不会被后续层继承；同样只作用于本次构建上下文里的 Dockerfile 副本。
+                        # peri 的 marketplace add 必须 clone github.com，而它硬编码 30s 超时、构建机直连必然
+                        # 超时（#233 Step 63），注入 GIT_CONFIG_* 也传不到 peri 的 git 子进程（#233 实测）。
+                        # marketplace 快照已由 Clone Repos 预取到构建上下文，这里把 Dockerfile 改成
+                        # 「COPY 本地目录 + add 本地路径」，彻底不走网络。只改本次构建上下文里的 Dockerfile 副本。
                         if grep -qF -- 'peri plugin marketplace add KonghaYao/hindsight-plugin' Dockerfile; then
-                            python3 -c "p='Dockerfile';s=open(p,encoding='utf-8').read();old='&& peri plugin marketplace add KonghaYao/hindsight-plugin';new='&& GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=url.https://gh-proxy.com/https://github.com/.insteadOf GIT_CONFIG_VALUE_0=https://github.com/ peri plugin marketplace add KonghaYao/hindsight-plugin';open(p,'w',encoding='utf-8').write(s.replace(old,new))"
-                            if grep -qF -- 'GIT_CONFIG_KEY_0=url.https://gh-proxy.com' Dockerfile; then
-                                echo "peri marketplace clone 已改走 gh-proxy（GIT_CONFIG_* 注入）"
+                            python3 -c "p='Dockerfile';s=open(p,encoding='utf-8').read();NL=chr(10);s=s.replace('ARG CACHE_BUST=unset','COPY docker/vendor/hindsight-plugin/ /tmp/hindsight-plugin/'+NL+'ARG CACHE_BUST=unset');s=s.replace('&& peri plugin marketplace add KonghaYao/hindsight-plugin','&& peri plugin marketplace add /tmp/hindsight-plugin');open(p,'w',encoding='utf-8').write(s)"
+                            if grep -qF -- 'COPY docker/vendor/hindsight-plugin/ /tmp/hindsight-plugin/' Dockerfile && grep -qF -- 'peri plugin marketplace add /tmp/hindsight-plugin' Dockerfile; then
+                                echo "peri marketplace 已改为本地目录（不 clone github）"
                             else
                                 echo "ERROR: peri marketplace add 行未按预期改写，Dockerfile 与预期不符"
                                 exit 1
