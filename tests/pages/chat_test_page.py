@@ -736,6 +736,36 @@ class ChatTestPage:
             return inp.first
         return self.page.locator("input[type='file']").first
 
+    def workspace_env_id(self) -> str | None:
+        """从当前 URL 解析 agent 实例所属环境 ID（/ctrl/agent/chat/{envId}/{instance}）"""
+        import re
+        m = re.search(r"/ctrl/agent/chat/([^/?#]+)", self.page.url)
+        return m.group(1) if m else None
+
+    def delete_workspace_files(self, names: list[str]) -> list[str]:
+        """删除本用例上传到 workspace 的文件（自建自销，避免遗留文件导致重跑 409）。
+
+        上传落在 workspace 根目录；应用对同名文件返回 409 path_conflict，因此用例
+        必须清理自己上传的文件，否则下次运行会因「目标文件或目录已存在」失败。
+        返回成功删除的路径列表。
+        """
+        env_id = self.workspace_env_id()
+        if not env_id:
+            return []
+        deleted = []
+        for name in names:
+            for path in (name, f"user/{name}"):
+                try:
+                    r = self.page.request.delete(
+                        f"{self.base_url}/web/environments/{env_id}/fs/{path}"
+                    )
+                    if r.status < 400:
+                        deleted.append(path)
+                        break
+                except Exception:
+                    pass
+        return deleted
+
     def upload_file(self, file_path: str):
         """通过 UI 上传文件 — 直接操作隐藏 file input，避免点击被分隔条拦截
         自动展开右侧面板（如果未展开）"""

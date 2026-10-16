@@ -71,6 +71,32 @@ def _revoke_test_key(ak, name: str) -> bool:
     return ak.click_revoke(name)
 
 
+def _revoke_test_key_with_reload(ak, name: str, attempts: int = 3) -> bool:
+    """等待密钥行入列后吊销。
+
+    全量回归（700+ 用例、并发负载）下，SPA 列表渲染/接口刷新会滞后，
+    刚通过 API 创建的密钥可能尚未出现在列表中。此时重载页面重试，
+    避免把渲染延迟误判为「UI 未显示吊销按钮」。
+    """
+    for _ in range(attempts):
+        if _revoke_test_key(ak, name):
+            return True
+        ak.page.wait_for_timeout(1500)
+        ak.goto()
+    return False
+
+
+def _wait_key_count(ak, expected: int, attempts: int = 5) -> int:
+    """等待密钥数量稳定到期望值（渲染/刷新滞后时轮询，减少误判）"""
+    count = ak.get_key_count()
+    for _ in range(attempts):
+        if count == expected:
+            break
+        ak.page.wait_for_timeout(1000)
+        count = ak.get_key_count()
+    return count
+
+
 # ==================== 测试 ====================
 
 
@@ -485,8 +511,8 @@ def test_apikey_007_delete_key(logged_in_page, base_url, request):
     ak.goto()
     initial_count = ak.get_key_count()
 
-    # 点击吊销（只操作自己创建的密钥，找不到即 fail）
-    clicked = _revoke_test_key(ak, f"del-{_PREFIX}")
+    # 点击吊销（只操作自己创建的密钥，找不到即 fail；渲染滞后时重载重试）
+    clicked = _revoke_test_key_with_reload(ak, f"del-{_PREFIX}")
     assert clicked, f"密钥 'del-{_PREFIX}' 创建成功但 UI 未显示吊销按钮"
 
     if clicked:
@@ -534,8 +560,8 @@ def test_apikey_008_delete_cancel(logged_in_page, base_url, request):
     if initial_count == 0:
         pytest.skip("没有密钥可操作")
 
-    # 点击吊销（只操作自己创建的 key）
-    clicked = _revoke_test_key(ak, f"cancel-{_PREFIX}")
+    # 点击吊销（只操作自己创建的 key；渲染滞后时重载重试）
+    clicked = _revoke_test_key_with_reload(ak, f"cancel-{_PREFIX}")
     if not clicked:
         pytest.skip("未找到吊销按钮")
 
@@ -551,9 +577,9 @@ def test_apikey_008_delete_cancel(logged_in_page, base_url, request):
 
     logged_in_page.wait_for_timeout(500)
 
-    # 密钥未被删除
+    # 密钥未被删除（等待列表渲染稳定，避免渲染滞后误判数量变化）
     ak.goto()
-    assert ak.get_key_count() == initial_count, \
+    assert _wait_key_count(ak, initial_count) == initial_count, \
         "取消后密钥数量变化了"
 
 

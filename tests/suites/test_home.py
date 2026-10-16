@@ -41,8 +41,12 @@ def test_home_quick_create_template(logged_in_page, base_url):
     except Exception:
         pass
 
-    # 获取所有模板药丸
+    # 获取所有模板药丸（模板列表来自接口，渲染有延迟，必须等待）
     pills = logged_in_page.locator("button.agent-home-template-pill")
+    try:
+        pills.first.wait_for(state="visible", timeout=10000)
+    except Exception:
+        pass
     assert pills.count() > 0, "首页无模板药丸按钮"
 
     # 记录点击前的 URL 和 textarea 值
@@ -58,7 +62,15 @@ def test_home_quick_create_template(logged_in_page, base_url):
     first_pill_text = pills.first.inner_text().strip()
     pills.first.wait_for(state="visible", timeout=5000)
     pills.first.click()
-    logged_in_page.wait_for_timeout(1000)
+
+    # 真实行为：点击模板会把描述送入「一键创建」，切到 AI 生成配置视图
+    # （出现「返回」与「创建 Agent」按钮，URL 不变）。生成有延迟，需等待。
+    gen_view_btn = logged_in_page.get_by_role("button", name="创建 Agent", exact=True)
+    try:
+        gen_view_btn.first.wait_for(state="visible", timeout=20000)
+    except Exception:
+        pass
+    logged_in_page.wait_for_timeout(500)
 
     # 验证：任意一种反馈即视为通过
     url_after = logged_in_page.url
@@ -79,23 +91,27 @@ def test_home_quick_create_template(logged_in_page, base_url):
     has_overlay = logged_in_page.locator(
         "[data-state='open'], [data-radix-dialog-content]"
     ).count() > 0
-    # 检查 body 是否新增了表单元素
-    body_text = logged_in_page.locator("body").inner_text()
-    has_form_keywords = any(
-        kw in body_text for kw in ["新建Agent", "创建", "名称", "Agent ID"]
+    # 生成配置视图：出现「创建 Agent」或「返回」按钮
+    has_gen_view = (
+        gen_view_btn.count() > 0
+        or logged_in_page.get_by_role("button", name="返回", exact=True).count() > 0
     )
 
     any_feedback = (
         has_text_filled or has_dialog or has_inline_form
         or has_config_modal or has_url_changed or has_overlay
-        or has_form_keywords
+        or has_gen_view
     )
 
     assert any_feedback, (
         f"点击模板 '{first_pill_text}' 后未检测到任何反馈"
     )
 
-    # 清理：如果打开了对话框或表单，关闭/导航离开
+    # 清理：返回首页（点击模板进入的生成视图不在 URL 上体现，需点「返回」）
+    back_btn = logged_in_page.get_by_role("button", name="返回", exact=True)
+    if back_btn.count() > 0:
+        back_btn.first.click()
+        logged_in_page.wait_for_timeout(800)
     if has_config_modal:
         logged_in_page.keyboard.press("Escape")
         logged_in_page.wait_for_timeout(500)

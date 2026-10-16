@@ -1,6 +1,7 @@
 # tests/suites/test_chat_v2.py
 """对话聊天模块回归测试（基于 V2 Excel 用例 TC-CHAT-013~064）"""
 import os
+import uuid
 import allure
 import pytest
 import tempfile
@@ -494,8 +495,8 @@ def test_file_upload_preview(logged_in_page, base_url):
     chat.goto_agent_chat("my-auto-test")
     chat.create_new_session()
 
-    # 创建临时文件（使用已知文件名便于验证）
-    file_name = "test-upload-doc.txt"
+    # 使用唯一文件名：workspace 持久化，固定名称会在重跑时 409 path_conflict
+    file_name = f"test-upload-doc-{uuid.uuid4().hex[:6]}.txt"
     tmp_dir = tempfile.mkdtemp()
     tmp_path = os.path.join(tmp_dir, file_name)
     with open(tmp_path, "w", encoding="utf-8") as f:
@@ -559,6 +560,8 @@ def test_file_upload_preview(logged_in_page, base_url):
         if chat.has_file_in_tree(file_name):
             chat.delete_file(file_name)
     finally:
+        # 兜底清理：即使上述 UI 删除失败（或未走到），也用 fs API 删除，避免遗留文件
+        chat.delete_workspace_files([file_name])
         import shutil
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
@@ -573,15 +576,17 @@ def test_multi_file_upload(logged_in_page, base_url):
     chat.goto_agent_chat("my-auto-test")
     chat.create_new_session()
 
-    # 创建多个临时文件（使用已知文件名）
+    # 使用唯一文件名：workspace 持久化，固定名称会在重跑时 409 path_conflict
+    _uid = uuid.uuid4().hex[:6]
     tmp_dir = tempfile.mkdtemp()
     tmp_files = []
     for i in range(2):
-        fname = f"multi-upload-{i}.txt"
+        fname = f"multi-upload-{_uid}-{i}.txt"
         fpath = os.path.join(tmp_dir, fname)
         with open(fpath, "w", encoding="utf-8") as f:
             f.write(f"测试文件 {i} 的内容")
         tmp_files.append(fpath)
+    file_names = [f"multi-upload-{_uid}-{i}.txt" for i in range(2)]
 
     try:
         # 上传多个文件
@@ -591,7 +596,6 @@ def test_multi_file_upload(logged_in_page, base_url):
         chat.expand_artifacts_panel()
 
         # 验证：两个文件都出现在文件树中
-        file_names = [f"multi-upload-{i}.txt" for i in range(2)]
         logged_in_page.wait_for_timeout(1000)
         first_item = logged_in_page.get_by_role("treeitem", name=file_names[0])
         if first_item.count() == 0:
@@ -661,6 +665,8 @@ def test_multi_file_upload(logged_in_page, base_url):
             if chat.has_file_in_tree(fname):
                 chat.delete_file(fname)
     finally:
+        # 兜底清理：即使上述 UI 删除失败（或未走到），也用 fs API 删除，避免遗留文件
+        chat.delete_workspace_files(file_names)
         import shutil
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
@@ -725,6 +731,7 @@ def test_exe_file_preview_unsupported(logged_in_page, base_url):
         if chat.has_file_in_tree(exe_name):
             chat.delete_file(exe_name)
     finally:
+        chat.delete_workspace_files([exe_name])
         os.unlink(tmp_path)
 
 

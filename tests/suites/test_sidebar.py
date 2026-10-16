@@ -60,191 +60,89 @@ def test_workflow_has_create_button(logged_in_page, base_url):
 
 
 @pytest.mark.order(19)
-@pytest.mark.p1
-def test_workflow_search(logged_in_page, base_url):
-    """智能体编排搜索功能可用 | ✅ 人工评审通过 |"""
-    page = WorkflowPage(logged_in_page, base_url)
-    page.goto()
-
-    initial = page.get_workflow_count()
-    assert isinstance(initial, int), "工作流列表加载失败"
-
-    page.search("zzz_不存在_zzz")
-    logged_in_page.wait_for_timeout(500)
-    filtered = page.get_workflow_count()
-    # 搜索不存在的关键词应命中 0 条（原 OR 断言 filtered<initial 会放过"仍剩 1 条"的失效场景）
-    assert filtered == 0, (
-        f"搜索不存在关键词后仍有结果未过滤"
-        f"（initial={initial}, filtered={filtered}）"
-    )
-
-    page.clear_search()
-    restored = page.get_workflow_count()
-    assert restored == initial, \
-        f"清空搜索后未恢复: {restored} vs {initial}"
-
-
-@pytest.mark.order(19)
 @pytest.mark.p0
 def test_workflow_create_and_return(logged_in_page, base_url):
-    """智能体编排：新建工作流 → 进入编辑器 → 返回列表验证 | ✅ 人工评审通过 |"""
-    import json, requests
+    """智能体编排：新建工作流 → 进入编辑器 → 返回列表验证 → 删除清理（自建自销）"""
+    import re, uuid
 
-    wf_name = "auto-test-workflow-e2e"
+    wf_name = f"e2e-sidebar-{uuid.uuid4().hex[:8]}"
 
-    # ── Step 0: 提取 session cookie，清理可能残留的同名测试工作流 ──
-    cookies = logged_in_page.context.cookies()
-    session_cookie = next(
-        (c for c in cookies if c["name"].startswith("better-auth")), None
-    )
-    cookie_jar = {session_cookie["name"]: session_cookie["value"]} if session_cookie else {}
-
-    if cookie_jar:
-        list_resp = requests.get(
-            f"{base_url}/web/workflow-defs", cookies=cookie_jar, timeout=10,
-        )
-        if list_resp.status_code < 400:
-            for wf in list_resp.json().get("data", []):
-                if wf.get("name") == wf_name:
-                    requests.delete(
-                        f"{base_url}/web/workflow-defs/{wf['id']}",
-                        cookies=cookie_jar, timeout=10,
-                    )
-
-    # ── Step 1: 导航到工作流页面 ──
     page = WorkflowPage(logged_in_page, base_url)
     page.goto()
 
-    # ── Step 2: 点击新建工作流 → 弹窗填写 → 创建 ──
+    # ── Step 1: 新建工作流按钮可用性（空间未初始化 / 平台账号不可用时禁用）──
     create_btn_locator = logged_in_page.get_by_role("button", name="新建工作流")
     if create_btn_locator.count() == 0 or not create_btn_locator.first.is_enabled():
         pytest.skip(
             "新建工作流按钮不存在或被禁用"
             "（工作流空间未初始化 / 平台工作流账号不可用(503)）"
         )
-    create_btn_locator.first.wait_for(state="visible", timeout=5000)
     create_btn_locator.first.click()
-    logged_in_page.wait_for_timeout(1500)
+    logged_in_page.wait_for_timeout(1200)
 
     dialog = logged_in_page.locator("[role='dialog']")
     assert dialog.count() > 0, "新建工作流对话框未弹出"
-
-    # 新版输入框 id：workflow-create-name / workflow-create-desc
-    logged_in_page.locator("#workflow-create-name").wait_for(state="visible", timeout=5000)
+    logged_in_page.locator("#workflow-create-name").wait_for(state="visible", timeout=8000)
     logged_in_page.locator("#workflow-create-name").fill(wf_name)
-    logged_in_page.locator("#workflow-create-desc").wait_for(state="visible", timeout=5000)
+    logged_in_page.locator("#workflow-create-desc").wait_for(state="visible", timeout=8000)
     logged_in_page.locator("#workflow-create-desc").fill("自动化测试创建的工作流")
 
-    # 等待 React state 更新 → "创建并打开"按钮变为可用（旧版为"创建并编辑"）
+    # ── Step 2: 拦截创建 API（新版接口 /web/workflow-v2/workflows）──
     create_btn = dialog.locator("button").filter(has_text="创建并打开")
-    if create_btn.count() == 0:
-        create_btn = dialog.locator("button").filter(has_text="创建并编辑")
-    try:
-        create_btn.first.wait_for(state="visible", timeout=3000)
-        # 等按钮 enabled（fill 后 React 异步更新 createName state）
-        logged_in_page.wait_for_function(
-            """() => {
-                const btns = document.querySelectorAll('[role="dialog"] button');
-                for (const b of btns) {
-                    const t = b.textContent || '';
-                    if ((t.includes('创建并打开') || t.includes('创建并编辑')) && !b.disabled) return true;
-                }
-                return false;
-            }""",
-            timeout=3000,
-        )
-    except Exception:
-        pass  # 兜底：即使超时也尝试点击
-
-    # ── Step 3: 用 expect_response 精确拦截创建 API ──
-    create_btn.first.wait_for(state="visible", timeout=5000)
+    create_btn.first.wait_for(state="visible", timeout=8000)
     with logged_in_page.expect_response(
-        lambda r: "workflow-defs" in r.url and r.request.method == "POST",
-        timeout=15000,
+        lambda r: r.url.rstrip("/").endswith("/web/workflow-v2/workflows")
+        and r.request.method == "POST",
+        timeout=20000,
     ) as resp_info:
         create_btn.first.click()
 
     create_resp = resp_info.value
     assert create_resp.status < 400, f"创建 API 失败: HTTP {create_resp.status}"
+    body = create_resp.json()
+    local_id = body.get("data", {}).get("id")
+    upstream_id = body.get("data", {}).get("upstreamWorkflowId")
+    assert local_id and upstream_id, f"创建响应缺少 id/upstreamWorkflowId: {body}"
 
-    # 提取工作流 ID
-    wf_id = None
+    # ── Step 3: 跳转到编辑器，校验 URL 用上游 ID 且画布 iframe 已渲染 ──
     try:
-        body = create_resp.json()
-        wf_id = body.get("data", {}).get("id") or body.get("id")
-    except Exception:
-        pass
-
-    # 等待跳转到编辑页
-    try:
-        logged_in_page.wait_for_url("**/workflow/**/edit**", timeout=10000)
+        logged_in_page.wait_for_url(re.compile(r"/workflow/[^/]+/edit"), timeout=20000)
     except Exception:
         logged_in_page.wait_for_load_state("domcontentloaded")
+    assert re.search(r"/workflow/[^/]+/edit", logged_in_page.url),         f"创建后未跳转到编辑页: {logged_in_page.url}"
+    assert str(upstream_id) in logged_in_page.url,         f"编辑器 URL 未使用上游工作流 ID ({upstream_id}): {logged_in_page.url}"
 
-    assert "/workflow/" in logged_in_page.url and "/edit" in logged_in_page.url, \
-        f"创建后未跳转到编辑页: {logged_in_page.url}"
-
-    # 兜底提取 wf_id：从 URL 路径解析
-    if not wf_id:
-        import re
-        m = re.search(r"/workflow/([a-f0-9-]+)/edit", logged_in_page.url)
-        if m:
-            wf_id = m.group(1)
-
-    # 验证编辑页核心元素已渲染（面包屑 + 画布）
+    canvas = logged_in_page.frame_locator(WorkflowPage.CANVAS_IFRAME)
     try:
-        logged_in_page.locator("a").filter(has_text="工作流").first.wait_for(
-            state="visible", timeout=8000
+        canvas.locator("[data-testid='sdk.workflow.canvas']").first.wait_for(
+            state="visible", timeout=20000
         )
     except Exception:
-        pass  # 面包屑加载慢不算致命错误
+        pass
+    assert logged_in_page.locator(WorkflowPage.CANVAS_IFRAME).count() == 1,         "编辑器未渲染画布 iframe"
 
-    # ── Step 4: 点击面包屑"工作流"返回按钮回到列表 ──
-    # 面包屑是 <Link to="/agent/workflow"> 渲染的 <a>，文本为 "工作流"
-    back_link = logged_in_page.locator("a").filter(has_text="工作流")
-    try:
-        back_link.first.wait_for(state="visible", timeout=8000)
-    except Exception:
-        # 兜底：尝试通过 ArrowLeft 图标 + 文本匹配
-        back_link = logged_in_page.locator("a:has(svg)").filter(has_text="工作流")
-        try:
-            back_link.first.wait_for(state="visible", timeout=3000)
-        except Exception:
-            pass
-    assert back_link.count() > 0, \
-        f"编辑页未找到返回'工作流'链接（URL: {logged_in_page.url}）"
-    back_link.first.click()
-    logged_in_page.wait_for_timeout(800)
+    # ── Step 4: 返回列表（新版编辑页无面包屑，直接导航回列表）──
+    page.goto()
+    assert "/ctrl/agent/workflow" in logged_in_page.url and "/edit" not in logged_in_page.url,         f"返回后 URL 不正确: {logged_in_page.url}"
 
-    # ── Step 5: 回到列表页并刷新，验证新工作流可见 ──
-    page.goto()  # 强制刷新确保数据最新
-    logged_in_page.wait_for_timeout(800)
-    assert "/ctrl/agent/workflow" in logged_in_page.url and "/edit" not in logged_in_page.url, \
-        f"返回后 URL 不正确: {logged_in_page.url}"
-
-    # 验证 1: 新工作流名称在列表中可见
-    wf_text = logged_in_page.locator("span").filter(has_text=wf_name)
-    assert wf_text.count() > 0, \
-        f"创建的工作流 '{wf_name}' 在列表中不可见"
+    # 验证 1: 新工作流在列表中可见
+    assert page.has_workflow(wf_name), f"创建的工作流 '{wf_name}' 在列表中不可见"
 
     # 验证 2: API 确认工作流存在
-    if cookie_jar:
-        api_resp = requests.get(
-            f"{base_url}/web/workflow-defs", cookies=cookie_jar, timeout=10,
-        )
-        assert api_resp.status_code < 400, "获取工作流列表 API 失败"
-        wf_names = [w.get("name") for w in api_resp.json().get("data", [])]
-        assert wf_name in wf_names, \
-            f"API 返回的工作流列表中不包含 '{wf_name}'，当前: {wf_names}"
+    api_resp = logged_in_page.request.get(
+        f"{base_url}/web/workflow-v2/workflows?page=1&size=100"
+    )
+    assert api_resp.status == 200, "获取工作流列表 API 失败"
+    names = [w.get("name") for w in api_resp.json().get("data", {}).get("items", [])]
+    assert wf_name in names, f"API 工作流列表中不包含 '{wf_name}'，当前: {names}"
 
-    # ── Step 6: 清理 — 通过 API 删除测试工作流 ──
-    if wf_id and cookie_jar:
-        del_resp = requests.delete(
-            f"{base_url}/web/workflow-defs/{wf_id}",
-            cookies=cookie_jar, timeout=10,
-        )
-        assert del_resp.status_code < 400, \
-            f"清理测试工作流失败: HTTP {del_resp.status_code}"
+    # ── Step 5: 清理 — 删除自建工作流（force 确保移除）──
+    del_resp = logged_in_page.request.delete(
+        f"{base_url}/web/workflow-v2/workflows/{local_id}?force=true"
+    )
+    assert del_resp.status < 400, f"清理测试工作流失败: HTTP {del_resp.status}"
+    page.goto()
+    assert not page.has_workflow(wf_name), f"清理后 '{wf_name}' 仍出现在列表中"
 
 
 # ==================== 记忆 ====================
