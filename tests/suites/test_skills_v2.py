@@ -162,19 +162,25 @@ def test_skill_list_loading_skeleton(logged_in_page, base_url):
 
     skills = SkillsPage(logged_in_page, base_url)
 
-    # 拦截技能列表 API 并人为延迟 3s
-    def delay_skills_api(route):
-        time.sleep(3)
-        route.continue_()
+    # 拦截技能列表 API 并挂起请求。不能用 time.sleep：sync API 的 route 回调运行在
+    # 事件泵里，sleep 会阻塞事件泵，导致断言实际在请求放行之后才执行（CI 上目录已
+    # 渲染，用例稳定误报）。挂起后由 finally 显式放行，延迟窗口才是真实窗口。
+    held_routes = []
 
-    logged_in_page.route("**/web/config/skills*", delay_skills_api)
+    def hold_skills_api(route):
+        held_routes.append(route)
+
+    logged_in_page.route("**/web/config/skills*", hold_skills_api)
     logged_in_page.goto(skills.url, wait_until="domcontentloaded")
 
-    # 延迟窗口内（请求尚未返回）：目录不得提前渲染
-    logged_in_page.wait_for_timeout(1200)
-    assert skills._catalog().count() == 0, "技能 API 未返回时目录不应渲染"
-
-    logged_in_page.unroute("**/web/config/skills*")
+    try:
+        # 请求被挂起期间：目录不得提前渲染
+        logged_in_page.wait_for_timeout(1200)
+        assert skills._catalog().count() == 0, "技能 API 未返回时目录不应渲染"
+    finally:
+        for held_route in held_routes:
+            held_route.continue_()
+        logged_in_page.unroute("**/web/config/skills*")
 
     # 数据就绪后：目录渲染、页面加载完成
     try:

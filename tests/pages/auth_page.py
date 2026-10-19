@@ -14,11 +14,17 @@ class AuthPage:
     # ==================== 导航 ====================
 
     def goto(self):
+        # CI 上新建 context 的首个导航偶发失败（SPA 中断/网络抖动），重试一次
+        for _attempt in range(2):
+            try:
+                self.page.goto(self.url, wait_until="domcontentloaded")
+                break
+            except Exception:
+                self.page.wait_for_timeout(500)
         try:
-            self.page.goto(self.url, wait_until="domcontentloaded")
+            self.page.wait_for_load_state("domcontentloaded")
         except Exception:
-            pass  # SPA 路由可能中断初始导航
-        self.page.wait_for_load_state("domcontentloaded")
+            pass
 
     def is_on_login_page(self) -> bool:
         return "/ctrl/login" in self.page.url
@@ -29,15 +35,16 @@ class AuthPage:
     # ==================== 登录表单 ====================
 
     def fill_email(self, email: str):
-        self.page.locator("#auth-email").wait_for(state="visible", timeout=5000)
+        # 新 context 首次加载无浏览器缓存，CI 负载下 5s 不足以完成 hydration
+        self.page.locator("#auth-email").wait_for(state="visible", timeout=15000)
         self.page.fill("#auth-email", email)
 
     def fill_password(self, password: str):
-        self.page.locator("#auth-password").wait_for(state="visible", timeout=5000)
+        self.page.locator("#auth-password").wait_for(state="visible", timeout=15000)
         self.page.fill("#auth-password", password)
 
     def click_login(self):
-        self.page.locator("button.auth-light-submit").wait_for(state="visible", timeout=5000)
+        self.page.locator("button.auth-light-submit").wait_for(state="visible", timeout=15000)
         self.page.click("button.auth-light-submit")
 
     def login(self, email: str, password: str):

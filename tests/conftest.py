@@ -469,6 +469,12 @@ def _page_error_monitor(request):
             # 白名单：新建 Agent 配置加载期间的瞬态 404
             if "Failed to load agent config" in msg.text:
                 return
+            # 白名单：删除 Agent 后页面轮询已删除 Agent 的 404（与 API 侧白名单对应）
+            if "/web/config/agents" in msg.text and (
+                "NOT_FOUND" in msg.text or "not found" in msg.text
+            ):
+                warnings.append(f"[console.error] {msg.text}")
+                return
             # 白名单：知识库删除后轮询 resources 返回"知识库不存在"
             if "知识库不存在" in msg.text and "knowledgeBases" in msg.text:
                 return
