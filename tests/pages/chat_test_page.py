@@ -406,6 +406,79 @@ class ChatTestPage:
         }""")
         return result if isinstance(result, list) else []
 
+    def get_sessions_via_client(self) -> list[dict]:
+        """通过 React fiber 获取会话对象列表（sessionId / title / status）。
+
+        会话标题由应用侧异步生成（会从消息原文变为摘要标题），因此定位测试自建会话
+        必须用 sessionId，不能用标题里的消息标记。
+        """
+        result = self.page.evaluate("""() => {
+            const sidebar = document.querySelector('div.flex.min-h-0.flex-col.overflow-hidden.rounded-xl');
+            const target = sidebar || document.querySelector('nav[aria-label]');
+            if (!target) return [];
+            const fiberKey = Object.keys(target).find(k => k.startsWith('__reactFiber'));
+            if (!fiberKey) return [];
+            let fiber = target[fiberKey];
+
+            for (let i = 0; i < 40 && fiber; i++) {
+                const props = fiber.memoizedProps || {};
+                if (Array.isArray(props.sessions) && props.sessions.length > 0) {
+                    return props.sessions.map(s => ({
+                        id: s.sessionId,
+                        title: (s.title || '').trim(),
+                        status: s.status,
+                    }));
+                }
+                fiber = fiber.return;
+            }
+            return [];
+        }""")
+        return result if isinstance(result, list) else []
+
+    def delete_session_by_id(self, session_id: str) -> bool:
+        """通过 sessionId 删除会话。
+
+        先创建新会话使目标会话变为非活跃状态，再调用 onDeleteSession 回调。
+        标题由应用异步生成，按标题匹配会漏删/错删，故按 id 定位。
+        """
+        self.create_new_session()
+        self.page.wait_for_timeout(1000)
+
+        result = self.page.evaluate("""(sessionId) => {
+            const sidebar = document.querySelector('div.flex.min-h-0.flex-col.overflow-hidden.rounded-xl');
+            const target = sidebar || document.querySelector('nav[aria-label]');
+            if (!target) return {error: 'no sidebar found'};
+
+            const fiberKey = Object.keys(target).find(k => k.startsWith('__reactFiber'));
+            if (!fiberKey) return {error: 'no fiber key'};
+
+            let fiber = target[fiberKey];
+            let onDeleteSession = null;
+            for (let i = 0; i < 40 && fiber; i++) {
+                const props = fiber.memoizedProps || {};
+                if (typeof props.onDeleteSession === 'function') {
+                    onDeleteSession = props.onDeleteSession;
+                    break;
+                }
+                fiber = fiber.return;
+            }
+            if (!onDeleteSession) return {error: 'onDeleteSession callback not found'};
+
+            try {
+                onDeleteSession(sessionId);
+                return {success: true, sessionId};
+            } catch (err) {
+                return {error: 'delete callback failed: ' + err.message, sessionId};
+            }
+        }""", session_id)
+
+        if isinstance(result, dict) and result.get("success"):
+            self.page.wait_for_timeout(1500)
+            return True
+        if result:
+            print(f"\n[delete_session_by_id] result: {result}")
+        return False
+
     def delete_session_by_title(self, title: str) -> bool:
         """通过标题删除会话。
         使用 WebSocket JSON-RPC (delete_session action)。

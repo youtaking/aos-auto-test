@@ -296,9 +296,19 @@ def test_gateway_006_usage_and_keys_tabs(gateway_page):
     for col in ["Key ID", "主体", "当前可用性", "创建时间"]:
         assert col in header, f"Key 表格缺少列「{col}」，表头: {header!r}"
 
+    # 「当前可用性」列渲染的是模型网关返回的原因码文案（ModelGatewayKeyManagementPanel
+    # 读取 keysPage.reasons.*），首行 Key 可能因所属 Agent 被删除等原因显示不可用原因，
+    # 不能假设首行一定是「可用」。
+    AVAILABILITY_LABELS = (
+        "可用", "不可用",
+        "用户不存在", "组织不存在", "用户已不在组织内",
+        "Agent 不存在或不属于组织", "用户已失去 Agent 访问权限",
+        "凭证已禁用或密文缺失",
+    )
     rows = table.locator("tbody tr")
     if rows.count() > 0:
         first_row = rows.first.inner_text()
-        assert ("可用" in first_row), f"Key 表格行未渲染可用性: {first_row[:120]!r}"
+        assert any(label in first_row for label in AVAILABILITY_LABELS), \
+            f"Key 表格行未渲染可用性: {first_row[:120]!r}"
         assert re.search(r"\d{4}/\d{1,2}/\d{1,2}", first_row), \
             f"Key 表格行未渲染创建时间（YYYY/M/D）: {first_row[:120]!r}"

@@ -124,74 +124,60 @@ def test_chat_delete_session(logged_in_page, base_url):
         pytest.skip("未能导航到 my-auto-test 聊天页（Agent 可能不在列表中或环境异常）")
     assert chat.is_chat_loaded(), "聊天页面未加载"
 
-    # 1. 创建新会话并发送消息使其有标题（使用唯一标记避免历史数据干扰）
+    # 1. 创建新会话并发送消息。会话标题由应用异步生成（会从消息原文变为摘要标题），
+    #    因此自建会话必须按 sessionId 追踪，不能用消息标记去匹配标题。
     chat.create_new_session()
+    sessions_before = chat.get_sessions_via_client()
+    assert len(sessions_before) > 0, "会话列表为空（YJS sessions 未加载）"
+    before_ids = {s["id"] for s in sessions_before}
     unique_id = _uuid.uuid4().hex[:6]
     session_marker = f"E2E-del-{unique_id}"
     chat.send_message(f"{session_marker}-请回复OK")
-    logged_in_page.wait_for_timeout(1500)  # Yjs 同步需要时间
+    logged_in_page.wait_for_timeout(1500)
 
     try:
-        # 2. 通过 client API 获取会话列表（绕过 UI 缓存），支持 YJS 异步加载重试
-        titles_before = []
-        matching = []
-        for _retry in range(25):  # 增加到 25 次（约 37.5s）
-            titles_before = chat.get_session_titles_via_client()
-            # fallback: React fiber 失败时用 DOM 提取
-            if len(titles_before) == 0:
-                titles_before = chat.get_session_titles()
-            if len(titles_before) > 0:
-                matching = [t for t in titles_before if unique_id in t]
-                if len(matching) > 0:
-                    break
+        log_text = logged_in_page.locator("div[role='log']").first.inner_text()
+        assert session_marker in log_text, \
+            f"消息未发送成功，消息区实际内容: {log_text[:200]!r}"
+
+        # 2. 等新会话出现在 client 会话列表（Yjs 异步同步）
+        new_sessions = []
+        for _retry in range(25):  # 约 37.5s
+            new_sessions = [s for s in chat.get_sessions_via_client() if s["id"] not in before_ids]
+            if new_sessions:
+                break
             logged_in_page.wait_for_timeout(1500)
-        assert len(titles_before) > 0, "会话列表为空（YJS sessions 未加载）"
+        assert len(new_sessions) > 0, "新会话未出现在会话列表（YJS sessions 未同步）"
+        target_id = new_sessions[0]["id"]
 
-        # 3. 找到包含 marker 的会话（只删除测试创建的）
-        if len(matching) == 0:
-            # 回退：用 DOM 中的会话标题查找
-            dom_titles = chat.get_session_titles()
-            matching_dom = [t for t in dom_titles if unique_id in t]
-            if len(matching_dom) > 0:
-                matching = matching_dom
-            else:
-                pytest.skip(
-                    f"未找到测试创建的会话（unique_id: {unique_id}），"
-                    f"Yjs 同步延迟或会话未创建成功。"
-                    f"client 列表: {titles_before[:5]}, DOM 列表: {dom_titles[:5]}"
-                )
+        # 3. 删除该会话（先新建会话使目标变为非活跃，再通过 client 回调删除）
+        deleted = chat.delete_session_by_id(target_id)
+        assert deleted, f"会话删除 API 调用失败: {target_id}"
 
-        target_title = matching[0]
-        count_before = len(matching)
-
-        # 4. 删除该会话（通过 client.deleteSession WebSocket JSON-RPC）
-        deleted = chat.delete_session_by_title(target_title)
-        assert deleted, \
-            f"会话删除 API 调用失败：服务器不支持 session/delete 或无法删除 '{target_title}'"
-
-        # 5. 通过 client API 验证删除（轮询等待 YjsWs 同步）
-        count_after = count_before
-        for _retry in range(20):
+        # 4. 轮询等待删除同步（YjsWs），超时后刷新页面兜底复核
+        remaining = [s for s in chat.get_sessions_via_client() if s["id"] == target_id]
+        for _retry in range(40):  # 约 20s
             logged_in_page.wait_for_timeout(500)
-            titles_after = chat.get_session_titles_via_client()
-            count_after = sum(1 for t in titles_after if unique_id in t)
-            if count_after < count_before:
+            remaining = [s for s in chat.get_sessions_via_client() if s["id"] == target_id]
+            if not remaining:
                 break
 
-        # 如果仍无变化，尝试刷新页面后再检查
-        if count_after >= count_before:
+        if remaining:
             try:
                 logged_in_page.reload(wait_until="domcontentloaded")
+                logged_in_page.wait_for_load_state("networkidle")
             except Exception:
                 pass
-            logged_in_page.wait_for_load_state("networkidle")
-            logged_in_page.wait_for_timeout(500)
-            titles_after = chat.get_session_titles_via_client()
-            count_after = sum(1 for t in titles_after if unique_id in t)
+            sessions_after = []
+            for _retry in range(20):  # 约 10s，等 Yjs 会话列表重新加载
+                logged_in_page.wait_for_timeout(500)
+                sessions_after = chat.get_sessions_via_client()
+                if sessions_after:
+                    break
+            assert sessions_after, "刷新后会话列表为空（YJS sessions 未加载）"
+            remaining = [s for s in sessions_after if s["id"] == target_id]
 
-        assert count_after < count_before, (
-            f"删除后会话数量未减少（可能为应用 Bug）: 删除前 {count_before}, 删除后 {count_after}"
-        )
+        assert not remaining, f"删除后会话仍在列表中: {target_id}"
     finally:
         # 清理：关闭对话框
         try:
