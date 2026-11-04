@@ -1,407 +1,191 @@
 # tests/suites/test_channels.py
-"""消息渠道（Channels）模块 E2E 测试
-基于 2026-08-17 真实 DOM 探查编写
-覆盖：页面加载、CRUD、搜索、表单验证、空状态
+"""消息通道（Channels）模块 E2E 测试
+
+新版 UI（2026-11 部署）：LangBot 通道机器人 + 路由列表。
+页面路径 /ctrl/agent/channels，标题「消息通道」。
+本套用例只做读取与弹窗取消操作，不修改已有通道数据。
 """
-import json
-import uuid
 import pytest
 import allure
 from tests.pages.channels_page import ChannelsPage
-from tests.conftest import register_cleanup
-
-_PREFIX = f"ch-e2e-{uuid.uuid4().hex[:6]}"
 
 
-def _register_cleanup_bindings(request, page, base_url, name_prefix):
-    """注册清理：删除名称包含 prefix 的绑定"""
-    def _cleanup():
-        try:
-            r = page.request.get(f"{base_url}/web/channels/bindings")
-            if r.status == 200:
-                data = r.json()
-                bindings = data if isinstance(data, list) else data.get("data", [])
-                for b in bindings:
-                    name = b.get("platformName", "") or b.get("platform", "")
-                    if name_prefix in name:
-                        page.request.delete(
-                            f"{base_url}/web/channels/bindings/{b['id']}"
-                        )
-        except Exception:
-            pass
-    register_cleanup(request, _cleanup)
+def _first_bot_name(ch: ChannelsPage) -> str:
+    row = ch.bot_rows().first
+    row.wait_for(state="visible", timeout=10000)
+    name = row.inner_text().strip().splitlines()[0].strip()
+    assert name, "通道行首行未展示机器人名称"
+    return name
 
 
-# ==================== 测试 ====================
-
-
-@allure.epic("消息渠道")
+@allure.epic("消息通道")
 @pytest.mark.order(500)
 @pytest.mark.p0
 def test_channels_page_loads(logged_in_page, base_url):
-    """TC-CH-001: 频道页面正常加载"""
+    """TC-CH-001: 消息通道页面正常加载"""
     ch = ChannelsPage(logged_in_page, base_url)
     ch.goto()
-    assert ch.is_loaded(), "频道页面未加载（标题不可见或 URL 不对）"
+    assert ch.is_loaded(), "消息通道页面未加载（标题不可见或 URL 不对）"
 
-    # 验证页面核心元素
-    assert logged_in_page.get_by_role("heading", name="消息渠道").is_visible(), \
-        "页面标题 '消息渠道' 不可见"
+    assert logged_in_page.get_by_role("heading", name="消息通道").is_visible(), \
+        "页面标题「消息通道」不可见"
+    create_btn = logged_in_page.locator("main").get_by_role(
+        "button", name="创建消息连接", exact=True
+    )
+    assert create_btn.count() == 1, \
+        f"「创建消息连接」按钮应唯一，实际 {create_btn.count()} 个"
+    assert create_btn.is_visible(), "「创建消息连接」按钮不可见"
 
 
-@allure.epic("消息渠道")
+@allure.epic("消息通道")
 @pytest.mark.order(501)
 @pytest.mark.p0
-def test_channels_empty_state(logged_in_page, base_url):
-    """TC-CH-002: 无绑定时显示空状态"""
+def test_channels_bot_tree_actions(logged_in_page, base_url):
+    """TC-CH-002: 通道机器人列表 — 每个机器人头部提供完整操作入口"""
     ch = ChannelsPage(logged_in_page, base_url)
-
-    # 先清理所有 ch-e2e- 前缀的残留绑定（上次运行可能没清理干净）
-    try:
-        r = logged_in_page.request.get(f"{base_url}/web/channels/bindings")
-        if r.status == 200:
-            data = r.json()
-            bindings = data if isinstance(data, list) else data.get("data", [])
-            for b in bindings:
-                name = b.get("platformName", "") or b.get("platform", "")
-                if name.startswith("ch-e2e-"):
-                    logged_in_page.request.delete(
-                        f"{base_url}/web/channels/bindings/{b['id']}"
-                    )
-    except Exception:
-        pass
-
     ch.goto()
-    assert ch.is_loaded(), "频道页面未加载"
+    assert ch.is_loaded(), "消息通道页面未加载"
 
-    # 检查当前是否有绑定
-    count = ch.get_binding_count()
-    if count > 0:
-        pytest.skip(f"当前已有 {count} 个绑定，无法测试空状态")
+    bot_count = ch.get_binding_count()
+    if bot_count == 0:
+        pytest.skip("当前环境没有任何通道机器人（前置数据缺失），无法校验操作入口")
 
-    assert ch.has_empty_state(), "无绑定时未显示空状态提示"
+    bot_name = _first_bot_name(ch)
+    header = ch.bot_header(bot_name)
+    for action in ["对接智能体", "测试发送", "编辑", "删除"]:
+        btn = header.get_by_role("button", name=action, exact=True)
+        assert btn.count() == 1, \
+            f"通道 {bot_name!r} 头部「{action}」按钮应唯一，实际 {btn.count()} 个"
 
 
-@allure.epic("消息渠道")
+@allure.epic("消息通道")
 @pytest.mark.order(502)
 @pytest.mark.p0
-def test_channels_create_binding(logged_in_page, base_url, request):
-    """TC-CH-003: 创建新频道绑定"""
+def test_channels_create_dialog(logged_in_page, base_url):
+    """TC-CH-003: 创建通道弹窗 — 名称输入框与适配器选项齐全，取消可关闭"""
     ch = ChannelsPage(logged_in_page, base_url)
     ch.goto()
-    assert ch.is_loaded(), "频道页面未加载"
+    assert ch.is_loaded(), "消息通道页面未加载"
 
-    platform_name = f"{_PREFIX}-telegram"
-    _register_cleanup_bindings(request, logged_in_page, base_url, _PREFIX)
-
-    # 点击创建
     ch.click_create_button()
-    assert ch.is_dialog_open(), "创建弹窗未打开"
+    assert ch.is_dialog_open(), "点击「创建消息连接」后弹窗未打开"
 
-    # 填写表单
-    ch.fill_platform(platform_name)
-    ch.fill_chat_id("test-chat-123")
+    dialog = ch.dialog_locator()
+    dialog_text = dialog.inner_text()
+    assert "创建通道" in dialog_text, "弹窗标题不是「创建通道」"
+    name_input = dialog.locator("input#channel-bot-name")
+    assert name_input.count() == 1, "弹窗中未找到通道名称输入框"
+    assert name_input.get_attribute("placeholder") == "例如：客服机器人", \
+        "名称输入框 placeholder 与预期不一致"
 
-    # 选择 Agent（从下拉选第一个可用选项）
-    dialog = logged_in_page.get_by_role("dialog")
-    combobox = dialog.get_by_role("combobox").first
-    combobox.wait_for(state="visible", timeout=5000)
-    combobox.click()
-    logged_in_page.wait_for_timeout(500)
-    # 选第一个 option
-    first_option = logged_in_page.locator("[role='option']").first
-    if first_option.count() > 0:
-        agent_text = first_option.inner_text()
-        first_option.wait_for(state="visible", timeout=5000)
-        first_option.click()
-    else:
-        combobox.press("Escape")
-        ch.click_cancel()
-        pytest.skip("Agent 下拉无可用选项")
+    adapter_btns = [
+        btn for btn in ["Telegram", "飞书 / Lark", "Slack", "Discord",
+                        "企业微信", "钉钉", "QQ 官方 API", "OneBot v11"]
+        if dialog.get_by_role("button", name=btn, exact=True).count() == 1
+    ]
+    assert len(adapter_btns) == 8, \
+        f"适配器选项缺失，实际只匹配到 {adapter_btns}"
 
-    # 保存
-    ch.click_save()
-
-    # 等待弹窗关闭（保存完成）
-    dialog = logged_in_page.get_by_role("dialog")
-    try:
-        dialog.first.wait_for(state="hidden", timeout=8000)
-    except Exception:
-        pass
-
-    # 等待绑定出现在列表中（轮询）
-    for _poll in range(8):
-        if ch.has_binding(platform_name):
-            break
-        logged_in_page.wait_for_timeout(1000)
-
-    # 验证绑定出现在列表中
-    assert ch.has_binding(platform_name), \
-        f"创建后绑定 '{platform_name}' 未出现在列表中"
+    ch.click_cancel()
+    assert not ch.is_dialog_open(), "点击取消后弹窗未关闭"
 
 
-@allure.epic("消息渠道")
+@allure.epic("消息通道")
 @pytest.mark.order(503)
 @pytest.mark.p1
 def test_channels_create_validation(logged_in_page, base_url):
-    """TC-CH-004: 创建时平台名称为空校验"""
+    """TC-CH-004: 创建通道校验 — 名称留空提交显示「请填写名称」"""
     ch = ChannelsPage(logged_in_page, base_url)
     ch.goto()
-    assert ch.is_loaded(), "频道页面未加载"
+    assert ch.is_loaded(), "消息通道页面未加载"
 
     ch.click_create_button()
-    assert ch.is_dialog_open(), "创建弹窗未打开"
+    assert ch.is_dialog_open(), "创建通道弹窗未打开"
 
-    # 不填写平台名称，直接保存
     ch.click_save()
-    logged_in_page.wait_for_timeout(1000)
+    logged_in_page.wait_for_timeout(800)
 
-    # 弹窗应仍然存在（校验失败不会关闭弹窗）
-    assert ch.is_dialog_open(), "平台名称为空时弹窗关闭了（应有校验提示）"
+    assert ch.is_dialog_open(), "名称为空时弹窗被关闭（应保留并提示）"
+    dialog = ch.dialog_locator()
+    error = dialog.get_by_text("请填写名称", exact=True)
+    assert error.count() == 1, \
+        f"名称为空未显示「请填写名称」错误提示，实际文本: {dialog.inner_text()[:150]}"
+    assert error.first.is_visible(), "「请填写名称」错误提示不可见"
 
-    # 关闭弹窗
-    ch.close_dialog()
+    ch.click_cancel()
+    assert not ch.is_dialog_open(), "点击取消后弹窗未关闭"
 
 
-@allure.epic("消息渠道")
+@allure.epic("消息通道")
 @pytest.mark.order(504)
 @pytest.mark.p0
-def test_channels_delete_binding(logged_in_page, base_url, request):
-    """TC-CH-005: 删除绑定（自建自销）"""
+def test_channels_route_toggle(logged_in_page, base_url):
+    """TC-CH-005: 路由折叠 — 收起后路由区消失，展开后恢复"""
     ch = ChannelsPage(logged_in_page, base_url)
     ch.goto()
-    assert ch.is_loaded(), "频道页面未加载"
+    assert ch.is_loaded(), "消息通道页面未加载"
 
-    platform_name = f"{_PREFIX}-del-test"
-    _register_cleanup_bindings(request, logged_in_page, base_url, _PREFIX)
+    bot_name = _first_bot_name(ch)
+    assert ch.has_route_block(bot_name), \
+        f"通道 {bot_name!r} 未渲染路由区，无法验证折叠"
 
-    # 通过 API 创建绑定用于删除测试
-    # 先获取一个可用的 agentId
-    env_resp = logged_in_page.request.get(f"{base_url}/web/environments")
-    if env_resp.status != 200:
-        pytest.skip("无法获取环境列表 API")
-    envs = env_resp.json()
-    env_list = envs if isinstance(envs, list) else envs.get("data", [])
-    if not env_list:
-        pytest.skip("无可用的 Agent 环境")
+    aria_before, aria_after = ch.toggle_routes(bot_name)
+    assert "收起" in (aria_before or ""), \
+        f"折叠按钮初始 aria-label 不是「收起…」: {aria_before}"
+    assert "展开" in (aria_after or ""), \
+        f"收起后 aria-label 未变为「展开…」: {aria_after}"
+    assert not ch.has_route_block(bot_name), "收起后路由区仍存在"
 
-    agent_id = env_list[0]["id"]
-    create_resp = ch.create_binding_api(platform_name, "del-chat-id", agent_id)
-    if create_resp.status not in (200, 201):
-        pytest.skip(f"API 创建绑定失败 (HTTP {create_resp.status})")
-
-    # 刷新页面
-    ch.goto()
-    assert ch.has_binding(platform_name), \
-        f"API 创建后绑定 '{platform_name}' 未出现在列表"
-
-    # UI 删除
-    ch.delete_binding(platform_name)
-    # 确认删除弹窗
-    confirm_btn = logged_in_page.get_by_role("button", name="确认").or_(
-        logged_in_page.get_by_role("button", name="Continue")
-    )
-    if confirm_btn.count() > 0:
-        confirm_btn.first.wait_for(state="visible", timeout=5000)
-        confirm_btn.first.click()
-    logged_in_page.wait_for_load_state("networkidle")
-
-    # 轮询等待绑定从列表中消失
-    for _poll in range(8):
-        if not ch.has_binding(platform_name):
-            break
-        logged_in_page.wait_for_timeout(1000)
-
-    assert not ch.has_binding(platform_name), \
-        f"删除后绑定 '{platform_name}' 仍然存在"
+    _, aria_restored = ch.toggle_routes(bot_name)
+    assert "收起" in (aria_restored or ""), \
+        f"再次点击后 aria-label 未恢复为「收起…」: {aria_restored}"
+    assert ch.has_route_block(bot_name), "展开后路由区未恢复"
 
 
-@allure.epic("消息渠道")
+@allure.epic("消息通道")
 @pytest.mark.order(505)
 @pytest.mark.p1
-def test_channels_delete_cancel(logged_in_page, base_url, request):
-    """TC-CH-006: 取消删除确认"""
+def test_channels_custom_adapter_fields(logged_in_page, base_url):
+    """TC-CH-006: 其他（插件适配器）— 显示适配器 ID 与 JSON 配置字段"""
     ch = ChannelsPage(logged_in_page, base_url)
     ch.goto()
-    assert ch.is_loaded(), "频道页面未加载"
-
-    platform_name = f"{_PREFIX}-cancel-del"
-    _register_cleanup_bindings(request, logged_in_page, base_url, _PREFIX)
-
-    # 通过 API 创建
-    env_resp = logged_in_page.request.get(f"{base_url}/web/environments")
-    if env_resp.status != 200:
-        pytest.skip("无法获取环境列表 API")
-    envs = env_resp.json()
-    env_list = envs if isinstance(envs, list) else envs.get("data", [])
-    if not env_list:
-        pytest.skip("无可用的 Agent 环境")
-
-    create_resp = ch.create_binding_api(platform_name, "cancel-chat-id", env_list[0]["id"])
-    if create_resp.status not in (200, 201):
-        pytest.skip(f"API 创建绑定失败 (HTTP {create_resp.status})")
-
-    ch.goto()
-    assert ch.has_binding(platform_name), "API 创建后绑定未出现"
-
-    count_before = ch.get_binding_count()
-
-    # 点击删除
-    ch.delete_binding(platform_name)
-
-    # 取消删除
-    cancel_btn = logged_in_page.get_by_role("button", name="取消").or_(
-        logged_in_page.get_by_role("button", name="Cancel")
-    )
-    if cancel_btn.count() > 0:
-        cancel_btn.first.wait_for(state="visible", timeout=5000)
-        cancel_btn.first.click()
-    else:
-        logged_in_page.keyboard.press("Escape")
-
-    logged_in_page.wait_for_timeout(500)
-
-    # 绑定应仍然存在
-    assert ch.has_binding(platform_name), "取消删除后绑定消失了"
-    assert ch.get_binding_count() == count_before, "取消删除后绑定数量变化"
-
-
-@allure.epic("消息渠道")
-@pytest.mark.order(506)
-@pytest.mark.p1
-def test_channels_search_filter(logged_in_page, base_url, request):
-    """TC-CH-007: 搜索框按 platform/agentName 过滤"""
-    ch = ChannelsPage(logged_in_page, base_url)
-    ch.goto()
-    assert ch.is_loaded(), "频道页面未加载"
-
-    platform_name = f"{_PREFIX}-search-test"
-    _register_cleanup_bindings(request, logged_in_page, base_url, _PREFIX)
-
-    # 通过 API 创建用于搜索测试
-    env_resp = logged_in_page.request.get(f"{base_url}/web/environments")
-    if env_resp.status != 200:
-        pytest.skip("无法获取环境列表 API")
-    envs = env_resp.json()
-    env_list = envs if isinstance(envs, list) else envs.get("data", [])
-    if not env_list:
-        pytest.skip("无可用的 Agent 环境")
-
-    ch.create_binding_api(platform_name, "search-chat-id", env_list[0]["id"])
-    ch.goto()
-
-    if not ch.has_binding(platform_name):
-        pytest.skip(f"创建后绑定 '{platform_name}' 未出现")
-
-    count_before = ch.get_binding_count()
-
-    # 搜索一个不存在的关键词
-    ch.search("zzz-nonexistent-platform-xyz")
-    logged_in_page.wait_for_timeout(500)
-    count_filtered = ch.get_binding_count()
-    assert count_filtered < count_before, \
-        f"搜索不存在的关键词后仍显示 {count_filtered} 个（之前 {count_before} 个）"
-
-    # 清空搜索，恢复
-    ch.clear_search()
-    logged_in_page.wait_for_timeout(500)
-    count_restored = ch.get_binding_count()
-    assert count_restored == count_before, \
-        f"清空搜索后数量 {count_restored} != 原始 {count_before}"
-
-
-@allure.epic("消息渠道")
-@pytest.mark.order(507)
-@pytest.mark.p2
-def test_channels_agent_dropdown(logged_in_page, base_url):
-    """TC-CH-008: Agent 下拉列表有可选项"""
-    ch = ChannelsPage(logged_in_page, base_url)
-    ch.goto()
-    assert ch.is_loaded(), "频道页面未加载"
+    assert ch.is_loaded(), "消息通道页面未加载"
 
     ch.click_create_button()
-    assert ch.is_dialog_open(), "创建弹窗未打开"
+    assert ch.is_dialog_open(), "创建通道弹窗未打开"
 
-    # 等待弹窗完全渲染
-    dialog = logged_in_page.get_by_role("dialog")
-    dialog.first.wait_for(state="visible", timeout=5000)
-    logged_in_page.wait_for_timeout(500)
+    ch.select_adapter("其他（插件适配器）")
+    assert ch.has_field("channel-bot-custom-adapter"), \
+        "选择插件适配器后未出现「适配器 ID」输入框"
+    assert ch.has_field("channel-bot-config"), \
+        "选择插件适配器后未出现「适配器配置（JSON）」输入框"
 
-    # 打开 Agent 下拉
-    combobox = dialog.get_by_role("combobox").first
-    combobox.wait_for(state="visible", timeout=5000)
-    combobox.click()
-    logged_in_page.wait_for_timeout(800)
-
-    # 应有至少一个选项
-    options = logged_in_page.locator("[role='option']")
-    try:
-        options.first.wait_for(state="visible", timeout=5000)
-    except Exception:
-        pytest.fail("Agent 下拉列表为空（应至少有一个可用 Agent）")
-    option_count = options.count()
-    assert option_count > 0, "Agent 下拉列表为空（应至少有一个可用 Agent）"
-
-    # 关闭（点击 option 后弹窗可能已自动关闭）
-    if ch.is_dialog_open():
-        ch.close_dialog()
+    ch.click_cancel()
+    assert not ch.is_dialog_open(), "点击取消后弹窗未关闭"
 
 
-# TC-CH-002「渠道编辑入口」与「渠道连通性测试」已于 2026-09-15 删除：
-# 新版渠道卡片（AgentChannelsPage.tsx:135-158）仅渲染一个删除按钮，
-# 既无编辑入口也无"测试/连通性"按钮（web/src 全量源码 0 命中），属功能下线用例。
-
-# TC-CH-002「渠道连通性测试」（order 509）已于 2026-09-15 随「编辑入口」一并删除：
-# 新版渠道卡片（AgentChannelsPage.tsx:135-158）仅渲染删除按钮，无"测试/连通性"入口。
-
-
-# ==================== P2 补充测试 ====================
-
-
-@allure.epic("消息渠道")
-@pytest.mark.order(510)
+@allure.epic("消息通道")
+@pytest.mark.order(506)
 @pytest.mark.p2
-def test_channels_search_empty(logged_in_page, base_url):
-    """TC-CH-P2-01: 渠道搜索无结果时显示空状态"""
+def test_channels_refresh(logged_in_page, base_url):
+    """TC-CH-007: 刷新按钮 — 重新拉取列表且数量不变"""
     ch = ChannelsPage(logged_in_page, base_url)
     ch.goto()
-    assert ch.is_loaded(), "频道页面未加载"
+    assert ch.is_loaded(), "消息通道页面未加载"
 
-    # 先检查搜索框是否存在
-    search_input = logged_in_page.locator("[placeholder='searchPlaceholder']")
-    if search_input.count() == 0:
-        pytest.skip("渠道页面无搜索框，跳过空状态测试")
-
-    # 记录搜索前的绑定数量
     count_before = ch.get_binding_count()
+    if count_before == 0:
+        pytest.skip("当前环境没有任何通道机器人（前置数据缺失），无法验证刷新后数量不变")
 
-    # 输入随机无匹配字符串
-    random_query = f"zzz-nonexist-{uuid.uuid4().hex[:8]}"
-    ch.search(random_query)
-    logged_in_page.wait_for_timeout(800)
-
-    # 验证搜索后显示空状态或绑定数量变为 0
-    count_after = ch.get_binding_count()
-    body_text = logged_in_page.locator("body").first.inner_text()
-
-    has_empty_state = (
-        count_after == 0
-        or "暂无" in body_text
-        or "empty" in body_text.lower()
-        or "no result" in body_text.lower()
-        or "没有" in body_text
-        or "未找到" in body_text
+    refresh_btn = logged_in_page.locator("main").get_by_role(
+        "button", name="刷新", exact=True
     )
+    assert refresh_btn.count() == 1, \
+        f"「刷新」按钮应唯一，实际 {refresh_btn.count()} 个"
+    refresh_btn.click()
+    logged_in_page.wait_for_load_state("networkidle")
+    logged_in_page.wait_for_timeout(1000)
 
-    # 清空搜索框恢复
-    ch.clear_search()
-    logged_in_page.wait_for_timeout(800)
-
-    # 验证清空后恢复
-    count_restored = ch.get_binding_count()
-    restored = count_restored >= count_before or count_restored > 0
-
-    assert has_empty_state, \
-        f"搜索无匹配关键词 '{random_query}' 后未显示空状态（绑定数={count_after}，之前={count_before}）"
-    assert restored, \
-        f"清空搜索框后未恢复列表（恢复后={count_restored}，之前={count_before}）"
+    assert ch.bot_rows().first.is_visible(), "刷新后通道列表未渲染"
+    assert ch.get_binding_count() == count_before, \
+        f"刷新后通道数量变化：{count_before} → {ch.get_binding_count()}"

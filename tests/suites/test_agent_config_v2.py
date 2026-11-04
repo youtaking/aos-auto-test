@@ -419,7 +419,12 @@ def test_click_all_templates(logged_in_page, base_url, request):
     for agent_name in created_agents:
         status = ac.delete_agent_api(agent_name)
         print(f"  删除 '{agent_name}': status={status}")
-        assert status in (200, 204), f"删除 '{agent_name}' 失败: {status}"
+        if status not in (200, 204):
+            # 404 可能来自列表索引延迟/已删除：以列表实际结果为准复核
+            remaining = [a for a in ac.get_agents_api()
+                         if isinstance(a, dict) and a.get("name") == agent_name]
+            assert not remaining, \
+                f"删除 '{agent_name}' 失败: status={status}, 仍存在: {remaining}"
 
 
 @allure.epic("智能体配置")
@@ -444,8 +449,8 @@ def test_agent_023_system_prompt_effective(logged_in_page, base_url):
         name="创建结果",
         attachment_type=allure.attachment_type.TEXT,
     )
-    if result["status"] != 200:
-        pytest.skip(f"UI 创建 Agent 失败 (status={result['status']})，跳过后续验证")
+    assert result["status"] == 200, \
+        f"UI 创建 Agent 失败 (status={result['status']})，无法验证 System Prompt 生效"
 
     try:
         if _check_concurrency_limit(logged_in_page):
@@ -454,10 +459,12 @@ def test_agent_023_system_prompt_effective(logged_in_page, base_url):
             assert False, "【应用Bug】未进入对话页面（Agent 创建成功但页面未跳转）"
 
         # 确定性应用侧校验：SP 必须持久化到 agent 配置（创建表单填写的 SP 应真正入库）
+        # 列表接口已改为严格空 query，必须按资源 ID 查详情
         _prompt_saved = None
+        _target_id = ac._resolve_agent_id(agent_name)
         for _pv in range(3):
             _gr = logged_in_page.request.get(
-                f"{base_url}/web/config/agents", params={"name": agent_name}
+                f"{base_url}/web/config/agents/{_target_id}"
             )
             if _gr.status == 200:
                 try:
@@ -476,8 +483,9 @@ def test_agent_023_system_prompt_effective(logged_in_page, base_url):
         model_changed = ac.change_model_via_config(
             agent_name, "Qwen-Test/qwen3.7-flash-2026-07-15"
         )
-        if not model_changed:
-            pytest.skip("无法通过配置界面修改模型（配置 modal 打开失败或目标模型不存在）")
+        assert model_changed, \
+            "无法通过配置界面修改模型为 Qwen-Test/qwen3.7-flash-2026-07-15" \
+            "（配置 modal 打开失败/provider 或模型 radio 未命中/保存后未回到聊天页）"
 
         # 重启后可能触发并发上限，需再次检测
         logged_in_page.wait_for_timeout(1000)
@@ -1314,10 +1322,13 @@ def test_agent_config_uncovered_fields(logged_in_page, base_url, request):
     modal, _ = ac.open_agent_config_modal(agent_name)
     assert modal is not None, "【应用Bug】配置 modal 未打开"
 
-    # 身份与指令：名称只读 + 描述 + 提示词存在
-    nm = modal.locator("input[placeholder*='my-agent']")
-    assert nm.count() > 0, "名称输入框不存在"
-    assert nm.first.is_disabled(), "编辑态名称应只读"
+    # 身份与指令：非内置 Agent 名称可重命名 + 资源 ID 只读 + 描述/提示词存在
+    nm = modal.locator("#agent-editor-name")
+    assert nm.count() == 1, f"名称输入框应唯一，实际 {nm.count()} 个"
+    assert nm.is_enabled(), "非内置 Agent 编辑态名称应可编辑（仅 builtIn 禁止改名）"
+    agent_id_input = modal.locator("#agent-editor-agent-id")
+    assert agent_id_input.count() == 1, "资源 ID 输入框不存在"
+    assert agent_id_input.is_disabled(), "资源 ID 输入框应只读"
     assert ac.identity_field(modal, "description").count() > 0, "描述输入框不存在"
     assert ac.identity_field(modal, "prompt").count() > 0, "提示词输入框不存在"
 
@@ -1352,10 +1363,19 @@ def test_agent_config_uncovered_fields(logged_in_page, base_url, request):
     assert dv in ("5", "5.0", ""), f"最大返回条数默认应为 5，实际 {dv!r}"
     assert ac.knowledge_group(modal).count() > 0, "绑定知识库区域不存在"
 
-    # 共享与访问：公开读取 switch + 资源归属 + 当前可见范围
+    # 共享与访问：公开共享 switch + 资源归属 + 当前可见范围
     ac.switch_config_tab(modal, "共享与访问")
-    body = modal.inner_text()
-    assert "公开读取" in body, "缺少公开读取开关"
+    spanel = ac._active_main_panel(modal, "共享与访问")
+    body = spanel.inner_text()
+    assert "公开共享" in body, "缺少公开共享开关"
+    share_sw = spanel.get_by_role("switch")
+    try:
+        share_sw.first.wait_for(state="visible", timeout=8000)
+    except Exception:
+        pass
+    assert share_sw.count() == 1 and share_sw.first.is_visible(), \
+        f"共享与访问页应恰有一个公开共享开关，实际 {share_sw.count()} 个"
+    assert share_sw.first.is_enabled(), "可管理共享的非内置 Agent，公开共享开关应可操作"
     assert "资源归属" in body, "缺少资源归属"
     assert "当前可见范围" in body, "缺少当前可见范围"
 

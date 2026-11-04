@@ -515,19 +515,20 @@ def test_apikey_007_delete_key(logged_in_page, base_url, request):
     clicked = _revoke_test_key_with_reload(ak, f"del-{_PREFIX}")
     assert clicked, f"密钥 'del-{_PREFIX}' 创建成功但 UI 未显示吊销按钮"
 
-    if clicked:
-        logged_in_page.wait_for_timeout(500)
+    logged_in_page.wait_for_timeout(500)
 
-        # 应有确认弹窗
-        if ak.is_alert_dialog_open():
-            alert_text = ak.get_alert_dialog_text()
-            assert any(kw in alert_text for kw in ["吊销", "确认", "删除"]), \
-                f"确认弹窗文本缺少操作关键词（吊销/确认/删除），实际文本: '{alert_text}'"
-            ak.confirm_alert()
-            logged_in_page.wait_for_timeout(800)
-        elif ak.is_dialog_open():
-            ak.submit_dialog()
-            logged_in_page.wait_for_timeout(800)
+    # 应有确认弹窗，且弹窗标题必须是吊销操作（防止误点到其它操作）
+    assert ak.is_alert_dialog_open() or ak.is_dialog_open(), \
+        "点击吊销后未弹出确认弹窗"
+    if ak.is_alert_dialog_open():
+        alert_text = ak.get_alert_dialog_text()
+        assert "吊销 API 密钥" in alert_text, \
+            f"确认弹窗标题不是「吊销 API 密钥」，实际文本: '{alert_text[:100]}'"
+        ak.confirm_alert()
+        logged_in_page.wait_for_timeout(800)
+    else:
+        ak.submit_dialog()
+        logged_in_page.wait_for_timeout(800)
 
     # 刷新验证
     ak.goto()
@@ -557,23 +558,23 @@ def test_apikey_008_delete_cancel(logged_in_page, base_url, request):
     ak.goto()
     initial_count = ak.get_key_count()
 
-    if initial_count == 0:
-        pytest.skip("没有密钥可操作")
+    assert initial_count > 0, "创建测试密钥后列表应有密钥"
 
     # 点击吊销（只操作自己创建的 key；渲染滞后时重载重试）
     clicked = _revoke_test_key_with_reload(ak, f"cancel-{_PREFIX}")
-    if not clicked:
-        pytest.skip("未找到吊销按钮")
+    assert clicked, f"密钥 'cancel-{_PREFIX}' 创建成功但 UI 未显示吊销按钮"
 
     logged_in_page.wait_for_timeout(500)
 
     # 取消操作
+    assert ak.is_alert_dialog_open() or ak.is_dialog_open(), \
+        "点击吊销后未弹出确认弹窗"
     if ak.is_alert_dialog_open():
+        assert "吊销 API 密钥" in ak.get_alert_dialog_text(), \
+            "确认弹窗标题不是「吊销 API 密钥」"
         ak.cancel_alert()
-    elif ak.is_dialog_open():
-        ak.cancel_dialog()
     else:
-        pytest.skip("未弹出确认弹窗")
+        ak.cancel_dialog()
 
     logged_in_page.wait_for_timeout(500)
 
@@ -635,77 +636,28 @@ def test_apikey_009_copy_key(logged_in_page, base_url, request):
 @pytest.mark.order(352)
 @pytest.mark.p1
 def test_apikey_permissions(logged_in_page, base_url):
-    """验证 API Key 权限范围 — 查看密钥详情中的权限相关信息"""
+    """验证 API Key 列表行展示契约：脱敏前缀、有效期、吊销入口
+
+    当前版本列表没有密钥详情入口，API 返回的 permissions 为 null，
+    因此统一校验真实展示字段与操作入口，不再断言不存在的「权限范围」。
+    """
     ak = ApiKeyPage(logged_in_page, base_url)
     ak.goto()
     assert ak.is_loaded(), "API 密钥页面未加载"
 
-    # 检查是否有密钥列表
     keys = _get_keys_api(logged_in_page, base_url)
-    if not keys:
-        pytest.skip("密钥列表为空，无法验证权限信息")
+    assert keys, "密钥列表为空，无法校验列表行"
 
-    # 在页面上查找第一个密钥的详情入口
-    panel_body = logged_in_page.locator("div.agent-panel-body").first
-    key_rows = panel_body.locator(
-        "tr, [role='row'], div[class*='key-item'], "
-        "div[class*='list-item'], div[class*='card']"
-    )
+    rows = logged_in_page.locator("main").first.locator("table tbody tr")
+    assert rows.count() == len(keys), \
+        f"列表行数 {rows.count()} 与 API 密钥数 {len(keys)} 不一致"
 
-    if key_rows.count() == 0:
-        pytest.skip("页面上无法定位密钥列表项")
+    first_row = rows.first
+    row_text = first_row.inner_text()
+    assert "rcs_" in row_text, f"列表行未展示密钥前缀: {row_text[:120]}"
+    assert "••" in row_text or "***" in row_text, "列表行未对密钥做脱敏展示"
+    assert "永不过期" in row_text or "过期" in row_text, "列表行未展示有效期"
 
-    # 尝试点击第一个密钥查看详情
-    first_key = key_rows.first
-    first_key.click()
-    logged_in_page.wait_for_timeout(1000)
-
-    # 检查是否弹出详情弹窗或进入详情页
-    dialog = logged_in_page.locator("[role='dialog']")
-    detail_visible = dialog.count() > 0 and dialog.first.is_visible()
-
-    if not detail_visible:
-        # 尝试查找详情/查看按钮
-        detail_btn = logged_in_page.get_by_role("button", name="详情").or_(
-            logged_in_page.get_by_role("button", name="查看")
-        ).or_(
-            logged_in_page.get_by_role("link", name="详情")
-        ).or_(
-            logged_in_page.locator("button[title*='详情']")
-        )
-        if detail_btn.count() > 0:
-            detail_btn.first.click()
-            logged_in_page.wait_for_timeout(1000)
-            detail_visible = dialog.count() > 0 and dialog.first.is_visible()
-
-    if not detail_visible:
-        # 检查页面上是否直接显示了权限信息（无需进入详情）
-        panel_text = panel_body.inner_text()
-        permission_keywords = ["权限", "permission", "scope", "范围", "角色",
-                               "role", "access", "读", "写", "管理"]
-        has_permission = any(kw in panel_text for kw in permission_keywords)
-        if not has_permission:
-            pytest.skip("密钥列表无详情入口且无权限相关信息展示")
-
-    # 验证详情中包含权限相关信息
-    detail_container = dialog.first if detail_visible else panel_body
-    detail_text = detail_container.inner_text()
-
-    permission_keywords = ["权限", "permission", "scope", "范围", "角色",
-                           "role", "access", "读", "写", "管理",
-                           "只读", "readonly", "read-only", "全权限",
-                           "full", "admin"]
-    has_permission_info = any(kw in detail_text for kw in permission_keywords)
-
-    allure.attach(
-        f"详情文本片段: {detail_text[:200]}",
-        name="密钥详情",
-        attachment_type=allure.attachment_type.TEXT,
-    )
-
-    assert has_permission_info, \
-        "密钥详情中未找到权限相关信息（权限、scope、角色等关键词）"
-
-    # 关闭弹窗
-    if detail_visible:
-        dialog.first.press("Escape")
+    revoke_btn = first_row.get_by_role("button", name="吊销", exact=True)
+    assert revoke_btn.count() == 1, \
+        f"列表行「吊销」按钮应唯一，实际匹配 {revoke_btn.count()} 个"

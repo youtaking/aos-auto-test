@@ -6,11 +6,25 @@ import os
 import re
 import time
 import uuid
+from pathlib import Path
+
+import yaml
 import pytest
 import allure
 from tests.pages.auth_page import AuthPage
 
 _PREFIX = f"e2e-{uuid.uuid4().hex[:6]}"
+
+
+def _admin_credentials() -> tuple[str, str]:
+    """从 test_data.yaml 读取管理账号（禁止在用例里硬编码密码）"""
+    cfg_path = Path(__file__).resolve().parents[1] / "fixtures" / "test_data.yaml"
+    with open(cfg_path, encoding="utf-8") as f:
+        admin = yaml.safe_load(f)["fenixagent"]["admin"]
+    return admin["email"], admin["password"]
+
+
+_AUTH_EMAIL, _AUTH_PASSWORD = _admin_credentials()
 
 
 def _new_context(browser):
@@ -279,7 +293,7 @@ def test_auth_007_login_no_sensitive_info(logged_in_page, base_url):
         api_resp = auth.intercept_login_api()
         auth.goto()
 
-        auth.login("xiaochun@agent.com", "12345678")
+        auth.login(_AUTH_EMAIL, _AUTH_PASSWORD)
         page.wait_for_timeout(800)
 
         # 1. 登录 API 请求
@@ -345,7 +359,7 @@ def test_auth_008_token_expired_redirect(logged_in_page, base_url):
         # 先登录（使用 AuthPage 封装方法，含 URL 等待）
         auth = AuthPage(page, base_url)
         auth.goto()
-        auth.login("xiaochun@agent.com", "12345678")
+        auth.login(_AUTH_EMAIL, _AUTH_PASSWORD)
         assert "/ctrl/login" not in page.url, "应先成功登录"
 
         # 清除 cookie 模拟 token 过期
@@ -448,7 +462,7 @@ def test_auth_012_logout_clears_auth(logged_in_page, base_url):
         # 先登录（使用 AuthPage 封装方法，含 URL 等待）
         auth = AuthPage(page, base_url)
         auth.goto()
-        auth.login("xiaochun@agent.com", "12345678")
+        auth.login(_AUTH_EMAIL, _AUTH_PASSWORD)
         page.wait_for_timeout(1000)
 
         # 记录当前 cookie

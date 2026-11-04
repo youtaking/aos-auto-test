@@ -442,12 +442,29 @@ class SkillsPage:
 
     # ═══════════ 删除 ═══════════
 
-    def delete_skill(self, name: str):
-        """删除当前选中技能（页脚删除→确认弹窗校验技能名→确认）。
+    def _skill_resource_id(self, name: str) -> str:
+        """按名称查技能资源 ID（确认弹窗展示的是 ID 而非名称）"""
+        try:
+            resp = self.page.request.get(f"{self.base_url}/web/config/skills")
+            if resp.status != 200:
+                return ""
+            data = (resp.json() or {}).get("data") or {}
+            for item in data.get("skills") or []:
+                if isinstance(item, dict) and item.get("name") == name:
+                    return item.get("id") or ""
+        except Exception:
+            pass
+        return ""
 
-        删除前必须确认：① 详情区标题是目标；② 确认弹窗文案包含目标名。
+    def delete_skill(self, name: str):
+        """删除当前选中技能（页脚删除→确认弹窗校验目标→确认）。
+
+        删除前必须确认：① 详情区标题是目标；② 确认弹窗是「删除技能」且对象匹配。
+        新版弹窗展示资源 ID（`确定要删除技能 "<uuid>" 吗？`），因此按 ID 或名称比对。
         """
         self._ensure_selected(name)
+        expected_id = self._skill_resource_id(name)
+        assert expected_id, f"未能从技能列表解析到 '{name}' 的资源 ID，拒绝执行删除"
         main = self._main()
         del_btn = main.get_by_role("button", name="删除", exact=True)
         del_btn.first.wait_for(state="visible", timeout=5000)
@@ -458,8 +475,11 @@ class SkillsPage:
         ad.first.wait_for(state="visible", timeout=5000)
         text = ad.first.inner_text()
         assert "确认删除" in text, f"确认弹窗标题异常: {text[:80]}"
-        assert name in text, (
-            f"确认弹窗内容不包含目标 '{name}'，可能误删其他技能！弹窗: {text[:120]}"
+        assert "确定要删除技能" in text, (
+            f"确认弹窗不是删除技能操作，可能误删其他对象！弹窗: {text[:120]}"
+        )
+        assert expected_id in text or name in text, (
+            f"确认弹窗目标不是 '{name}'（{expected_id}），可能误删其他技能！弹窗: {text[:120]}"
         )
         confirm = ad.first.get_by_role("button", name="确认", exact=True)
         confirm.wait_for(state="visible", timeout=5000)

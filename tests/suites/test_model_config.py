@@ -10,8 +10,8 @@
 - 模型行「测试」对不可达 URL → 行内插入「失败」标记（POST /test-model 快速返回 5xx）
 - 模型区头「获取模型列表」→ POST fetch-models；不可达 → toast 测试失败
 - 新建/编辑弹窗内「可用模型列表 获取模型列表」→ 不可达 → 区内文本「测试请求失败」
-- 共享开关 = article 内 [role=switch]（= publicReadable，切换 PUT ?name=<provider.id>）
-- Provider 资源键 = 列表项的 id 字段（旧 resourceKey 已移除；另含 providerId=uuid）
+- 共享开关 = article 内 [role=switch]（= publicReadable，切换 PATCH /config/providers/<id>）
+- Provider 资源键 = 列表项的 id（UUID，路径参数）；name 为创建时填写的标识符
 - 新建弹窗仅 ID（标识符）required；不填 API Key 可创建（keyHint=*******）
 - 新增模型弹窗仅 模型ID required，默认输入/输出模态=[text]，思考开关默认开
 - 已知应用 bug：模型「启用思考模式」不持久化（仅提示不硬断言）
@@ -48,13 +48,14 @@ def _create_provider_via_api(page, base_url, provider_id, name, protocol="openai
     _req = _caller.f_locals.get('request')
 
     for _attempt in range(2):
-        resp = page.request.put(
-            f"{base_url}/web/config/providers?name={provider_id}",
+        resp = page.request.post(
+            f"{base_url}/web/config/providers",
             data=json.dumps({
+                "name": provider_id,
+                "displayName": name,
                 "apiKey": api_key,
                 "baseURL": base_url_provider,
                 "protocol": protocol,
-                "name": name,
             }),
             headers={"Content-Type": "application/json"},
         )
@@ -77,8 +78,9 @@ def _create_provider_via_api(page, base_url, provider_id, name, protocol="openai
 def _delete_provider_via_api(page, base_url, provider_id):
     """通过 API 删除 Provider（用于测试清理），429 时等待重试"""
     for _attempt in range(2):
+        uuid = _resource_key_of(page, base_url, provider_id)
         resp = page.request.delete(
-            f"{base_url}/web/config/providers?name={provider_id}",
+            f"{base_url}/web/config/providers/{uuid or provider_id}",
         )
         if resp.status != 429:
             return resp
@@ -106,7 +108,7 @@ def _get_provider_detail_via_api(page, base_url, resource_key):
     """通过 API 获取 Provider 详情（含模型列表），429 时等待重试"""
     for _attempt in range(2):
         resp = page.request.get(
-            f"{base_url}/web/config/providers?name={resource_key}"
+            f"{base_url}/web/config/providers/{resource_key}"
         )
         if resp.status == 200:
             return resp.json()
@@ -206,7 +208,7 @@ def _ui_create_provider(mc, page, base_url, provider_id, display, fill):
 def _add_model_via_api(page, base_url, resource_key, model_id, model_name):
     """通过 API 给 Provider 添加模型。"""
     resp = page.request.post(
-        f"{base_url}/web/config/providers/actions/models?name={resource_key}",
+        f"{base_url}/web/config/providers/{resource_key}/models",
         data=json.dumps({
             "modelId": model_id,
             "name": model_name,
@@ -217,7 +219,7 @@ def _add_model_via_api(page, base_url, resource_key, model_id, model_name):
     if resp.status == 429:
         _wait_rate_limit_reset(page)
         resp = page.request.post(
-            f"{base_url}/web/config/providers/actions/models?name={resource_key}",
+            f"{base_url}/web/config/providers/{resource_key}/models",
             data=json.dumps({
                 "modelId": model_id,
                 "name": model_name,
@@ -229,9 +231,9 @@ def _add_model_via_api(page, base_url, resource_key, model_id, model_name):
 
 
 def _resource_key_of(page, base_url, provider_id) -> str:
-    """Provider 资源键 = 列表项 id（新版 API 已移除 resourceKey）。"""
+    """Provider 资源键 = 列表项 id；按标识符 name 匹配（provider_id 为标识符）。"""
     providers = _get_providers_via_api(page, base_url)
-    return next((p.get("id", "") for p in providers if p.get("id") == provider_id), "")
+    return next((p.get("id", "") for p in providers if p.get("name") == provider_id), "")
 
 
 def _api_models_of(page, base_url, resource_key) -> list:
@@ -269,8 +271,7 @@ def test_model_001_provider_list_loads(logged_in_page, base_url, request):
         _wait_rate_limit_reset(logged_in_page)
         mc.goto()
     count = mc.provider_count()
-    if count == 0:
-        pytest.skip("服务商目录为空（环境可能无数据）")
+    assert count > 0, "服务商目录为空（重试后仍为 0）"
 
     # 目录显示名不泄露明文 key
     names = mc.catalog_names()
@@ -299,7 +300,7 @@ def test_model_001_provider_list_loads(logged_in_page, base_url, request):
 def test_model_002_add_openai_provider(logged_in_page, base_url, request):
     """✅ 新版适配 | TC-MODEL-002: UI 添加 OpenAI 协议服务商
     验证：1. 弹窗字段可填且保存成功 2. 目录出现新服务商
-    3. PUT 请求体 key 掩码（keyHint ***） 4. 详情展示掩码密钥引用
+    3. POST 创建响应 keyHint 掩码且不回显明文 4. 详情展示掩码密钥引用
     """
     mc = ModelConfigPage(logged_in_page, base_url)
     provider_id = _TEST_PROVIDER_ID = f"{_TEST_PREFIX}"
@@ -320,13 +321,15 @@ def test_model_002_add_openai_provider(logged_in_page, base_url, request):
     assert mc.detail_h2() == display, "打开详情显示名不匹配"
     assert mc.detail_has_edit_delete(), "自建服务商详情应含编辑/删除按钮"
 
-    # API：PUT 存在且 key 掩码
-    put_calls = [r for r in api_responses if r["method"] == "PUT"]
-    assert len(put_calls) > 0, "未检测到创建服务商的 PUT 请求"
-    assert _TEST_API_KEY not in put_calls[0]["url"], "API Key 暴露在 URL 中"
-    put_body = put_calls[0].get("body") or {}
-    key_hint = put_body.get("data", {}).get("keyHint", "")
-    assert key_hint == "" or "***" in key_hint, f"响应 keyHint 未掩码: {key_hint!r}"
+    # API：POST 创建存在且 key 掩码
+    create_calls = [r for r in api_responses
+                    if r["method"] == "POST" and r["url"].endswith("/web/config/providers")]
+    assert len(create_calls) > 0, "未检测到创建服务商的 POST 请求"
+    assert _TEST_API_KEY not in create_calls[0]["url"], "API Key 暴露在 URL 中"
+    create_body = create_calls[0].get("body") or {}
+    key_hint = create_body.get("data", {}).get("keyHint", "")
+    assert "***" in key_hint, f"创建响应 keyHint 未掩码: {key_hint!r}"
+    assert _TEST_API_KEY not in json.dumps(create_body), "创建响应回显了明文 API Key"
 
     # 详情页密钥引用为掩码
     hint = mc.key_hint_in_detail()
@@ -404,7 +407,7 @@ def test_model_004_api_key_empty_allowed(logged_in_page, base_url, request):
 
     # keyHint 不含明文
     providers = _get_providers_via_api(logged_in_page, base_url)
-    mine = next((p for p in providers if p["id"] == provider_id), None)
+    mine = next((p for p in providers if p["name"] == provider_id), None)
     assert mine is not None, "API 列表中找不到新建服务商"
     hint = mine.get("keyHint", "")
     assert "sk-" not in hint, f"未填 Key 却返回了 keyHint: {hint!r}"
@@ -440,7 +443,7 @@ def test_model_005_api_key_not_exposed(logged_in_page, base_url, request):
                  if r["url"].endswith("/web/config/providers") and r["method"] == "GET"]
     assert len(list_resp) > 0, "未捕获到列表 API 响应"
     providers = (list_resp[0].get("body") or {}).get("data", {}).get("providers", [])
-    mine = next((p for p in providers if p.get("id") == provider_id), None)
+    mine = next((p for p in providers if p.get("name") == provider_id), None)
     if mine:
         assert mine.get("apiKey") is None, "API 响应返回了完整 apiKey"
         assert "***" in mine.get("keyHint", ""), \
@@ -581,7 +584,7 @@ def test_model_006b_edit_provider_other_fields(logged_in_page, base_url, request
 @pytest.mark.p1
 def test_model_007_delete_provider_cascade(logged_in_page, base_url, request):
     """✅ 新版适配 | TC-MODEL-007: UI 删除服务商（级联删除模型）
-    验证：1. 确认弹窗引用服务商显示名 2. 确认后目录/API 均消失
+    验证：1. 确认弹窗引用服务商标识（引号包裹的 name/key） 2. 确认后目录/API 均消失
     """
     provider_id = _TEST_PROVIDER_ID = f"{_TEST_PREFIX}"
     display = f"E2E Test {_TEST_PREFIX}"
@@ -601,7 +604,8 @@ def test_model_007_delete_provider_cascade(logged_in_page, base_url, request):
     mc.click_provider_delete()
     alert_text = _wait_alert(logged_in_page)
     assert "确认删除" in alert_text, f"确认弹窗标题异常: {alert_text}"
-    assert f"删除服务商" in alert_text and display in alert_text, \
+    # 弹窗引用的是服务商标识（name/key），不是 displayName
+    assert "删除服务商" in alert_text and f'"{provider_id}"' in alert_text, \
         f"确认弹窗引用对象不正确: {alert_text}"
     mc.confirm_alert()
 
@@ -614,7 +618,7 @@ def test_model_007_delete_provider_cascade(logged_in_page, base_url, request):
 
     # API：不再存在（模型随服务商级联删除）
     providers = _get_providers_via_api(logged_in_page, base_url)
-    assert not any(p["id"] == provider_id for p in providers), "API 中服务商仍存在"
+    assert not any(p["name"] == provider_id for p in providers), "API 中服务商仍存在"
 
 
 @allure.epic("模型配置")
@@ -636,7 +640,7 @@ def test_model_008_add_model(logged_in_page, base_url, request):
 
     mc = ModelConfigPage(logged_in_page, base_url)
     assert _goto_open_provider(mc, logged_in_page, display), "测试服务商未出现在目录"
-    api_responses = mc.intercept_api_responses("/web/config/providers/actions/models")
+    api_responses = mc.intercept_api_responses("/models")
 
     mc.click_add_model()
     assert mc.is_dialog_open(), "添加模型弹窗未打开"
@@ -898,7 +902,7 @@ def test_model_011_test_single_model(logged_in_page, base_url, request):
     mc = ModelConfigPage(logged_in_page, base_url)
     assert _goto_open_provider(mc, logged_in_page, display), "测试服务商未出现在目录"
 
-    api_responses = mc.intercept_api_responses("/web/config/providers/actions/test-model")
+    api_responses = mc.intercept_api_responses("/models/")
     mc.click_model_test(model_name)
 
     # 测试请求发出
@@ -1068,11 +1072,11 @@ def test_model_016_openapi_provider_crud(logged_in_page, base_url, request):
 
     # 2. 获取列表
     providers = _get_providers_via_api(logged_in_page, base_url)
-    found = any(p["id"] == provider_id for p in providers)
+    found = any(p["name"] == provider_id for p in providers)
     assert found, f"Provider '{provider_id}' 未出现在列表中"
 
     # 3. 获取详情（资源键 = Provider id）
-    provider_data = next(p for p in providers if p["id"] == provider_id)
+    provider_data = next(p for p in providers if p["name"] == provider_id)
     resource_key = provider_data.get("id", "")
     assert resource_key, "Provider 没有 id"
 
@@ -1088,7 +1092,7 @@ def test_model_016_openapi_provider_crud(logged_in_page, base_url, request):
 
     # 5. 删除后不再显示
     providers_after = _get_providers_via_api(logged_in_page, base_url)
-    found_after = any(p["id"] == provider_id for p in providers_after)
+    found_after = any(p["name"] == provider_id for p in providers_after)
     assert not found_after, f"删除后 Provider '{provider_id}' 仍然存在"
 
 
@@ -1115,11 +1119,11 @@ def test_model_017_openapi_model_crud(logged_in_page, base_url, request):
 
     # 获取 resourceKey
     providers = _get_providers_via_api(logged_in_page, base_url)
-    provider_data = next((p for p in providers if p["id"] == provider_id), None)
+    provider_data = next((p for p in providers if p["name"] == provider_id), None)
     if not provider_data:
         _wait_rate_limit_reset(logged_in_page)
         providers = _get_providers_via_api(logged_in_page, base_url)
-        provider_data = next((p for p in providers if p["id"] == provider_id), None)
+        provider_data = next((p for p in providers if p["name"] == provider_id), None)
     if not provider_data:
         pytest.skip(f"Provider 创建失败（status={create_resp.status}，可能并发上限）")
     resource_key = provider_data.get("id", "")
@@ -1128,7 +1132,7 @@ def test_model_017_openapi_model_crud(logged_in_page, base_url, request):
 
     # 1. 创建模型
     add_resp = logged_in_page.request.post(
-        f"{base_url}/web/config/providers/actions/models?name={resource_key}",
+        f"{base_url}/web/config/providers/{resource_key}/models",
         data=json.dumps({
             "modelId": model_id,
             "name": f"Model CRUD {_TEST_PREFIX}",
@@ -1151,9 +1155,12 @@ def test_model_017_openapi_model_crud(logged_in_page, base_url, request):
         detail.get("data", {}).get("name") == provider_data["name"], \
         f"模型与 Provider 的关联关系不正确: detail.id={detail.get('data', {}).get('id')!r}, expected={resource_key!r}, detail.name={detail.get('data', {}).get('name')!r}, expected={provider_data['name']!r}"
 
-    # 4. 删除模型
+    # 4. 删除模型（新版按模型行 UUID 定位）
+    model_row = next((m for m in models if m.get("modelId") == model_id), None)
+    assert model_row and model_row.get("id"), \
+        f"未能从 Provider 详情解析到模型行 ID，当前模型: {models}"
     del_resp = logged_in_page.request.delete(
-        f"{base_url}/web/config/providers/actions/models/{model_id}?name={resource_key}",
+        f"{base_url}/web/config/providers/{resource_key}/models/{model_row['id']}",
     )
     assert del_resp.status == 200, f"删除模型失败: status={del_resp.status}"
     assert del_resp.json().get("success") is True, "删除模型响应 success 不为 True"
@@ -1254,81 +1261,57 @@ def test_model_022_openapi_create_validation(logged_in_page, base_url, request):
         register_cleanup(request, lambda pid=_pid: _delete_provider_via_api(
             logged_in_page, base_url, pid))
 
-    # 1. 缺少必填字段 — 空 body
-    resp_empty = logged_in_page.request.put(
-        f"{base_url}/web/config/providers?name=invalid-{_TEST_PREFIX}",
+    # 1. 缺少必填字段 name — 服务端 body 校验拒绝
+    resp_empty = logged_in_page.request.post(
+        f"{base_url}/web/config/providers",
         data=json.dumps({}),
         headers={"Content-Type": "application/json"},
     )
-    # 可能返回 400 或 200 + success=false 或 500
-    body_empty = resp_empty.json() if resp_empty.status == 200 else {}
-    is_rejected = (
-        resp_empty.status in [400, 422, 500]
-        or (resp_empty.status == 200 and not body_empty.get("success", True))
-    )
-    # 即使 200，检查 Provider 是否实际被创建
-    providers = _get_providers_via_api(logged_in_page, base_url)
-    was_created = any(
-        p["id"] == f"invalid-{_TEST_PREFIX}" for p in providers
-    )
-    if was_created:
-        # 如果创建了空 Provider，需要清理并标记
-        _delete_provider_via_api(logged_in_page, base_url, f"invalid-{_TEST_PREFIX}")
-        allure.attach(
-            "空 body 请求创建了 Provider，前端可能有校验但 API 层未拦截",
-            name="备注",
-            attachment_type=allure.attachment_type.TEXT,
-        )
-    else:
-        assert resp_empty.status in [400, 422, 500] or not was_created, \
-            f"空 body 请求未被拦截（status={resp_empty.status}, was_created={was_created}）"
+    assert resp_empty.status == 400, \
+        f"缺少 name 的创建请求应返回 400，实际: {resp_empty.status}"
+    # Elysia 校验失败返回 400 + {error:{type,message}}，不是 422
+    empty_err = resp_empty.json().get("error", {})
+    assert empty_err.get("type") == "VALIDATION_ERROR", \
+        f"缺少 name 的错误类型异常: {empty_err}"
+    assert "name" in empty_err.get("message", ""), \
+        f"缺少 name 的错误信息未指向 name 字段: {empty_err.get('message')!r}"
 
-    # 2. 无效协议类型
-    resp_bad_protocol = logged_in_page.request.put(
-        f"{base_url}/web/config/providers?name=badproto-{_TEST_PREFIX}",
+    # 2. 无效协议类型 — 服务端只接受 openai/anthropic，非法值回落 openai
+    resp_bad_protocol = logged_in_page.request.post(
+        f"{base_url}/web/config/providers",
         data=json.dumps({
-            "name": "Bad Protocol",
+            "name": f"badproto-{_TEST_PREFIX}",
+            "displayName": "Bad Protocol",
             "protocol": "invalid_protocol",
             "apiKey": "sk-test-12345",
             "baseURL": "https://api.test.com/v1",
         }),
         headers={"Content-Type": "application/json"},
     )
-    # 验证是否被拦截
-    providers2 = _get_providers_via_api(logged_in_page, base_url)
-    bad_proto_created = any(
-        p["id"] == f"badproto-{_TEST_PREFIX}" for p in providers2
-    )
-    if bad_proto_created:
-        _delete_provider_via_api(logged_in_page, base_url, f"badproto-{_TEST_PREFIX}")
-        allure.attach(
-            "无效协议类型的请求创建了 Provider，API 层缺少协议校验",
-            name="备注",
-            attachment_type=allure.attachment_type.TEXT,
-        )
+    assert resp_bad_protocol.status == 200, \
+        f"无效协议创建请求未被接受: status={resp_bad_protocol.status}, body={resp_bad_protocol.text()[:200]}"
+    assert resp_bad_protocol.json().get("data", {}).get("protocol") == "openai", \
+        f"无效协议未回落到 openai: {resp_bad_protocol.json().get('data')}"
 
-    # 3. 无效 URL 格式
-    resp_bad_url = logged_in_page.request.put(
-        f"{base_url}/web/config/providers?name=badurl-{_TEST_PREFIX}",
+    # 3. 无效 URL 格式 — 当前服务端不做 URL 格式校验，原样保存
+    resp_bad_url = logged_in_page.request.post(
+        f"{base_url}/web/config/providers",
         data=json.dumps({
-            "name": "Bad URL",
+            "name": f"badurl-{_TEST_PREFIX}",
+            "displayName": "Bad URL",
             "protocol": "openai",
             "apiKey": "sk-test-12345",
             "baseURL": "not-a-valid-url",
         }),
         headers={"Content-Type": "application/json"},
     )
-    providers3 = _get_providers_via_api(logged_in_page, base_url)
-    bad_url_created = any(
-        p["id"] == f"badurl-{_TEST_PREFIX}" for p in providers3
-    )
-    if bad_url_created:
-        _delete_provider_via_api(logged_in_page, base_url, f"badurl-{_TEST_PREFIX}")
-        allure.attach(
-            "无效 URL 的请求创建了 Provider，API 层缺少 URL 格式校验",
-            name="备注",
-            attachment_type=allure.attachment_type.TEXT,
-        )
+    assert resp_bad_url.status == 200, \
+        f"无效 URL 创建请求未被接受: status={resp_bad_url.status}, body={resp_bad_url.text()[:200]}"
+    bad_url_id = resp_bad_url.json().get("data", {}).get("id")
+    assert bad_url_id, f"创建响应缺少 id: {resp_bad_url.text()[:200]}"
+    detail_bad_url = _get_provider_detail_via_api(logged_in_page, base_url, bad_url_id)
+    assert detail_bad_url and detail_bad_url.get("data", {}).get("baseURL") == "not-a-valid-url", \
+        f"无效 URL 未原样保存: {detail_bad_url}"
 
 
 @allure.epic("模型配置")
@@ -1349,11 +1332,11 @@ def test_model_023_openapi_cascade_delete(logged_in_page, base_url, request):
 
     # 获取 resourceKey
     providers = _get_providers_via_api(logged_in_page, base_url)
-    provider_data = next((p for p in providers if p["id"] == provider_id), None)
+    provider_data = next((p for p in providers if p["name"] == provider_id), None)
     if not provider_data:
         _wait_rate_limit_reset(logged_in_page)
         providers = _get_providers_via_api(logged_in_page, base_url)
-        provider_data = next((p for p in providers if p["id"] == provider_id), None)
+        provider_data = next((p for p in providers if p["name"] == provider_id), None)
     assert provider_data, f"Provider '{provider_id}' 创建后未出现在列表中"
     resource_key = provider_data["id"]
 
@@ -1361,7 +1344,7 @@ def test_model_023_openapi_cascade_delete(logged_in_page, base_url, request):
     model_ids = [f"cascade-m1-{_TEST_PREFIX}", f"cascade-m2-{_TEST_PREFIX}"]
     for mid in model_ids:
         model_resp = logged_in_page.request.post(
-            f"{base_url}/web/config/providers/actions/models?name={resource_key}",
+            f"{base_url}/web/config/providers/{resource_key}/models",
             data=json.dumps({
                 "modelId": mid,
                 "name": mid,
@@ -1372,7 +1355,7 @@ def test_model_023_openapi_cascade_delete(logged_in_page, base_url, request):
         if model_resp.status == 429:
             _wait_rate_limit_reset(logged_in_page)
             logged_in_page.request.post(
-                f"{base_url}/web/config/providers/actions/models?name={resource_key}",
+                f"{base_url}/web/config/providers/{resource_key}/models",
                 data=json.dumps({
                     "modelId": mid,
                     "name": mid,
@@ -1393,7 +1376,7 @@ def test_model_023_openapi_cascade_delete(logged_in_page, base_url, request):
 
     # 2. Provider 不再存在
     providers_after = _get_providers_via_api(logged_in_page, base_url)
-    found = any(p["id"] == provider_id for p in providers_after)
+    found = any(p["name"] == provider_id for p in providers_after)
     assert not found, f"Provider '{provider_id}' 删除后仍存在"
 
     # 3. 模型也被级联删除（尝试获取详情应 404）
@@ -1426,14 +1409,14 @@ def test_model_024_openapi_connectivity_test(logged_in_page, base_url, request):
     # 获取 resourceKey
     providers = _get_providers_via_api(logged_in_page, base_url)
     provider_data = next(
-        (p for p in providers if p["id"] == provider_id), None
+        (p for p in providers if p["name"] == provider_id), None
     )
     assert provider_data, "Provider 创建失败"
     resource_key = provider_data["id"]
 
     # 测试联通性（通过 fetch-models 端点）
     test_resp = logged_in_page.request.post(
-        f"{base_url}/web/config/providers/actions/fetch-models?name={resource_key}",
+        f"{base_url}/web/config/providers/{resource_key}/fetch-models",
         data=json.dumps({}),
         headers={"Content-Type": "application/json"},
     )
@@ -1497,7 +1480,7 @@ def test_model_025_openapi_pagination_filter(logged_in_page, base_url, request):
         assert "keyHint" in prov, f"Provider 缺少 keyHint: {prov}"
         assert "modelCount" in prov, f"Provider 缺少 modelCount: {prov}"
 
-    # 尝试带参数查询（如果 API 支持，429 时等待重试）
+    # 列表接口已改为严格空 query：任何分页参数都应被 400 拒绝（Elysia 校验错误码）
     resp_params = logged_in_page.request.get(
         f"{base_url}/web/config/providers?page=1&size=5"
     )
@@ -1506,9 +1489,14 @@ def test_model_025_openapi_pagination_filter(logged_in_page, base_url, request):
         resp_params = logged_in_page.request.get(
             f"{base_url}/web/config/providers?page=1&size=5"
         )
-    # 不管是否支持分页参数，至少请求成功
-    assert resp_params.status == 200, \
-        f"带分页参数请求失败: {resp_params.status}"
+    assert resp_params.status == 400, \
+        f"带未知 query 参数的列表请求应返回 400，实际: {resp_params.status}"
+    params_err = resp_params.json().get("error", {})
+    assert params_err.get("type") == "VALIDATION_ERROR", \
+        f"未知 query 参数的错误类型异常: {params_err}"
+    params_msg = params_err.get("message", "")
+    assert "Unrecognized keys" in params_msg and "page" in params_msg, \
+        f"错误信息未列出未知参数: {params_msg!r}"
 
     allure.attach(
         f"Provider 总数: {len(providers)}",
@@ -1533,7 +1521,7 @@ def test_model_api_key_auto_fetch(logged_in_page, base_url, request):
 
     provider_id = f"{_TEST_PREFIX}-autofetch"
     api_responses = mc.intercept_api_responses(
-        "/web/config/providers/actions/fetch-models")
+        "/web/config/providers/probe-models")
     mc.click_new_provider()
     assert mc.is_dialog_open(), "新建服务商弹窗未打开"
 
@@ -1605,7 +1593,7 @@ def test_model_connectivity_test(logged_in_page, base_url, request):
     mc = ModelConfigPage(logged_in_page, base_url)
     assert _goto_open_provider(mc, logged_in_page, display), "测试服务商未出现在目录"
 
-    api_responses = mc.intercept_api_responses("/web/config/providers/actions/test-model")
+    api_responses = mc.intercept_api_responses("/models/")
     mc.click_model_test(model_name)
 
     # 测试请求发出并返回（成功/failure 都是后端受控结果）
@@ -1657,7 +1645,7 @@ def test_model_batch_add(logged_in_page, base_url, request):
     mc = ModelConfigPage(logged_in_page, base_url)
     assert _goto_open_provider(mc, logged_in_page, display), "测试服务商未出现在目录"
 
-    api_responses = mc.intercept_api_responses("/web/config/providers/actions/fetch-models")
+    api_responses = mc.intercept_api_responses("/fetch-models")
     mc.click_provider_edit()
     assert mc.is_dialog_open(), "编辑弹窗未打开"
     assert "可用模型列表" in mc.available_models_text(), "弹窗缺少「可用模型列表」区域"
@@ -1738,7 +1726,7 @@ def test_model_public_toggle(logged_in_page, base_url, request):
 @pytest.mark.p0
 def test_model_provider_delete(logged_in_page, base_url, request):
     """✅ 新版适配 | TC-MODEL-030: 服务商删除确认
-    验证：1. 删除弹出确认并引用显示名 2. 确认后目录与 API 均删除
+    验证：1. 删除弹出确认并引用服务商标识（引号包裹的 key） 2. 确认后目录与 API 均删除
     """
     provider_id = f"{_TEST_PREFIX}-delconf"
     display = f"DelConfirm {_TEST_PREFIX}"
@@ -1752,7 +1740,8 @@ def test_model_provider_delete(logged_in_page, base_url, request):
     mc.click_provider_delete()
     alert_text = _wait_alert(logged_in_page)
     assert "确认删除" in alert_text, f"删除确认弹窗未弹出: {alert_text}"
-    assert display in alert_text, f"确认弹窗引用对象不正确: {alert_text}"
+    assert "删除服务商" in alert_text and f'"{provider_id}"' in alert_text, \
+        f"确认弹窗引用对象不正确: {alert_text}"
     mc.confirm_alert()
 
     toast = _wait_toast(mc, logged_in_page, "服务商已删除", 6000)
@@ -1762,7 +1751,7 @@ def test_model_provider_delete(logged_in_page, base_url, request):
     mc.goto()
     assert not mc.has_provider(display, timeout=8000), "删除后服务商仍出现在目录"
     providers = _get_providers_via_api(logged_in_page, base_url)
-    assert not any(p["id"] == provider_id for p in providers), "API 中服务商仍存在"
+    assert not any(p["name"] == provider_id for p in providers), "API 中服务商仍存在"
 
 
 @allure.epic("模型库")

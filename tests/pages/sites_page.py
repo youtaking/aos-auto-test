@@ -286,19 +286,28 @@ class SitesListPage:
             self.page.wait_for_timeout(1500)
 
     def delete_app(self, app_name: str):
-        """菜单 → 删除 → alertdialog「确认删除」→ 确认"""
+        """菜单 → 删除 → alertdialog「确认删除」→ 确认（校验弹窗对象）"""
         self.open_row_menu(app_name)
         del_item = self.page.locator('[role="menuitem"]').filter(has_text="删除")
-        if del_item.count() > 0:
-            del_item.first.wait_for(state="visible", timeout=5000)
-            del_item.first.click()
-            self.page.wait_for_timeout(800)
+        assert del_item.count() == 1, \
+            f"行菜单「删除」项应唯一，实际 {del_item.count()} 个"
+        del_item.first.wait_for(state="visible", timeout=5000)
+        del_item.first.click()
+        self.page.wait_for_timeout(800)
         alert = self.page.locator('[role="alertdialog"]')
-        if alert.count() > 0:
-            confirm = alert.locator("button").filter(has_text="确认")
-            if confirm.count() > 0:
-                confirm.first.wait_for(state="visible", timeout=5000)
-                confirm.first.click()
+        assert alert.count() == 1, f"删除确认弹窗应唯一，实际 {alert.count()} 个"
+        assert alert.first.is_visible(), "删除确认弹窗不可见"
+        alert_text = alert.first.inner_text()
+        assert "删除" in alert_text, f"确认弹窗不是删除操作: {alert_text[:100]}"
+        assert app_name in alert_text, (
+            f"确认弹窗内容不包含目标应用 '{app_name}'，可能误删其他对象！"
+            f"弹窗: {alert_text[:120]}"
+        )
+        confirm = alert.first.locator("button").filter(has_text="确认")
+        assert confirm.count() == 1, \
+            f"确认弹窗「确认」按钮应唯一，实际 {confirm.count()} 个"
+        confirm.first.wait_for(state="visible", timeout=5000)
+        confirm.first.click()
         # 等弹窗/确认框关闭
         for _ in range(10):
             vis = self.page.locator('[role="alertdialog"], [role="dialog"]')

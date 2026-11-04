@@ -3,8 +3,9 @@
 
 控制台接口特点：
 - 路径前缀 /web/
-- action 风格：用 ?name=xxx 定位资源，而非 RESTful 的 /:id
-- 响应统一包装为 {success, data} 格式
+- 已有资源按数据库资源 ID 定位：GET/PATCH/DELETE /web/config/<resource>/:id
+  （2026-10-22 起 Agent/Provider/Skill/MCP 不再接受 ?name= 定位，集合带 name 会 422）
+- 创建仍用集合 POST；响应统一包装为 {success, data}
 """
 from tests.api_clients.base_client import BaseClient
 
@@ -35,6 +36,29 @@ class WebClient(BaseClient):
             raise RuntimeError(f"Web API error: {code} - {message}")
         return resp.get("data")
 
+    def _resolve_resource_id(self, collection_path: str, items_key: str, ref: str) -> str:
+        """把配置名或资源 ID 统一解析成资源 ID。
+
+        2026-10-22 后控制台集合接口不再接受 ?name= 定位，调用方仍按名称传参，
+        因此先查列表（匹配 id 或 name），找不到时把原值当 ID 直接请求，
+        由服务端返回真实的未找到错误（不走名称回退）。
+        """
+        data = self._unwrap(self.get(collection_path))
+        items = (data or {}).get(items_key) or []
+        for item in items:
+            if isinstance(item, dict) and ref in (item.get("id"), item.get("name")):
+                return item.get("id") or ref
+        return ref
+
+    def _resolve_model_id(self, provider_id: str, ref: str) -> str:
+        """把模型行 UUID 或上游 modelId 解析成模型行 UUID"""
+        detail = self._unwrap(self.get(f"/web/config/providers/{provider_id}"))
+        models = (detail or {}).get("models") or []
+        for model in models:
+            if isinstance(model, dict) and ref in (model.get("id"), model.get("modelId")):
+                return model.get("id") or ref
+        return ref
+
     # ── Agent 模块 ──
 
     def list_agents(self) -> dict:
@@ -45,10 +69,12 @@ class WebClient(BaseClient):
         return self._unwrap(resp)
 
     def get_agent(self, name: str) -> dict:
-        """获取单个 Agent 详情（按名称查询）
-        GET /web/config/agents?name=xxx → {success, data: {agent detail}}
+        """获取单个 Agent 详情
+        GET /web/config/agents/:id → {success, data: {agent detail}}
+        入参可为配置名或资源 ID。
         """
-        resp = self.get("/web/config/agents", params={"name": name})
+        agent_id = self._resolve_resource_id("/web/config/agents", "agents", name)
+        resp = self.get(f"/web/config/agents/{agent_id}")
         return self._unwrap(resp)
 
     def create_agent(self, data: dict) -> dict:
@@ -61,17 +87,21 @@ class WebClient(BaseClient):
         return self._unwrap(resp)
 
     def update_agent(self, name: str, data: dict) -> dict:
-        """更新 Agent（按名称定位）
-        PUT /web/config/agents?name=xxx body: {data} → {success, data: {name, ...}}
+        """更新 Agent
+        PATCH /web/config/agents/:id body: {data} → {success, data: {id, name, ...}}
+        入参可为配置名或资源 ID。
         """
-        resp = self.put("/web/config/agents", params={"name": name}, json={"data": data})
+        agent_id = self._resolve_resource_id("/web/config/agents", "agents", name)
+        resp = self.patch(f"/web/config/agents/{agent_id}", json={"data": data})
         return self._unwrap(resp)
 
     def delete_agent(self, name: str) -> dict:
-        """删除 Agent（按名称定位）
-        DELETE /web/config/agents?name=xxx → {success, data: null}
+        """删除 Agent
+        DELETE /web/config/agents/:id → {success, data: null}
+        入参可为配置名或资源 ID。
         """
-        resp = self.delete("/web/config/agents", params={"name": name})
+        agent_id = self._resolve_resource_id("/web/config/agents", "agents", name)
+        resp = self.delete(f"/web/config/agents/{agent_id}")
         return self._unwrap(resp)
 
     def get_agent_templates(self) -> dict:
@@ -160,9 +190,11 @@ class WebClient(BaseClient):
 
     def get_skill(self, name: str) -> dict:
         """获取单个 Skill 详情
-        GET /web/config/skills/:name → {success, data: {detail}}
+        GET /web/config/skills/:id → {success, data: {detail}}
+        入参可为技能名或资源 ID。
         """
-        resp = self.get(f"/web/config/skills/{name}")
+        skill_id = self._resolve_resource_id("/web/config/skills", "skills", name)
+        resp = self.get(f"/web/config/skills/{skill_id}")
         return self._unwrap(resp)
 
     def create_skill(self, data: dict) -> dict:
@@ -174,19 +206,24 @@ class WebClient(BaseClient):
 
     def update_skill(self, name: str, data: dict) -> dict:
         """更新 Skill
-        PUT /web/config/skills/:name body: {data: {description, content}} → {success, data: {name, resourceAccess}}
+        PATCH /web/config/skills/:id body: {data: {description, content, metadata, publicReadable}}
+        → {success, data: {id, name, resourceAccess}}
+        入参可为技能名或资源 ID。
         """
-        resp = self.put(f"/web/config/skills/{name}", json={"data": data})
+        skill_id = self._resolve_resource_id("/web/config/skills", "skills", name)
+        resp = self.patch(f"/web/config/skills/{skill_id}", json={"data": data})
         return self._unwrap(resp)
 
     def delete_skill(self, name: str) -> dict:
         """删除 Skill
-        DELETE /web/config/skills/:name → {success, data: null}
+        DELETE /web/config/skills/:id → {success, data: null}
+        入参可为技能名或资源 ID。
         """
-        resp = self.delete(f"/web/config/skills/{name}")
+        skill_id = self._resolve_resource_id("/web/config/skills", "skills", name)
+        resp = self.delete(f"/web/config/skills/{skill_id}")
         return self._unwrap(resp)
 
-    # ── Provider 模块（action 风格，资源用 ?name=xxx 定位） ──
+    # ── Provider 模块（RESTful，资源用 /:id 定位） ──
 
     def list_providers(self) -> dict:
         """获取 Provider 列表
@@ -196,59 +233,91 @@ class WebClient(BaseClient):
         return self._unwrap(resp)
 
     def get_provider(self, name: str) -> dict:
-        """获取单个 Provider 详情（按名称查询）
-        GET /web/config/providers?name=xxx → {success, data: {detail}}
+        """获取单个 Provider 详情
+        GET /web/config/providers/:id → {success, data: {detail}}
+        入参可为配置名或资源 ID。
         """
-        resp = self.get("/web/config/providers", params={"name": name})
+        provider_id = self._resolve_resource_id("/web/config/providers", "providers", name)
+        resp = self.get(f"/web/config/providers/{provider_id}")
         return self._unwrap(resp)
 
     def update_provider(self, name: str, data: dict) -> dict:
-        """更新 Provider（按名称定位）
-        PUT /web/config/providers?name=xxx body: {...} → {success, data: {...}}
+        """更新 Provider
+        PATCH /web/config/providers/:id body: {displayName, protocol, ...} → {success, data: {id, name}}
+        入参可为配置名或资源 ID。
         """
-        resp = self.put("/web/config/providers", params={"name": name}, json=data)
+        provider_id = self._resolve_resource_id("/web/config/providers", "providers", name)
+        resp = self.patch(f"/web/config/providers/{provider_id}", json=data)
         return self._unwrap(resp)
 
     def delete_provider(self, name: str) -> dict:
-        """删除 Provider（按名称定位）
-        DELETE /web/config/providers?name=xxx → {success, data: null}
+        """删除 Provider
+        DELETE /web/config/providers/:id → {success, data: null}
+        入参可为配置名或资源 ID。
         """
-        resp = self.delete("/web/config/providers", params={"name": name})
+        provider_id = self._resolve_resource_id("/web/config/providers", "providers", name)
+        resp = self.delete(f"/web/config/providers/{provider_id}")
         return self._unwrap(resp)
 
     def add_provider_model(self, name: str, data: dict) -> dict:
         """为 Provider 添加模型
-        POST /web/config/providers/actions/models?name=xxx body: {modelId, ...} → {success, data: {modelId}}
+        POST /web/config/providers/:providerId/models body: {modelId, name, ...}
+        → {success, data: {id, modelId}}
         """
-        resp = self.post("/web/config/providers/actions/models", params={"name": name}, json=data)
+        provider_id = self._resolve_resource_id("/web/config/providers", "providers", name)
+        resp = self.post(f"/web/config/providers/{provider_id}/models", json=data)
         return self._unwrap(resp)
 
     def update_provider_model(self, name: str, model_id: str, data: dict) -> dict:
         """更新 Provider 下的模型
-        PUT /web/config/providers/actions/models/:modelId?name=xxx body: {...} → {success, data: {modelId}}
+        PATCH /web/config/providers/:providerId/models/:id body: {...}
+        → {success, data: {id, modelId}}
+        model_id 可为模型行 ID 或上游 modelId。
         """
-        resp = self.put(f"/web/config/providers/actions/models/{model_id}", params={"name": name}, json=data)
+        provider_id = self._resolve_resource_id("/web/config/providers", "providers", name)
+        model_uuid = self._resolve_model_id(provider_id, model_id)
+        resp = self.patch(
+            f"/web/config/providers/{provider_id}/models/{model_uuid}", json=data
+        )
         return self._unwrap(resp)
 
     def delete_provider_model(self, name: str, model_id: str) -> dict:
         """删除 Provider 下的模型
-        DELETE /web/config/providers/actions/models/:modelId?name=xxx → {success, data: {modelId}}
+        DELETE /web/config/providers/:providerId/models/:id → {success, data: {id, modelId}}
+        model_id 可为模型行 ID 或上游 modelId。
         """
-        resp = self.delete(f"/web/config/providers/actions/models/{model_id}", params={"name": name})
+        provider_id = self._resolve_resource_id("/web/config/providers", "providers", name)
+        model_uuid = self._resolve_model_id(provider_id, model_id)
+        resp = self.delete(f"/web/config/providers/{provider_id}/models/{model_uuid}")
         return self._unwrap(resp)
 
     def fetch_provider_models(self, name: str, body: dict | None = None) -> dict:
-        """获取 Provider 模型列表（从上游拉取）
-        POST /web/config/providers/actions/fetch-models?name=xxx → {success, data: {models}}
+        """获取 Provider 模型列表（从上游拉取已保存配置）
+        POST /web/config/providers/:id/fetch-models → {success, data: {models}}
         """
-        resp = self.post("/web/config/providers/actions/fetch-models", params={"name": name}, json=body or {})
+        provider_id = self._resolve_resource_id("/web/config/providers", "providers", name)
+        resp = self.post(f"/web/config/providers/{provider_id}/fetch-models", json=body or {})
+        return self._unwrap(resp)
+
+    def probe_provider_models(self, body: dict) -> dict:
+        """探测未保存草稿的 Provider 模型列表
+        POST /web/config/providers/probe-models body: 内联连接配置 → {success, data: {models}}
+        """
+        resp = self.post("/web/config/providers/probe-models", json=body)
         return self._unwrap(resp)
 
     def test_provider_model(self, name: str, body: dict) -> dict:
-        """测试 Provider 模型连通性
-        POST /web/config/providers/actions/test-model?name=xxx body: {modelId} → {success, data: {...}}
+        """测试已保存模型的连通性
+        POST /web/config/providers/:providerId/models/:id/test → {success, data: {...}}
+        body 中的 modelId 可为模型行 ID 或上游 modelId。
         """
-        resp = self.post("/web/config/providers/actions/test-model", params={"name": name}, json=body)
+        provider_id = self._resolve_resource_id("/web/config/providers", "providers", name)
+        model_ref = body.get("id") or body.get("modelId") or ""
+        model_uuid = self._resolve_model_id(provider_id, model_ref) if model_ref else model_ref
+        resp = self.post(
+            f"/web/config/providers/{provider_id}/models/{model_uuid}/test",
+            json={k: v for k, v in body.items() if k not in ("id", "modelId")},
+        )
         return self._unwrap(resp)
 
     # ── Model 偏好模块 ──

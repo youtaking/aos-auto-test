@@ -382,8 +382,7 @@ def test_edit_task(logged_in_page, base_url, request):
         if _attempt == 0:
             _wait_rate_limit_reset(logged_in_page)
             tasks.goto()
-    if not tasks.is_dialog_open():
-        pytest.skip("429 限流导致编辑弹窗无法打开")
+    assert tasks.is_dialog_open(), "重试后编辑弹窗仍未打开（可能 429 限流或按钮无响应）"
     assert "编辑" in tasks.get_dialog_title(), \
         f"弹窗标题不包含'编辑': {tasks.get_dialog_title()}"
 
@@ -396,8 +395,10 @@ def test_edit_task(logged_in_page, base_url, request):
     # 等待弹窗关闭（说明保存 API 已返回）
     try:
         dialog.wait_for(state="hidden", timeout=8000)
+        dialog_closed = True
     except Exception:
-        pytest.skip("编辑保存后弹窗未关闭")
+        dialog_closed = False
+    assert dialog_closed, "编辑保存后弹窗未关闭"
 
     # 刷新验证新名称出现、旧名称消失
     tasks.goto()
@@ -1119,8 +1120,7 @@ def test_tasks_execution_history(logged_in_page, base_url):
 
     # 检查任务列表是否有数据
     task_count = tasks.get_task_count()
-    if task_count == 0:
-        pytest.skip("任务列表为空，无法验证执行历史")
+    assert task_count > 0, "任务列表为空，无法验证执行历史"
 
     names = tasks.get_task_names()
     assert names, "无法获取任务名称"

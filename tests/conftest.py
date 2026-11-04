@@ -554,13 +554,29 @@ def _page_error_monitor(request):
             if "auth/sign-in" in response.url and response.status == 401:
                 return
             # 白名单：测试 Provider 用假 URL 获取模型列表的已知 500
+            # 新建弹窗走 probe-models，编辑弹窗走 fetch-models
             if "fetch-models" in response.url:
+                return
+            if "probe-models" in response.url:
                 return
             # 白名单：模型连通性测试用假 URL 的预期 500
             if "actions/test-model" in response.url:
                 return
+            # 新契约：POST /web/config/providers/{pid}/models/{mid}/test
+            # 上游不可达时后端返回受控 500（CONFIG_TEST_REQUEST_FAILED），属预期结果
+            if "/web/config/providers/" in response.url and "/models/" in response.url \
+                    and response.url.rstrip("/").endswith("/test"):
+                return
             # 白名单：MCP 检测本地服务器返回 400（系统正确拒绝）
+            # 新契约 /web/config/mcp/:id/inspect，旧路径 mcp/actions/inspect 保留兼容
             if "mcp/actions/inspect" in response.url:
+                return
+            if "/web/config/mcp/" in response.url and response.url.rstrip("/").endswith("/inspect"):
+                return
+            # 白名单：工作流画布微前端调用上游 passport/node_template 的 401
+            # （画布 BFF 与上游会话不同步，属外部依赖，非本平台功能缺陷）
+            if "workflow-canvas/bff/" in response.url and response.status == 401:
+                warnings.append(f"[API 401] {response.request.method} {response.url}")
                 return
             # 白名单：建站助手轮询已删除/不存在的 App 的 404
             if "agent-sites/apps/by-remote" in response.url and response.status == 404:

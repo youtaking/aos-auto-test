@@ -74,7 +74,10 @@ def _open_bound_site_panel(page, base_url):
 @pytest.mark.p1
 def test_chat_artifacts_panel(logged_in_page, base_url):
     """TC-CHAT-SUP-002: 新版站点页签激活并显示部署预览。"""
-    _open_bound_site_panel(logged_in_page, base_url)
+    panel, frame = _open_bound_site_panel(logged_in_page, base_url)
+    assert frame.count() == 1, "站点工作区未渲染部署预览 iframe"
+    assert "/web/site/deploy/" in (frame.get_attribute("src") or ""), \
+        f"预览 iframe src 不是部署地址: {frame.get_attribute('src')}"
 
 
 @allure.epic("对话")
@@ -126,10 +129,11 @@ def test_chat_delete_session(logged_in_page, base_url):
 
     # 1. 创建新会话并发送消息。会话标题由应用异步生成（会从消息原文变为摘要标题），
     #    因此自建会话必须按 sessionId 追踪，不能用消息标记去匹配标题。
-    chat.create_new_session()
+    #    基线必须在点「新会话」之前采样：会话在创建时即同步进列表，发送时不再新增。
     sessions_before = chat.get_sessions_via_client()
     assert len(sessions_before) > 0, "会话列表为空（YJS sessions 未加载）"
     before_ids = {s["id"] for s in sessions_before}
+    chat.create_new_session()
     unique_id = _uuid.uuid4().hex[:6]
     session_marker = f"E2E-del-{unique_id}"
     chat.send_message(f"{session_marker}-请回复OK")
@@ -263,5 +267,7 @@ def test_chat_artifacts_panel_collapse_expand(logged_in_page, base_url):
     expect(panel.get_by_role("tab", name="站点", exact=True)).to_have_attribute(
         "aria-selected", "true"
     )
+    assert frame.get_attribute("src") == original_src, \
+        "重新打开工作区后站点预览 src 与关闭前不一致"
     expect(frame).to_be_visible(timeout=15000)
     expect(frame).to_have_attribute("src", original_src)

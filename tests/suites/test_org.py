@@ -103,7 +103,6 @@ def test_org_002_create_org(logged_in_page, base_url):
     """✅ TC-ORG-002: 创建新组织（新版弹窗字段：名称 + Slug）"""
     org = OrgPage(logged_in_page, base_url)
     org.goto()
-    _wait_until(lambda: org.get_org_count() >= 0, timeout=5)
 
     api_resp = org.intercept_api("/web/organizations")
     org_name = f"测试组织{_PREFIX}"

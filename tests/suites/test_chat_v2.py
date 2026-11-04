@@ -387,8 +387,8 @@ def test_session_persistence_refresh(logged_in_page, base_url):
 
     # 3. 验证 AI 有回复（消息区域有除用户消息以外的内容）
     ai_response_length = len(messages_before) - len(user_message)
-    if ai_response_length <= 10:
-        pytest.skip(f"AI 回复内容过少（仅 {ai_response_length} 字符），可能未正常响应")
+    assert ai_response_length > 10, \
+        f"AI 回复内容过少（仅 {ai_response_length} 字符），可能未正常响应"
 
     # 4. 记录当前会话 URL
     session_url = logged_in_page.url
@@ -478,9 +478,17 @@ def test_session_status_visual_distinction(logged_in_page, base_url):
     chat.open_session_dialog()
     assert chat.is_session_dialog_open(), "无法打开会话对话框，系统可能异常"
 
-    # 检查时间分区标题（三种情况都算通过：只有今天 / 今天+昨天 / 今天+昨天+更早）
-    assert chat.has_session_time_sections(), \
-        "会话列表未显示任何时间分区（今天/昨天/更早）"
+    # 新版 UI 接入 space 后，侧栏按空间分组（[data-space-drop-id]）而非「今天/昨天/更早」
+    group_count, group_names = chat.get_session_space_groups()
+    assert group_count > 0, "会话列表未渲染任何空间分组（[data-space-drop-id]）"
+    assert len(group_names) == group_count, \
+        f"存在缺少名称的分组头: 分组数 {group_count}, 名称 {group_names}"
+    for name in group_names:
+        assert name.strip(), "存在空名称的会话分组"
+
+    nav = chat._get_session_nav()
+    assert nav.locator("[data-space-drop-id] [data-session-id]").count() > 0, \
+        "会话行未归入任何空间分组"
 
     chat.close_session_dialog()
 
@@ -541,8 +549,8 @@ def test_file_upload_preview(logged_in_page, base_url):
                 logged_in_page.wait_for_timeout(500)
                 if preview_container.count() > 0:
                     break
-        if preview_container.count() == 0:
-            pytest.skip("点击文件后预览区域未加载（可能 workspace=null 导致 API 404，已知环境限制）")
+        assert preview_container.count() > 0, \
+            f"点击文件 '{file_name}' 后预览区域未加载"
 
         # 验证：预览中文件名正确
         preview_title = preview_container.locator("div.ofv-code-title strong")

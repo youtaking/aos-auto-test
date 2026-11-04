@@ -32,10 +32,38 @@ def _skills_session_cookie(logged_in_page):
     return {session_cookie["name"]: session_cookie["value"]}
 
 
+def _api_skill_id(base_url, cookie_jar, name) -> str:
+    """按技能名从列表解析资源 ID（控制台详情/删除已改为按 ID 定位）"""
+    resp = requests.get(f"{base_url}/web/config/skills", cookies=cookie_jar, timeout=10)
+    if resp.status_code != 200:
+        return ""
+    for s in resp.json().get("data", {}).get("skills", []):
+        if s.get("name") == name:
+            return s.get("id") or ""
+    return ""
+
+
+def _api_skill_detail(base_url, cookie_jar, name) -> dict:
+    """按名称查技能详情（内部先解析资源 ID）"""
+    skill_id = _api_skill_id(base_url, cookie_jar, name)
+    assert skill_id, f"技能 '{name}' 不在列表中，无法查询详情"
+    resp = requests.get(
+        f"{base_url}/web/config/skills/{skill_id}", cookies=cookie_jar, timeout=10
+    )
+    assert resp.status_code == 200, (
+        f"获取技能详情失败: HTTP {resp.status_code}, body={resp.text[:200]}"
+    )
+    return resp.json().get("data", {})
+
+
 def _api_delete_skill_safe(base_url, cookie_jar, name):
-    """安全删除测试技能（忽略错误）"""
+    """安全删除测试技能（忽略错误；先按名称解析资源 ID）"""
     try:
-        requests.delete(f"{base_url}/web/config/skills/{name}", cookies=cookie_jar, timeout=10)
+        skill_id = _api_skill_id(base_url, cookie_jar, name)
+        if skill_id:
+            requests.delete(
+                f"{base_url}/web/config/skills/{skill_id}", cookies=cookie_jar, timeout=10
+            )
     except Exception:
         pass
 
@@ -94,8 +122,6 @@ def test_skill_list_data_loads(logged_in_page, base_url):
     assert skills.is_loaded(), "技能库页面未加载（未出现技能目录）"
 
     count = skills.get_skill_count()
-    if count == 0:
-        pytest.skip("技能列表为空，环境无技能数据")
     assert count > 0, "技能列表为空"
 
     # 顶栏应有 导入 / 添加 Skill（限定 main，防侧边栏同名）
@@ -121,8 +147,6 @@ def test_skill_search_filter(logged_in_page, base_url):
     assert skills.is_loaded(), "技能库页面未加载"
 
     initial_count = skills.get_skill_count()
-    if initial_count == 0:
-        pytest.skip("技能列表为空，无法测试搜索")
 
     names = skills.get_skill_names()
     assert len(names) > 0, "目录中无技能名可测"
@@ -205,13 +229,25 @@ def test_skill_api_list_and_detail(logged_in_page, base_url):
     items = body.get("data", {}).get("skills", [])
     assert len(items) > 0, "Skill 列表为空"
     assert "name" in items[0], "skill 缺少 name 字段"
+    assert "id" in items[0], "skill 缺少 id 字段（集合接口必须返回真实资源 ID）"
 
-    # GET /web/config/skills/:name — 详情
-    skill_name = items[0]["name"]
-    detail_resp = requests.get(
-        f"{base_url}/web/config/skills/{skill_name}", cookies=cookie_jar, timeout=10
+    # GET /web/config/skills/:id — 详情
+    # 列表中混有并行清理中的自建技能，按 ID 查可能恰逢 404；优先稳定技能，其余逐个兜底。
+    stable = [s for s in items if not s["name"].startswith(("e2e-", "probe-"))][:1]
+    candidates = stable + [s for s in items[:5] if s not in stable]
+    detail_resp = None
+    skill_name = ""
+    for cand in candidates:
+        resp = requests.get(
+            f"{base_url}/web/config/skills/{cand['id']}", cookies=cookie_jar, timeout=10
+        )
+        if resp.status_code == 200:
+            detail_resp, skill_name = resp, cand["name"]
+            break
+    assert detail_resp is not None, (
+        f"所有 {len(candidates)} 个 Skill 的详情接口均非 200，最后一个状态: "
+        f"{resp.status_code}, body={resp.text[:200]}"
     )
-    assert detail_resp.status_code == 200, f"获取 Skill 详情失败: HTTP {detail_resp.status_code}"
     detail_body = detail_resp.json()
     assert detail_body.get("success") is True, f"详情 API 返回 success=false: {detail_body}"
     detail = detail_body.get("data", {})
@@ -397,8 +433,7 @@ def test_skill_scope_filter(logged_in_page, base_url):
 
     main = skills._main()
     all_count = skills.get_skill_count()
-    if all_count == 0:
-        pytest.skip("技能列表为空")
+    assert all_count > 0, "技能列表为空"
 
     def parse_scope_num(label: str) -> int:
         btn = main.get_by_role("button", name=re.compile(f"^{label}\\d+$")).first
@@ -471,22 +506,18 @@ def test_skill_public_toggle(logged_in_page, base_url):
         # 设为公开 → 页脚按钮变 设为私有
         skills.toggle_public(skill_name)
         assert skills.is_public(skill_name), "设为公开后未变为公开状态"
-        detail = requests.get(
-            f"{base_url}/web/config/skills/{skill_name}", cookies=cookie_jar, timeout=10
-        ).json()
+        detail = _api_skill_detail(base_url, cookie_jar, skill_name)
         # 新版 API 公开语义迁移到 scope.visibility（旧 resourceAccess.publicReadable 已下线）
-        assert detail.get("data", {}).get("scope", {}).get("visibility") == "public", (
-            f"API 中 scope.visibility 未变为 public: {detail.get('data', {}).get('scope')}"
+        assert detail.get("scope", {}).get("visibility") == "public", (
+            f"API 中 scope.visibility 未变为 public: {detail.get('scope')}"
         )
 
         # 切回私有 → 恢复
         skills.toggle_public(skill_name)
         assert not skills.is_public(skill_name), "切回私有后仍为公开状态"
-        detail2 = requests.get(
-            f"{base_url}/web/config/skills/{skill_name}", cookies=cookie_jar, timeout=10
-        ).json()
-        assert detail2.get("data", {}).get("scope", {}).get("visibility") == "private", (
-            f"API 中 scope.visibility 未恢复 private: {detail2.get('data', {}).get('scope')}"
+        detail2 = _api_skill_detail(base_url, cookie_jar, skill_name)
+        assert detail2.get("scope", {}).get("visibility") == "private", (
+            f"API 中 scope.visibility 未恢复 private: {detail2.get('scope')}"
         )
     finally:
         _api_delete_skill_safe(base_url, cookie_jar, skill_name)
@@ -567,10 +598,7 @@ def test_skill_upload_conflict_handling(logged_in_page, base_url):
         assert skills.is_loaded(), "技能库页面未加载"
 
         def detail_content() -> str:
-            r = requests.get(
-                f"{base_url}/web/config/skills/{skill_name}", cookies=cookie_jar, timeout=10
-            )
-            return r.json().get("data", {}).get("content", "")
+            return _api_skill_detail(base_url, cookie_jar, skill_name).get("content", "")
 
         # ── 覆盖分支：导入含 V2 的同名目录，选「覆盖已有技能」→ 内容替换为 V2 ──
         root_over = _make_temp_import_root(skill_name, f"# V2\n\nOVERWRITE-V2-MARKER-{skill_name}")
@@ -663,8 +691,7 @@ def test_skills_detail_pane(logged_in_page, base_url):
     assert skills.is_loaded(), "技能库页面未加载"
 
     names = skills.get_skill_names()
-    if not names:
-        pytest.skip("技能列表为空，无法测试详情")
+    assert names, "技能列表为空，无法测试详情"
     name = names[0]
 
     title = skills.select_skill(name)
@@ -818,10 +845,7 @@ def test_skill_edit_save_and_cancel(logged_in_page, base_url):
         assert skills.has_skill(unique_name), f"预置技能 '{unique_name}' 未出现在目录"
 
         def api_description() -> str:
-            r = requests.get(
-                f"{base_url}/web/config/skills/{unique_name}", cookies=cookie_jar, timeout=10
-            )
-            return r.json().get("data", {}).get("description", "")
+            return _api_skill_detail(base_url, cookie_jar, unique_name).get("description", "")
 
         # ── 编辑：改描述并保存 → 静默关闭，API 描述更新 ──
         assert skills.select_skill(unique_name), "无法选中技能"

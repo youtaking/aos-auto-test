@@ -1,3 +1,19 @@
+// 测试代码归档地址。GitLab 私有仓库的网页归档路由不认 PRIVATE-TOKEN（未授权会返回 200 登录页），
+// 必须走 API 端点；项目路径与分支名都要 URL 编码。
+def buildTestArchiveUrl(String repo, String branch) {
+    def br = branch ?: 'main'
+    def base = repo.replaceAll(/\.git$/, '')
+    if (base.contains('gitlab.')) {
+        def m = (base =~ /^(https?:\/\/[^\/]+)\/(.+)$/)
+        if (!m.matches()) {
+            throw new RuntimeException("Cannot parse GitLab repo URL: ${repo}")
+        }
+        def projectPath = m[0][2].replace('/', '%2F')
+        return "${m[0][1]}/api/v4/projects/${projectPath}/repository/archive.tar.gz?sha=${br.replace('/', '%2F')}"
+    }
+    return "${base}/archive/refs/heads/${br}.tar.gz"
+}
+
 pipeline {
     agent any
 
@@ -9,8 +25,8 @@ pipeline {
         string(name: 'AUTHOR',       description: '作者',                               defaultValue: 'unknown')
         string(name: 'APP_REPO',     description: '被测项目仓库地址（如 FenixAgent）',   defaultValue: 'https://github.com/HuangPuStar/FenixAgent.git')
         string(name: 'APP_BRANCH',   description: '被测项目分支',                       defaultValue: 'main')
-        string(name: 'TEST_REPO',    description: '测试代码仓库地址（如 aos-auto-test）', defaultValue: 'https://github.com/youtaking/aos-auto-test.git')
-        string(name: 'TEST_REPO_BRANCH', description: '测试代码分支',                    defaultValue: 'master')
+        string(name: 'TEST_REPO',    description: '测试代码仓库地址（如 aos-auto-test）', defaultValue: 'https://gitlab.pazhoulab-huangpu.com/aos-test/aos-auto-test.git')
+        string(name: 'TEST_REPO_BRANCH', description: '测试代码分支',                    defaultValue: 'main')
         string(name: 'AUTOTEST_URL', description: 'AutoTest 后端地址（用于上传测试结果和日志）', defaultValue: 'http://100.105.114.178:8111')
         string(name: 'HOST_IP', description: '宿主机 IP（RCS 服务对外地址，用于健康检查和 target_url）', defaultValue: '100.105.114.178')
         booleanParam(name: 'NOTIFY_WECOM', defaultValue: true, description: '构建完成后发送企业微信通知（手动测试时可取消勾选）')
@@ -87,6 +103,7 @@ pipeline {
 
         stage('Clone Repos') {
             steps {
+                withCredentials([string(credentialsId: 'gitlab-read-token', variable: 'GL_TOKEN')]) {
                 sh '''
                     set +x
                     echo "============================================================"
@@ -108,6 +125,14 @@ pipeline {
                         local url="$1"
                         local output="$2"
                         local proxies="https://gh-proxy.com https://mirror.ghproxy.com https://ghfast.top https://ghproxy.net"
+                        local auth_args=""
+                        case "$url" in
+                            *gitlab.*)
+                                # GitLab 是内网域名，代理前缀无效；私有仓库必须带只读令牌
+                                proxies=""
+                                auth_args="-H PRIVATE-TOKEN:${GL_TOKEN}"
+                                ;;
+                        esac
                         for proxy in "" $proxies; do
                             if [ -n "$proxy" ]; then
                                 full_url="${proxy}/${url}"
@@ -117,7 +142,7 @@ pipeline {
                             echo "    Trying: ${full_url}"
                             for i in 1 2 3; do
                                 if curl --fail -SL --connect-timeout 10 --max-time 300 \
-                                  "${full_url}" -o "${output}" 2>/dev/null; then
+                                  $auth_args "${full_url}" -o "${output}" 2>/dev/null; then
                                     if [ -s "${output}" ] && tar tzf "${output}" > /dev/null 2>&1; then
                                         echo "    OK (proxy: ${proxy:-direct})"
                                         return 0
@@ -208,14 +233,15 @@ pipeline {
                     echo ""
                     echo "<<< [1/7] Clone Repos — DONE"
                 '''.replace('__APP_ARCHIVE_URL__', APP_REPO.replace('.git', '') + "/archive/refs/heads/${params.APP_BRANCH ?: 'main'}.tar.gz")
-                  .replace('__TEST_ARCHIVE_URL__', TEST_REPO.replace('.git', '') + "/archive/refs/heads/${params.TEST_REPO_BRANCH ?: 'master'}.tar.gz")
+                  .replace('__TEST_ARCHIVE_URL__', buildTestArchiveUrl(TEST_REPO, params.TEST_REPO_BRANCH ?: 'main'))
                   .replace('__APP_BRANCH__', params.APP_BRANCH ?: 'main')
-                  .replace('__TEST_REPO_BRANCH__', params.TEST_REPO_BRANCH ?: 'master')
+                  .replace('__TEST_REPO_BRANCH__', params.TEST_REPO_BRANCH ?: 'main')
                   .replace('__PR_BRANCH__', params.PR_BRANCH ?: 'main')
                   .replace('__PROJECT_NAME__', PROJECT_NAME)
                   .replace('__RCS_PORT__', RCS_PORT)
                   .replace('__PG_PORT__', PG_PORT)
                   .replace('__LITE_PORT__', LITE_PORT)
+                }
             }
         }
 
@@ -424,6 +450,15 @@ except Exception as e:
                 def TEST_ROOT = (params.APP_BRANCH && params.APP_BRANCH != "main")
                     ? "/app/branches/${params.APP_BRANCH}/unit_tests"
                     : "/app/tests"
+                // 系统级 API Key 只有一份来源：test_data.yaml。Admin Master Key 门禁与
+                // /api/system/* 都校验它，配置不一致会整片 401。
+                def SYSTEM_API_KEY = sh(
+                    script: "sed -n 's/^[[:space:]]*system_api_key:[[:space:]]*//p' autotest/tests/fixtures/test_data.yaml | head -1",
+                    returnStdout: true
+                ).trim()
+                if (!SYSTEM_API_KEY) {
+                    error('tests/fixtures/test_data.yaml 缺少 system_api_key，无法配置 RCS_SYSTEM_API_KEYS')
+                }
                 writeFile file: 'docker-compose.yml', text: '''
 services:
   postgres:
@@ -476,6 +511,10 @@ services:
       RCS_HOST: 0.0.0.0
       RCS_PORT: 3001
       RCS_API_KEYS: sk-rcs-dev-key
+      # 系统级 API Key：Admin Master Key 门禁与 /api/system/* 都校验它
+      RCS_SYSTEM_API_KEYS: __SYSTEM_API_KEY__
+      # 浏览器在测试容器内以 http://rcs:3001 为 origin，未列入可信来源会导致 sign-out 403 INVALID_ORIGIN
+      RCS_TRUSTED_ORIGINS: http://rcs:3001
       RCS_SECRET_LITELLM_ADMIN_KEY: sk-litellm-admin-dev-key
       OPENAI_API_KEY: __OPENAI_API_KEY__
       OPENAI_MODEL: __OPENAI_MODEL__
@@ -486,6 +525,9 @@ services:
       WORKFLOW_V2_PLATFORM_ACCOUNT_EMAIL: workflow-v2@example.test
       WORKFLOW_V2_PLATFORM_ACCOUNT_PASSWORD: workflow-v2-test-password
       WORKFLOW_V2_TICKET_SECRET: workflow-v2-test-ticket-secret
+    volumes:
+      # seed 数据里绑定了技能，但镜像只建空目录；缺源文件会让 agent 启动直接抛 INVALID_CONFIG
+      - __WORKSPACE__/seed-skills:/app/data/skills
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
       interval: 10s
@@ -524,6 +566,7 @@ services:
   .replace('__MIGRATE_IMAGE_TAG__', "${PROJECT_NAME}-migrate:${BUILD_NUMBER}")
   .replace('__RCS_PORT__', RCS_PORT)
   .replace('__HOST_IP__', HOST_IP)
+  .replace('__SYSTEM_API_KEY__', SYSTEM_API_KEY)
   .replace('__OPENAI_API_KEY__', OPENAI_API_KEY)
   .replace('__OPENAI_MODEL__', OPENAI_MODEL)
   .replace('__OPENAI_BASE_URL__', OPENAI_BASE_URL)
@@ -653,6 +696,15 @@ PYEOF
                       echo "    ERROR: seed data not found at /var/jenkins_home/seed-data/data.sql"
                       echo "    seed 源已移出 GitHub，必须放在服务器 /opt/1panel/apps/jenkins/jenkins/data/seed-data/data.sql。中止构建。"
                       exit 1
+                    fi
+
+                    echo ">>> Preparing seed skill sources..."
+                    mkdir -p seed-skills
+                    if [ -d /var/jenkins_home/seed-data/skills ]; then
+                      cp -a /var/jenkins_home/seed-data/skills/. seed-skills/
+                      echo "    seed skills ready ($(find seed-skills -name SKILL.md | wc -l) skill(s))."
+                    else
+                      echo "    WARNING: /var/jenkins_home/seed-data/skills not found; agents bound to skills will fail to start."
                     fi
 
                     echo ">>> Starting postgres..."
@@ -813,6 +865,22 @@ PYEOF
                     echo "    Done."
                 '''
 
+                // 分支没有单元测试目标时跳过整个单元阶段：
+                // 容器空跑最终会在 bun test 报 "No tests found!" 并以 1 退出，留下空 junit，
+                // 既浪费一轮依赖安装，又让看板把"无目标"误当成"有失败"。
+                script {
+                    env.UNIT_SKIP = (sh(
+                        script: 'test -s unit_test_targets.txt',
+                        returnStatus: true
+                    ) == 0) ? 'false' : 'true'
+                    if (env.UNIT_SKIP == 'true') {
+                        echo '>>> No unit test targets for this branch, skipping unit-runner.'
+                        env.UNIT_EXIT = '0'
+                    }
+                }
+
+                script {
+                    if (env.UNIT_SKIP != 'true') {
                 // 1. 获取 PIPELINE_ID 并通知后端"单元测试开始"
                 withCredentials([string(credentialsId: 'autotest-token', variable: 'TOKEN')]) {
                     sh '''
@@ -864,6 +932,8 @@ except:
                         returnStatus: true
                     ).toString()
                     echo "    unit-runner exit code: ${env.UNIT_EXIT}"
+                }
+                    }
                 }
 
                 sh '''
@@ -1174,9 +1244,9 @@ open('logs_upload.json', 'w', encoding='utf-8').write(json.dumps(payload))
                     set +x
                 echo ">>> Stopping and removing containers..."
                 docker-compose -p __PROJECT_NAME__ down -v || true
-                echo ">>> Images kept for debug use:"
-                echo "    __IMAGE_TAG__"
-                echo "    __MIGRATE_IMAGE_TAG__"
+                echo ">>> Removing images..."
+                docker rmi -f __IMAGE_TAG__ || true
+                docker rmi -f __MIGRATE_IMAGE_TAG__ || true
                 echo ""
                 echo "<<< Upload Results & Cleanup — DONE"
                 echo ""

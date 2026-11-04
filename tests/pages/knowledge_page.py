@@ -56,22 +56,6 @@ class KnowledgePage:
 
     # ==================== 搜索 ====================
 
-    def search(self, keyword: str):
-        body = self.page.locator("div.agent-panel-body").first
-        inp = body.locator("input[placeholder*='搜索知识库']")
-        if inp.count() > 0:
-            inp.first.wait_for(state="visible", timeout=5000)
-            inp.first.fill(keyword)
-            self.page.wait_for_timeout(500)
-
-    def clear_search(self):
-        body = self.page.locator("div.agent-panel-body").first
-        inp = body.locator("input[placeholder*='搜索知识库']")
-        if inp.count() > 0:
-            inp.first.wait_for(state="visible", timeout=5000)
-            inp.first.fill("")
-            self.page.wait_for_timeout(500)
-
     def has_search_input(self) -> bool:
         body = self.page.locator("div.agent-panel-body").first
         return body.locator("input[placeholder*='搜索知识库']").count() > 0
@@ -308,11 +292,6 @@ class KnowledgePage:
         """获取全文/省略切换按钮。mode: '全文' 或 '省略'"""
         dialog = self.page.locator("[role=dialog][data-state=open]")
         return dialog.get_by_role("button", name=mode)
-
-    def get_chunk_sheet_pagination_buttons(self):
-        """获取分页按钮（上一页/下一页）"""
-        dialog = self.page.locator("[role=dialog][data-state=open]")
-        return dialog.locator("button[class*='outline'][class*='rounded-lg']")
 
     def get_chunk_sheet_text(self) -> str:
         """获取 Sheet 完整文本"""

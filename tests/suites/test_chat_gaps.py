@@ -41,23 +41,20 @@ def test_long_message(logged_in_page, base_url):
         log_area = logged_in_page.locator("div[role='log']")
         if log_area.count() > 0:
             log_text = log_area.first.inner_text()
-            # 至少用户消息部分内容出现
-            assert "超长消息" in log_text or len(log_text.strip()) > 0, (
-                f"超长消息发送后消息区域为空"
-                f"（'超长消息'匹配={'超长消息' in log_text}, "
-                f"log_text长度={len(log_text.strip())}, "
+            # 用户消息气泡必须回显发送内容
+            assert "这是一条超长消息测试" in log_text, (
+                f"超长消息发送后消息区域未出现用户消息内容"
+                f"（log_text长度={len(log_text.strip())}, "
                 f"内容前100字: '{log_text[:100]}'）"
             )
     else:
-        # 消息未被接受（可能有长度限制），验证有错误提示
+        # 消息未被接受（可能有长度限制），必须有明确的错误提示
         body_text = logged_in_page.locator("body").inner_text()
         has_error_hint = "太长" in body_text or "超出" in body_text or \
             "限制" in body_text or "过长" in body_text
-        # 如果也没有错误提示，记录为应用 Bug
-        if not has_error_hint:
-            allure_attach = f"超长消息未被接受且无错误提示（输入框残留 {len(val_after)} 字符）"
-            allure.attach(allure_attach, name="备注",
-                          attachment_type=allure.attachment_type.TEXT)
+        assert has_error_hint, (
+            f"超长消息未被接受且无任何错误提示（输入框残留 {len(val_after)} 字符）"
+        )
 
 
 # === BV-03: 特殊字符消息（emoji + CJK）===
@@ -386,8 +383,7 @@ def test_artifacts_file_tree_tab(logged_in_page, base_url):
         file_tab = logged_in_page.locator(
             "aside.artifacts-shell button.artifacts-mode-tab"
         ).filter(has_text="文件")
-        if file_tab.count() == 0:
-            pytest.skip("Artifacts 面板无「文件」Tab")
+        assert file_tab.count() > 0, "Artifacts 面板无「文件」Tab"
         file_tab.first.click()
         logged_in_page.wait_for_timeout(800)
 
@@ -414,8 +410,7 @@ def test_artifacts_scheduled_tasks_tab(logged_in_page, base_url):
     tab = logged_in_page.locator(
         "aside.artifacts-shell button.artifacts-mode-tab"
     ).filter(has_text="定时任务")
-    if tab.count() == 0:
-        pytest.skip("Artifacts 面板无「定时任务」Tab")
+    assert tab.count() > 0, "Artifacts 面板无「定时任务」Tab"
     tab.first.wait_for(state="visible", timeout=3000)
     tab.first.click()
     logged_in_page.wait_for_timeout(800)
@@ -443,8 +438,7 @@ def test_artifacts_published_views_tab(logged_in_page, base_url):
     tab = logged_in_page.locator(
         "aside.artifacts-shell button.artifacts-mode-tab"
     ).filter(has_text="发布视图")
-    if tab.count() == 0:
-        pytest.skip("Artifacts 面板无「发布视图」Tab")
+    assert tab.count() > 0, "Artifacts 面板无「发布视图」Tab"
     tab.first.wait_for(state="visible", timeout=3000)
     tab.first.click()
     logged_in_page.wait_for_timeout(1200)

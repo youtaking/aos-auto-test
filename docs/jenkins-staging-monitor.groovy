@@ -1,15 +1,31 @@
+// 测试代码归档地址。GitLab 私有仓库的网页归档路由不认 PRIVATE-TOKEN（未授权会返回 200 登录页），
+// 必须走 API 端点；项目路径与分支名都要 URL 编码。
+def buildTestArchiveUrl(String repo, String branch) {
+    def br = branch ?: 'main'
+    def base = repo.replaceAll(/\.git$/, '')
+    if (base.contains('gitlab.')) {
+        def m = (base =~ /^(https?:\/\/[^\/]+)\/(.+)$/)
+        if (!m.matches()) {
+            throw new RuntimeException("Cannot parse GitLab repo URL: ${repo}")
+        }
+        def projectPath = m[0][2].replace('/', '%2F')
+        return "${m[0][1]}/api/v4/projects/${projectPath}/repository/archive.tar.gz?sha=${br.replace('/', '%2F')}"
+    }
+    return "${base}/archive/refs/heads/${br}.tar.gz"
+}
+
 pipeline {
     agent any
 
     parameters {
-        string(name: 'HEALTH_URL',       defaultValue: 'http://192.168.122.18:38879/health',   description: '健康检查完整 URL')
-        string(name: 'TARGET_URL',       defaultValue: 'http://192.168.122.18:38879',          description: '测试目标地址')
+        string(name: 'HEALTH_URL',       defaultValue: 'http://100.105.9.16:38879/health',   description: '健康检查完整 URL')
+        string(name: 'TARGET_URL',       defaultValue: 'http://100.105.9.16:38879',          description: '测试目标地址')
         string(name: 'APP_REPO',         defaultValue: 'https://github.com/HuangPuStar/FenixAgent.git', description: '被测项目仓库地址（单元测试需要）')
         string(name: 'APP_BRANCH',       defaultValue: 'main',                               description: '被测项目分支（单元测试源码）')
         string(name: 'POLL_INTERVAL',    defaultValue: '30',                                  description: '轮询间隔（分钟）')
         string(name: 'AUTOTEST_URL',     defaultValue: 'http://100.105.114.178:8111',        description: 'AutoTest 后端地址')
-        string(name: 'TEST_REPO',        defaultValue: 'https://github.com/youtaking/aos-auto-test.git', description: '测试代码仓库')
-        string(name: 'TEST_REPO_BRANCH', defaultValue: 'master',               description: '测试代码分支')
+        string(name: 'TEST_REPO',        defaultValue: 'https://gitlab.pazhoulab-huangpu.com/aos-test/aos-auto-test.git', description: '测试代码仓库')
+        string(name: 'TEST_REPO_BRANCH', defaultValue: 'main',               description: '测试代码分支')
         booleanParam(name: 'FORCE_RESET', defaultValue: false,                                description: '强制触发测试（清除上次 commitId 记录）')
         booleanParam(name: 'NOTIFY_WECOM', defaultValue: true,                                 description: '测试完成后发送企业微信通知（手动触发时可取消勾选）')
     }
@@ -23,6 +39,7 @@ pipeline {
     stages {
         stage('Check Runner Images') {
             steps {
+                withCredentials([string(credentialsId: 'gitlab-read-token', variable: 'GL_TOKEN')]) {
                 sh '''
                     set +x
                     echo "============================================================"
@@ -33,6 +50,14 @@ pipeline {
                         local url="$1"
                         local output="$2"
                         local proxies="https://gh-proxy.com https://mirror.ghproxy.com https://ghfast.top https://ghproxy.net"
+                        local auth_args=""
+                        case "$url" in
+                            *gitlab.*)
+                                # GitLab 是内网域名，代理前缀无效；私有仓库必须带只读令牌
+                                proxies=""
+                                auth_args="-H PRIVATE-TOKEN:${GL_TOKEN}"
+                                ;;
+                        esac
                         for proxy in $proxies ""; do
                             if [ -n "$proxy" ]; then
                                 full_url="${proxy}/${url}"
@@ -41,7 +66,7 @@ pipeline {
                             fi
                             echo "    Trying: ${full_url}"
                             for i in 1 2 3; do
-                                if curl --fail -SL --connect-timeout 10 --max-time 600 "${full_url}" -o "${output}" 2>/tmp/curl_err.log; then
+                                if curl --fail -SL --connect-timeout 10 --max-time 600 $auth_args "${full_url}" -o "${output}" 2>/tmp/curl_err.log; then
                                     if [ -s "${output}" ] && tar tzf "${output}" > /dev/null 2>&1; then
                                         echo "    OK (proxy: ${proxy:-direct})"
                                         return 0
@@ -63,7 +88,7 @@ pipeline {
                         rm -rf /tmp/staging-autotest
                         mkdir -p /tmp/staging-autotest
 
-                        ARCHIVE_URL="__TEST_REPO__/archive/refs/heads/__TEST_BRANCH__.tar.gz"
+                        ARCHIVE_URL="__TEST_ARCHIVE_URL__"
                         download_repo "${ARCHIVE_URL}" /tmp/autotest.tar.gz || true
                         if [ -f /tmp/autotest.tar.gz ] && [ -s /tmp/autotest.tar.gz ]; then
                             tar xzf /tmp/autotest.tar.gz --strip-components=1 -C /tmp/staging-autotest
@@ -84,7 +109,7 @@ pipeline {
                         rm -rf /tmp/staging-autotest
                         mkdir -p /tmp/staging-autotest
 
-                        ARCHIVE_URL="__TEST_REPO__/archive/refs/heads/__TEST_BRANCH__.tar.gz"
+                        ARCHIVE_URL="__TEST_ARCHIVE_URL__"
                         download_repo "${ARCHIVE_URL}" /tmp/autotest.tar.gz || true
                         if [ -f /tmp/autotest.tar.gz ] && [ -s /tmp/autotest.tar.gz ]; then
                             tar xzf /tmp/autotest.tar.gz --strip-components=1 -C /tmp/staging-autotest
@@ -100,8 +125,9 @@ pipeline {
                         fi
                         rm -rf /tmp/staging-autotest /tmp/autotest.tar.gz
                     fi
-                '''.replace('__TEST_REPO__', params.TEST_REPO.replace('.git', ''))
-                  .replace('__TEST_BRANCH__', params.TEST_REPO_BRANCH ?: 'master')
+                '''.replace('__TEST_ARCHIVE_URL__', buildTestArchiveUrl(params.TEST_REPO, params.TEST_REPO_BRANCH ?: 'main'))
+                  .replace('__TEST_BRANCH__', params.TEST_REPO_BRANCH ?: 'main')
+                }
             }
         }
 
@@ -118,9 +144,16 @@ pipeline {
 
                     if [ -z "$HEALTH_RESP" ]; then
                         echo ">>> Health endpoint unreachable, skipping this poll."
-                        echo "SKIP" > .poll_result
+                        # 首次掉线发告警，持续掉线只在构建状态上体现，避免每 2 小时刷屏
+                        if [ -f .health_down ]; then
+                            echo "DOWN" > .poll_result
+                        else
+                            echo "DOWN_ALERT" > .poll_result
+                            touch .health_down
+                        fi
                         exit 0
                     fi
+                    rm -f .health_down
 
                     echo ">>> Health response: $HEALTH_RESP"
 
@@ -164,7 +197,28 @@ pipeline {
                 always {
                     script {
                         def result = readFile('.poll_result').trim()
-                        if (result == 'SKIP') {
+                        if (result == 'DOWN_ALERT' || result == 'DOWN') {
+                            // 环境不可达必须可见：构建置 UNSTABLE，首次掉线额外发企微告警
+                            currentBuild.result = 'UNSTABLE'
+                            currentBuild.displayName = "#${env.BUILD_NUMBER} [ALERT] health unreachable"
+                            if (result == 'DOWN_ALERT' && (params.NOTIFY_WECOM != null ? params.NOTIFY_WECOM : true)) {
+                                withCredentials([string(credentialsId: 'wecom-webhook', variable: 'WECOM_WEBHOOK')]) {
+                                    sh '''
+                                        set +x
+                                        python3 -c "
+import json, os, urllib.request
+content = '### Staging 环境健康检查失败\\n> 地址: __HEALTH_URL__\\n> [Jenkins 构建日志](' + os.environ.get('BUILD_URL', '') + ')'
+msg = {'msgtype': 'markdown', 'markdown': {'content': content}}
+req = urllib.request.Request(os.environ['WECOM_WEBHOOK'], data=json.dumps(msg).encode('utf-8'), headers={'Content-Type': 'application/json'})
+try:
+    print(urllib.request.urlopen(req, timeout=10).read().decode('utf-8'))
+except Exception as e:
+    print('wecom notify failed:', e)
+"
+                                    '''.replace('__HEALTH_URL__', params.HEALTH_URL)
+                                }
+                            }
+                        } else if (result == 'SKIP') {
                             currentBuild.displayName = "#${env.BUILD_NUMBER} [SKIP] no change"
                         } else if (result == 'CHANGED') {
                             def commit = readFile('.current_commit').trim()
@@ -183,6 +237,7 @@ pipeline {
                 expression { readFile('.poll_result').trim() == 'CHANGED' }
             }
             steps {
+                withCredentials([string(credentialsId: 'gitlab-read-token', variable: 'GL_TOKEN')]) {
                 sh '''
                     set +x
                     echo "============================================================"
@@ -192,13 +247,21 @@ pipeline {
                     rm -rf autotest
                     mkdir -p autotest
 
-                    ARCHIVE_URL="__TEST_REPO__/archive/refs/heads/__TEST_BRANCH__.tar.gz"
+                    ARCHIVE_URL="__TEST_ARCHIVE_URL__"
                     echo ">>> Downloading: ${ARCHIVE_URL}"
 
                     download_repo() {
                         local url="$1"
                         local output="$2"
                         local proxies="https://gh-proxy.com https://mirror.ghproxy.com https://ghfast.top https://ghproxy.net"
+                        local auth_args=""
+                        case "$url" in
+                            *gitlab.*)
+                                # GitLab 是内网域名，代理前缀无效；私有仓库必须带只读令牌
+                                proxies=""
+                                auth_args="-H PRIVATE-TOKEN:${GL_TOKEN}"
+                                ;;
+                        esac
                         for proxy in $proxies ""; do
                             if [ -n "$proxy" ]; then
                                 full_url="${proxy}/${url}"
@@ -207,7 +270,7 @@ pipeline {
                             fi
                             echo "    Trying: ${full_url}"
                             for i in 1 2 3; do
-                                if curl --fail -SL --connect-timeout 10 --max-time 600 "${full_url}" -o "${output}" 2>/tmp/curl_err.log; then
+                                if curl --fail -SL --connect-timeout 10 --max-time 600 $auth_args "${full_url}" -o "${output}" 2>/tmp/curl_err.log; then
                                     if [ -s "${output}" ] && tar tzf "${output}" > /dev/null 2>&1; then
                                         echo "    OK (proxy: ${proxy:-direct})"
                                         return 0
@@ -284,10 +347,11 @@ pipeline {
                         fi
                         echo "    App source: $(ls app/ | wc -l) files/dirs"
                     fi
-                '''.replace('__TEST_REPO__', params.TEST_REPO.replace('.git', ''))
-                  .replace('__TEST_BRANCH__', params.TEST_REPO_BRANCH ?: 'master')
+                '''.replace('__TEST_ARCHIVE_URL__', buildTestArchiveUrl(params.TEST_REPO, params.TEST_REPO_BRANCH ?: 'main'))
+                  .replace('__TEST_BRANCH__', params.TEST_REPO_BRANCH ?: 'main')
                   .replace('__APP_REPO__', params.APP_REPO)
                   .replace('__APP_BRANCH__', params.APP_BRANCH ?: 'main')
+                }
             }
         }
 

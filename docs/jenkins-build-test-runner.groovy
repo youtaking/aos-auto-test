@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     parameters {
-        string(name: 'TEST_REPO_BRANCH', description: 'aos-auto-test 分支', defaultValue: 'master')
+        string(name: 'TEST_REPO_BRANCH', description: 'aos-auto-test 分支', defaultValue: 'main')
         booleanParam(name: 'FORCE_REBUILD', description: '强制重新构建（删除旧镜像）', defaultValue: false)
     }
 
@@ -36,6 +36,7 @@ pipeline {
 
         stage('Clone Test Repo') {
             steps {
+                withCredentials([string(credentialsId: 'gitlab-read-token', variable: 'GL_TOKEN')]) {
                 sh '''
                     set +x
                     echo ">>> Cloning aos-auto-test (__BRANCH__)..."
@@ -46,6 +47,14 @@ pipeline {
                         local url="$1"
                         local output="$2"
                         local proxies="https://gh-proxy.com https://mirror.ghproxy.com https://ghfast.top https://ghproxy.net"
+                        local auth_args=""
+                        case "$url" in
+                            *gitlab.*)
+                                # GitLab 是内网域名，代理前缀无效；私有仓库必须带只读令牌
+                                proxies=""
+                                auth_args="-H PRIVATE-TOKEN:${GL_TOKEN}"
+                                ;;
+                        esac
                         for proxy in $proxies ""; do
                             if [ -n "$proxy" ]; then
                                 full_url="${proxy}/${url}"
@@ -55,7 +64,7 @@ pipeline {
                             echo "    Trying: ${full_url}"
                             for i in 1 2 3; do
                                 if curl --fail -SL --connect-timeout 10 --max-time 300 \\
-                                  "${full_url}" -o "${output}" 2>/dev/null; then
+                                  $auth_args "${full_url}" -o "${output}" 2>/dev/null; then
                                     if [ -s "${output}" ] && tar tzf "${output}" > /dev/null 2>&1; then
                                         echo "    OK (proxy: ${proxy:-direct})"
                                         return 0
@@ -71,12 +80,13 @@ pipeline {
                     }
 
                     download_repo \\
-                      "https://github.com/youtaking/aos-auto-test/archive/refs/heads/__BRANCH__.tar.gz" \\
+                      "https://gitlab.pazhoulab-huangpu.com/api/v4/projects/aos-test%2Faos-auto-test/repository/archive.tar.gz?sha=__BRANCH__" \\
                       /tmp/autotest.tar.gz
                     tar xzf /tmp/autotest.tar.gz --strip-components=1 -C autotest
                     rm -f /tmp/autotest.tar.gz
                     echo "    aos-auto-test: $(ls autotest/ | wc -l) files/dirs"
                 '''.replace('__BRANCH__', params.TEST_REPO_BRANCH)
+                }
             }
         }
 

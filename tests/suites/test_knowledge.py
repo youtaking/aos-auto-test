@@ -419,8 +419,8 @@ def test_kb_004_upload_file(logged_in_page, base_url, request, embedding_require
 
     try:
         # 导航到知识库详情页（429 时自动等待重试）
-        if not _goto_kb_detail(logged_in_page, base_url, kb_id):
-            pytest.skip("429 限流导致知识库详情页无法加载")
+        assert _goto_kb_detail(logged_in_page, base_url, kb_id), \
+            "知识库详情页无法加载（429 限流重试后仍失败）"
 
         # 验证初始状态：暂无资源
         no_resource = logged_in_page.locator("text=暂无资源")
@@ -503,8 +503,8 @@ def test_kb_007_delete_resource(logged_in_page, base_url, request, embedding_req
 
     try:
         # 导航到知识库详情页（429 时自动等待重试）
-        if not _goto_kb_detail(logged_in_page, base_url, kb_id):
-            pytest.skip("429 限流导致知识库详情页无法加载")
+        assert _goto_kb_detail(logged_in_page, base_url, kb_id), \
+            "知识库详情页无法加载（429 限流重试后仍失败）"
 
         # 1. 上传文件
         upload_btn = logged_in_page.get_by_role("button", name="上传")
@@ -638,8 +638,8 @@ def test_kb_010_detail_panel(logged_in_page, base_url):
     kb_name = kb["name"]
 
     # 导航到知识库详情页（429 时自动等待重试）
-    if not _goto_kb_detail(logged_in_page, base_url, kb_id):
-        pytest.skip("429 限流导致知识库详情页无法加载")
+    assert _goto_kb_detail(logged_in_page, base_url, kb_id), \
+        "知识库详情页无法加载（429 限流重试后仍失败）"
 
     body_text = logged_in_page.inner_text("body")
 
@@ -688,8 +688,8 @@ def test_kb_011_upload_duplicate_confirm(logged_in_page, base_url, request, embe
 
     try:
         # 导航到知识库详情页（429 时自动等待重试）
-        if not _goto_kb_detail(logged_in_page, base_url, kb_id):
-            pytest.skip("429 限流导致知识库详情页无法加载")
+        assert _goto_kb_detail(logged_in_page, base_url, kb_id), \
+            "知识库详情页无法加载（429 限流重试后仍失败）"
 
         # 第一次上传
         upload_btn = logged_in_page.get_by_role("button", name="上传")
@@ -766,8 +766,8 @@ def test_kb_012_parse_status_polling(logged_in_page, base_url, request, embeddin
 
     try:
         # 导航到知识库详情页（429 时自动等待重试）
-        if not _goto_kb_detail(logged_in_page, base_url, kb_id):
-            pytest.skip("429 限流导致知识库详情页无法加载")
+        assert _goto_kb_detail(logged_in_page, base_url, kb_id), \
+            "知识库详情页无法加载（429 限流重试后仍失败）"
 
         # 上传文件
         upload_btn = logged_in_page.get_by_role("button", name="上传")
@@ -777,15 +777,16 @@ def test_kb_012_parse_status_polling(logged_in_page, base_url, request, embeddin
             upload_btn.first.click()
         fc_info.value.set_files(test_file)
 
-        # 轮询等待文件名出现
+        # 轮询等待资源行出现
         file_name = os.path.basename(test_file)
+        uploaded_row = logged_in_page.locator("table tbody tr").filter(has_text=file_name)
         for _wait in range(15):
-            if logged_in_page.locator(f"text={file_name}").count() > 0:
+            if uploaded_row.count() > 0:
                 break
             logged_in_page.wait_for_timeout(1000)
 
-        assert logged_in_page.locator(f"text={file_name}").count() > 0, \
-            f"上传后文件名 {file_name} 未出现"
+        assert uploaded_row.count() == 1, \
+            f"上传后资源行 {file_name} 应唯一，实际匹配 {uploaded_row.count()} 行"
 
         # 通过 API 轮询解析状态（最多 60 秒）
         final_status = None
@@ -831,8 +832,8 @@ def test_kb_013_reparse_resource(logged_in_page, base_url, request, embedding_re
 
     try:
         # 导航到知识库详情页（429 时自动等待重试）
-        if not _goto_kb_detail(logged_in_page, base_url, kb_id):
-            pytest.skip("429 限流导致知识库详情页无法加载")
+        assert _goto_kb_detail(logged_in_page, base_url, kb_id), \
+            "知识库详情页无法加载（429 限流重试后仍失败）"
 
         # 上传文件并等待解析完成
         upload_btn = logged_in_page.get_by_role("button", name="上传")
@@ -842,15 +843,16 @@ def test_kb_013_reparse_resource(logged_in_page, base_url, request, embedding_re
             upload_btn.first.click()
         fc_info.value.set_files(test_file)
 
-        # 轮询等待文件名出现
+        # 轮询等待资源行出现
         file_name = os.path.basename(test_file)
+        uploaded_row = logged_in_page.locator("table tbody tr").filter(has_text=file_name)
         for _wait in range(15):
-            if logged_in_page.locator(f"text={file_name}").count() > 0:
+            if uploaded_row.count() > 0:
                 break
             logged_in_page.wait_for_timeout(1000)
 
-        assert logged_in_page.locator(f"text={file_name}").count() > 0, \
-            f"上传后文件名 {file_name} 未出现"
+        assert uploaded_row.count() == 1, \
+            f"上传后资源行 {file_name} 应唯一，实际匹配 {uploaded_row.count()} 行"
 
         # 等待解析完成
         for _ in range(12):
@@ -877,68 +879,66 @@ def test_kb_013_reparse_resource(logged_in_page, base_url, request, embedding_re
             pass
 
         file_name = os.path.basename(test_file)
-        # 刷新后资源列表重新拉取需要时间，轮询等待文件名出现（禁止裸 count）
+        # 刷新后资源列表重新拉取需要时间，轮询等待资源行出现（按行唯一匹配）
+        resource_row = logged_in_page.locator("table tbody tr").filter(has_text=file_name)
         for _wait in range(15):
-            if logged_in_page.locator(f"text={file_name}").count() > 0:
+            if resource_row.count() > 0:
                 break
             logged_in_page.wait_for_timeout(1000)
-        assert logged_in_page.locator(f"text={file_name}").count() > 0, \
-            f"资源 {file_name} 未找到"
+        assert resource_row.count() == 1, \
+            f"资源行 {file_name} 应唯一，实际匹配 {resource_row.count()} 行"
 
-        # 查找重新解析按钮
-        reparse_btn = loc.button_by_name_or_title(logged_in_page, "重新解析")
+        # 查找重新解析按钮（限定在资源行内）
+        reparse_btn = resource_row.get_by_role("button", name="重新解析", exact=True)
+        assert reparse_btn.count() == 1, \
+            f"资源行内「重新解析」按钮应唯一，实际 {reparse_btn.count()} 个"
 
-        if reparse_btn.count() > 0 and reparse_btn.first.is_visible():
-            # 拦截 API 以验证重新解析请求
-            reparse_called = []
+        # 拦截 API 以验证重新解析请求
+        reparse_called = []
 
-            def on_reparse_resp(resp):
-                if "reparse" in resp.url.lower() or "reindex" in resp.url.lower():
-                    reparse_called.append({"url": resp.url, "status": resp.status})
+        def on_reparse_resp(resp):
+            if "reparse" in resp.url.lower() or "reindex" in resp.url.lower():
+                reparse_called.append({"url": resp.url, "status": resp.status})
 
-            logged_in_page.on("response", on_reparse_resp)
-            reparse_btn.first.wait_for(state="visible", timeout=5000)
-            reparse_btn.first.click()
+        logged_in_page.on("response", on_reparse_resp)
+        reparse_btn.first.wait_for(state="visible", timeout=5000)
+        reparse_btn.first.click()
 
-            # 等待确认弹窗出现（全量回归时服务端负载高，渲染可能延迟）
-            alert_dialog = logged_in_page.locator("[role=alertdialog]")
-            for _wait in range(8):
-                if alert_dialog.count() > 0 and alert_dialog.first.is_visible():
-                    break
-                logged_in_page.wait_for_timeout(500)
+        # 等待确认弹窗出现（全量回归时服务端负载高，渲染可能延迟）
+        alert_dialog = logged_in_page.locator("[role=alertdialog]")
+        for _wait in range(8):
             if alert_dialog.count() > 0 and alert_dialog.first.is_visible():
-                # 检查是否有删除旧分块的复选框
-                checkbox = alert_dialog.locator("input[type=checkbox], [role=checkbox]")
-                if checkbox.count() > 0:
-                    allure.attach(
-                        "重新解析对话框包含删除旧分块选项",
-                        name="对话框信息",
-                        attachment_type=allure.attachment_type.TEXT,
-                    )
-                # 确认按钮文本为 "开始解析"（非标准的确认/确定）
-                confirm = alert_dialog.get_by_role("button", name="开始解析").or_(
-                    loc.confirm_button(alert_dialog)
-                )
-                if confirm.count() > 0:
-                    confirm.first.wait_for(state="visible", timeout=5000)
-                    confirm.first.click()
-                    logged_in_page.wait_for_load_state("networkidle")
-                    logged_in_page.wait_for_timeout(500)
+                break
+            logged_in_page.wait_for_timeout(500)
+        assert alert_dialog.count() > 0 and alert_dialog.first.is_visible(), \
+            "点击「重新解析」后未弹出确认弹窗"
 
-            # 验证重新解析请求已发送（轮询等待响应捕获，防服务端负载高时响应慢）
-            reparse_ok = False
-            for _wait in range(15):
-                if len(reparse_called) > 0:
-                    reparse_ok = True
-                    break
-                logged_in_page.wait_for_timeout(1000)
-            assert reparse_ok, "未检测到重新解析 API 请求"
-        else:
+        # 检查是否有删除旧分块的复选框
+        checkbox = alert_dialog.locator("input[type=checkbox], [role=checkbox]")
+        if checkbox.count() > 0:
             allure.attach(
-                "未找到重新解析按钮，可能系统版本不支持此功能",
-                name="备注",
+                "重新解析对话框包含删除旧分块选项",
+                name="对话框信息",
                 attachment_type=allure.attachment_type.TEXT,
             )
+        # 确认按钮文本为 "开始解析"（非标准的确认/确定）
+        confirm = alert_dialog.get_by_role("button", name="开始解析").or_(
+            loc.confirm_button(alert_dialog)
+        )
+        assert confirm.count() > 0, "重新解析确认弹窗缺少确认按钮"
+        confirm.first.wait_for(state="visible", timeout=5000)
+        confirm.first.click()
+        logged_in_page.wait_for_load_state("networkidle")
+        logged_in_page.wait_for_timeout(500)
+
+        # 验证重新解析请求已发送（轮询等待响应捕获，防服务端负载高时响应慢）
+        reparse_ok = False
+        for _wait in range(15):
+            if len(reparse_called) > 0:
+                reparse_ok = True
+                break
+            logged_in_page.wait_for_timeout(1000)
+        assert reparse_ok, "未检测到重新解析 API 请求"
 
     finally:
         if os.path.exists(test_file):
@@ -970,48 +970,39 @@ def test_kb_014_retrieval_test_panel(logged_in_page, base_url, embedding_require
     if not kb_id:
         kb_id = kbs[0]["id"]
 
-    if not _goto_kb_detail(logged_in_page, base_url, kb_id):
-        pytest.skip("429 限流导致知识库详情页无法加载")
+    assert _goto_kb_detail(logged_in_page, base_url, kb_id), \
+        "知识库详情页无法加载（429 限流重试后仍失败）"
 
     # 点击检索测试 Tab
     retrieval_tab = loc.tab_by_name(logged_in_page, "检索测试")
 
-    if retrieval_tab.count() > 0 and retrieval_tab.first.is_visible():
-        retrieval_tab.first.wait_for(state="visible", timeout=5000)
-        retrieval_tab.first.click()
-        logged_in_page.wait_for_timeout(800)
+    assert retrieval_tab.count() > 0, "知识库详情页无检索测试 Tab"
+    retrieval_tab.first.wait_for(state="visible", timeout=5000)
+    retrieval_tab.first.click()
+    logged_in_page.wait_for_timeout(800)
 
-        # 查找搜索输入框
-        search_input = logged_in_page.locator(
-            "textarea[placeholder*='检索'], "
-            "input[placeholder*='检索'], "
-            "textarea[placeholder*='查询'], "
-            "input[placeholder*='搜索']"
-        )
+    # 查找搜索输入框
+    search_input = logged_in_page.locator(
+        "textarea[placeholder*='检索'], "
+        "input[placeholder*='检索'], "
+        "textarea[placeholder*='查询'], "
+        "input[placeholder*='搜索']"
+    )
+    assert search_input.count() > 0, "检索测试面板中未找到检索输入框"
+    search_input.first.wait_for(state="visible", timeout=5000)
+    search_input.first.fill("测试查询")
+    logged_in_page.wait_for_timeout(500)
 
-        if search_input.count() > 0:
-            search_input.first.wait_for(state="visible", timeout=5000)
-            search_input.first.fill("测试查询")
-            logged_in_page.wait_for_timeout(500)
+    # 点击搜索按钮
+    search_btn = loc.search_or_submit_button(logged_in_page)
+    assert search_btn.count() > 0, "检索测试面板中未找到搜索/提交按钮"
+    search_btn.first.wait_for(state="visible", timeout=5000)
+    search_btn.first.click()
+    logged_in_page.wait_for_timeout(800)
 
-            # 点击搜索按钮
-            search_btn = loc.search_or_submit_button(logged_in_page)
-            if search_btn.count() > 0:
-                search_btn.first.wait_for(state="visible", timeout=5000)
-                search_btn.first.click()
-                logged_in_page.wait_for_timeout(800)
-
-            # 验证有结果区域（可能有结果也可能为空，但至少面板存在）
-            body_text = logged_in_page.inner_text("body")
-            assert "检索测试" in body_text, "检索测试面板未正确显示"
-        else:
-            allure.attach(
-                "检索测试面板中未找到搜索输入框",
-                name="备注",
-                attachment_type=allure.attachment_type.TEXT,
-            )
-    else:
-        pytest.skip("知识库详情页无检索测试 Tab")
+    # 验证有结果区域（可能有结果也可能为空，但至少面板存在）
+    body_text = logged_in_page.inner_text("body")
+    assert "检索测试" in body_text, "检索测试面板未正确显示"
 
 
 @allure.epic("知识库")
@@ -1024,40 +1015,29 @@ def test_kb_015_knowledge_graph(logged_in_page, base_url, embedding_required):
         pytest.skip("知识库列表为空")
 
     kb_id = kbs[0]["id"]
-    if not _goto_kb_detail(logged_in_page, base_url, kb_id):
-        pytest.skip("429 限流导致知识库详情页无法加载")
+    assert _goto_kb_detail(logged_in_page, base_url, kb_id), \
+        "知识库详情页无法加载（429 限流重试后仍失败）"
 
-    body_text = logged_in_page.inner_text("body")
-    body_text = logged_in_page.inner_text("body")
     # 详情视图就绪：详情头 section.knowledge-detail-header（旧「返回知识库列表」文案已下线）
     detail_header = logged_in_page.locator("section.knowledge-detail-header")
     assert detail_header.count() == 1, "知识库详情头（section.knowledge-detail-header）未渲染"
     assert detail_header.first.is_visible(), "知识库详情头不可见"
 
-    # 查找知识图谱按钮
-    graph_btn = loc.button_by_name_or_title(logged_in_page, "知识图谱")
+    # 知识图谱是详情页 Tab（role=tab），按角色精确定位
+    graph_tab = logged_in_page.get_by_role("tab", name="知识图谱", exact=True)
+    assert graph_tab.count() == 1, \
+        f"'知识图谱' Tab 应唯一，实际匹配 {graph_tab.count()} 个"
+    graph_tab.click()
+    logged_in_page.wait_for_timeout(800)
 
-    if graph_btn.count() > 0 and graph_btn.first.is_visible():
-        graph_btn.first.wait_for(state="visible", timeout=5000)
-        graph_btn.first.click()
-        logged_in_page.wait_for_timeout(800)
-
-        # 验证图谱面板出现
-        panel_text = logged_in_page.inner_text("body")
-        has_graph_panel = any(kw in panel_text for kw in [
-            "知识图谱", "图谱", "graph", "节点", "关系",
-        ])
-        graph_visual = logged_in_page.locator(
-            "canvas, svg, [data-slot='graph']"
-        )
-        assert has_graph_panel or graph_visual.count() > 0, \
-            f"知识图谱面板未展示（has_graph_panel={has_graph_panel}, graph_visual.count()={graph_visual.count()}）"
-    else:
-        allure.attach(
-            "未找到知识图谱按钮，可能该知识库不支持知识图谱功能",
-            name="备注",
-            attachment_type=allure.attachment_type.TEXT,
-        )
+    assert graph_tab.get_attribute("aria-selected") == "true", \
+        "点击后「知识图谱」Tab 未切换为选中态"
+    graph_panel = logged_in_page.locator("[role=tabpanel][data-state='active']")
+    assert graph_panel.count() == 1, \
+        f"激活的知识图谱面板应唯一，实际匹配 {graph_panel.count()} 个"
+    graph_panel.first.wait_for(state="visible", timeout=5000)
+    assert graph_panel.first.locator("svg").count() > 0, \
+        "知识图谱面板内无图形内容"
 
 
 @allure.epic("知识库")
@@ -1070,47 +1050,41 @@ def test_kb_016_vector_model_management(logged_in_page, base_url, embedding_requ
         pytest.skip("知识库列表为空")
 
     kb_id = kbs[0]["id"]
-    if not _goto_kb_detail(logged_in_page, base_url, kb_id):
-        pytest.skip("429 限流导致知识库详情页无法加载")
+    assert _goto_kb_detail(logged_in_page, base_url, kb_id), \
+        "知识库详情页无法加载（429 限流重试后仍失败）"
 
-    body_text = logged_in_page.inner_text("body")
-    body_text = logged_in_page.inner_text("body")
     # 详情视图就绪：详情头 section.knowledge-detail-header（旧「返回知识库列表」文案已下线）
     detail_header = logged_in_page.locator("section.knowledge-detail-header")
     assert detail_header.count() == 1, "知识库详情头（section.knowledge-detail-header）未渲染"
     assert detail_header.first.is_visible(), "知识库详情头不可见"
 
-    # 查找向量模型管理按钮
-    vector_btn = loc.button_by_name_or_title(logged_in_page, "向量模型")
+    # 向量模型按钮在详情主区内，限定 main 作用域避免命中侧栏同名项
+    vector_btn = logged_in_page.locator("main").first.get_by_role(
+        "button", name="向量模型", exact=True
+    )
+    assert vector_btn.count() == 1, \
+        f"'向量模型'按钮应唯一，实际匹配 {vector_btn.count()} 个"
+    vector_btn.wait_for(state="visible", timeout=5000)
+    vector_btn.click()
+    logged_in_page.wait_for_timeout(800)
 
-    if vector_btn.count() > 0 and vector_btn.first.is_visible():
-        vector_btn.first.wait_for(state="visible", timeout=5000)
-        vector_btn.first.click()
-        logged_in_page.wait_for_timeout(800)
+    # 验证对话框打开
+    dialog = logged_in_page.locator("[role=dialog]")
+    assert dialog.count() > 0 and dialog.first.is_visible(), \
+        "向量模型管理对话框未打开"
 
-        # 验证对话框打开
-        dialog = logged_in_page.locator("[role=dialog]")
-        assert dialog.count() > 0 and dialog.first.is_visible(), \
-            "向量模型管理对话框未打开"
+    dialog_text = dialog.first.inner_text()
+    has_model_info = any(kw in dialog_text for kw in [
+        "模型", "向量", "embedding", "Embedding",
+    ])
+    assert has_model_info, \
+        f"向量模型管理对话框内容不正确: {dialog_text[:200]}"
 
-        dialog_text = dialog.first.inner_text()
-        has_model_info = any(kw in dialog_text for kw in [
-            "模型", "向量", "embedding", "Embedding",
-        ])
-        assert has_model_info, \
-            f"向量模型管理对话框内容不正确: {dialog_text[:200]}"
-
-        # 关闭对话框
-        close_btn = loc.close_button(dialog)
-        if close_btn.count() > 0:
-            close_btn.first.wait_for(state="visible", timeout=5000)
-            close_btn.first.click()
-    else:
-        allure.attach(
-            "未找到向量模型管理按钮，可能在编辑模式或系统不支持",
-            name="备注",
-            attachment_type=allure.attachment_type.TEXT,
-        )
+    # 关闭对话框
+    close_btn = loc.close_button(dialog)
+    if close_btn.count() > 0:
+        close_btn.first.wait_for(state="visible", timeout=5000)
+        close_btn.first.click()
 
 
 @allure.epic("知识库")
@@ -1121,53 +1095,35 @@ def test_kb_017_ragflow_import(logged_in_page, base_url, embedding_required):
     kb = KnowledgePage(logged_in_page, base_url)
     kb.goto()
 
-    # 查找 RAGFlow 导入按钮
-    ragflow_btn = loc.button_by_name_or_title(logged_in_page, "RAGFlow")
+    # 列表页 RAGFlow 导入按钮在 main 主区内（异步渲染，先等可见再断言唯一）
+    ragflow_btn = logged_in_page.locator("main").first.get_by_role(
+        "button", name="从 RAGFlow 导入", exact=True
+    )
+    try:
+        ragflow_btn.first.wait_for(state="visible", timeout=15000)
+    except Exception:
+        pass
+    assert ragflow_btn.count() == 1, \
+        f"'从 RAGFlow 导入'按钮应唯一，实际匹配 {ragflow_btn.count()} 个"
+    ragflow_btn.click()
+    logged_in_page.wait_for_timeout(800)
 
-    if ragflow_btn.count() > 0 and ragflow_btn.first.is_visible():
-        ragflow_btn.first.wait_for(state="visible", timeout=5000)
-        ragflow_btn.first.click()
-        logged_in_page.wait_for_timeout(800)
+    # 验证导入对话框打开
+    dialog = logged_in_page.locator("[role=dialog]")
+    assert dialog.count() > 0 and dialog.first.is_visible(), \
+        "RAGFlow 导入对话框未打开"
 
-        # 验证导入对话框打开
-        dialog = logged_in_page.locator("[role=dialog]")
-        assert dialog.count() > 0 and dialog.first.is_visible(), \
-            "RAGFlow 导入对话框未打开"
+    dialog_text = dialog.first.inner_text()
+    has_ragflow_info = any(kw in dialog_text for kw in [
+        "RAGFlow", "ragflow", "导入", "连接", "配置",
+        "未配置", "地址", "API",
+    ])
+    assert has_ragflow_info, \
+        f"RAGFlow 导入对话框内容不正确: {dialog_text[:200]}"
 
-        dialog_text = dialog.first.inner_text()
-        has_ragflow_info = any(kw in dialog_text for kw in [
-            "RAGFlow", "ragflow", "导入", "连接", "配置",
-            "未配置", "地址", "API",
-        ])
-        assert has_ragflow_info, \
-            f"RAGFlow 导入对话框内容不正确: {dialog_text[:200]}"
-
-        # 关闭对话框
-        logged_in_page.keyboard.press("Escape")
-        logged_in_page.wait_for_timeout(500)
-    else:
-        # RAGFlow 按钮可能不在列表页，尝试进入知识库详情查找
-        kbs = _get_kbs_api(logged_in_page, base_url)
-        if kbs:
-            kb_id = kbs[0]["id"]
-            if not _goto_kb_detail(logged_in_page, base_url, kb_id):
-                pytest.skip("429 限流导致知识库详情页无法加载")
-
-            detail_ragflow = logged_in_page.locator("button").filter(has_text="RAGFlow")
-            if detail_ragflow.count() > 0:
-                detail_ragflow.first.wait_for(state="visible", timeout=5000)
-                detail_ragflow.first.click()
-                logged_in_page.wait_for_timeout(800)
-                dialog = logged_in_page.locator("[role=dialog]")
-                assert dialog.count() > 0, "RAGFlow 导入对话框未打开"
-            else:
-                allure.attach(
-                    "页面中未找到 RAGFlow 导入按钮，可能系统未配置 RAGFlow 集成",
-                    name="备注",
-                    attachment_type=allure.attachment_type.TEXT,
-                )
-        else:
-            pytest.skip("知识库列表为空且无 RAGFlow 按钮")
+    # 关闭对话框
+    logged_in_page.keyboard.press("Escape")
+    logged_in_page.wait_for_timeout(500)
 
 
 @allure.epic("知识库")
@@ -1188,8 +1144,8 @@ def test_kb_018_resource_preview(logged_in_page, base_url, request, embedding_re
 
     try:
         # 导航到知识库详情页（429 时自动等待重试）
-        if not _goto_kb_detail(logged_in_page, base_url, kb_id):
-            pytest.skip("429 限流导致知识库详情页无法加载")
+        assert _goto_kb_detail(logged_in_page, base_url, kb_id), \
+            "知识库详情页无法加载（429 限流重试后仍失败）"
 
         # 上传文件
         upload_btn = logged_in_page.get_by_role("button", name="上传")
@@ -1229,60 +1185,30 @@ def test_kb_018_resource_preview(logged_in_page, base_url, request, embedding_re
             pass
 
         file_name = os.path.basename(test_file)
-        file_loc = logged_in_page.locator(f"text={file_name}")
+        resource_row = logged_in_page.locator("table tbody tr").filter(has_text=file_name)
         for _ in range(12):
-            if file_loc.count() > 0:
+            if resource_row.count() > 0:
                 break
             logged_in_page.wait_for_timeout(1000)
-        assert file_loc.count() > 0, \
-            f"资源 {file_name} 未找到"
+        assert resource_row.count() == 1, \
+            f"资源行 {file_name} 应唯一，实际匹配 {resource_row.count()} 行"
 
-        # 查找预览按钮
-        preview_btn = loc.button_by_name_or_title(logged_in_page, "预览")
+        # 预览按钮在资源行操作列内（aria-label/title 均为「预览」）
+        preview_btn = resource_row.get_by_role("button", name="预览", exact=True)
+        assert preview_btn.count() == 1, \
+            f"资源行内「预览」按钮应唯一，实际 {preview_btn.count()} 个"
+        preview_btn.wait_for(state="visible", timeout=5000)
+        preview_btn.click()
+        logged_in_page.wait_for_timeout(800)
 
-        if preview_btn.count() > 0 and preview_btn.first.is_visible():
-            preview_btn.first.wait_for(state="visible", timeout=5000)
-            preview_btn.first.click()
-            logged_in_page.wait_for_timeout(800)
-
-            # 验证预览面板或对话框出现
-            dialog = logged_in_page.locator("[role=dialog]")
-            preview_panel = logged_in_page.locator(
-                "[data-slot='preview']"
-            )
-
-            has_preview = (
-                (dialog.count() > 0 and dialog.first.is_visible())
-                or preview_panel.count() > 0
-            )
-            assert has_preview, "资源预览面板未展示"
-
-            # 验证预览中有内容
-            if dialog.count() > 0 and dialog.first.is_visible():
-                preview_text = dialog.first.inner_text()
-                assert len(preview_text) > 0, "预览对话框内容为空"
-        else:
-            # 尝试点击文件名来打开预览
-            file_link = logged_in_page.locator(f"text={file_name}")
-            if file_link.count() > 0:
-                file_link.first.wait_for(state="visible", timeout=5000)
-                file_link.first.click()
-                logged_in_page.wait_for_timeout(800)
-
-                dialog = logged_in_page.locator("[role=dialog]")
-                body_text = logged_in_page.inner_text("body")
-                has_preview = (
-                    dialog.count() > 0
-                    or "预览" in body_text
-                    or "内容" in body_text
-                )
-                assert has_preview, "点击文件名后未打开预览"
-            else:
-                allure.attach(
-                    "未找到预览按钮且无法通过文件名打开预览",
-                    name="备注",
-                    attachment_type=allure.attachment_type.TEXT,
-                )
+        # 预览以对话框呈现，标题形如「预览：<文件名>」
+        dialog = logged_in_page.locator("[role=dialog]")
+        assert dialog.count() > 0 and dialog.first.is_visible(), \
+            "资源预览对话框未打开"
+        preview_text = dialog.first.inner_text()
+        assert f"预览：{file_name}" in preview_text, \
+            f"预览对话框标题不含文件名（内容: {preview_text[:200]}）"
+        assert "关闭" in preview_text, "预览对话框缺少关闭按钮"
 
     finally:
         if os.path.exists(test_file):
@@ -1307,8 +1233,8 @@ def test_kb_019_toggle_resource_enabled(logged_in_page, base_url, request, embed
 
     try:
         # 导航到知识库详情页（429 时自动等待重试）
-        if not _goto_kb_detail(logged_in_page, base_url, kb_id):
-            pytest.skip("429 限流导致知识库详情页无法加载")
+        assert _goto_kb_detail(logged_in_page, base_url, kb_id), \
+            "知识库详情页无法加载（429 限流重试后仍失败）"
 
         # 只操作本用例新建知识库中的资源，等待上传响应后再读取开关。
         main = logged_in_page.locator("main.agent-knowledge-page")
@@ -1358,69 +1284,44 @@ def test_kb_020_edit_kb_info(logged_in_page, base_url, request):
 
     try:
         # 导航到知识库详情页（429 时自动等待重试）
-        if not _goto_kb_detail(logged_in_page, base_url, kb_id):
-            pytest.skip("429 限流导致知识库详情页无法加载")
+        assert _goto_kb_detail(logged_in_page, base_url, kb_id), \
+            "知识库详情页无法加载（429 限流重试后仍失败）"
 
-        body_text = logged_in_page.inner_text("body")
-        body_text = logged_in_page.inner_text("body")
         detail_header = logged_in_page.locator("section.knowledge-detail-header")
         assert detail_header.count() == 1, "知识库详情头（section.knowledge-detail-header）未渲染"
 
-        edit_btn = loc.button_by_name_or_title(logged_in_page, "编辑")
-        if edit_btn.count() > 0 and edit_btn.first.is_visible():
-            edit_btn.first.wait_for(state="visible", timeout=5000)
-            edit_btn.first.click()
-            logged_in_page.wait_for_timeout(1500)
+        edit_btn = detail_header.get_by_role("button", name="编辑", exact=True)
+        assert edit_btn.count() == 1, \
+            f"详情头「编辑」按钮应唯一，实际匹配 {edit_btn.count()} 个"
+        edit_btn.wait_for(state="visible", timeout=5000)
+        edit_btn.click()
+        logged_in_page.wait_for_timeout(1000)
 
-            dialog = logged_in_page.locator("[role=dialog]")
-            if dialog.count() > 0 and dialog.first.is_visible():
-                new_name = f"{kb_name}-edited"
-                # 名称输入框：优先 placeholder 匹配，备选 dialog 中第一个 input
-                name_input = dialog.locator(
-                    "input[placeholder*='名称'], input[placeholder*='知识库名称'], "
-                    "input[placeholder*='例如']"
-                )
-                if name_input.count() == 0:
-                    # 备选：dialog 中第一个 input（编辑弹窗只有名称+描述两个字段）
-                    name_input = dialog.locator("input")
-                if name_input.count() > 0:
-                    name_input.first.wait_for(state="visible", timeout=5000)
-                    name_input.first.click()
-                    name_input.first.fill("")
-                    name_input.first.fill(new_name)
+        dialog = logged_in_page.locator("[role=dialog]")
+        assert dialog.count() > 0 and dialog.first.is_visible(), \
+            "点击编辑后未弹出编辑对话框"
+        assert "编辑知识库" in dialog.first.inner_text(), \
+            "编辑弹窗标题不是「编辑知识库」"
 
-                save_btn = loc.save_or_submit_button(dialog)
-                if save_btn.count() > 0:
-                    save_btn.first.wait_for(state="visible", timeout=5000)
-                    save_btn.first.click()
-                    logged_in_page.wait_for_load_state("networkidle")
-                    logged_in_page.wait_for_timeout(500)
-                else:
-                    # 备选：dialog 中最后一个 button（可能是提交按钮）
-                    all_btns = dialog.locator("button")
-                    if all_btns.count() > 0:
-                        all_btns.last.wait_for(state="visible", timeout=5000)
-                        all_btns.last.click()
-                        logged_in_page.wait_for_load_state("networkidle")
-                        logged_in_page.wait_for_timeout(500)
+        new_name = f"{kb_name}-edited"
+        name_input = dialog.locator("input[placeholder='例如 项目文档']")
+        assert name_input.count() == 1, \
+            f"编辑弹窗名称输入框应唯一，实际匹配 {name_input.count()} 个"
+        name_input.fill(new_name)
 
-                # API 验证
-                detail = _get_kb_detail_api(logged_in_page, base_url, kb_id)
-                if detail and detail.get("data"):
-                    updated_name = detail["data"].get("name", "")
-                    assert updated_name == new_name, \
-                        f"编辑后名称未更新: 期望 '{new_name}'，实际 '{updated_name}'"
-            else:
-                allure.attach("点击编辑后未弹出对话框", name="备注",
-                              attachment_type=allure.attachment_type.TEXT)
-        else:
-            update_resp = logged_in_page.request.patch(
-                f"{base_url}/web/knowledgeBases/{kb_id}",
-                data=json.dumps({"description": "API 更新描述"}),
-                headers={"Content-Type": "application/json"},
-            )
-            assert update_resp.status < 400, \
-                f"知识库更新 API 失败: status={update_resp.status}"
+        save_btn = dialog.get_by_role("button", name="保存", exact=True)
+        assert save_btn.count() == 1, \
+            f"编辑弹窗「保存」按钮应唯一，实际匹配 {save_btn.count()} 个"
+        save_btn.click()
+        logged_in_page.wait_for_load_state("networkidle")
+        logged_in_page.wait_for_timeout(500)
+
+        # API 验证
+        detail = _get_kb_detail_api(logged_in_page, base_url, kb_id)
+        assert detail and detail.get("data"), "编辑后知识库详情 API 返回为空"
+        updated_name = detail["data"].get("name", "")
+        assert updated_name == new_name, \
+            f"编辑后名称未更新: 期望 '{new_name}'，实际 '{updated_name}'"
     finally:
         _delete_kb_api(logged_in_page, base_url, kb_id)
 
@@ -1443,8 +1344,8 @@ def test_kb_021_delete_via_ui(logged_in_page, base_url, request):
     register_cleanup(request, lambda kid=kb_id: _delete_kb_api(logged_in_page, base_url, kid))
 
     # 导航到知识库详情页（?kbId=xxx，429 时自动等待重试）
-    if not _goto_kb_detail(logged_in_page, base_url, kb_id):
-        pytest.skip("知识库详情页未加载（可能 429 限流）")
+    assert _goto_kb_detail(logged_in_page, base_url, kb_id), \
+        "知识库详情页未加载（429 限流重试后仍失败）"
 
     # 1. 详情头唯一，且指向目标知识库（防误删的第一道锚点）
     detail_header = logged_in_page.locator("section.knowledge-detail-header")
@@ -1527,8 +1428,8 @@ def test_kb_gap_01_chunk_sheet_open(logged_in_page, base_url, embedding_required
         pytest.skip("无包含 chunks 的知识库资源，跳过 Sheet 测试")
 
     # 导航到知识库详情页
-    if not _goto_kb_detail(logged_in_page, base_url, kb_id):
-        pytest.skip("429 限流导致知识库详情页无法加载")
+    assert _goto_kb_detail(logged_in_page, base_url, kb_id), \
+        "知识库详情页无法加载（429 限流重试后仍失败）"
 
     kb_page = KnowledgePage(logged_in_page, base_url)
 
@@ -1576,8 +1477,8 @@ def test_kb_gap_02_chunk_toggle_enabled(logged_in_page, base_url, request, embed
         f.write("用于测试分块详情 Sheet 切片启用禁用功能的文件。\n" * 10)
 
     try:
-        if not _goto_kb_detail(logged_in_page, base_url, kb_id):
-            pytest.skip("429 限流导致知识库详情页无法加载")
+        assert _goto_kb_detail(logged_in_page, base_url, kb_id), \
+            "知识库详情页无法加载（429 限流重试后仍失败）"
 
         # 上传文件
         upload_btn = logged_in_page.get_by_role("button", name="上传")
@@ -1678,8 +1579,8 @@ def test_kb_gap_03_chunk_search(logged_in_page, base_url, embedding_required):
     if not kb_id:
         pytest.skip("无包含 chunks 的知识库资源")
 
-    if not _goto_kb_detail(logged_in_page, base_url, kb_id):
-        pytest.skip("429 限流导致知识库详情页无法加载")
+    assert _goto_kb_detail(logged_in_page, base_url, kb_id), \
+        "知识库详情页无法加载（429 限流重试后仍失败）"
 
     kb_page = KnowledgePage(logged_in_page, base_url)
     opened = kb_page.open_chunk_sheet(resource_name)
@@ -1740,8 +1641,8 @@ def test_kb_gap_04_chunk_text_mode_toggle(logged_in_page, base_url, embedding_re
     if not kb_id:
         pytest.skip("无包含 chunks 的知识库资源")
 
-    if not _goto_kb_detail(logged_in_page, base_url, kb_id):
-        pytest.skip("429 限流导致知识库详情页无法加载")
+    assert _goto_kb_detail(logged_in_page, base_url, kb_id), \
+        "知识库详情页无法加载（429 限流重试后仍失败）"
 
     kb_page = KnowledgePage(logged_in_page, base_url)
     opened = kb_page.open_chunk_sheet(resource_name)
@@ -1801,8 +1702,8 @@ def test_kb_gap_05_chunk_sheet_close(logged_in_page, base_url, embedding_require
     if not kb_id:
         pytest.skip("无包含 chunks 的知识库资源")
 
-    if not _goto_kb_detail(logged_in_page, base_url, kb_id):
-        pytest.skip("429 限流导致知识库详情页无法加载")
+    assert _goto_kb_detail(logged_in_page, base_url, kb_id), \
+        "知识库详情页无法加载（429 限流重试后仍失败）"
 
     kb_page = KnowledgePage(logged_in_page, base_url)
 

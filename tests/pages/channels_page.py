@@ -1,15 +1,28 @@
 # tests/pages/channels_page.py
-"""渠道管理页面 Page Object — 基于 2026-08-17 真实 DOM 探查"""
+"""消息通道页面 Page Object — 基于 2026-11-04 真实 DOM 探查（LangBot 通道）
+
+页面结构：main > div.space-y-3 > div.rounded-xl > ul > li（每个 li 一个通道机器人）
+li 第 1 个子 div 是机器人头部（对接智能体/测试发送/编辑/删除/收起路由），
+第 2 个子 div 是路由列表（停用/编辑/删除）。
+"""
+import time
+
 from playwright.sync_api import Page
 
 
 class ChannelsPage:
-    """渠道管理页 /ctrl/agent/channels"""
+    """消息通道页 /ctrl/agent/channels"""
+
+    _BOT_ROWS = "main div.space-y-3 > div.rounded-xl > ul > li"
+    _BOT_HEADER = "xpath=./div[1]"
+    _ROUTE_BLOCK = "xpath=./div[2]"
 
     def __init__(self, page: Page, base_url: str):
         self.page = page
         self.base_url = base_url
         self.url = f"{base_url}/ctrl/agent/channels"
+
+    # ── 页面 ──
 
     def goto(self):
         for _attempt in range(2):
@@ -19,7 +32,7 @@ class ChannelsPage:
                 pass  # SPA 路由可能中断初始导航
             self.page.wait_for_load_state("domcontentloaded")
             try:
-                self.page.get_by_role("heading", name="消息渠道").wait_for(
+                self.page.get_by_role("heading", name="消息通道").wait_for(
                     state="attached", timeout=15000
                 )
             except Exception:
@@ -35,186 +48,134 @@ class ChannelsPage:
     def is_loaded(self) -> bool:
         return (
             "/ctrl/agent/channels" in self.page.url
-            and self.page.get_by_role("heading", name="消息渠道").count() > 0
+            and self.page.get_by_role("heading", name="消息通道").count() > 0
         )
 
-    # ── 创建按钮 ──
+    # ── 创建按钮 / 弹窗 ──
 
     def click_create_button(self):
-        """点击创建绑定按钮（新版文案：新建绑定）
-
-        注意：旧写法用 name="新建" 会先命中侧边栏「新建智能体」，导致点错。
-        必须用完整文案「新建绑定」，并限定在 main 区域内。
-        """
-        btn = self.page.locator("main").get_by_role("button", name="新建绑定")
-        if btn.count() == 0:
-            btn = self.page.get_by_role("button", name="新建绑定")
-        btn.first.wait_for(state="visible", timeout=5000)
-        # 通道列表头部的悬浮/邻接元素可能拦截指针事件，用 JS click 更稳
-        try:
-            btn.first.click()
-        except Exception:
-            btn.first.evaluate("el => el.click()")
+        btn = self.page.locator("main").get_by_role(
+            "button", name="创建消息连接", exact=True
+        )
+        # 页面异步渲染：轮询等到按钮恰好一个再断言，避免 count 抖动误报
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline and btn.count() != 1:
+            self.page.wait_for_timeout(300)
+        count = btn.count()
+        assert count == 1, f"「创建消息连接」按钮应唯一，实际匹配 {count} 个"
+        btn.wait_for(state="visible", timeout=5000)
+        btn.click()
         self.page.wait_for_timeout(500)
-
-    # ── 创建弹窗 ──
 
     def is_dialog_open(self) -> bool:
-        return self.page.get_by_role("dialog").count() > 0
-
-    def fill_platform(self, value: str):
-        """填写平台名称（新版 placeholder='选择平台'）"""
         dialog = self.page.get_by_role("dialog")
-        input_el = dialog.get_by_placeholder("选择平台")
-        if input_el.count() == 0:
-            input_el = dialog.get_by_role("textbox").first
-        input_el.wait_for(state="visible", timeout=5000)
-        input_el.fill(value)
+        return dialog.count() > 0 and dialog.first.is_visible()
 
-    def fill_chat_id(self, value: str):
-        """填写 chatId（label「聊天 ID（可选，留空匹配全部）」）"""
+    def dialog_locator(self):
         dialog = self.page.get_by_role("dialog")
-        input_el = dialog.get_by_role(
-            "textbox", name="聊天 ID（可选，留空匹配全部）"
+        assert dialog.count() > 0 and dialog.first.is_visible(), "创建通道弹窗未打开"
+        return dialog.first
+
+    def fill_bot_name(self, value: str):
+        self.dialog_locator().locator("input#channel-bot-name").fill(value)
+
+    def select_adapter(self, adapter_name: str):
+        btn = self.dialog_locator().get_by_role(
+            "button", name=adapter_name, exact=True
         )
-        if input_el.count() == 0:
-            # 兜底：第二个 textbox（第一个是平台）
-            input_el = dialog.get_by_role("textbox").nth(1)
-        input_el.wait_for(state="visible", timeout=5000)
-        input_el.fill(value)
-
-    def select_agent(self, agent_name: str):
-        """在 Agent 下拉中选择"""
-        dialog = self.page.get_by_role("dialog")
-        dialog.get_by_role("combobox").first.wait_for(state="visible", timeout=5000)
-        dialog.get_by_role("combobox").first.click()
+        assert btn.count() == 1, \
+            f"适配器「{adapter_name}」按钮应唯一，实际 {btn.count()} 个"
+        btn.click()
         self.page.wait_for_timeout(500)
-        # 在下拉选项中选择匹配的项
-        option = self.page.locator("[role='option']").filter(has_text=agent_name).first
-        option.wait_for(state="visible", timeout=5000)
-        option.click()
+
+    def has_field(self, element_id: str) -> bool:
+        return self.dialog_locator().locator(f"#{element_id}").count() > 0
 
     def click_save(self):
-        """点击保存按钮"""
-        self.page.get_by_role("dialog").get_by_role("button", name="保存").wait_for(state="visible", timeout=5000)
-        self.page.get_by_role("dialog").get_by_role("button", name="保存").click()
+        btn = self.dialog_locator().get_by_role("button", name="保存", exact=True)
+        assert btn.count() == 1, f"弹窗「保存」按钮应唯一，实际 {btn.count()} 个"
+        btn.click()
 
     def click_cancel(self):
-        """点击取消按钮"""
-        self.page.get_by_role("dialog").get_by_role("button", name="取消").wait_for(state="visible", timeout=5000)
-        self.page.get_by_role("dialog").get_by_role("button", name="取消").click()
+        btn = self.dialog_locator().get_by_role("button", name="取消", exact=True)
+        assert btn.count() == 1, f"弹窗「取消」按钮应唯一，实际 {btn.count()} 个"
+        btn.click()
+        self.page.wait_for_timeout(300)
 
     def close_dialog(self):
-        """关闭弹窗（X 按钮）"""
-        self.page.get_by_role("dialog").get_by_role("button", name="Close").wait_for(state="visible", timeout=5000)
-        self.page.get_by_role("dialog").get_by_role("button", name="Close").click()
+        btn = self.dialog_locator().get_by_role("button", name="Close", exact=True)
+        btn.click()
 
-    # ── 列表操作 ──
+    # ── 通道列表 ──
 
-    # 绑定卡片选择器（实测 2026-09-15 DOM：AgentChannelsPage.tsx:136 渲染为
-    # className="group rounded-lg border border-border-light ..."，必须同时带 border 类，
-    # 旧写法 div.group.rounded-lg.border-border-light 实测 0 命中）
-    _CARD_SELECTOR = "div.group.rounded-lg.border.border-border-light"
+    def bot_rows(self):
+        return self.page.locator(self._BOT_ROWS)
 
     def get_binding_count(self) -> int:
-        """获取绑定卡片数量（排除侧边栏的 agent-sidebar-agent）"""
-        return self.page.locator(self._CARD_SELECTOR).count()
+        """通道机器人数量（每个 li 一个机器人，不含嵌套路由）"""
+        return self.bot_rows().count()
 
-    def has_binding(self, platform: str) -> bool:
-        """列表中是否有指定平台的绑定"""
-        return (
-            self.page.locator(self._CARD_SELECTOR)
-            .filter(has_text=platform)
-            .count()
-            > 0
+    def find_bot_row(self, bot_name: str):
+        row = self.bot_rows().filter(has_text=bot_name)
+        assert row.count() == 1, \
+            f"名称包含 {bot_name!r} 的通道行应唯一，实际匹配 {row.count()} 行"
+        return row.first
+
+    def has_binding(self, bot_name: str) -> bool:
+        return self.bot_rows().filter(has_text=bot_name).count() == 1
+
+    def bot_header(self, bot_name: str):
+        return self.find_bot_row(bot_name).locator(self._BOT_HEADER)
+
+    def bot_action(self, bot_name: str, action: str):
+        """定位机器人头部操作按钮（对接智能体/测试发送/编辑/删除）"""
+        btn = self.bot_header(bot_name).get_by_role(
+            "button", name=action, exact=True
         )
+        assert btn.count() == 1, \
+            f"通道 {bot_name!r} 头部「{action}」按钮应唯一，实际 {btn.count()} 个"
+        return btn
 
-    def delete_binding(self, platform: str):
-        """删除指定平台的绑定（点击卡片内唯一删除按钮）
+    def toggle_routes(self, bot_name: str):
+        """收起/展开路由列表"""
+        btn = self.bot_header(bot_name).locator("button[aria-label*='路由']")
+        assert btn.count() == 1, \
+            f"通道 {bot_name!r} 路由折叠按钮应唯一，实际 {btn.count()} 个"
+        aria_before = btn.get_attribute("aria-label")
+        btn.click()
+        self.page.wait_for_timeout(500)
+        return aria_before, btn.get_attribute("aria-label")
 
-        注意：卡片内仅渲染一个删除按钮（源码 t("btn.delete"），当前部署文案未翻译 → 实测文本为 "btn.delete"）。
-        """
-        card = self.page.locator(self._CARD_SELECTOR).filter(has_text=platform)
-        assert card.count() == 1, \
-            f"匹配平台 {platform!r} 的渠道卡片应唯一，实际 {card.count()} 个"
-        card.first.hover()  # 删除按钮 hover 时才显示
-        delete_btn = card.first.get_by_role("button", name="btn.delete").or_(
-            card.first.get_by_role("button", name="删除")
-        )
-        assert delete_btn.count() == 1, \
-            f"渠道卡片内删除按钮应唯一，实际 {delete_btn.count()} 个"
-        delete_btn.wait_for(state="visible", timeout=5000)
-        delete_btn.click()
+    def has_route_block(self, bot_name: str) -> bool:
+        return self.find_bot_row(bot_name).locator(self._ROUTE_BLOCK).count() > 0
+
+    # ── 删除确认弹窗 ──
+
+    def delete_binding(self, bot_name: str):
+        btn = self.bot_action(bot_name, "删除")
+        btn.wait_for(state="visible", timeout=5000)
+        btn.click()
+        self.page.wait_for_timeout(500)
+
+    def _confirm_dialog(self):
+        dialog = self.page.locator("[role=alertdialog]")
+        assert dialog.count() == 1, \
+            f"删除确认弹窗应唯一，实际 {dialog.count()} 个"
+        assert dialog.first.is_visible(), "删除确认弹窗不可见"
+        return dialog.first
 
     def confirm_delete(self):
-        """确认删除弹窗"""
-        # ConfirmDialog 的确认按钮
-        confirm_btn = self.page.get_by_role("button", name="确认").or_(
-            self.page.get_by_role("button", name="Continue")
-        )
-        confirm_btn.first.wait_for(state="visible", timeout=5000)
-        confirm_btn.first.click()
+        dialog = self._confirm_dialog()
+        assert "删除通道" in dialog.inner_text(), \
+            f"确认弹窗标题不是「删除通道」: {dialog.inner_text()[:100]}"
+        btn = dialog.get_by_role("button", name="删除", exact=True)
+        assert btn.count() == 1, f"确认弹窗「删除」按钮应唯一，实际 {btn.count()} 个"
+        btn.click()
 
     def cancel_delete(self):
-        """取消删除弹窗"""
-        cancel_btn = self.page.get_by_role("button", name="取消").or_(
-            self.page.get_by_role("button", name="Cancel")
-        )
-        cancel_btn.first.wait_for(state="visible", timeout=5000)
-        cancel_btn.first.click()
-
-    # ── 搜索 ──
-
-    def _search_input(self):
-        """渠道搜索框（新版 placeholder='搜索绑定...'）"""
-        inp = self.page.locator("input[placeholder='搜索绑定...']")
-        if inp.count() == 0:
-            inp = self.page.locator("input[placeholder*='搜索']").first
-        return inp
-
-    def search(self, query: str):
-        """在搜索框输入关键词"""
-        search_input = self._search_input()
-        search_input.wait_for(state="visible", timeout=5000)
-        search_input.fill(query)
-
-    def clear_search(self):
-        search_input = self._search_input()
-        search_input.wait_for(state="visible", timeout=5000)
-        search_input.fill("")
-
-    # ── 空状态 ──
-
-    def has_empty_state(self) -> bool:
-        return self.page.get_by_text("emptyMessage").or_(
-            self.page.get_by_text("暂无")
-        ).count() > 0
-
-    # ── API 辅助 ──
-
-    def list_bindings_api(self):
-        """通过 API 获取绑定列表"""
-        r = self.page.request.get(f"{self.base_url}/web/channels/bindings")
-        if r.status == 200:
-            data = r.json()
-            return data if isinstance(data, list) else data.get("data", [])
-        return []
-
-    def create_binding_api(self, platform: str, chat_id: str, agent_id: str):
-        """通过 API 创建绑定"""
-        import json
-        return self.page.request.post(
-            f"{self.base_url}/web/channels/bindings",
-            data=json.dumps({
-                "platform": platform,
-                "chatId": chat_id,
-                "agentId": agent_id,
-            }),
-            headers={"Content-Type": "application/json"},
-        )
-
-    def delete_binding_api(self, binding_id: str):
-        """通过 API 删除绑定"""
-        return self.page.request.delete(
-            f"{self.base_url}/web/channels/bindings/{binding_id}"
-        )
+        dialog = self._confirm_dialog()
+        assert "删除通道" in dialog.inner_text(), \
+            f"确认弹窗标题不是「删除通道」: {dialog.inner_text()[:100]}"
+        btn = dialog.get_by_role("button", name="取消", exact=True)
+        assert btn.count() == 1, f"确认弹窗「取消」按钮应唯一，实际 {btn.count()} 个"
+        btn.click()

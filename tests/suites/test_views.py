@@ -39,6 +39,14 @@ def _view_cards(page):
     return page.locator(_CARDS)
 
 
+def _card_button(card, name):
+    """定位视图卡片内操作按钮；实时 DOM 中按钮带可见文本，按可访问名精确匹配。"""
+    btn = card.get_by_role("button", name=name, exact=True)
+    count = btn.count()
+    assert count == 1, f"视图卡片「{name}」按钮应唯一，实际匹配 {count} 个"
+    return btn
+
+
 def _list_views_api(page, base_url):
     """GET /web/config/prod-views → list of views"""
     r = page.request.get(f"{base_url}/web/config/prod-views")
@@ -210,9 +218,8 @@ class TestViews:
             except Exception:
                 pytest.fail("视图卡片未加载")
 
-            edit_btn = card.first.locator('button[title="编辑"]')
-            assert edit_btn.count() > 0, "视图卡片内缺少编辑按钮"
-            edit_btn.first.click()
+            edit_btn = _card_button(card.first, "编辑")
+            edit_btn.click()
 
             dialog = logged_in_page.locator('[role="dialog"]')
             try:
@@ -278,10 +285,9 @@ class TestViews:
             except Exception:
                 pytest.fail(f"未找到名称为 '{view_name}' 的视图卡片")
 
-            delete_btn = card.first.locator('button[title="删除"]')
-            assert delete_btn.count() > 0, "视图卡片内缺少删除按钮"
-            delete_btn.first.wait_for(state="visible", timeout=5000)
-            delete_btn.first.click()
+            delete_btn = _card_button(card.first, "删除")
+            delete_btn.wait_for(state="visible", timeout=5000)
+            delete_btn.click()
 
             alert = logged_in_page.locator('[role="alertdialog"]')
             try:
@@ -329,12 +335,11 @@ class TestViews:
             except Exception:
                 pytest.fail("视图卡片未加载")
 
-            open_btn = card.first.locator('button[title="打开视图"]')
-            assert open_btn.count() > 0, "视图卡片内缺少「打开视图」按钮"
+            open_btn = _card_button(card.first, "打开视图")
 
             with logged_in_page.context.expect_page() as new_page_info:
-                open_btn.first.wait_for(state="visible", timeout=5000)
-                open_btn.first.click()
+                open_btn.wait_for(state="visible", timeout=5000)
+                open_btn.click()
             new_page = new_page_info.value
             new_page.wait_for_load_state("domcontentloaded")
 
@@ -380,9 +385,8 @@ class TestViews:
             except Exception:
                 pytest.fail("视图卡片未加载")
 
-            edit_btn = card.first.locator('button[title="编辑"]')
-            assert edit_btn.count() > 0, "视图卡片内缺少编辑按钮"
-            edit_btn.first.click()
+            edit_btn = _card_button(card.first, "编辑")
+            edit_btn.click()
 
             dialog = logged_in_page.locator('[role="dialog"]')
             try:
@@ -438,10 +442,9 @@ class TestViews:
             except Exception:
                 pytest.fail("视图卡片未加载")
 
-            copy_btn = card.first.locator('button[title="复制链接"]')
-            assert copy_btn.count() > 0, "视图卡片内缺少复制链接按钮"
-            copy_btn.first.wait_for(state="visible", timeout=5000)
-            copy_btn.first.click()
+            copy_btn = _card_button(card.first, "复制链接")
+            copy_btn.wait_for(state="visible", timeout=5000)
+            copy_btn.click()
 
             toast = logged_in_page.locator("[data-sonner-toast]").filter(
                 has_text="链接已复制"
@@ -471,12 +474,10 @@ class TestViews:
             try:
                 card.first.wait_for(state="visible", timeout=8000)
             except Exception:
-                pytest.skip("视图卡片未加载")
+                pytest.fail("视图卡片未加载")
 
-            edit_btn = card.first.locator('button[title="编辑"]')
-            if edit_btn.count() == 0:
-                pytest.skip("视图卡片内缺少编辑按钮")
-            edit_btn.first.click()
+            edit_btn = _card_button(card.first, "编辑")
+            edit_btn.click()
 
             dialog = logged_in_page.locator('[role="dialog"]')
             try:
@@ -530,17 +531,15 @@ def test_views_preview(logged_in_page, base_url, request):
     try:
         cards.first.wait_for(state="visible", timeout=10000)
     except Exception:
-        pytest.skip("自建视图卡片未在页面中出现")
+        pytest.fail("自建视图卡片未在页面中出现")
 
-    open_btn = cards.first.locator('button[title="打开视图"]')
-    if open_btn.count() == 0:
-        pytest.skip("视图卡片内未找到 '打开视图' 按钮")
-    open_btn.first.wait_for(state="visible", timeout=5000)
+    open_btn = _card_button(cards.first, "打开视图")
+    open_btn.wait_for(state="visible", timeout=5000)
 
     new_page = None
     try:
         with logged_in_page.context.expect_page() as new_page_info:
-            open_btn.first.click()
+            open_btn.click()
         new_page = new_page_info.value
         new_page.wait_for_load_state("domcontentloaded")
 

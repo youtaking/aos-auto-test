@@ -84,8 +84,7 @@ def test_app_preview_and_url_access(logged_in_page, base_url, env_check):
             if strong.count() > 0:
                 target_app = strong.inner_text().strip()
                 break
-    if not target_app:
-        pytest.skip("列表中没有带「打开」的应用")
+    assert target_app, f"列表中没有带「打开」的应用（共 {len(app_names)} 个应用）"
 
     # 1. 点击「打开」链接，在新标签页打开
     new_page = sites.open_app_in_new_tab(target_app)
@@ -267,8 +266,7 @@ def test_open_site_in_new_tab(logged_in_page, base_url, env_check):
     app_name = f"e2e-open-{uuid.uuid4().hex[:6]}"
     app = _create_site_app_api(logged_in_page, base_url, app_name, None)
     app_id = app.get("id")
-    if not app_id:
-        pytest.skip("创建 site app 失败，无法验证新标签打开")
+    assert app_id, f"创建 site app 失败，无法验证新标签打开，API 返回: {app}"
     try:
         sites = SitesListPage(logged_in_page, base_url)
         sites.goto()
@@ -326,8 +324,7 @@ def test_create_app(logged_in_page, base_url, env_check):
             break
         logged_in_page.wait_for_load_state("networkidle")
         logged_in_page.wait_for_timeout(500)
-    if not sites.has_app(app_name):
-        pytest.skip(f"创建后 {app_name} 未出现在列表中（可能为产品问题）")
+    assert sites.has_app(app_name), f"创建后 {app_name} 未出现在列表中"
     assert sites.get_app_count() >= initial_count, \
         f"创建后数量异常: {sites.get_app_count()} vs {initial_count}"
 
@@ -483,8 +480,7 @@ def test_sites_edit_form(logged_in_page, base_url):
 
     # 获取第一个 App 名称
     app_names = sites.get_app_names()
-    if not app_names:
-        pytest.skip("无法获取 App 名称列表")
+    assert app_names, f"列表有 {app_count} 个 App，但无法获取名称列表"
 
     first_app = app_names[0]
 
@@ -492,18 +488,22 @@ def test_sites_edit_form(logged_in_page, base_url):
     sites.open_edit_dialog(first_app)
 
     # 验证编辑对话框出现
-    dialog = logged_in_page.locator("[role='dialog']")
+    dialog = logged_in_page.locator("[role='dialog']").first
     try:
-        dialog.first.wait_for(state="visible", timeout=5000)
+        dialog.wait_for(state="visible", timeout=5000)
+        dialog_visible = True
     except Exception:
-        pytest.skip(f"点击 App '{first_app}' 后编辑弹窗未出现")
+        dialog_visible = False
+    assert dialog_visible, f"点击 App '{first_app}' 后编辑弹窗未出现"
 
     # 验证弹窗内有表单元素（input 或 textarea）
     form_elements = dialog.locator("input, textarea, select")
     try:
         form_elements.first.wait_for(state="visible", timeout=3000)
+        has_form = True
     except Exception:
-        pytest.skip("编辑弹窗内无表单元素")
+        has_form = False
+    assert has_form, "编辑弹窗内无表单元素"
 
     assert form_elements.count() > 0, "编辑弹窗内缺少表单元素"
 
@@ -525,8 +525,7 @@ def test_sites_builder(logged_in_page, base_url):
     sites.goto()
 
     # 1. 验证页面加载
-    if not sites.is_loaded():
-        pytest.skip("应用部署页面未加载")
+    assert sites.is_loaded(), f"应用部署页面未加载，当前 URL: {logged_in_page.url}"
 
     # 2. 页面主标题「应用部署」存在且可见
     h1 = logged_in_page.locator("main h1").first
@@ -535,8 +534,7 @@ def test_sites_builder(logged_in_page, base_url):
 
     # 3. 「新建应用」按钮存在且可见（新版按钮名，非旧「创建 App」）
     create_btn = logged_in_page.get_by_role("button", name="新建应用")
-    if create_btn.count() == 0:
-        pytest.skip("页面中未找到「新建应用」按钮")
+    assert create_btn.count() > 0, "页面中未找到「新建应用」按钮"
     assert create_btn.first.is_visible(), "'新建应用' 按钮不可见"
 
     # 4. 搜索输入框存在

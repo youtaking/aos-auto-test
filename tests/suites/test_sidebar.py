@@ -255,8 +255,7 @@ def test_knowledge_base_directory(logged_in_page, base_url):
 
     names = page.get_kb_names()
     assert isinstance(names, list), "知识库目录加载失败"
-    if not names:
-        pytest.skip("知识库目录为空")
+    assert names, "知识库目录为空"
     counts = page.get_resource_counts()
     assert len(counts) == len(names), \
         f"目录项名称与资源数不匹配: {len(names)} vs {len(counts)}"

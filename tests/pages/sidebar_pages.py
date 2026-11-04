@@ -1,6 +1,8 @@
 # tests/pages/sidebar_pages.py
 """侧边栏新页面 Page Objects（智能体编排、记忆、知识库、定时任务、组织、API Key）"""
 import re
+import time
+
 from playwright.sync_api import Page
 
 
@@ -84,8 +86,22 @@ class WorkflowPage:
             ("平台工作流账号" in body and "不可用" in body)
 
     def get_workflow_count(self) -> int:
-        """列表页工作流卡片数（每张卡片恰好有一个「运行日志：{name}」按钮）"""
-        return self.page.get_by_role("button", name=_RE_RUN_LOG_BTN).count()
+        """列表页工作流卡片数（每张卡片恰好有一个「运行日志：{name}」按钮）。
+
+        goto() 只等到副标题出现，卡片是异步拉取后才渲染的：先轮询到卡片或空状态再计数，
+        否则会读到列表尚空的瞬时状态（实测误判为 0）。
+        """
+        btn = self.page.get_by_role("button", name=_RE_RUN_LOG_BTN)
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            count = btn.count()
+            if count > 0:
+                return count
+            body = self.page.locator("body").inner_text()
+            if "共 0 条" in body or "暂无" in body or "还没有工作流" in body:
+                return 0
+            self.page.wait_for_timeout(300)
+        return btn.count()
 
     def has_create_button(self) -> bool:
         btn = self.page.get_by_role("button", name="新建工作流")
@@ -290,7 +306,6 @@ class WorkflowPage:
     def is_canvas_ready(self) -> bool:
         return (
             self.page.locator(self.CANVAS_IFRAME).count() > 0
-            and self.page.locator("[data-testid='sdk.workflow.canvas']").count() >= 0
             and self.canvas_frame().locator("[data-testid='sdk.workflow.canvas']").count() > 0
         )
 
@@ -527,11 +542,13 @@ class KnowledgeBasePage:
         return counts
 
     def has_create_button(self) -> bool:
-        main = self.page.locator(self._READY_SELECTOR).first
-        if main.count() == 0:
+        # 按钮在就绪容器之后异步渲染：必须 wait_for，不能一次 count() 判空
+        btn = self.page.get_by_role("button", name="新建知识库")
+        try:
+            btn.first.wait_for(state="visible", timeout=10000)
+        except Exception:
             return False
-        btn = main.get_by_role("button", name="新建知识库")
-        return btn.count() > 0 and btn.first.is_visible() and btn.first.is_enabled()
+        return btn.first.is_enabled()
 
 
 class TasksPage:
@@ -609,11 +626,10 @@ class TasksPage:
             self.page.wait_for_timeout(500)
 
     def click_create(self):
-        """点击「新建任务」按钮"""
-        btn = self.page.get_by_role("button", name="新建任务")
-        if btn.count() == 0:
-            # 尝试其他可能的按钮文本
-            btn = self.page.locator("button").filter(has_text="新建")
+        """点击「新建任务」按钮（限定主区，避免命中侧栏「新建智能体」）"""
+        btn = self.page.locator("main").first.get_by_role(
+            "button", name="新建任务", exact=True
+        )
         if btn.count() > 0:
             btn.first.click()
             self.page.wait_for_timeout(1000)

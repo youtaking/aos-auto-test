@@ -103,7 +103,6 @@ def test_admin_002_observer_center(admin_page_obj, master_key):
 
     # 观察总数必须与汇总行「已核对: N」一致
     checked = admin_page_obj.get_observer_checked_count()
-    assert checked >= 0, "未找到「已核对: N」汇总行"
     assert int(stats["观察总数"]) == checked, \
         f"观察总数({stats['观察总数']}) 与「已核对: {checked}」不一致"
 
@@ -266,8 +265,7 @@ def test_admin_subpages(admin_page_obj, master_key):
 
     # 获取侧边栏导航链接
     nav_links = admin_page_obj.get_nav_links()
-    if not nav_links:
-        pytest.skip("侧边栏无导航链接，无法进入子页面")
+    assert nav_links, "侧边栏无导航链接，无法进入子页面"
 
     # 尝试进入系统日志子页面
     entered_subpage = False
@@ -374,8 +372,7 @@ def test_admin_007_sandbox_pools_list(admin_page_obj, master_key):
     # 前置：等待资源池树加载完成（新建按钮出现 = 加载结束），再判断是否有资源池
     assert admin_page_obj.has_sandbox_create_pool_button(), "资源池列表未加载"
     cards = admin_page_obj.get_sandbox_pool_cards()
-    if cards.count() == 0:
-        pytest.skip("沙盒环境无资源池，跳过资源池列表校验")
+    assert cards.count() > 0, "沙盒环境无资源池"
 
     # 1. 每个资源池摘要含名称与实例数
     summaries = admin_page_obj.get_sandbox_pool_summaries()
@@ -438,8 +435,7 @@ def test_admin_009_sandbox_pool_detail_dialog(admin_page_obj, master_key):
     # 前置：等待资源池树加载完成，再判断是否有资源池
     assert admin_page_obj.has_sandbox_create_pool_button(), "资源池列表未加载"
     cards = admin_page_obj.get_sandbox_pool_cards()
-    if cards.count() == 0:
-        pytest.skip("沙盒环境无资源池，跳过详情弹窗校验")
+    assert cards.count() > 0, "沙盒环境无资源池"
 
     # 1. 打开第一个资源池详情
     admin_page_obj.open_sandbox_first_pool_detail()

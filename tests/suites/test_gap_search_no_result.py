@@ -208,13 +208,15 @@ def test_views_card_buttons_complete(logged_in_page, base_url):
     ).filter(has_text=view_name)
     card_sel.first.wait_for(state="visible", timeout=10000)
 
-    # 3. 校验操作按钮完整（title 属性，源码确认按钮始终可见）
+    # 3. 校验操作按钮完整（按钮带可见文本，按可访问名精确匹配且必须唯一）
     for title in ["打开视图", "复制链接", "编辑", "删除"]:
-        assert card_sel.first.locator(f'button[title="{title}"]').count() > 0, \
-            f"视图卡片缺少操作按钮: {title}"
+        btn = card_sel.first.get_by_role("button", name=title, exact=True)
+        assert btn.count() == 1, \
+            f"视图卡片操作按钮「{title}」应唯一，实际匹配 {btn.count()} 个"
 
     # 4. 清理：删除自建视图（确认弹窗按钮为「确认」）
-    del_btn = card_sel.first.locator('button[title="删除"]')
+    del_btn = card_sel.first.get_by_role("button", name="删除", exact=True)
+    assert del_btn.count() == 1, f"删除按钮应唯一，实际匹配 {del_btn.count()} 个"
     del_btn.click()
     logged_in_page.wait_for_timeout(800)
     cdlg = logged_in_page.locator("[role=alertdialog], [role=dialog]").filter(

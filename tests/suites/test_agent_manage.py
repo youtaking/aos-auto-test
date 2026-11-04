@@ -164,10 +164,11 @@ def test_agent_create_dialog_opens(logged_in_page, base_url, request):
         logged_in_page.wait_for_timeout(1500)
     assert found, f"创建后智能体 '{agent_name}' 未出现在列表中"
 
-    # 7. 验证数量增加
-    new_count = agent_page.get_agent_count()
-    assert new_count == initial_count + 1, \
-        f"智能体数量未增加: 创建前 {initial_count}，创建后 {new_count}"
+    # 7. 验证 API 列表中恰好存在本次创建的这一条
+    # （不比对全量计数：其他用例的清理时序会让全局数量抖动）
+    same_name = [a for a in _ac.get_agents_api() if a.get("name") == agent_name]
+    assert len(same_name) == 1, \
+        f"API 列表中 '{agent_name}' 条目数异常: {len(same_name)}（创建前页面计数 {initial_count}）"
 
     # 8. 清理：通过 API 删除
     from tests.pages.agent_config_page import AgentConfigPage

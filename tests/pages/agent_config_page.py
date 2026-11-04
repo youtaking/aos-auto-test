@@ -978,10 +978,9 @@ class AgentConfigPage:
         if resp.status == 200 and isinstance(resp_data, dict):
             agent_id = (resp_data.get("data") or {}).get("id", "")
             if agent_id:
-                # 创建后立即 GET 验证 agent 是否真正存在
+                # 创建后立即 GET 验证 agent 是否真正存在（按资源 ID 查详情）
                 verify = self.page.request.get(
-                    f"{self.base_url}/web/config/agents",
-                    params={"name": name},
+                    f"{self.base_url}/web/config/agents/{agent_id}"
                 )
                 v_data = verify.json() if verify.status == 200 else {}
                 v_found = bool((v_data.get("data") or {}).get("id"))
@@ -1024,17 +1023,32 @@ class AgentConfigPage:
         except Exception:
             return []
 
+    def _resolve_agent_id(self, name_or_id: str, retries: int = 5) -> str:
+        """把智能体配置名或 id 解析成资源 id（集合接口不接受 ?name= 定位）。
+
+        刚创建的智能体可能尚未出现在列表（写入/索引延迟），轮询重试后再退回原名。
+        """
+        for _attempt in range(retries):
+            for agent in self.get_agents_api():
+                if not isinstance(agent, dict):
+                    continue
+                if name_or_id in (agent.get("id"), agent.get("name")):
+                    return agent.get("id") or name_or_id
+            self.page.wait_for_timeout(1000)
+        return name_or_id
+
     def delete_agent_api(self, agent_id: str, retries: int = 2) -> int:
-        """删除智能体（通过 id 或 name），500 时自动重试
+        """删除智能体（通过 id 或配置名），500 时自动重试
 
         返回: status code (int)
         """
         import logging
         logger = logging.getLogger("cleanup")
+        target_id = self._resolve_agent_id(agent_id)
 
         for attempt in range(retries + 1):
             resp = self.page.request.delete(
-                f"{self.base_url}/web/config/agents?name={agent_id}"
+                f"{self.base_url}/web/config/agents/{target_id}"
             )
             status = resp.status
 

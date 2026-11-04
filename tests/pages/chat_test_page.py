@@ -367,20 +367,30 @@ class ChatTestPage:
             btn.first.click()
             self.page.wait_for_timeout(2000)
 
-    def has_session_time_sections(self) -> bool:
-        """侧边栏会话列表是否有时间分区标签（今天/昨天/更早）"""
+    def get_session_space_groups(self) -> tuple[int, list[str]]:
+        """侧边栏会话列表的空间分组（新版 UI）。
+
+        分组容器为 `[data-space-drop-id]`，组头按钮 aria-label 为
+        `折叠空间: {name}` / `展开空间: {name}`，会话行 `[data-session-id]` 嵌套在组内。
+        接入 space 后侧栏不再按「今天/昨天/更早」分组。
+
+        返回 (分组容器数量, 分组名称列表)。
+        """
         nav = self._get_session_nav()
         if nav.count() == 0:
-            return False
-        # 时间分区标签：text-[10px] uppercase 样式的 span
-        labels = nav.locator("span.uppercase")
-        for i in range(labels.count()):
-            text = labels.nth(i).inner_text().strip()
-            if text in ("今天", "昨天", "更早", "TODAY", "YESTERDAY", "EARLIER"):
-                return True
-        # 回退：检查 nav 全文
-        text = nav.first.inner_text()
-        return any(s in text for s in ["今天", "昨天", "更早"])
+            self.open_session_dialog()
+            nav = self._get_session_nav()
+        if nav.count() == 0:
+            return 0, []
+        groups = nav.locator("[data-space-drop-id]")
+        names = []
+        for i in range(groups.count()):
+            header = groups.nth(i).locator(
+                "button[aria-label*='空间'] span.truncate"
+            ).first
+            if header.count() > 0:
+                names.append(header.inner_text().strip())
+        return groups.count(), names
 
     def get_session_titles_via_client(self) -> list[str]:
         """通过 React fiber 获取会话标题列表。
@@ -541,12 +551,40 @@ class ChatTestPage:
     # === 消息发送 ===
 
     def send_message(self, text: str):
-        """发送文本消息"""
-        textarea = self.page.locator("textarea").first
-        textarea.wait_for(state="visible", timeout=10000)
-        textarea.fill(text)
-        textarea.press("Enter")
-        self.page.wait_for_load_state("domcontentloaded")
+        """发送文本消息：等发送按钮可用 → 填字 → 回车，校验已进入消息流，最多重试 3 次。"""
+        send_btn = self.page.locator(
+            ".chat-composer-island button[data-slot='chat-composer-send']"
+        )
+        for _attempt in range(3):
+            textarea = self.page.locator("textarea").first
+            textarea.wait_for(state="visible", timeout=10000)
+            # 流式期间按钮变「停止」且不可点，必须等回 idle
+            for _ in range(80):
+                if send_btn.count() and not send_btn.first.is_disabled():
+                    break
+                self.page.wait_for_timeout(250)
+            textarea.fill(text)
+            self.page.wait_for_timeout(200)
+            textarea.press("Enter")
+            for _ in range(20):
+                if textarea.input_value() == "":
+                    return
+                log_area = self.page.locator("div[role='log']")
+                if log_area.count() and text in log_area.first.inner_text():
+                    return
+                self.page.wait_for_timeout(250)
+            # 兜底：回车可能被输入法/焦点吞掉，直接点发送
+            if send_btn.count() and not send_btn.first.is_disabled():
+                send_btn.first.click()
+                for _ in range(20):
+                    if textarea.input_value() == "":
+                        return
+                    self.page.wait_for_timeout(250)
+            try:
+                textarea.fill("")
+            except Exception:
+                pass
+        raise AssertionError(f"消息发送失败（重试 3 次）: {text[:40]!r}")
 
     def send_message_with_shift_enter(self, lines: list[str]):
         """用 Shift+Enter 输入多行消息并发送"""
@@ -781,16 +819,21 @@ class ChatTestPage:
     # === 文件上传 ===
 
     def _get_upload_button(self):
-        """获取文件树面板头部的"上传"按钮。
+        """获取「工作区」分区的上传按钮（唯一）。
 
-        新版 UI：File 面板内有两个 title=上传 的按钮——面板 header 操作区
-        （.file-tree-panel__actions 内）与"我的文件"小节按钮
-        （class 为 .file-tree-section-upload-button 且 data-slot='file-tree-section-upload'）。
-        需排除后者，避免 strict mode 多元素冲突。消息输入区附件按钮是另一图标，不在此列。
+        真实 DOM（2026-11 探查）：上传/新建文件夹/上传文件夹已从面板头部
+        .file-tree-panel__actions 移入各自分区，以 data-slot 区分：
+        section[data-upload-target=''] 为「工作区」，section[data-upload-target='user']
+        为「我的文件」，两区各有一颗 file-tree-section-upload —— 必须限定分区，
+        否则 strict mode 冲突。上传目标为工作区根目录，故取工作区。
         """
-        return self.page.locator(
-            "button[title='上传']:not(.file-tree-section-upload-button)"
+        btn = self.page.locator(
+            "section[data-upload-target=''] "
+            "button[data-slot='file-tree-section-upload']"
         )
+        assert btn.count() == 1, \
+            f"工作区上传按钮应唯一，实际匹配 {btn.count()} 个"
+        return btn
 
     def _get_file_input(self):
         """获取隐藏的文件上传 input[type=file]。
@@ -1041,9 +1084,17 @@ class ChatTestPage:
             return ""
         return section.first.inner_text().strip()
 
-    def _file_tree_header_button(self, title: str):
-        """文件树头部按钮（真实 DOM：.file-tree-panel__actions button[title=...]）"""
-        return self.page.locator(f".file-tree-panel__actions button[title='{title}']")
+    def _file_tree_section_button(self, section: str, slot: str):
+        """文件树分区操作按钮（真实 DOM：section 内 button[data-slot=...]）
+
+        section: workspace=`[data-upload-target='']` / user=`[data-upload-target='user']`
+        """
+        sel = (
+            "section[data-upload-target='user']"
+            if section == "user"
+            else "section[data-upload-target='']"
+        )
+        return self.page.locator(f"{sel} button[data-slot='{slot}']")
 
     def create_artifact_folder(self, name: str) -> None:
         """用文件树头部「新建文件夹」创建文件夹（新建对象，调用方负责清理）。
@@ -1051,7 +1102,12 @@ class ChatTestPage:
         真实 DOM：弹出 [role=dialog]，标题「新建文件夹」、描述「输入新文件夹名称」、
         单 input + 「确认」/「取消」；创建成功后条目落在「我的文件」区，路径 user/<name>。
         """
-        btn = self._file_tree_header_button("新建文件夹").first
+        folder_btns = self._file_tree_section_button(
+            "user", "file-tree-section-new-folder"
+        )
+        assert folder_btns.count() == 1, \
+            f"「我的文件」新建文件夹按钮应唯一，实际匹配 {folder_btns.count()} 个"
+        btn = folder_btns.first
         btn.wait_for(state="visible", timeout=5000)
         btn.click()
         dialog = self.page.locator("[role='dialog']")

@@ -539,6 +539,7 @@ def _public_toggle_roundtrip(logged_in_page, base_url, mode):
         assert not mcp.is_public(name), "撤销公开失败（仍为公开）"
     finally:
         _cleanup(mcp, name)
+    return True
 
 
 @allure.epic("MCP服务器")
@@ -546,7 +547,8 @@ def _public_toggle_roundtrip(logged_in_page, base_url, mode):
 @pytest.mark.p1
 def test_mcp_make_public(logged_in_page, base_url):
     """TC-MCP-015: 本地服务器 设为公开 → 撤销 往返"""
-    _public_toggle_roundtrip(logged_in_page, base_url, "Local")
+    assert _public_toggle_roundtrip(logged_in_page, base_url, "Local"), \
+        "本地服务器公开状态往返未完成"
 
 
 @allure.epic("MCP服务器")
@@ -554,7 +556,8 @@ def test_mcp_make_public(logged_in_page, base_url):
 @pytest.mark.p1
 def test_sse_mcp_make_public(logged_in_page, base_url):
     """TC-MCP-015b: 远程服务器 设为公开 → 撤销 往返"""
-    _public_toggle_roundtrip(logged_in_page, base_url, "Remote")
+    assert _public_toggle_roundtrip(logged_in_page, base_url, "Remote"), \
+        "远程服务器公开状态往返未完成"
 
 
 # ═══════════════════════════════════════════════════════

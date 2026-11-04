@@ -114,9 +114,8 @@ class TestWorkflow:
         count = wf.get_workflow_count()
         api_items = _wf_list(logged_in_page, base_url)
         if count == 0:
-            body = logged_in_page.locator("body").inner_text()
-            assert ("暂无" in body) or ("还没有工作流" in body) or (len(api_items) == 0), \
-                f"列表无卡片但页面也无空状态提示，API 却返回 {len(api_items)} 条"
+            assert len(api_items) == 0, \
+                f"列表无卡片但 API 返回 {len(api_items)} 条，列表渲染失败"
         else:
             assert count == len(api_items), \
                 f"卡片数({count}) 与 API 返回数({len(api_items)}) 不一致"
