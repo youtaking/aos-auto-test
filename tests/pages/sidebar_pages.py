@@ -93,13 +93,20 @@ class WorkflowPage:
         """
         btn = self.page.get_by_role("button", name=_RE_RUN_LOG_BTN)
         deadline = time.monotonic() + 10
+        empty_since = None
         while time.monotonic() < deadline:
             count = btn.count()
             if count > 0:
                 return count
             body = self.page.locator("body").inner_text()
             if "共 0 条" in body or "暂无" in body or "还没有工作流" in body:
-                return 0
+                # 列表请求返回前会先渲染空态文案，立即返回 0 会误判；空态稳定 3s 才认定为空
+                if empty_since is None:
+                    empty_since = time.monotonic()
+                elif time.monotonic() - empty_since >= 3:
+                    return 0
+            else:
+                empty_since = None
             self.page.wait_for_timeout(300)
         return btn.count()
 

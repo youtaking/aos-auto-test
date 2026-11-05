@@ -5,9 +5,45 @@
 本文件补充：边界值（超长/特殊字符/单字符）、Slash 命令、@ 引用、模型切换、
 工具栏按钮、Artifacts Tabs、空状态/加载态、Token 显示、侧边栏折叠等
 """
+import time
+
 import allure
 import pytest
 from tests.pages.chat_test_page import ChatTestPage
+
+
+def _skip_if_agent_runner_offline(page, base_url: str, agent_name: str):
+    """环境前置检查：Agent 的运行环境依赖沙箱机器，机器离线时 enter 返回 503
+    AGENT_NODE_UNAVAILABLE，UI 进入会话会连续报错。此时用例无法执行，按前置缺失跳过。"""
+    agents_resp = page.request.get(f"{base_url}/web/config/agents")
+    try:
+        agents = ((agents_resp.json().get("data") or {}).get("agents")) or []
+    except Exception:
+        return
+    agent_id = next((a.get("id") for a in agents if a.get("name") == agent_name), "")
+    if not agent_id:
+        return
+    env_resp = page.request.get(f"{base_url}/web/environments")
+    try:
+        envs = env_resp.json().get("data") or []
+    except Exception:
+        return
+    if isinstance(envs, dict):
+        envs = envs.get("environments") or []
+    env = next((e for e in envs if e.get("name") == f"runtime-agent-{agent_id[:8]}"), None)
+    if not env:
+        return
+    enter = page.request.post(
+        f"{base_url}/web/environments/{env['id']}/enter",
+        data="{}",
+        headers={"Content-Type": "application/json"},
+    )
+    if enter.status == 503:
+        try:
+            code = (enter.json().get("error") or {}).get("code", "")
+        except Exception:
+            code = ""
+        pytest.skip(f"{agent_name} 所在沙箱机器离线（enter {code or enter.status}），无法进入会话")
 
 
 # === BV-02: 超长消息发送 ===
@@ -32,22 +68,35 @@ def test_long_message(logged_in_page, base_url):
     textarea.wait_for(state="visible", timeout=5000)
     textarea.fill(long_text)
     textarea.press("Enter")
-    logged_in_page.wait_for_timeout(800)
 
-    # 验证：输入框已清空（消息被接受）或有错误提示
-    val_after = textarea.input_value()
-    if val_after == "":
-        # 消息已发送，验证消息区域有内容
+    # 用户消息由服务端写入后回推（非乐观渲染），固定等待在负载下会误判，改为有界轮询
+    def _log_text() -> str:
         log_area = logged_in_page.locator("div[role='log']")
-        if log_area.count() > 0:
-            log_text = log_area.first.inner_text()
-            # 用户消息气泡必须回显发送内容
-            assert "这是一条超长消息测试" in log_text, (
-                f"超长消息发送后消息区域未出现用户消息内容"
-                f"（log_text长度={len(log_text.strip())}, "
-                f"内容前100字: '{log_text[:100]}'）"
-            )
-    else:
+        return log_area.first.inner_text() if log_area.count() > 0 else ""
+
+    deadline = time.monotonic() + 10
+    val_after = ""
+    log_text = ""
+    while time.monotonic() < deadline:
+        val_after = textarea.input_value()
+        log_text = _log_text()
+        if "这是一条超长消息测试" in log_text:
+            break
+        # 输入框残留内容且有长度限制提示 → 已确认为被拒绝，无需继续等待
+        if val_after != "" and any(
+            hint in logged_in_page.locator("body").inner_text()
+            for hint in ("太长", "超出", "限制", "过长")
+        ):
+            break
+        logged_in_page.wait_for_timeout(300)
+
+    if "这是一条超长消息测试" not in log_text:
+        # 输入框已清空说明消息被提交，但 10s 内未回显 → 失败
+        assert val_after != "", (
+            f"超长消息发送后 10s 内消息区域未出现用户消息内容"
+            f"（log_text长度={len(log_text.strip())}, "
+            f"内容前100字: '{log_text[:100]}'）"
+        )
         # 消息未被接受（可能有长度限制），必须有明确的错误提示
         body_text = logged_in_page.locator("body").inner_text()
         has_error_hint = "太长" in body_text or "超出" in body_text or \
@@ -259,6 +308,8 @@ def test_slash_command(logged_in_page, base_url):
     my-auto-test 未绑定任何技能/命令（技能徽标仅来自 1 个 MCP），故本用例改用
     已公布内置命令的「智能通用助手」（compact/goal/loop…）。
     """
+    _skip_if_agent_runner_offline(logged_in_page, base_url, "智能通用助手")
+
     chat = ChatTestPage(logged_in_page, base_url)
     chat.goto_agent_chat("智能通用助手")
     if not chat.is_on_chat_page():

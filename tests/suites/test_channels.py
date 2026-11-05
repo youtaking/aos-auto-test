@@ -32,6 +32,11 @@ def test_channels_page_loads(logged_in_page, base_url):
     create_btn = logged_in_page.locator("main").get_by_role(
         "button", name="创建消息连接", exact=True
     )
+    # 页面数据加载后按钮才渲染，做有界等待，避免导航后立即取数误判为 0
+    try:
+        create_btn.first.wait_for(state="visible", timeout=10000)
+    except Exception:
+        pass
     assert create_btn.count() == 1, \
         f"「创建消息连接」按钮应唯一，实际 {create_btn.count()} 个"
     assert create_btn.is_visible(), "「创建消息连接」按钮不可见"

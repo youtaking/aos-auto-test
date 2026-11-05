@@ -383,8 +383,8 @@ def test_click_all_templates(logged_in_page, base_url, request):
         print(f"  AI 生成名称: {generated_name}")
         print(f"  AI 生成 SP: {generated_sp[:50]}...")
 
-        # 在名称后追加 -e2e 标识
-        modified_name = generated_name + "-e2e"
+        # 在名称后追加 -e2e 标识（带随机后缀，避免同名残留导致 409）
+        modified_name = f"{generated_name}-e2e-{uuid.uuid4().hex[:6]}"
         name_input.wait_for(state="visible", timeout=5000)
         name_input.fill(modified_name)
 
@@ -415,6 +415,9 @@ def test_click_all_templates(logged_in_page, base_url, request):
         print(f"  ✅ 创建成功: {modified_name}")
 
     # 清理所有创建的 Agent
+    # 删除前先离开对话页：页面仍在轮询被删实例的 /web/chat-spaces，会持续 404
+    logged_in_page.goto(f"{base_url}/ctrl/agent/agents", wait_until="domcontentloaded")
+    logged_in_page.wait_for_timeout(800)
     print(f"\n--- 清理 {len(created_agents)} 个 Agent ---")
     for agent_name in created_agents:
         status = ac.delete_agent_api(agent_name)

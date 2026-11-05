@@ -111,8 +111,14 @@ class TestWorkflow:
             assert "工作流" in body, "空间不可用态页面缺少说明文案"
             return
 
-        count = wf.get_workflow_count()
         api_items = _wf_list(logged_in_page, base_url)
+        count = wf.get_workflow_count()
+        # 列表异步渲染：以 API 条数为目标做有界轮询，避免导航后立即取数误判为 0
+        for _ in range(15):
+            if count == len(api_items):
+                break
+            logged_in_page.wait_for_timeout(1000)
+            count = wf.get_workflow_count()
         if count == 0:
             assert len(api_items) == 0, \
                 f"列表无卡片但 API 返回 {len(api_items)} 条，列表渲染失败"

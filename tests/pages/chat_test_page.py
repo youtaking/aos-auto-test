@@ -222,9 +222,14 @@ class ChatTestPage:
         stop_btn = island.locator(
             "button[data-slot='chat-composer-send'][aria-label='停止']"
         )
-        if stop_btn.count() > 0 and stop_btn.first.is_visible() and stop_btn.first.is_enabled():
-            stop_btn.first.click()
-            self.page.wait_for_timeout(1500)
+        # 流式随时可能结束：按钮在 count()/is_visible() 之后即刻变成「发送」而失配，
+        # is_enabled() 会对已消失的 locator 自动等待到 30s 超时。点击本身用短超时兜住即可。
+        try:
+            if stop_btn.count() > 0 and stop_btn.first.is_visible():
+                stop_btn.first.click(timeout=2000)
+                self.page.wait_for_timeout(1500)
+        except Exception:
+            pass
 
     def _ensure_session_panel_pinned(self):
         """确保会话面板已钉住（左侧可见）。

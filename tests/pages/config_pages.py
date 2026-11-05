@@ -185,6 +185,31 @@ class SkillsPage:
         except Exception:
             return False
 
+    def wait_skill_absent(self, name: str, timeout: float = 30000) -> bool:
+        """等待技能从目录消失（删除/清理后服务端列表刷新有延迟）。
+
+        列表不会自行刷新，必须周期性整页 reload 拉服务端权威状态；
+        只轮询同一份 DOM 时页面永远不会变，等待窗口形同虚设。
+        """
+        deadline = time.monotonic() + timeout / 1000.0
+        while True:
+            if self._catalog_item(name).count() == 0:
+                return True
+            if time.monotonic() >= deadline:
+                return False
+            if not self.reload():
+                return False
+
+    def wait_public_state(self, name: str, public: bool, timeout: float = 10000) -> bool:
+        """轮询等待公开/私有状态切换完成（切换请求异步返回，按钮文案随后更新）"""
+        deadline = time.monotonic() + timeout / 1000.0
+        while True:
+            if self.is_public(name) == public:
+                return True
+            if time.monotonic() >= deadline:
+                return False
+            self.page.wait_for_timeout(500)
+
     def _catalog_item(self, name: str):
         return self._catalog().locator("button").filter(has_text=name)
 

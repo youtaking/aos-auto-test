@@ -334,7 +334,7 @@ def test_skill_delete_via_ui(logged_in_page, base_url):
 
     # 目录中消失（reload 拿服务端权威状态）
     assert skills.reload(), "删除后刷新失败"
-    assert not skills.has_skill(skill_name, timeout=5000), f"删除后目录仍显示技能 '{skill_name}'"
+    assert skills.wait_skill_absent(skill_name), f"删除后目录仍显示技能 '{skill_name}'"
     assert not _api_skill_exists(base_url, cookie_jar, skill_name), "删除后 API 仍返回该技能"
 
 
@@ -376,7 +376,7 @@ def test_skill_folder_upload(logged_in_page, base_url):
         # 清理：UI 删除自建导入的技能
         skills.delete_skill(skill_name)
         assert skills.reload(), "删除后刷新失败"
-        assert not skills.has_skill(skill_name, timeout=5000), "清理后技能仍存在"
+        assert skills.wait_skill_absent(skill_name), "清理后技能仍存在"
     finally:
         shutil.rmtree(root, ignore_errors=True)
 
@@ -505,7 +505,7 @@ def test_skill_public_toggle(logged_in_page, base_url):
 
         # 设为公开 → 页脚按钮变 设为私有
         skills.toggle_public(skill_name)
-        assert skills.is_public(skill_name), "设为公开后未变为公开状态"
+        assert skills.wait_public_state(skill_name, True), "设为公开后未变为公开状态"
         detail = _api_skill_detail(base_url, cookie_jar, skill_name)
         # 新版 API 公开语义迁移到 scope.visibility（旧 resourceAccess.publicReadable 已下线）
         assert detail.get("scope", {}).get("visibility") == "public", (
@@ -514,7 +514,7 @@ def test_skill_public_toggle(logged_in_page, base_url):
 
         # 切回私有 → 恢复
         skills.toggle_public(skill_name)
-        assert not skills.is_public(skill_name), "切回私有后仍为公开状态"
+        assert skills.wait_public_state(skill_name, False), "切回私有后仍为公开状态"
         detail2 = _api_skill_detail(base_url, cookie_jar, skill_name)
         assert detail2.get("scope", {}).get("visibility") == "private", (
             f"API 中 scope.visibility 未恢复 private: {detail2.get('scope')}"
