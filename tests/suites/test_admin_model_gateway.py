@@ -78,6 +78,7 @@ def _click_tab(page, name: str):
     page.wait_for_timeout(1500)
 
 
+@pytest.mark.smoke
 @allure.epic("Admin")
 @allure.feature("模型网关")
 @pytest.mark.order(96)

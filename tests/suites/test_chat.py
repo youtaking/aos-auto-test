@@ -25,6 +25,7 @@ def _check_console_errors(page, timeout_ms=500):
     return errors
 
 
+@pytest.mark.smoke
 @pytest.mark.order(11)
 @pytest.mark.p0
 def test_chat_home_loads(logged_in_page, base_url):

@@ -100,6 +100,7 @@ def _wait_key_count(ak, expected: int, attempts: int = 5) -> int:
 # ==================== 测试 ====================
 
 
+@pytest.mark.smoke
 @allure.epic("API密钥")
 @pytest.mark.order(340)
 @pytest.mark.p0

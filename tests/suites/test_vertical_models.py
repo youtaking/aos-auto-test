@@ -4,6 +4,7 @@ import pytest
 from tests.pages.vertical_models_page import VerticalModelsPage
 
 
+@pytest.mark.smoke
 @pytest.mark.order(100)
 @pytest.mark.p0
 def test_vertical_models_page_loads(logged_in_page, base_url):

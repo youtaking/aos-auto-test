@@ -7,6 +7,7 @@ from playwright.sync_api import expect
 from tests.pages.chat_test_page import ChatTestPage
 
 
+@pytest.mark.smoke
 @allure.epic("对话")
 @pytest.mark.order(60)
 @pytest.mark.p0

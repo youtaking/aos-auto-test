@@ -7,6 +7,7 @@ import pytest
 from tests.pages.dashboard_page import DashboardPage
 
 
+@pytest.mark.smoke
 @pytest.mark.order(5)
 @pytest.mark.p0
 def test_dashboard_loads(logged_in_page, base_url):

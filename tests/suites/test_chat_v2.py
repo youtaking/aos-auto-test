@@ -241,6 +241,7 @@ def test_xss_protection(logged_in_page, base_url):
 
 # === TC-CHAT-020: 新建对话会话 ===
 
+@pytest.mark.smoke
 @pytest.mark.order(55)
 @pytest.mark.p0
 def test_create_new_session(logged_in_page, base_url):
@@ -788,6 +789,7 @@ def test_file_delete(logged_in_page, base_url):
 
 # === TC-CHAT-061: 消息输入框基础功能 ===
 
+@pytest.mark.smoke
 @pytest.mark.order(65)
 @pytest.mark.p0
 def test_input_box_basics(logged_in_page, base_url):

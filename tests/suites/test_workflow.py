@@ -90,6 +90,7 @@ class TestWorkflow:
 
     # ==================== 列表页 ====================
 
+    @pytest.mark.smoke
     @pytest.mark.order(70)
     @pytest.mark.p0
     def test_workflow_page_loads(self, logged_in_page, base_url):
@@ -271,6 +272,7 @@ class TestWorkflow:
 
     # ==================== 运行日志（页面级 dialog） ====================
 
+    @pytest.mark.smoke
     @pytest.mark.order(80)
     @pytest.mark.p0
     def test_workflow_run_execute(self, logged_in_page, base_url):

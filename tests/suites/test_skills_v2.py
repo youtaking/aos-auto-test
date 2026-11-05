@@ -109,6 +109,7 @@ def _wait_skill_gone(skills, name: str, timeout: float = 10000):
     return False
 
 
+@pytest.mark.smoke
 @allure.epic("技能管理")
 @pytest.mark.order(70)
 @pytest.mark.p0

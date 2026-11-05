@@ -208,6 +208,7 @@ def _wait_rate_limit_reset(page, seconds=65):
 # ==================== 测试 ====================
 
 
+@pytest.mark.smoke
 @allure.epic("知识库")
 @pytest.mark.order(320)
 @pytest.mark.p0

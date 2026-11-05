@@ -52,6 +52,7 @@ def _cleanup(mcp, name):
 # TC-MCP-001: 插件市场页加载
 # ═══════════════════════════════════════════════════════
 
+@pytest.mark.smoke
 @allure.epic("MCP服务器")
 @pytest.mark.order(80)
 @pytest.mark.p0
@@ -89,6 +90,7 @@ def test_mcp_list_data_loads(logged_in_page, base_url):
 # TC-MCP-002 / 003: 创建
 # ═══════════════════════════════════════════════════════
 
+@pytest.mark.smoke
 @allure.epic("MCP服务器")
 @pytest.mark.order(81)
 @pytest.mark.p0

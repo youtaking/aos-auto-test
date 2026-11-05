@@ -190,6 +190,7 @@ def shared_agent(logged_in_page, base_url):
 # ==================== 测试 ====================
 
 
+@pytest.mark.smoke
 @allure.epic("智能体配置")
 @pytest.mark.order(120)
 @pytest.mark.p0

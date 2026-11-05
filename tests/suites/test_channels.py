@@ -18,6 +18,7 @@ def _first_bot_name(ch: ChannelsPage) -> str:
     return name
 
 
+@pytest.mark.smoke
 @allure.epic("消息通道")
 @pytest.mark.order(500)
 @pytest.mark.p0

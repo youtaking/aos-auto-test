@@ -543,6 +543,7 @@ def test_sidebar_nav_sites(logged_in_page, base_url):
 # ==================== 侧边栏结构完整性 ====================
 
 
+@pytest.mark.smoke
 @allure.epic("侧边栏导航")
 @pytest.mark.order(29)
 @pytest.mark.p1

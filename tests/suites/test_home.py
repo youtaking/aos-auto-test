@@ -4,6 +4,7 @@ import allure
 import pytest
 
 
+@pytest.mark.smoke
 @allure.epic("首页")
 @pytest.mark.order(10)
 @pytest.mark.p1

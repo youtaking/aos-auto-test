@@ -5,6 +5,7 @@ import allure
 from tests.pages.algorithms_page import AlgorithmsPage
 
 
+@pytest.mark.smoke
 @allure.epic("算法库")
 @pytest.mark.order(110)
 @pytest.mark.p0

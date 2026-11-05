@@ -7,6 +7,7 @@ from tests.pages.agent_page import AgentPage
 from tests.conftest import register_cleanup
 
 
+@pytest.mark.smoke
 @pytest.mark.order(5)
 @pytest.mark.p0
 def test_agent_page_loads(logged_in_page, base_url):
@@ -91,6 +92,7 @@ def test_agent_filter_by_category(logged_in_page, base_url):
     agent_page.filter_by_category("全部")
 
 
+@pytest.mark.smoke
 @pytest.mark.order(10)
 @pytest.mark.p0
 def test_agent_create_dialog_opens(logged_in_page, base_url, request):

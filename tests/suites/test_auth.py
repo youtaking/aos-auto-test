@@ -48,6 +48,7 @@ def _wait_login_redirect(page, timeout_s: float = 20) -> bool:
 # ==================== 测试 ====================
 
 
+@pytest.mark.smoke
 @allure.epic("认证登录")
 @pytest.mark.order(100)
 @pytest.mark.p0

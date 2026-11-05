@@ -123,6 +123,7 @@ def _open_dialog_with_retry(page, tasks_page_obj, max_retries=2):
 
 # === TC-TASK-001: 列表页面加载 ===
 
+@pytest.mark.smoke
 @pytest.mark.order(30)
 @pytest.mark.p0
 def test_task_list_page_loads(logged_in_page, base_url):

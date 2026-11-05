@@ -43,6 +43,7 @@ def _delete_site_app_api(page, base_url, app_id):
 
 # === TC-SITE-001: 建站助手对话页面正常加载 ===
 
+@pytest.mark.smoke
 @pytest.mark.order(44)
 @pytest.mark.p0
 def test_site_builder_chat_loads(logged_in_page, base_url):

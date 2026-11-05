@@ -66,6 +66,7 @@ def _wait_until(pred, timeout=10.0, msg="等待超时"):
 # ==================== UI 测试 ====================
 
 
+@pytest.mark.smoke
 @allure.epic("组织管理")
 @pytest.mark.order(300)
 @pytest.mark.p0

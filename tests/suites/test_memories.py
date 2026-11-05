@@ -5,6 +5,7 @@ import pytest
 from tests.pages.sidebar_pages import MemoryPage
 
 
+@pytest.mark.smoke
 @allure.epic("记忆")
 @pytest.mark.order(30)
 @pytest.mark.p0

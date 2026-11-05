@@ -246,6 +246,7 @@ def _api_models_of(page, base_url, resource_key) -> list:
 # ==================== UI 测试 ====================
 
 
+@pytest.mark.smoke
 @allure.epic("模型配置")
 @allure.feature("Provider列表")
 @pytest.mark.order(200)

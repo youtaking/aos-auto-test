@@ -135,6 +135,7 @@ def test_admin_002_observer_center(admin_page_obj, master_key):
 # TC-ADMIN-003: 人员管理页面
 # ═══════════════════════════════════════════════════════
 
+@pytest.mark.smoke
 @allure.epic("Admin")
 @allure.feature("人员管理")
 @pytest.mark.order(92)

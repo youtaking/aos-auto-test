@@ -511,6 +511,7 @@ class TestViews:
 # ==================== 补充 P1 测试 ====================
 
 
+@pytest.mark.smoke
 @allure.epic("产品视图")
 @pytest.mark.order(513)
 @pytest.mark.p1
