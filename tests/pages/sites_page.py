@@ -359,7 +359,8 @@ class SiteBuilderChatPage:
             pass
 
         # 滚动侧边栏找到建站助手（带重试，侧边栏可能懒加载）
-        builder_card = self.page.locator("button.agent-sidebar-agent-card").filter(
+        # 新版 UI 侧边栏卡片类名为 agent-tree-card（旧版 agent-sidebar-agent-card 已不存在）
+        builder_card = self.page.locator("button.agent-tree-card").filter(
             has_text="建站助手"
         )
         for _attempt in range(3):
@@ -380,7 +381,7 @@ class SiteBuilderChatPage:
                     self.page.wait_for_timeout(2000)
                 return True
             # 侧边栏可能懒加载，滚动触发加载
-            sidebar = self.page.locator("div.agent-sidebar-tree")
+            sidebar = self.page.locator("div.agent-tree")
             if sidebar.count() > 0:
                 sidebar.first.evaluate("el => el.scrollTop = el.scrollHeight")
                 self.page.wait_for_timeout(800)

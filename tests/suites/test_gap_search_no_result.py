@@ -249,7 +249,7 @@ def test_agent_card_hover_buttons(logged_in_page, base_url):
     logged_in_page.wait_for_timeout(500)
 
     # 找到自有智能体卡片（非共享）
-    cards = logged_in_page.locator("button.agent-sidebar-agent-card")
+    cards = logged_in_page.locator("button.agent-tree-card")
     if cards.count() == 0:
         pytest.skip("无智能体卡片")
 

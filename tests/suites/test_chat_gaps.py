@@ -589,12 +589,12 @@ def test_loading_state(logged_in_page, base_url):
 
     # 等待侧边栏加载
     for _ in range(10):
-        if logged_in_page.locator("button.agent-sidebar-agent-card").count() > 0:
+        if logged_in_page.locator("button.agent-tree-card").count() > 0:
             break
         logged_in_page.wait_for_timeout(1000)
 
     # 点击智能体卡片
-    card = logged_in_page.locator("button.agent-sidebar-agent-card").filter(
+    card = logged_in_page.locator("button.agent-tree-card").filter(
         has_text="my-auto-test"
     )
     if card.count() == 0:

@@ -32,7 +32,7 @@ def test_meta_agent_toggle(logged_in_page, base_url):
 
     # 等待 agent 列表渲染完成
     for _ in range(10):
-        if sidebar.locator("button.agent-sidebar-agent-card").count() > 0:
+        if sidebar.locator("button.agent-tree-card").count() > 0:
             break
         page.wait_for_timeout(1000)
 
@@ -143,11 +143,11 @@ def test_restart_agent_button(logged_in_page, base_url):
 
     # 等待 agent 列表渲染
     for _ in range(10):
-        if sidebar.locator("button.agent-sidebar-agent-card").count() > 0:
+        if sidebar.locator("button.agent-tree-card").count() > 0:
             break
         page.wait_for_timeout(1000)
 
-    all_cards = sidebar.locator("button.agent-sidebar-agent-card")
+    all_cards = sidebar.locator("button.agent-tree-card")
     if all_cards.count() == 0:
         pytest.skip("侧边栏无智能体卡片（重启按钮无可作用目标）")
 
@@ -223,12 +223,12 @@ def test_shared_agent_readonly(logged_in_page, base_url):
 
     # 等待 agent 列表渲染
     for _ in range(10):
-        if sidebar.locator("button.agent-sidebar-agent-card").count() > 0:
+        if sidebar.locator("button.agent-tree-card").count() > 0:
             break
         page.wait_for_timeout(1000)
 
     # 找到所有共享智能体（卡片文本包含"共享"）
-    all_cards = sidebar.locator("button.agent-sidebar-agent-card")
+    all_cards = sidebar.locator("button.agent-tree-card")
     shared_agents = []
 
     for i in range(all_cards.count()):
@@ -243,7 +243,7 @@ def test_shared_agent_readonly(logged_in_page, base_url):
 
     # 对每个共享智能体验证操作按钮
     for idx, agent_container in enumerate(shared_agents):
-        agent_name_el = agent_container.locator("button.agent-sidebar-agent-card").first
+        agent_name_el = agent_container.locator("button.agent-tree-card").first
         agent_name = agent_name_el.inner_text().replace("共享", "").strip()
 
         # 收集该智能体所有操作按钮的 title
