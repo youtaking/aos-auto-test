@@ -231,8 +231,17 @@ def test_kb_001_list_loads(logged_in_page, base_url):
     assert list_called, "未发起知识库列表 API 请求"
 
     # 2. 页面有内容（左侧面板包含知识库列表）
-    body = logged_in_page.locator("div.agent-panel-body")
-    assert "知识库" in body.inner_text(), "页面中未显示知识库相关内容"
+    # 列表 API 回包早于 React 渲染完成，必须轮询等待内容出现而非立即读取
+    body = logged_in_page.locator("div.agent-panel-body").first
+    body_text = ""
+    for _ in range(30):
+        body_text = body.inner_text()
+        if "知识库" in body_text:
+            break
+        logged_in_page.wait_for_timeout(500)
+    assert "知识库" in body_text, (
+        f"页面中未显示知识库相关内容（等待 15s，panel-body 文本长度={len(body_text)}）"
+    )
 
     # 3. 新版目录结构渲染（「目录 + 资源」双栏，无库级搜索框；旧 has_search_input 断言已随改版失效）
     assert logged_in_page.get_by_text("知识库目录").count() > 0, "知识库目录标题未渲染"
