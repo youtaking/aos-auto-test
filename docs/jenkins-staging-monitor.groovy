@@ -391,36 +391,11 @@ except Exception as e:
                         echo "$PIPELINE_ID" > .pipeline_id
                         echo "    Pipeline ID: $PIPELINE_ID"
 
-                        # 解析测试用例
-                        echo ">>> Resolving staging tests..."
-                        curl -sf -H "Authorization: Bearer $TOKEN" \\
-                          "__AUTOTEST_URL__/api/ci/staging-resolve-tests" > resolve_resp.json 2>/dev/null || true
-
-                        python3 -c "
-import json
-try:
-    data = json.load(open('resolve_resp.json'))
-    ids = data.get('data', {}).get('node_ids', [])
-    if ids:
-        fixed = [('/app/' + i if not i.startswith('/') else i) for i in ids]
-        print(' '.join(fixed))
-except Exception as e:
-    import sys
-    print(f'Parse error: {e}', file=sys.stderr)
-" > test_targets.txt 2>/dev/null
-
-                        if [ -s test_targets.txt ]; then
-                            echo "    Source: AutoTest API (staging)"
-                            echo "    Targets: $(cat test_targets.txt)"
-                        elif [ -f autotest/tests/ci/staging-cases.txt ]; then
-                            echo "    Source: staging-cases.txt (API unavailable)"
-                            grep -v '^#' autotest/tests/ci/staging-cases.txt | grep -v '^$' | sed 's|^tests/|/app/tests/|' | tr '\\n' ' ' > test_targets.txt
-                            echo "    Targets: $(cat test_targets.txt)"
-                        else
-                            echo "    Source: fallback (all tests)"
-                            echo "/app/tests/suites /app/tests/api_suites" > test_targets.txt
-                            echo "    Targets: /app/tests/suites /app/tests/api_suites"
-                        fi
+                        # 用例来源：仓库内全量 E2E + API，不再调用 AutoTest 接口解析用例
+                        # 优先级 marker 仅用于执行顺序与结果分桶，不影响用例集合
+                        echo ">>> Test targets: all E2E + API cases (resolved from repo)"
+                        echo "/app/tests/suites /app/tests/api_suites" > test_targets.txt
+                        echo "    Targets: $(cat test_targets.txt)"
                     '''.replace('__AUTOTEST_URL__', params.AUTOTEST_URL)
                       .replace('__TARGET_URL__', params.TARGET_URL)
                 }
@@ -525,29 +500,89 @@ except:
                         mkdir -p autotest/tests/results
 
                         # 跑测试（直接在 Jenkins 机器上用 docker run）
-                        set +e
+                        # 按优先级顺序执行：p0 → p1 → p2 → 未分级，全部跑完后再汇总
                         JENKINS_WORKSPACE_HOST=$(echo "${WORKSPACE}" | sed 's|/var/jenkins_home|/opt/1panel/apps/jenkins/jenkins/data|')
 
-                        docker run --rm \\
-                          --name "staging-test-runner-${BUILD_NUMBER}" \\
-                          -v "${JENKINS_WORKSPACE_HOST}/autotest/tests:/app/tests" \\
-                          -v "${JENKINS_WORKSPACE_HOST}/autotest/conftest.py:/app/conftest.py" \\
-                          -v "${JENKINS_WORKSPACE_HOST}/autotest/pytest.ini:/app/pytest.ini" \\
-                          -e "FENIX_URL=__TARGET_URL__" \\
-                          -e "FENIX_API_BASE_URL=__TARGET_URL__" \\
-                          -e "HEADLESS=true" \\
-                          -e "PYTHONUNBUFFERED=1" \\
-                          --network host \\
-                          test-runner:latest \\
-                          pytest ${TEST_TARGETS} -v --tb=short \\
-                            --base-url=__TARGET_URL__ \\
-                            --json-report --json-report-file=/app/tests/results/report.json \\
-                            --alluredir=/app/tests/results/allure-results
-                        TEST_EXIT=$?
+                        run_priority() {
+                            label="$1"
+                            expr="$2"
+                            echo ""
+                            echo ">>> ===== [${label}] pytest -m ${expr} ====="
+                            docker run --rm \\
+                              --name "staging-test-runner-${BUILD_NUMBER}-${label}" \\
+                              -v "${JENKINS_WORKSPACE_HOST}/autotest/tests:/app/tests" \\
+                              -v "${JENKINS_WORKSPACE_HOST}/autotest/conftest.py:/app/conftest.py" \\
+                              -v "${JENKINS_WORKSPACE_HOST}/autotest/pytest.ini:/app/pytest.ini" \\
+                              -e "FENIX_URL=__TARGET_URL__" \\
+                              -e "FENIX_API_BASE_URL=__TARGET_URL__" \\
+                              -e "HEADLESS=true" \\
+                              -e "PYTHONUNBUFFERED=1" \\
+                              --network host \\
+                              test-runner:latest \\
+                              pytest ${TEST_TARGETS} -m "${expr}" -v --tb=short \\
+                                --base-url=__TARGET_URL__ \\
+                                --json-report --json-report-file="/app/tests/results/report-${label}.json" \\
+                                --alluredir=/app/tests/results/allure-results
+                            rc=$?
+                            echo ">>> [${label}] exit code: ${rc}"
+                            # pytest 退出码 5 = 没有匹配到用例，不算失败
+                            # 用例失败（1）不改变 Job 结论；执行异常（>=2）优先保留
+                            if [ $rc -ne 0 ] && [ $rc -ne 5 ]; then
+                                if [ $rc -ge 2 ] || [ $TEST_EXIT -eq 0 ]; then
+                                    TEST_EXIT=$rc
+                                fi
+                            fi
+                        }
+
+                        TEST_EXIT=0
+                        set +e
+                        run_priority p0 "p0"
+                        run_priority p1 "p1"
+                        run_priority p2 "p2"
+                        run_priority unmarked "not p0 and not p1 and not p2"
                         set -e
 
-                        echo ">>> Test exit code: $TEST_EXIT"
+                        echo ">>> Aggregate test exit code: $TEST_EXIT"
                         echo "$TEST_EXIT" > .test_exit
+
+                        # 合并各优先级报告，供上传与企微通知使用
+                        python3 -c "
+import json, os
+reports = ['report-p0.json', 'report-p1.json', 'report-p2.json', 'report-unmarked.json']
+counts = {'passed': 0, 'failed': 0, 'skipped': 0, 'error': 0, 'xfailed': 0, 'xpassed': 0}
+tests = []
+duration = 0.0
+created = None
+for name in reports:
+    path = os.path.join('autotest/tests/results', name)
+    if not os.path.exists(path):
+        continue
+    data = json.load(open(path, 'r', encoding='utf-8'))
+    tests.extend(data.get('tests', []))
+    duration += data.get('duration', 0) or 0
+    c = data.get('created')
+    if c and (created is None or c < created):
+        created = c
+for t in tests:
+    outcome = t.get('outcome', '')
+    if outcome in counts:
+        counts[outcome] += 1
+merged = {
+    'tests': tests,
+    'duration': duration,
+    'created': created or 0,
+    'summary': {
+        'total': len(tests),
+        'passed': counts['passed'],
+        'failed': counts['failed'] + counts['error'],
+        'skipped': counts['skipped'],
+        'xfailed': counts['xfailed'],
+        'xpassed': counts['xpassed'],
+    },
+}
+open('autotest/tests/results/report.json', 'w', encoding='utf-8').write(json.dumps(merged, ensure_ascii=False))
+print('>>> Merged report:', merged['summary'])
+"
 
                         # 上报集成测试结果
                         if [ -f autotest/tests/results/report.json ]; then
@@ -671,22 +706,28 @@ def read_file(path):
 commit = read_file('.current_commit')
 version = read_file('.current_version')
 
-def stat_line(name, passed, failed, skipped, error=0):
-    line = '> **' + name + '**: ' + str(passed) + ' 通过 / ' + str(failed) + ' 失败 / ' + str(skipped) + ' 跳过'
-    if error:
-        line += ' / ' + str(error) + ' 错误'
+def stat_line(name, s):
+    line = '> **' + name + '**: ' + str(s['passed']) + ' 通过 / ' + str(s['failed']) + ' 失败 / ' + str(s['skipped']) + ' 跳过'
+    if s['error']:
+        line += ' / ' + str(s['error']) + ' 错误'
     return line
+
+def bucket():
+    return {'passed': 0, 'failed': 0, 'skipped': 0, 'error': 0}
 
 lines = [
     '### ' + icon + ' Staging 环境测试' + status,
     '> commit: ' + commit,
     '> 版本: ' + version,
-    '> [Jenkins 构建日志](' + build_url + ')',
 ]
 
-# 接口 / E2E 统计：按 nodeid 分类（先判 api_suites，避免被 suites/ 子串误命中）
-api = {'passed': 0, 'failed': 0, 'skipped': 0, 'error': 0}
-e2e = {'passed': 0, 'failed': 0, 'skipped': 0, 'error': 0}
+# 接口 / E2E 各自按优先级分桶：优先级取自 pytest marker（json-report 的 keywords）
+PRIORITIES = ('p0', 'p1', 'p2', 'p3', '未分级')
+e2e = {}
+api = {}
+for p in PRIORITIES:
+    e2e[p] = bucket()
+    api[p] = bucket()
 if os.path.exists('autotest/tests/results/report.json'):
     data = json.load(open('autotest/tests/results/report.json', 'r', encoding='utf-8'))
     for t in data.get('tests', []):
@@ -695,12 +736,21 @@ if os.path.exists('autotest/tests/results/report.json'):
             continue
         nodeid = t.get('nodeid', '')
         if 'api_suites/' in nodeid:
-            api[outcome] += 1
+            suite = api
         elif 'suites/' in nodeid:
-            e2e[outcome] += 1
+            suite = e2e
+        else:
+            continue
+        kws = t.get('keywords', []) or []
+        pri = '未分级'
+        for p in ('p0', 'p1', 'p2', 'p3'):
+            if p in kws:
+                pri = p
+                break
+        suite[pri][outcome] += 1
 
 # 单元统计：unit-junit.xml 顶层 <testsuites> 的 tests/failures/skipped 属性
-unit = {'passed': 0, 'failed': 0, 'skipped': 0}
+unit = bucket()
 if os.path.exists('autotest/unit_tests/results/unit-junit.xml'):
     root = ET.parse('autotest/unit_tests/results/unit-junit.xml').getroot()
     total = int(root.get('tests', '0') or '0')
@@ -710,11 +760,32 @@ if os.path.exists('autotest/unit_tests/results/unit-junit.xml'):
     unit['skipped'] = skipped
     unit['passed'] = total - failed - skipped
 
-lines.append(stat_line('单元测试', unit['passed'], unit['failed'], unit['skipped']))
-lines.append(stat_line('接口测试', api['passed'], api['failed'], api['skipped'], api['error']))
-lines.append(stat_line('E2E 测试', e2e['passed'], e2e['failed'], e2e['skipped'], e2e['error']))
+lines.append(stat_line('单元测试', unit))
+
+
+def append_suite_lines(prefix, buckets):
+    for p in PRIORITIES:
+        s = buckets[p]
+        total = s['passed'] + s['failed'] + s['skipped'] + s['error']
+        if total == 0:
+            continue
+        lines.append(stat_line(prefix + ' ' + (p.upper() if p != '未分级' else '未分级'), s))
+
+
+append_suite_lines('接口', api)
+append_suite_lines('E2E', e2e)
+
+# 失败分布：按优先级汇总接口 + E2E 的失败/错误条数，不列具体用例名
+by_pri = []
+for p in PRIORITIES:
+    n = api[p]['failed'] + api[p]['error'] + e2e[p]['failed'] + e2e[p]['error']
+    if n:
+        by_pri.append((p.upper() if p != '未分级' else '未分级') + ' ' + str(n) + ' 条')
+if by_pri:
+    lines.append('> **失败分布**: ' + ' / '.join(by_pri) + '，详见 Allure 报告')
 
 if build_url:
+    lines.append('> [Jenkins 构建日志](' + build_url + ')')
     lines.append('> [Allure 报告](' + build_url + 'allure/)')
 payload = {'msgtype': 'markdown', 'markdown': {'content': chr(10).join(lines)}}
 open('wecom_payload.json', 'w', encoding='utf-8').write(json.dumps(payload, ensure_ascii=False))
