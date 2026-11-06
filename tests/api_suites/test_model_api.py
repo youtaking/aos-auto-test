@@ -41,12 +41,14 @@ class TestModelWebAPI:
     - POST /refresh 强制刷新缓存
     """
 
+    @pytest.mark.p1
     def test_get_model_preferences(self, web_client):
         """获取模型偏好与可用模型列表"""
         resp = web_client.get_model_preferences()
         web_client.validate_schema(resp, WEB_MODEL_PREFERENCES_DATA)
         assert "available" in resp or "current" in resp
 
+    @pytest.mark.p1
     def test_refresh_models(self, web_client):
         """强制刷新可用模型缓存"""
         resp = web_client.refresh_models()
@@ -59,6 +61,7 @@ class TestModelWebAPI:
         assert "count" in resp
         assert isinstance(resp["count"], int)
 
+    @pytest.mark.p2
     def test_get_model_preferences_unauthorized(self, api_base_url):
         """无效 Token 访问模型偏好：应返回 401"""
         from tests.api_clients.web_client import WebClient
@@ -81,6 +84,7 @@ class TestModelOpenAPI:
     - 列表带分页 {items, total, page, pageSize}
     """
 
+    @pytest.mark.p0
     def test_list_providers(self, api_client, _openapi_access):
         """获取 Provider 列表：返回分页结构"""
 
@@ -88,6 +92,7 @@ class TestModelOpenAPI:
         api_client.validate_schema(resp, API_PROVIDER_LIST_RESPONSE)
         assert isinstance(resp["items"], list)
 
+    @pytest.mark.p0
     def test_get_provider(self, api_client, _openapi_access):
         """获取 Provider 详情：先拿列表取第一个 ID，再查详情"""
 
@@ -100,6 +105,7 @@ class TestModelOpenAPI:
         api_client.validate_schema(resp, API_PROVIDER_DETAIL_RESPONSE)
         assert resp["id"] == provider_id
 
+    @pytest.mark.p0
     def test_provider_crud_lifecycle(self, api_client, _openapi_access):
         """Provider CRUD 生命周期：创建 → 读取 → 更新 → 删除"""
 
@@ -145,6 +151,7 @@ class TestModelOpenAPI:
         finally:
             _cleanup_api_provider(api_client, test_name)
 
+    @pytest.mark.p0
     def test_list_models(self, api_client, _openapi_access):
         """获取 Model 列表：先取一个 Provider ID，再列出其模型"""
 
@@ -157,6 +164,7 @@ class TestModelOpenAPI:
         api_client.validate_schema(resp, API_MODEL_LIST_RESPONSE)
         assert isinstance(resp["items"], list)
 
+    @pytest.mark.p0
     def test_model_crud_lifecycle(self, api_client, _openapi_access):
         """Model CRUD 生命周期：创建 Provider → 添加 Model → 读取 → 更新 → 删除 Model → 删除 Provider"""
 
@@ -208,12 +216,14 @@ class TestModelOpenAPI:
             api_client.delete_provider(provider_id)
 
     @pytest.mark.xfail(reason="应用 Bug：不存在 Provider 返回 500 而非 404（源码头 404，已确认）", strict=True)
+    @pytest.mark.p2
     def test_get_nonexistent_provider(self, api_client, _openapi_access):
         """获取不存在的 Provider：契约应返回 404（当前 500，应用 Bug）"""
 
         with pytest.raises(httpx.HTTPStatusError, match=r"404"):
             api_client.get_provider("nonexistent-provider-id-99999")
 
+    @pytest.mark.p2
     def test_create_model_invalid_id(self, api_client, _openapi_access):
         """创建 Model 使用无效 modelId：应返回 400/422"""
 
@@ -229,6 +239,7 @@ class TestModelOpenAPI:
                 "displayName": "Invalid Model",
             })
 
+    @pytest.mark.p2
     def test_create_model_missing_model_id(self, api_client, _openapi_access):
         """创建 Model 缺少 modelId 字段：应返回 400/422"""
 

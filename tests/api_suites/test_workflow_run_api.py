@@ -23,6 +23,7 @@ class TestWorkflowRunWebAPI:
     - 运行记录查询、事件读取、审批
     """
 
+    @pytest.mark.p0
     def test_list_workflow_runs(self, web_client):
         """获取工作流运行记录列表"""
         resp = web_client.list_workflow_runs()
@@ -36,6 +37,7 @@ class TestWorkflowRunWebAPI:
             if len(resp["items"]) > 0:
                 web_client.validate_schema(resp["items"][0], WORKFLOW_RUN_ITEM)
 
+    @pytest.mark.p0
     def test_get_workflow_run(self, web_client):
         """获取工作流运行详情：先拿列表取第一个 runId"""
         runs = web_client.list_workflow_runs()
@@ -48,6 +50,7 @@ class TestWorkflowRunWebAPI:
         web_client.validate_schema(detail, WORKFLOW_RUN_DETAIL)
         assert detail.get("run_id", detail.get("id")) == run_id
 
+    @pytest.mark.p1
     def test_get_workflow_run_events(self, web_client):
         """获取工作流运行事件：先拿列表取第一个 runId"""
         runs = web_client.list_workflow_runs()
@@ -61,6 +64,7 @@ class TestWorkflowRunWebAPI:
         if len(events) > 0:
             web_client.validate_schema(events[0], WORKFLOW_RUN_EVENT)
 
+    @pytest.mark.p1
     def test_get_workflow_run_approvals(self, web_client):
         """获取工作流审批列表：先拿列表取第一个 runId"""
         runs = web_client.list_workflow_runs()
@@ -74,6 +78,7 @@ class TestWorkflowRunWebAPI:
         if len(approvals) > 0:
             web_client.validate_schema(approvals[0], WORKFLOW_RUN_APPROVAL)
 
+    @pytest.mark.p2
     def test_get_nonexistent_workflow_run(self, web_client):
         """获取不存在的运行记录 — 应返回 404 或 null 空结果"""
         try:
@@ -88,11 +93,13 @@ class TestWorkflowRunWebAPI:
             assert "404" in str(e) or "400" in str(e), \
                 f"预期 404/400，实际: {e}"
 
+    @pytest.mark.p2
     def test_cancel_nonexistent_workflow_run(self, web_client):
         """取消不存在的运行 — 应返回 404"""
         with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"404"):
             web_client.cancel_workflow_run("nonexistent-run-id-99999")
 
+    @pytest.mark.p2
     def test_get_node_output_nonexistent_run(self, web_client):
         """获取不存在运行的节点输出 — 应返回 404 或空结果"""
         try:
@@ -106,6 +113,7 @@ class TestWorkflowRunWebAPI:
                 f"预期 404/400，实际: {e}"
 
     @pytest.mark.xfail(reason="应用 Bug：dry-run 无效 YAML 返回 500 而非 400（源码应 400，已确认）", strict=True)
+    @pytest.mark.p2
     def test_dry_run_workflow_invalid(self, web_client):
         """干运行校验 — 无效 YAML 应返回 400（当前 500，应用 Bug）"""
         try:
@@ -122,11 +130,13 @@ class TestWorkflowRunWebAPI:
             assert "400" in str(e) or "422" in str(e), \
                 f"无效 YAML 预期 400/422，实际: {e}"
 
+    @pytest.mark.p2
     def test_recover_nonexistent_run(self, web_client):
         """恢复不存在的运行 — 应返回 400 或 404"""
         with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(400|404)"):
             web_client.recover_workflow_run("nonexistent-run-id-99999")
 
+    @pytest.mark.p2
     def test_rerun_nonexistent_run(self, web_client):
         """重新运行不存在的运行 — 应返回 400 或 404"""
         with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(400|404)"):

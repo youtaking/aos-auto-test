@@ -18,11 +18,13 @@ class TestWorkflowCustomToolsWebAPI:
     - 每个工具包含 name, description, inputs, produces 等字段
     """
 
+    @pytest.mark.p0
     def test_list_workflow_custom_tools(self, web_client):
         """获取自定义工具列表：返回数组"""
         result = web_client.list_workflow_custom_tools()
         assert isinstance(result, list)
 
+    @pytest.mark.p2
     def test_custom_tools_raw_response(self, web_client):
         """自定义工具原始响应：验证 {success, data} 包装"""
         resp = web_client.get("/web/workflow-custom-tools")
@@ -31,6 +33,7 @@ class TestWorkflowCustomToolsWebAPI:
         assert "data" in resp
         assert isinstance(resp["data"], list)
 
+    @pytest.mark.p2
     def test_custom_tools_schema(self, web_client):
         """自定义工具元数据 schema：如有工具，验证字段结构"""
         tools = web_client.list_workflow_custom_tools()

@@ -27,6 +27,7 @@ def _check_sandbox_access(client):
 class TestSandboxPoolAPI:
     """/api/system/sandbox-pools 沙盒池管理接口（System API Key 认证）"""
 
+    @pytest.mark.p1
     def test_list_sandbox_pools(self, api_client):
         """获取沙盒池列表：返回数组或分页结构"""
         try:
@@ -48,6 +49,7 @@ class TestSandboxPoolAPI:
             if len(items) > 0:
                 api_client.validate_schema(items[0], SANDBOX_POOL_ITEM)
 
+    @pytest.mark.p1
     def test_get_sandbox_pool(self, api_client):
         """获取沙盒池详情：先拿列表取第一个 id"""
         try:
@@ -79,6 +81,7 @@ class TestSandboxPoolAPI:
         assert detail_id is not None, f"沙盒池详情缺少 ID 字段: {list(detail.keys())}"
         assert detail_id == pool_id, f"沙盒池详情 ID 不匹配: 期望 {pool_id}，实际 {detail_id}"
 
+    @pytest.mark.p2
     def test_get_nonexistent_pool(self, api_client):
         """获取不存在的沙盒池：应返回 404"""
         access = _check_sandbox_access(api_client)
@@ -92,6 +95,7 @@ class TestSandboxPoolAPI:
 class TestSandboxInstanceAPI:
     """/api/system/sandbox-instances 沙盒实例管理接口（System API Key 认证）"""
 
+    @pytest.mark.p1
     def test_list_sandbox_instances(self, api_client):
         """获取沙盒实例列表：返回数组或分页结构"""
         try:
@@ -114,6 +118,7 @@ class TestSandboxInstanceAPI:
             if len(items) > 0:
                 api_client.validate_schema(items[0], SANDBOX_INSTANCE_ITEM)
 
+    @pytest.mark.p1
     def test_get_sandbox_instance(self, api_client):
         """获取沙盒实例详情：先拿列表取第一个 id"""
         try:
@@ -145,6 +150,7 @@ class TestSandboxInstanceAPI:
         assert detail_id is not None, f"沙盒实例详情缺少 ID 字段: {list(detail.keys())}"
         assert detail_id == instance_id, f"沙盒实例详情 ID 不匹配: 期望 {instance_id}，实际 {detail_id}"
 
+    @pytest.mark.p2
     def test_get_nonexistent_instance(self, api_client):
         """获取不存在的沙盒实例：应返回 404"""
         access = _check_sandbox_access(api_client)

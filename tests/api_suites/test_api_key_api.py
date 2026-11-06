@@ -44,12 +44,14 @@ class TestApiKeyWebAPI:
     - POST 创建返回含明文 key 的完整信息
     """
 
+    @pytest.mark.p1
     def test_list_api_keys(self, web_client):
         """获取 API Key 列表：返回数组"""
         resp = web_client.list_api_keys()
         web_client.validate_schema(resp, _WEB_API_KEY_LIST_DATA)
         assert isinstance(resp, list)
 
+    @pytest.mark.p1
     def test_create_and_delete_api_key(self, web_client):
         """创建并删除 API Key：写操作生命周期测试"""
         test_name = "api-test-web-apikey-001"
@@ -75,12 +77,14 @@ class TestApiKeyWebAPI:
 
 
     @pytest.mark.xfail(reason="应用 Bug：删除不存在的 API Key 返回 500 而非 404（源码路由未做存在性检查，直接调用上游删除，已确认）", strict=True)
+    @pytest.mark.p2
     def test_delete_nonexistent_api_key(self, web_client):
         """删除不存在的 API Key：应返回 404（当前返回 500，属应用 Bug）"""
         with pytest.raises(httpx.HTTPStatusError, match=r"404"):
             web_client.delete_api_key("nonexistent-api-key-id-99999")
 
     @pytest.mark.xfail(reason="应用 Bug：二次删除已删除的 API Key 返回 500 而非 404（源码路由未做存在性检查，已确认）", strict=True)
+    @pytest.mark.p2
     def test_delete_api_key_idempotent(self, web_client):
         """API Key DELETE 幂等性：第二次删除应抛出异常"""
         test_name = "test-idempotent-delete-apikey"

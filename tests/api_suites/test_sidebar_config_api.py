@@ -19,12 +19,14 @@ class TestSidebarConfigWebAPI:
     - 数据为前端侧边栏展示配置（如隐藏的 tab 列表）
     """
 
+    @pytest.mark.p1
     def test_get_sidebar_config(self, web_client):
         """获取侧边栏配置：Schema 校验 + hiddenTabs 数组"""
         result = web_client.get_sidebar_config()
         web_client.validate_schema(result, SIDEBAR_CONFIG_DATA)
         assert isinstance(result.get("hiddenTabs"), list)
 
+    @pytest.mark.p2
     def test_sidebar_config_raw_response(self, web_client):
         """侧边栏配置原始响应：验证 {success, data} 包装"""
         resp = web_client.get("/web/sidebar-config")

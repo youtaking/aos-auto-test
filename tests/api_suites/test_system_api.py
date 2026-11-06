@@ -76,6 +76,7 @@ def _generate_test_slug():
 class TestSystemUserAPI:
     """/api/system/users 用户管理接口（System API Key 认证）"""
 
+    @pytest.mark.p1
     def test_list_users(self, api_client, _system_access):
         """获取用户列表：返回分页结构"""
         resp = api_client.list_users(params={"page": 1, "pageSize": 10})
@@ -83,6 +84,7 @@ class TestSystemUserAPI:
         assert isinstance(resp["items"], list)
         assert resp["total"] >= 0
 
+    @pytest.mark.p1
     def test_get_user(self, api_client, _system_access):
         """获取用户详情：先拿列表取第一个 ID，再查详情"""
         list_resp = api_client.list_users(params={"page": 1, "pageSize": 5})
@@ -96,6 +98,7 @@ class TestSystemUserAPI:
         assert "name" in detail
         assert "email" in detail
 
+    @pytest.mark.p1
     def test_create_and_delete_user(self, api_client, _system_access):
         """创建并删除用户：自建用户 → 验证 → 清理"""
         test_email = _generate_test_email()
@@ -125,12 +128,14 @@ class TestSystemUserAPI:
                 import logging
                 logging.getLogger("cleanup").warning(f"Cleanup failed: {e}")
 
+    @pytest.mark.p2
     def test_get_nonexistent_user(self, api_client, _system_access):
         """获取不存在的用户：应返回 404"""
         with pytest.raises(httpx.HTTPStatusError) as exc_info:
             api_client.get_user(f"nonexistent-user-{uuid.uuid4().hex[:8]}")
         assert exc_info.value.response.status_code == 404
 
+    @pytest.mark.p1
     def test_reset_user_password(self, api_client, _system_access):
         """重置用户密码：自建用户 → 重置密码 → 清理"""
         test_email = _generate_test_email()
@@ -160,6 +165,7 @@ class TestSystemUserAPI:
                 import logging
                 logging.getLogger("cleanup").warning(f"Cleanup failed: {e}")
 
+    @pytest.mark.p1
     def test_list_user_api_keys(self, api_client, _system_access):
         """获取用户 API Key 列表：先拿用户列表取第一个 ID"""
         list_resp = api_client.list_users(params={"page": 1, "pageSize": 5})
@@ -171,6 +177,7 @@ class TestSystemUserAPI:
         api_client.validate_schema(keys_resp, SYSTEM_API_KEY_LIST_RESPONSE)
         assert isinstance(keys_resp["items"], list)
 
+    @pytest.mark.p1
     def test_list_user_organizations(self, api_client, _system_access):
         """获取用户所属组织列表：先拿用户列表取第一个 ID"""
         list_resp = api_client.list_users(params={"page": 1, "pageSize": 5})
@@ -188,6 +195,7 @@ class TestSystemUserAPI:
 class TestSystemOrganizationAPI:
     """/api/system/organizations 组织管理接口（System API Key 认证）"""
 
+    @pytest.mark.p1
     def test_list_organizations(self, api_client, _system_access):
         """获取组织列表：返回分页结构"""
         resp = api_client.list_organizations(params={"page": 1, "pageSize": 10})
@@ -195,6 +203,7 @@ class TestSystemOrganizationAPI:
         assert isinstance(resp["items"], list)
         assert resp["total"] >= 0
 
+    @pytest.mark.p1
     def test_get_organization(self, api_client, _system_access):
         """获取组织详情：先拿列表取第一个 ID"""
         list_resp = api_client.list_organizations(params={"page": 1, "pageSize": 5})
@@ -209,6 +218,7 @@ class TestSystemOrganizationAPI:
         assert "members" in detail
         assert isinstance(detail["members"], list)
 
+    @pytest.mark.p1
     def test_create_and_delete_organization(self, api_client, _system_access):
         """创建并删除组织：自建 → 验证 → 清理"""
         test_name = "System API Test Org"
@@ -235,12 +245,14 @@ class TestSystemOrganizationAPI:
                 import logging
                 logging.getLogger("cleanup").warning(f"Cleanup failed: {e}")
 
+    @pytest.mark.p2
     def test_get_nonexistent_organization(self, api_client, _system_access):
         """获取不存在的组织：应返回 404"""
         with pytest.raises(httpx.HTTPStatusError) as exc_info:
             api_client.get_organization(f"nonexistent-org-{uuid.uuid4().hex[:8]}")
         assert exc_info.value.response.status_code == 404
 
+    @pytest.mark.p1
     def test_add_organization_member(self, api_client, _system_access):
         """添加组织成员：自建组织 + 自建用户 → 添加成员 → 验证 → 清理"""
         # 创建测试组织
@@ -293,6 +305,7 @@ class TestSystemOrganizationAPI:
 class TestSystemApiKeyAPI:
     """/api/system/api-keys API Key 管理接口（System API Key 认证）"""
 
+    @pytest.mark.p1
     def test_create_and_delete_api_key(self, api_client, _system_access):
         """创建并删除 API Key：自建用户 → 创建 Key → 验证 → 清理"""
         # 先创建测试用户（API Key 需要绑定用户）
@@ -340,6 +353,7 @@ class TestSystemApiKeyAPI:
                 import logging
                 logging.getLogger("cleanup").warning(f"Cleanup failed: {e}")
 
+    @pytest.mark.p2
     def test_delete_nonexistent_api_key(self, api_client, _system_access):
         """删除不存在的 API Key：应返回 404"""
         with pytest.raises(httpx.HTTPStatusError) as exc_info:

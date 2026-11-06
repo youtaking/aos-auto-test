@@ -22,6 +22,7 @@ class TestAgentSiteWebAPI:
     - 支持 app CRUD、token 轮转、文件上传、部署
     """
 
+    @pytest.mark.p1
     def test_list_agent_site_apps(self, web_client):
         """获取 Agent Site App 列表：返回数组"""
         resp = web_client.list_agent_site_apps()
@@ -29,6 +30,7 @@ class TestAgentSiteWebAPI:
         if len(resp) > 0:
             web_client.validate_schema(resp[0], AGENT_SITE_APP)
 
+    @pytest.mark.p1
     def test_get_agent_site_app(self, web_client):
         """获取 Agent Site App 详情：先拿列表取第一个 id"""
         apps = web_client.list_agent_site_apps()
@@ -41,11 +43,13 @@ class TestAgentSiteWebAPI:
         assert detail["id"] == app_id
         assert "name" in detail
 
+    @pytest.mark.p2
     def test_get_nonexistent_agent_site_app(self, web_client):
         """获取不存在的 Agent Site App：应抛出 400/404/422 异常"""
         with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(400|404|422)"):
             web_client.get_agent_site_app("nonexistent-app-id-99999")
 
+    @pytest.mark.p1
     def test_create_and_delete_agent_site_app(self, web_client):
         """创建并删除 Agent Site App：自建自销"""
         test_name = "test-site-api-auto"
@@ -91,21 +95,25 @@ class TestAgentSiteWebAPI:
                     import logging
                     logging.getLogger(__name__).warning(f"Cleanup agent site {created_id} failed: {e}")
 
+    @pytest.mark.p2
     def test_get_agent_site_by_remote_nonexistent(self, web_client):
         """通过不存在的 remoteAppId 查询：应返回 404"""
         with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(404|400)"):
             web_client.get_agent_site_by_remote("nonexistent-remote-id-99999")
 
+    @pytest.mark.p2
     def test_rotate_token_nonexistent(self, web_client):
         """轮转不存在的 App Token：应返回 404"""
         with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(404|400)"):
             web_client.rotate_agent_site_token("nonexistent-app-id-99999")
 
+    @pytest.mark.p2
     def test_deploy_nonexistent(self, web_client):
         """部署不存在的 App：应返回 404"""
         with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(404|400)"):
             web_client.deploy_agent_site("nonexistent-app-id-99999")
 
+    @pytest.mark.p1
     def test_list_agent_config_sites(self, web_client):
         """获取 Agent 配置关联的 Sites：使用列表首个 agent 的 configId"""
         agents = web_client.list_agents()

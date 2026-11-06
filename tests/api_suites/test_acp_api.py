@@ -23,12 +23,14 @@ class TestAcpWebAPI:
     - 每个 item 包含 id, agent_name, status, last_seen_at, created_at
     """
 
+    @pytest.mark.p1
     def test_list_acp_agents(self, web_client):
         """获取 ACP Agent 列表：返回数组"""
         resp = web_client.list_acp_agents()
         assert isinstance(resp, list), f"ACP agents 应返回数组，实际: {type(resp)}"
         web_client.validate_schema(resp, ACP_AGENT_LIST_DATA)
 
+    @pytest.mark.p2
     def test_list_acp_agents_schema_fields(self, web_client):
         """ACP Agent 列表项字段校验"""
         resp = web_client.list_acp_agents()
@@ -45,6 +47,7 @@ class TestAcpWebAPI:
         assert isinstance(agent["created_at"], (int, float)), \
             f"created_at 应为 number: {type(agent['created_at'])}"
 
+    @pytest.mark.p2
     def test_list_acp_agents_unauthorized(self, api_base_url):
         """无认证获取 ACP Agent 列表 — 应返回 401/403"""
         import httpx as _httpx

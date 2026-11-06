@@ -181,6 +181,7 @@ class TestPeriTaskDetailWebAPI:
 
     # ── 正向场景（P0） ──
 
+    @pytest.mark.p1
     def test_get_peri_task_detail(self, web_client, peri_task):
         """获取 peri task 详情：使用有效的参数组合"""
         env_id, session_id, task_id = peri_task
@@ -193,6 +194,7 @@ class TestPeriTaskDetailWebAPI:
         assert "taskId" in data
         assert "taskKind" in data
 
+    @pytest.mark.p2
     def test_get_peri_task_detail_preview(self, web_client, peri_task):
         """获取 preview 类型的 peri task 详情"""
         env_id, session_id, task_id = peri_task
@@ -205,6 +207,7 @@ class TestPeriTaskDetailWebAPI:
         assert "complete" in data
         assert isinstance(data["complete"], bool)
 
+    @pytest.mark.p2
     def test_get_peri_task_detail_unavailable(self, web_client, peri_task):
         """获取 unavailable 类型的 peri task 详情"""
         env_id, session_id, task_id = peri_task
@@ -215,6 +218,7 @@ class TestPeriTaskDetailWebAPI:
         assert "reason" in data
         assert data["reason"] in ("not_provided", "expired")
 
+    @pytest.mark.p2
     def test_get_peri_task_detail_with_query_params(self, web_client, peri_task):
         """带查询参数获取 peri task 详情（cursor, limit, byteLimit）"""
         env_id, session_id, task_id = peri_task
@@ -228,6 +232,7 @@ class TestPeriTaskDetailWebAPI:
 
     # ── 异常响应（P0） ──
 
+    @pytest.mark.p2
     def test_get_peri_task_detail_nonexistent(self, web_client):
         """查询不存在的 peri-task：应返回 404 + NOT_FOUND"""
         with pytest.raises(httpx.HTTPStatusError) as exc_info:
@@ -243,6 +248,7 @@ class TestPeriTaskDetailWebAPI:
 
     # ── 参数边界（P1） ──
 
+    @pytest.mark.p2
     def test_get_peri_task_detail_empty_env_id(self, web_client):
         """空 environmentId：服务端路径规范化可能返回 302 重定向或 400/404"""
         with pytest.raises(httpx.HTTPStatusError) as exc_info:
@@ -250,6 +256,7 @@ class TestPeriTaskDetailWebAPI:
         # 空 path segment 产生双斜杠，服务端 path normalization 返回 302 重定向
         assert exc_info.value.response.status_code in (302, 400, 404, 422)
 
+    @pytest.mark.p2
     def test_get_peri_task_detail_limit_boundary(self, web_client, peri_task):
         """limit 边界值（0）：应返回 400 或 422"""
         env_id, session_id, task_id = peri_task
@@ -261,6 +268,7 @@ class TestPeriTaskDetailWebAPI:
             )
         assert exc_info.value.response.status_code in (400, 422)
 
+    @pytest.mark.p2
     def test_get_peri_task_detail_byte_limit_exceeded(self, web_client, peri_task):
         """byteLimit 超限（>2000）：应返回 400 或 422"""
         env_id, session_id, task_id = peri_task
@@ -274,6 +282,7 @@ class TestPeriTaskDetailWebAPI:
 
     # ── 权限场景（P0） ──
 
+    @pytest.mark.p2
     def test_get_peri_task_detail_unauthorized(self, api_base_url):
         """无认证访问 peri-task detail：应返回 401 或 302（重定向到登录）"""
         client = httpx.Client(

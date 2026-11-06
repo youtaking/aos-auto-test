@@ -34,6 +34,7 @@ class TestWorkflowSSEWebAPI:
     - 支持 Last-Event-ID / fromSeqNum 断线重连
     """
 
+    @pytest.mark.p1
     def test_sse_connect(self, web_client):
         """连接 SSE 流：验证返回 event-stream content-type"""
         wf_id = _get_workflow_id(web_client)
@@ -61,11 +62,13 @@ class TestWorkflowSSEWebAPI:
                 pytest.skip("工作流不存在")
             raise
 
+    @pytest.mark.p2
     def test_sse_nonexistent_workflow(self, web_client):
         """连接不存在的工作流 SSE：应返回 404"""
         with pytest.raises(httpx.HTTPStatusError, match=r"404"):
             web_client.client.get("/web/workflow/nonexistent-wf-99999/events").raise_for_status()
 
+    @pytest.mark.p2
     def test_sse_with_from_seq(self, web_client):
         """带 fromSeqNum=0 连接 SSE：验证不断开"""
         wf_id = _get_workflow_id(web_client)

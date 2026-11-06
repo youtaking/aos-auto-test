@@ -29,12 +29,14 @@ class TestInstanceConnectOpenAPI:
         return resp["items"][0]["id"]
 
     @pytest.mark.xfail(reason="应用 Bug：连接不存在 Agent 返回 500 而非 404/400（已确认）", strict=True)
+    @pytest.mark.p2
     def test_connect_nonexistent_agent(self, api_client, _openapi_access):
         """连接不存在的 Agent：契约应返回 404/400（当前 500，应用 Bug）"""
 
         with pytest.raises(httpx.HTTPStatusError, match=r"(404|400)"):
             api_client.connect_instance("nonexistent-agent-id-99999")
 
+    @pytest.mark.p2
     def test_connect_agent_without_machine(self, api_client, _openapi_access):
         """连接无 machine 配置的 Agent：可能返回 404 或 500"""
 

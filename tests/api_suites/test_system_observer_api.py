@@ -50,6 +50,7 @@ class TestSystemObserverAPI:
 
     # ── 正向场景（P0） ──
 
+    @pytest.mark.p1
     def test_get_acp_link_tree(self, api_client, _system_access):
         """获取 ACP 链接观察树：返回完整视图结构"""
         data = api_client.get_observer_acp_link()
@@ -58,6 +59,7 @@ class TestSystemObserverAPI:
         assert isinstance(data["total"], int)
         assert data["total"] >= 0
 
+    @pytest.mark.p2
     def test_get_acp_link_tree_structure(self, api_client, _system_access):
         """观察树结构：trees 包含 byEntity 和 byOrg 两棵树"""
         data = api_client.get_observer_acp_link()
@@ -68,6 +70,7 @@ class TestSystemObserverAPI:
         assert isinstance(data["trees"]["byEntity"], list)
         assert isinstance(data["trees"]["byOrg"], list)
 
+    @pytest.mark.p2
     def test_get_acp_link_integrity(self, api_client, _system_access):
         """一致性汇总：integrity 包含 checked、mismatched、mismatchedItems"""
         data = api_client.get_observer_acp_link()
@@ -79,6 +82,7 @@ class TestSystemObserverAPI:
         assert integrity["checked"] >= 0
         assert integrity["mismatched"] >= 0
 
+    @pytest.mark.p2
     def test_get_acp_link_names(self, api_client, _system_access):
         """名称字典：names 包含各角色 id→名称映射"""
         data = api_client.get_observer_acp_link()
@@ -86,6 +90,7 @@ class TestSystemObserverAPI:
         names = data["names"]
         assert isinstance(names, dict)
 
+    @pytest.mark.p2
     def test_get_acp_link_generated_at(self, api_client, _system_access):
         """生成时间：generatedAt 为 ISO 8601 格式字符串"""
         data = api_client.get_observer_acp_link()
@@ -95,6 +100,7 @@ class TestSystemObserverAPI:
 
     # ── 权限场景（P0） ──
 
+    @pytest.mark.p2
     def test_get_acp_link_unauthorized(self, api_base_url):
         """无认证访问 observer：应返回 401"""
         client = httpx.Client(base_url=api_base_url, timeout=10, verify=False)

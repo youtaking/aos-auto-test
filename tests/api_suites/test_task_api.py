@@ -35,6 +35,7 @@ class TestTaskV2WebAPI:
     - CRUD + toggle + trigger + logs
     """
 
+    @pytest.mark.p0
     def test_list_tasks_v2(self, web_client):
         """获取任务 V2 列表：返回分页结构"""
         resp = web_client.list_tasks_v2()
@@ -42,6 +43,7 @@ class TestTaskV2WebAPI:
         assert "items" in resp
         assert isinstance(resp["items"], list)
 
+    @pytest.mark.p0
     def test_get_task_v2(self, web_client):
         """获取任务 V2 详情：先拿列表取第一个 id"""
         list_resp = web_client.list_tasks_v2()
@@ -53,11 +55,13 @@ class TestTaskV2WebAPI:
         web_client.validate_schema(detail, TASK_V2_ITEM)
         assert detail["id"] == task_id
 
+    @pytest.mark.p2
     def test_get_nonexistent_task_v2(self, web_client):
         """获取不存在的任务：应抛出 404 异常"""
         with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"404"):
             web_client.get_task_v2("nonexistent-task-id-99999")
 
+    @pytest.mark.p1
     def test_get_task_v2_logs(self, web_client):
         """获取任务 V2 日志：先拿列表取第一个 id"""
         list_resp = web_client.list_tasks_v2()
@@ -76,6 +80,7 @@ class TestTaskV2WebAPI:
             assert isinstance(resp["logs"], list)
         # 无 entries/logs 字段时，仅验证响应为有效 dict（已在上方校验）
 
+    @pytest.mark.p1
     def test_task_v2_toggle(self, web_client):
         """切换任务 V2 启用状态（用后恢复原状态，避免污染共享环境）"""
         list_resp = web_client.list_tasks_v2()
@@ -108,6 +113,7 @@ class TestTaskV2WebAPI:
                     import logging
                     logging.getLogger("cleanup").warning(f"Toggle restore failed: {e}")
 
+    @pytest.mark.p1
     def test_task_v2_trigger(self, web_client):
         """手动触发任务 V2"""
         list_resp = web_client.list_tasks_v2()
@@ -121,6 +127,7 @@ class TestTaskV2WebAPI:
             f"trigger 响应缺少预期字段: {list(resp.keys())}"
 
 
+    @pytest.mark.p1
     def test_clear_task_v2_logs(self, web_client):
         """清空任务 V2 日志并验证"""
         list_resp = web_client.list_tasks_v2()
@@ -137,6 +144,7 @@ class TestTaskV2WebAPI:
         elif "logs" in logs:
             assert len(logs["logs"]) == 0, "清空后 logs 应为空"
 
+    @pytest.mark.p2
     def test_task_v2_toggle_idempotent(self, web_client):
         """toggle 幂等性：连续两次 toggle 应恢复原状态"""
         list_resp = web_client.list_tasks_v2()
@@ -158,6 +166,7 @@ class TestTaskV2WebAPI:
             assert enabled_after == enabled_before, \
                 f"两次 toggle 后 enabled 未恢复: {enabled_before} → {enabled_after}"
 
+    @pytest.mark.p2
     def test_task_v2_trigger_invalid_id(self, web_client):
         """触发不存在的任务：应返回 404"""
         with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"404"):

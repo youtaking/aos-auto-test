@@ -45,6 +45,7 @@ class TestKnowledgeBaseWebAPI:
     - 知识库 CRUD + 文档管理 + 分块/向量化
     """
 
+    @pytest.mark.p0
     def test_list_knowledge_bases(self, web_client, _kb_service_access):
         """获取知识库列表：返回数组"""
         resp = web_client.list_knowledge_bases()
@@ -52,6 +53,7 @@ class TestKnowledgeBaseWebAPI:
         if len(resp) > 0:
             web_client.validate_schema(resp[0], KNOWLEDGE_BASE_INFO)
 
+    @pytest.mark.p0
     def test_get_knowledge_base(self, web_client, _kb_service_access):
         """获取知识库详情：先拿列表取第一个 id"""
         items = web_client.list_knowledge_bases()
@@ -64,6 +66,7 @@ class TestKnowledgeBaseWebAPI:
         assert detail["id"] == kb_id
         assert "name" in detail
 
+    @pytest.mark.p1
     def test_get_knowledge_form_options(self, web_client, _kb_service_access):
         """获取知识库表单选项：返回结构化配置"""
         resp = web_client.list_knowledge_form_options()
@@ -76,6 +79,7 @@ class TestKnowledgeBaseWebAPI:
             assert len(found_keys) > 0 or len(resp) > 0, \
                 f"表单选项缺少预期配置键: {list(resp.keys())}"
 
+    @pytest.mark.p1
     def test_list_rerank_models(self, web_client, _kb_service_access):
         """获取 rerank 模型列表：返回数组或包含模型列表的对象"""
         try:
@@ -96,11 +100,13 @@ class TestKnowledgeBaseWebAPI:
                 pytest.skip("rerank-models 上游代理不可用")
             raise
 
+    @pytest.mark.p2
     def test_get_nonexistent_knowledge_base(self, web_client, _kb_service_access):
         """获取不存在的知识库：应抛出 404 异常"""
         with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"404"):
             web_client.get_knowledge_base("nonexistent-kb-id-99999")
 
+    @pytest.mark.p0
     def test_knowledge_base_crud_lifecycle(self, web_client, _kb_service_access):
         """知识库 CRUD 生命周期：创建 → 读取 → 更新 → 删除"""
         test_name = "api-test-kb-crud-001"
@@ -165,6 +171,7 @@ class TestKnowledgeBaseWebAPI:
                 import logging
                 logging.getLogger("cleanup").warning(f"Cleanup failed: {e}")
 
+    @pytest.mark.p2
     def test_list_knowledge_bases_unauthorized(self, api_base_url):
         """无效 Token 访问知识库列表：应返回 401"""
         from tests.api_clients.web_client import WebClient
@@ -175,6 +182,7 @@ class TestKnowledgeBaseWebAPI:
         finally:
             bad_client.close()
 
+    @pytest.mark.p2
     def test_delete_knowledge_base_idempotent(self, web_client, _kb_service_access):
         """KnowledgeBase DELETE 幂等性：第二次删除返回 404"""
         test_name = "test-idempotent-delete-kb"
@@ -228,6 +236,7 @@ class TestKnowledgeBaseResourceAPI:
     使用已有知识库进行只读测试，不创建/修改数据。
     """
 
+    @pytest.mark.p1
     def test_list_knowledge_resources(self, web_client, _kb_service_access):
         """获取知识库资源列表：先拿列表取第一个 id，再查资源"""
         items = web_client.list_knowledge_bases()
@@ -241,6 +250,7 @@ class TestKnowledgeBaseResourceAPI:
         if isinstance(resp, list) and len(resp) > 0:
             web_client.validate_schema(resp[0], KNOWLEDGE_RESOURCE)
 
+    @pytest.mark.p1
     def test_search_knowledge_base(self, web_client, _kb_service_access):
         """搜索知识库：使用已有知识库执行搜索"""
         try:
@@ -261,6 +271,7 @@ class TestKnowledgeBaseResourceAPI:
             raise
         assert isinstance(resp, (list, dict))
 
+    @pytest.mark.p1
     def test_toggle_knowledge_resource(self, web_client, _kb_service_access):
         """切换资源启用状态：切换后恢复原始状态"""
         items = web_client.list_knowledge_bases()

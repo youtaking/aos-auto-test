@@ -58,12 +58,14 @@ class TestMcpWebAPI:
     - 列表返回 {servers: [...]}，servers 中每项含 id/name/type/enabled/toolsCount
     """
 
+    @pytest.mark.p0
     def test_list_mcp_servers(self, web_client):
         """获取 MCP Server 列表：返回 servers 数组"""
         resp = web_client.list_mcp_servers()
         web_client.validate_schema(resp, WEB_MCP_LIST_DATA)
         assert isinstance(resp["servers"], list)
 
+    @pytest.mark.p0
     def test_get_mcp_server(self, web_client):
         """获取单个 MCP Server 详情：先拿列表取第一个 name，再查详情"""
         list_data = web_client.list_mcp_servers()
@@ -76,6 +78,18 @@ class TestMcpWebAPI:
         assert detail["name"] == server_name
         assert "config" in detail
 
+    @pytest.mark.p0
+    def test_create_mcp_server_missing_name(self, web_client):
+        """创建 MCP Server 缺少 name — 应 400 VALIDATION_ERROR"""
+        resp = web_client.client.post("/web/config/mcp", json={
+            "config": {"type": "remote", "url": "https://example.com/mcp"},
+        })
+        assert resp.status_code == 400, f"期望 400，实际 {resp.status_code}: {resp.text[:200]}"
+        err = resp.json().get("error", {})
+        assert err.get("type") == "VALIDATION_ERROR", f"错误类型不符: {err}"
+        assert "name" in err.get("message", ""), f"错误信息应包含 name: {err}"
+
+    @pytest.mark.p0
     def test_create_and_delete_mcp_server(self, web_client):
         """创建并删除 MCP Server：写操作生命周期测试"""
         test_name = "api-test-web-mcp-001"
@@ -102,6 +116,7 @@ class TestMcpWebAPI:
         finally:
             _cleanup_web_mcp(web_client, test_name)
 
+    @pytest.mark.p1
     def test_update_mcp_server(self, web_client):
         """更新 MCP Server：创建 → 修改 url → 验证 → 删除"""
         test_name = "api-test-web-mcp-002"
@@ -135,11 +150,13 @@ class TestMcpWebAPI:
         finally:
             web_client.delete_mcp_server(test_name)
 
+    @pytest.mark.p2
     def test_get_nonexistent_mcp_server(self, web_client):
         """获取不存在的 MCP Server：应抛出 404 异常"""
         with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"404"):
             web_client.get_mcp_server("nonexistent-mcp-name-99999")
 
+    @pytest.mark.p1
     def test_enable_disable_mcp_server(self, web_client):
         """启用/禁用 MCP Server：创建 → 禁用 → 验证 → 启用 → 验证 → 删除"""
         test_name = "api-test-web-mcp-toggle-001"
@@ -172,6 +189,7 @@ class TestMcpWebAPI:
         finally:
             _cleanup_web_mcp(web_client, test_name)
 
+    @pytest.mark.p0
     def test_list_mcp_tools(self, web_client):
         """获取 MCP Server 工具列表：先拿列表取第一个 name，再查工具"""
         list_data = web_client.list_mcp_servers()
@@ -197,6 +215,7 @@ class TestMcpOpenAPI:
     - 创建 body 直接传 {name, type, url/command, ...}，无包装
     """
 
+    @pytest.mark.p0
     def test_list_mcp_servers(self, api_client, _openapi_access):
         """获取 MCP Server 列表：返回分页结构"""
 
@@ -204,6 +223,7 @@ class TestMcpOpenAPI:
         api_client.validate_schema(resp, API_MCP_LIST_RESPONSE)
         assert isinstance(resp["items"], list)
 
+    @pytest.mark.p0
     def test_get_mcp_server(self, api_client, _openapi_access):
         """获取单个 MCP Server 详情：先拿列表取第一个 ID，再查详情"""
 
@@ -216,6 +236,7 @@ class TestMcpOpenAPI:
         api_client.validate_schema(resp, API_MCP_DETAIL_RESPONSE)
         assert resp["id"] == server_id
 
+    @pytest.mark.p0
     def test_create_and_delete_mcp_server(self, api_client, _openapi_access):
         """创建并删除 MCP Server：写操作生命周期测试"""
 
@@ -244,6 +265,7 @@ class TestMcpOpenAPI:
         finally:
             _cleanup_api_mcp(api_client, test_name)
 
+    @pytest.mark.p1
     def test_update_mcp_server(self, api_client, _openapi_access):
         """更新 MCP Server：创建 → 修改 url → 验证 → 删除"""
 
@@ -279,12 +301,14 @@ class TestMcpOpenAPI:
             api_client.delete_mcp_server(server_id)
 
     @pytest.mark.xfail(reason="应用 Bug：不存在 MCP Server 返回 500 而非 404（源码头 404，已确认）", strict=True)
+    @pytest.mark.p2
     def test_get_nonexistent_mcp_server(self, api_client, _openapi_access):
         """获取不存在的 MCP Server：契约应返回 404（当前 500，应用 Bug）"""
 
         with pytest.raises(httpx.HTTPStatusError, match=r"404"):
             api_client.get_mcp_server("nonexistent-mcp-id-99999")
 
+    @pytest.mark.p2
     def test_delete_mcp_idempotent(self, api_client, _openapi_access):
         """MCP DELETE 幂等性：第二次删除返回 404"""
         test_name = "test-idempotent-delete-mcp"
@@ -302,6 +326,7 @@ class TestMcpOpenAPI:
         finally:
             _cleanup_api_mcp(api_client, test_name)
 
+    @pytest.mark.p2
     def test_create_mcp_server_duplicate_name(self, api_client, _openapi_access):
         """创建同名 MCP Server：应返回 409 或抛出冲突异常"""
 
@@ -329,6 +354,7 @@ class TestMcpOpenAPI:
 class TestMcpWebAPIExtra:
     """MCP Web API 额外场景测试"""
 
+    @pytest.mark.p2
     def test_create_mcp_server_invalid_type(self, web_client):
         """创建 MCP Server 使用无效 type：应返回 400 或抛出异常"""
         with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(400|422)"):

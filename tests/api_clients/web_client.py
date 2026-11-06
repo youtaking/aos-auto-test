@@ -118,7 +118,15 @@ class WebClient(BaseClient):
         resp = self.post("/web/config/agents/default", json={"name": name})
         return self._unwrap(resp)
 
-    # ── MCP 模块（action 风格，资源用 ?name=xxx 定位） ──
+    # ── MCP 模块（RESTful 风格，资源用 /:id 路径参数定位） ──
+
+    def _resolve_mcp_id(self, ref: str) -> str:
+        """把 MCP 名称或资源 ID 解析成资源 ID"""
+        data = self._unwrap(self.get("/web/config/mcp"))
+        for item in (data or {}).get("servers", []):
+            if isinstance(item, dict) and ref in (item.get("id"), item.get("name")):
+                return item.get("id") or ref
+        return ref
 
     def list_mcp_servers(self) -> dict:
         """获取 MCP Server 列表
@@ -127,16 +135,16 @@ class WebClient(BaseClient):
         resp = self.get("/web/config/mcp")
         return self._unwrap(resp)
 
-    def get_mcp_server(self, name: str) -> dict:
-        """获取单个 MCP Server 详情（按名称查询）
-        GET /web/config/mcp?name=xxx → {success, data: {name, config, resourceAccess}}
+    def get_mcp_server(self, ref: str) -> dict:
+        """获取单个 MCP Server 详情（名称或 ID 定位）
+        GET /web/config/mcp/:id → {success, data: {id, name, config, ...}}
         """
-        resp = self.get("/web/config/mcp", params={"name": name})
+        resp = self.get(f"/web/config/mcp/{self._resolve_mcp_id(ref)}")
         return self._unwrap(resp)
 
     def create_mcp_server(self, data: dict) -> dict:
         """创建 MCP Server
-        POST /web/config/mcp body: {name, config: {...}} → {success, data: {name}}
+        POST /web/config/mcp body: {name, config: {...}} → {success, data: {id, name}}
         data 中 name 单独提取，其余字段放入 config
         """
         name = data.get("name", "")
@@ -144,39 +152,39 @@ class WebClient(BaseClient):
         resp = self.post("/web/config/mcp", json={"name": name, "config": config})
         return self._unwrap(resp)
 
-    def update_mcp_server(self, name: str, config: dict) -> dict:
-        """更新 MCP Server（按名称定位）
-        PUT /web/config/mcp?name=xxx body: {config: {...}} → {success, data: {name}}
+    def update_mcp_server(self, ref: str, config: dict) -> dict:
+        """更新 MCP Server（名称或 ID 定位）
+        PATCH /web/config/mcp/:id body: {config: {...}} → {success, data: {id, name}}
         """
-        resp = self.put("/web/config/mcp", params={"name": name}, json={"config": config})
+        resp = self.patch(f"/web/config/mcp/{self._resolve_mcp_id(ref)}", json={"config": config})
         return self._unwrap(resp)
 
-    def delete_mcp_server(self, name: str) -> dict:
-        """删除 MCP Server（按名称定位）
-        DELETE /web/config/mcp?name=xxx → {success, data: null}
+    def delete_mcp_server(self, ref: str) -> dict:
+        """删除 MCP Server（名称或 ID 定位）
+        DELETE /web/config/mcp/:id → {success, data: null}
         """
-        resp = self.delete("/web/config/mcp", params={"name": name})
+        resp = self.delete(f"/web/config/mcp/{self._resolve_mcp_id(ref)}")
         return self._unwrap(resp)
 
-    def enable_mcp_server(self, name: str) -> dict:
+    def enable_mcp_server(self, ref: str) -> dict:
         """启用 MCP Server
-        POST /web/config/mcp/actions/enable?name=xxx → {success, data: {name, enabled: true}}
+        PATCH /web/config/mcp/:id body: {enabled: true} → {success, data: {name, enabled: true}}
         """
-        resp = self.post("/web/config/mcp/actions/enable", params={"name": name})
+        resp = self.patch(f"/web/config/mcp/{self._resolve_mcp_id(ref)}", json={"enabled": True})
         return self._unwrap(resp)
 
-    def disable_mcp_server(self, name: str) -> dict:
+    def disable_mcp_server(self, ref: str) -> dict:
         """禁用 MCP Server
-        POST /web/config/mcp/actions/disable?name=xxx → {success, data: {name, enabled: false}}
+        PATCH /web/config/mcp/:id body: {enabled: false} → {success, data: {name, enabled: false}}
         """
-        resp = self.post("/web/config/mcp/actions/disable", params={"name": name})
+        resp = self.patch(f"/web/config/mcp/{self._resolve_mcp_id(ref)}", json={"enabled": False})
         return self._unwrap(resp)
 
-    def list_mcp_tools(self, name: str) -> dict:
+    def list_mcp_tools(self, ref: str) -> dict:
         """获取 MCP Server 的缓存工具列表
-        GET /web/config/mcp/actions/tools?name=xxx → {success, data: {name, tools: [...]}}
+        GET /web/config/mcp/:id/tools → {success, data: {name, tools: [...]}}
         """
-        resp = self.get("/web/config/mcp/actions/tools", params={"name": name})
+        resp = self.get(f"/web/config/mcp/{self._resolve_mcp_id(ref)}/tools")
         return self._unwrap(resp)
 
     # ── Skill 模块（RESTful 风格，资源用 /:name 路径参数定位） ──
@@ -241,8 +249,17 @@ class WebClient(BaseClient):
         resp = self.get(f"/web/config/providers/{provider_id}")
         return self._unwrap(resp)
 
+    def create_provider(self, data: dict) -> dict:
+        """创建 Provider
+        POST /web/config/providers body: {name, displayName, protocol, apiKey, baseURL, ...}
+        → {success, data: {id, name}}
+        name 是配置名（内部唯一键），重复创建返回 409。
+        """
+        resp = self.post("/web/config/providers", json=data)
+        return self._unwrap(resp)
+
     def update_provider(self, name: str, data: dict) -> dict:
-        """更新 Provider
+        """更新 Provider（不存在的 ID 返回 404，不会隐式创建）
         PATCH /web/config/providers/:id body: {displayName, protocol, ...} → {success, data: {id, name}}
         入参可为配置名或资源 ID。
         """
@@ -461,49 +478,80 @@ class WebClient(BaseClient):
         resp = self.delete(f"/web/config/prod-views/{view_id}")
         return self._unwrap(resp)
 
-    # ── Channel 模块（RESTful for bindings /:id） ──
+    # ── Channel 模块（LangBot 控制面 /web/channels/langbot） ──
 
-    def list_channel_providers(self) -> dict:
-        """获取通道平台列表
-        GET /web/channels/providers → {success, data: {...}}
+    def get_langbot_status(self) -> dict:
+        """探测 LangBot 服务
+        GET /web/channels/langbot/status → {success, data: {reachable, version, edition, wizardStatus}}
         """
-        resp = self.get("/web/channels/providers")
-        return self._unwrap(resp)
+        return self._unwrap(self.get("/web/channels/langbot/status"))
 
-    def get_hermes_status(self) -> dict:
-        """获取 Hermes 状态
-        GET /web/channels/hermes/status → {success, data: {connected, ...}}
+    def list_langbot_bots(self) -> list:
+        """列出 Bot 与平台通道的并集
+        GET /web/channels/langbot/bots → {success, data: [{botUuid, name, adapter, ...}]}
         """
-        resp = self.get("/web/channels/hermes/status")
-        return self._unwrap(resp)
+        return self._unwrap(self.get("/web/channels/langbot/bots"))
 
-    def list_channel_bindings(self) -> dict:
-        """获取通道绑定列表
-        GET /web/channels/bindings → {success, data: [...]}
+    def get_langbot_bot(self, bot_uuid: str) -> dict:
+        """读取单个 Bot
+        GET /web/channels/langbot/bots/:botUuid → {success, data: {...}}
         """
-        resp = self.get("/web/channels/bindings")
-        return self._unwrap(resp)
+        return self._unwrap(self.get(f"/web/channels/langbot/bots/{bot_uuid}"))
 
-    def create_channel_binding(self, data: dict) -> dict:
-        """创建通道绑定
-        POST /web/channels/bindings body: {platform, agentId, ...} → {success, data: {binding}}
+    def create_langbot_bot(self, data: dict) -> dict:
+        """创建 Bot 与平台通道
+        POST /web/channels/langbot/bots body: {name, adapter, config} → 201 {success, data: {...}}
         """
-        resp = self.post("/web/channels/bindings", json=data)
-        return self._unwrap(resp)
+        return self._unwrap(self.post("/web/channels/langbot/bots", json=data))
 
-    def update_channel_binding(self, binding_id: str, data: dict) -> dict:
-        """更新通道绑定
-        PATCH /web/channels/bindings/:id body: {...} → {success, data: {binding}}
+    def update_langbot_bot(self, bot_uuid: str, data: dict) -> dict:
+        """更新 Bot 名称、适配器或配置
+        PATCH /web/channels/langbot/bots/:botUuid → {success, data: {...}}
         """
-        resp = self.patch(f"/web/channels/bindings/{binding_id}", json=data)
-        return self._unwrap(resp)
+        return self._unwrap(self.patch(f"/web/channels/langbot/bots/{bot_uuid}", json=data))
 
-    def delete_channel_binding(self, binding_id: str) -> dict:
-        """删除通道绑定
-        DELETE /web/channels/bindings/:id → {success, data: null}
+    def delete_langbot_bot(self, bot_uuid: str) -> dict:
+        """删除 Bot 与平台通道
+        DELETE /web/channels/langbot/bots/:botUuid → {success, data: {ok: true}}
         """
-        resp = self.delete(f"/web/channels/bindings/{binding_id}")
-        return self._unwrap(resp)
+        return self._unwrap(self.delete(f"/web/channels/langbot/bots/{bot_uuid}"))
+
+    def send_langbot_message(self, bot_uuid: str, data: dict) -> dict:
+        """通过 Bot 测试发送消息
+        POST /web/channels/langbot/bots/:botUuid/send body: {targetType, targetId, text}
+        """
+        return self._unwrap(self.post(f"/web/channels/langbot/bots/{bot_uuid}/send", json=data))
+
+    def list_langbot_routes(self, channel_id: str | None = None) -> list:
+        """列出通道路由
+        GET /web/channels/langbot/routes?channelId=xxx → {success, data: [...]}
+        """
+        params = {"channelId": channel_id} if channel_id else None
+        return self._unwrap(self.get("/web/channels/langbot/routes", params=params))
+
+    def create_langbot_route(self, data: dict) -> dict:
+        """创建通道路由
+        POST /web/channels/langbot/routes body: {channelId, chatType, chatId?, agentConfigId, enabled?}
+        """
+        return self._unwrap(self.post("/web/channels/langbot/routes", json=data))
+
+    def update_langbot_route(self, route_id: str, data: dict) -> dict:
+        """更新通道路由
+        PATCH /web/channels/langbot/routes/:id → {success, data: {...}}
+        """
+        return self._unwrap(self.patch(f"/web/channels/langbot/routes/{route_id}", json=data))
+
+    def delete_langbot_route(self, route_id: str) -> dict:
+        """删除通道路由
+        DELETE /web/channels/langbot/routes/:id → {success, data: {ok: true}}
+        """
+        return self._unwrap(self.delete(f"/web/channels/langbot/routes/{route_id}"))
+
+    def list_langbot_conversations(self, params: dict | None = None) -> dict:
+        """列出 IM 会话映射
+        GET /web/channels/langbot/conversations → {success, data: {items, total, page, pageSize}}
+        """
+        return self._unwrap(self.get("/web/channels/langbot/conversations", params=params))
 
     # ── Task V2 模块（RESTful /:id） ──
 

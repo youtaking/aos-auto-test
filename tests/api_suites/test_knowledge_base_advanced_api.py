@@ -45,6 +45,7 @@ class TestKnowledgeChunkAPI:
     - PATCH /chunks/:chunkId/enabled — 切换单个切片启用状态
     """
 
+    @pytest.mark.p1
     def test_list_chunks(self, web_client):
         """分页获取资源切片列表"""
         result = _get_kb_with_resources(web_client)
@@ -77,6 +78,7 @@ class TestKnowledgeChunkAPI:
         if "total" in data:
             assert isinstance(data["total"], int)
 
+    @pytest.mark.p2
     def test_list_chunks_with_keyword(self, web_client):
         """按关键词搜索切片"""
         result = _get_kb_with_resources(web_client)
@@ -102,6 +104,7 @@ class TestKnowledgeChunkAPI:
 
         assert isinstance(data, dict)
 
+    @pytest.mark.p2
     def test_list_chunks_nonexistent_resource(self, web_client):
         """查询不存在资源的切片：应返回 404"""
         kbs = web_client.list_knowledge_bases()
@@ -115,6 +118,7 @@ class TestKnowledgeChunkAPI:
                 params={"page": 1},
             )
 
+    @pytest.mark.p1
     def test_toggle_chunk_enabled(self, web_client):
         """切换切片启用状态"""
         result = _get_kb_with_resources(web_client)
@@ -186,6 +190,7 @@ class TestKnowledgeGraphAPI:
     - GET /graph/progress — 轮询生成进度
     """
 
+    @pytest.mark.p1
     def test_get_knowledge_graph(self, web_client):
         """获取知识图谱数据"""
         kbs = web_client.list_knowledge_bases()
@@ -204,6 +209,7 @@ class TestKnowledgeGraphAPI:
 
         assert isinstance(data, (dict, list, type(None)))
 
+    @pytest.mark.p1
     def test_get_graph_progress(self, web_client):
         """查询知识图谱生成进度"""
         kbs = web_client.list_knowledge_bases()
@@ -222,6 +228,7 @@ class TestKnowledgeGraphAPI:
 
         assert isinstance(data, (dict, type(None)))
 
+    @pytest.mark.p1
     def test_generate_knowledge_graph(self, web_client):
         """触发知识图谱生成：异步操作"""
         result = _get_kb_with_resources(web_client)
@@ -241,6 +248,7 @@ class TestKnowledgeGraphAPI:
             raise
 
     @pytest.mark.destructive
+    @pytest.mark.p1
     def test_delete_knowledge_graph(self, web_client, request):
         """删除知识图谱 — 仅在自建的测试知识库上执行，不触碰环境已有数据"""
         import uuid
@@ -290,6 +298,7 @@ class TestKnowledgeGraphAPI:
                 import logging
                 logging.getLogger("cleanup").warning(f"Cleanup failed: {e}")
 
+    @pytest.mark.p2
     def test_graph_nonexistent_kb(self, web_client):
         """查询不存在知识库的图谱：应返回 404 或 502"""
         with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(404|502)"):
@@ -307,6 +316,7 @@ class TestKnowledgeEmbeddingModelAPI:
                list-instance-models / add / delete / set-model-status
     """
 
+    @pytest.mark.p1
     def test_list_embedding_models(self, web_client):
         """列出已配置的 embedding provider 树"""
         try:
@@ -323,6 +333,7 @@ class TestKnowledgeEmbeddingModelAPI:
 
         assert isinstance(data, (list, dict))
 
+    @pytest.mark.p1
     def test_list_embedding_factories(self, web_client):
         """列出可用的 embedding factory（提供商工厂）"""
         try:
@@ -339,6 +350,7 @@ class TestKnowledgeEmbeddingModelAPI:
 
         assert isinstance(data, (list, dict))
 
+    @pytest.mark.p2
     def test_verify_provider_missing_fields(self, web_client):
         """验证 provider 缺少必填字段：应返回 400"""
         with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(400|422)"):
@@ -348,6 +360,7 @@ class TestKnowledgeEmbeddingModelAPI:
                 # 故意缺少 provider 和 providerApiKey
             )
 
+    @pytest.mark.p2
     def test_list_provider_models_missing_fields(self, web_client):
         """列出 provider 模型缺少必填字段：应返回 400"""
         with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(400|422)"):
@@ -356,6 +369,7 @@ class TestKnowledgeEmbeddingModelAPI:
                 json={"action": "list-provider-models"},
             )
 
+    @pytest.mark.p2
     def test_list_instance_models_missing_fields(self, web_client):
         """列出 instance 模型缺少必填字段：应返回 400"""
         with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(400|422)"):
@@ -364,6 +378,7 @@ class TestKnowledgeEmbeddingModelAPI:
                 json={"action": "list-instance-models"},
             )
 
+    @pytest.mark.p2
     def test_set_model_status_missing_fields(self, web_client):
         """设置模型状态缺少必填字段：应返回 400"""
         with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(400|422)"):
@@ -372,6 +387,7 @@ class TestKnowledgeEmbeddingModelAPI:
                 json={"action": "set-model-status"},
             )
 
+    @pytest.mark.p2
     def test_add_embedding_provider_missing_fields(self, web_client):
         """添加 provider 缺少必填字段：应返回 400"""
         with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(400|422)"):
@@ -380,6 +396,7 @@ class TestKnowledgeEmbeddingModelAPI:
                 json={"action": "add"},
             )
 
+    @pytest.mark.p2
     def test_delete_embedding_instance_missing_fields(self, web_client):
         """删除 instance 缺少必填字段：应返回 400"""
         with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(400|422)"):
@@ -388,6 +405,7 @@ class TestKnowledgeEmbeddingModelAPI:
                 json={"action": "delete"},
             )
 
+    @pytest.mark.p2
     def test_unknown_embedding_action(self, web_client):
         """未知 action：应返回 400"""
         with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(400|422)"):
@@ -396,6 +414,7 @@ class TestKnowledgeEmbeddingModelAPI:
                 json={"action": "nonexistent-action"},
             )
 
+    @pytest.mark.p2
     def test_embedding_models_unauthorized(self, api_base_url):
         """未登录访问 embedding 模型管理：应返回 401"""
         from tests.api_clients.web_client import WebClient
@@ -420,6 +439,7 @@ class TestKnowledgeResourceReparseAPI:
     - 可选 body.delete=true 删除旧数据后重新解析
     """
 
+    @pytest.mark.p1
     def test_reparse_resource(self, web_client):
         """触发资源重新解析"""
         result = _get_kb_with_resources(web_client)
@@ -447,6 +467,7 @@ class TestKnowledgeResourceReparseAPI:
                 pytest.skip("重解析接口返回 400，资源状态不正确")
             raise
 
+    @pytest.mark.p2
     def test_reparse_nonexistent_resource(self, web_client):
         """重解析不存在的资源：应返回 404"""
         kbs = web_client.list_knowledge_bases()

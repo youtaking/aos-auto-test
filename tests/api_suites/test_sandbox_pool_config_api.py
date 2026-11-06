@@ -20,6 +20,7 @@ class TestSandboxPoolConfigAPI:
     - 依赖 sandbox 功能是否启用
     """
 
+    @pytest.mark.p1
     def test_get_sandbox_pool_options(self, web_client):
         """获取 sandbox pool 可选项：返回 enabled + pools 结构"""
         try:
@@ -47,6 +48,7 @@ class TestSandboxPoolConfigAPI:
             assert "id" in pool, f"pool 条目缺少 id: {list(pool.keys())}"
             assert "name" in pool, f"pool 条目缺少 name: {list(pool.keys())}"
 
+    @pytest.mark.p2
     def test_get_sandbox_pool_options_schema(self, web_client):
         """验证 sandbox pool 响应结构完整性"""
         try:
@@ -79,6 +81,7 @@ class TestSandboxPoolConfigAPI:
         }
         web_client.validate_schema(data, schema)
 
+    @pytest.mark.p2
     def test_sandbox_pool_options_unauthorized(self, api_base_url):
         """未登录访问 sandbox pool 配置：应返回 401"""
         from tests.api_clients.web_client import WebClient

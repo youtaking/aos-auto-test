@@ -39,6 +39,7 @@ class TestFsWebAPI:
     - DELETE /:id/fs/batch — 批量删除
     """
 
+    @pytest.mark.p1
     def test_get_fs_tree(self, web_client):
         """获取 workspace 文件树：返回 paths 数组"""
         env_id = _get_test_env(web_client)
@@ -61,6 +62,7 @@ class TestFsWebAPI:
         assert "paths" in result
         assert isinstance(result["paths"], list)
 
+    @pytest.mark.p1
     def test_list_fs_dir(self, web_client):
         """列出 workspace 目录：返回 entries 数组"""
         env_id = _get_test_env(web_client)
@@ -83,6 +85,7 @@ class TestFsWebAPI:
         assert "entries" in result
         assert isinstance(result["entries"], list)
 
+    @pytest.mark.p1
     def test_read_fs_file(self, web_client):
         """读取 workspace 文件：从 tree 中找一个文件"""
         env_id = _get_test_env(web_client)
@@ -119,6 +122,7 @@ class TestFsWebAPI:
         if "content" in result:
             assert isinstance(result["content"], str)
 
+    @pytest.mark.p1
     def test_write_and_cleanup_fs_file(self, web_client):
         """写入然后删除 workspace 文件（清理在 finally 中，保证不残留）"""
         env_id = _get_test_env(web_client)
@@ -155,6 +159,7 @@ class TestFsWebAPI:
                 import logging
                 logging.getLogger("cleanup").warning(f"FS cleanup failed: {e}")
 
+    @pytest.mark.p1
     def test_fs_mkdir(self, web_client):
         """创建 workspace 目录（清理在 finally 中）"""
         env_id = _get_test_env(web_client)
@@ -182,6 +187,7 @@ class TestFsWebAPI:
                 import logging
                 logging.getLogger("cleanup").warning(f"FS cleanup failed: {e}")
 
+    @pytest.mark.p1
     def test_fs_rename(self, web_client):
         """重命名 workspace 文件（双路径清理在 finally 中）"""
         env_id = _get_test_env(web_client)
@@ -218,6 +224,7 @@ class TestFsWebAPI:
                     import logging
                     logging.getLogger("cleanup").warning(f"FS cleanup failed: {e}")
 
+    @pytest.mark.p1
     def test_fs_batch_delete(self, web_client):
         """批量删除 workspace 文件（创建失败记日志，兜底清理在 finally）"""
         env_id = _get_test_env(web_client)
@@ -259,6 +266,7 @@ class TestFsWebAPI:
                     import logging
                     logging.getLogger("cleanup").warning(f"FS cleanup failed: {e}")
 
+    @pytest.mark.p2
     def test_delete_nonexistent_fs_file(self, web_client):
         """删除不存在的文件：幂等删除应返回 200 或 404"""
         env_id = _get_test_env(web_client)

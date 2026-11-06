@@ -57,13 +57,14 @@ class TestHooksWebhookAPI:
     特点：
     - 无需认证，通过 publicHash 标识触发器
     - 预期：有效 hash 返回 {received: true}，无效 hash 返回 404
-    - 端点已挂载（1b80cdfa 起），无效 hash → 404 {error: "trigger not found"}，超大 → 413
+    - 端点已挂载，无效/空 hash → 404，超大请求体 → 413
 
     源码预期行为：
     - trigger 未命中 → 404 {error: "..."}
     - 命中 → 200 {received: true}
     """
 
+    @pytest.mark.p2
     def test_webhook_invalid_hash(self, api_base_url):
         """无效 hash 触发 webhook — 契约：应返回 404 {error: ...}"""
         with httpx.Client(base_url=api_base_url, timeout=30, verify=False) as client:
@@ -77,7 +78,7 @@ class TestHooksWebhookAPI:
             assert body is not None, "404 响应应有 JSON body"
             assert "error" in body, f"404 响应缺少 error 字段: {list(body.keys())}"
 
-    @pytest.mark.xfail(reason="应用缺陷：POST /hooks/（空 hash）未命中路由，落入全局兜底返回 200 空 body，契约应为 404（已确认，1b80cdfa 仍存在）", strict=True)
+    @pytest.mark.p2
     def test_webhook_empty_hash(self, api_base_url):
         """空 hash 触发 webhook — 契约：应返回 404"""
         with httpx.Client(base_url=api_base_url, timeout=30, verify=False) as client:
@@ -88,6 +89,7 @@ class TestHooksWebhookAPI:
             assert resp.status_code == 404, \
                 f"空 hash 契约应为 404，实际: {resp.status_code}"
 
+    @pytest.mark.p2
     def test_webhook_payload_too_large(self, api_base_url):
         """超大请求体触发 webhook — 契约：应返回 413（源码 1MB 限制）"""
         large_body = {"data": "x" * (1024 * 1024 + 1)}
@@ -99,6 +101,7 @@ class TestHooksWebhookAPI:
             assert resp.status_code == 413, \
                 f"超大请求契约应为 413，实际: {resp.status_code}"
 
+    @pytest.mark.p2
     def test_webhook_no_body(self, api_base_url):
         """无请求体触发 webhook — 契约：无效 hash 应返回 404"""
         with httpx.Client(base_url=api_base_url, timeout=30, verify=False) as client:
@@ -110,6 +113,7 @@ class TestHooksWebhookAPI:
             assert resp.status_code == 404, \
                 f"无 body 契约应为 404，实际: {resp.status_code}"
 
+    @pytest.mark.p2
     def test_webhook_string_body(self, api_base_url):
         """字符串请求体触发 webhook — 契约：无效 hash 应返回 404"""
         with httpx.Client(base_url=api_base_url, timeout=30, verify=False) as client:
@@ -121,6 +125,7 @@ class TestHooksWebhookAPI:
             assert resp.status_code == 404, \
                 f"字符串 body 契约应为 404，实际: {resp.status_code}"
 
+    @pytest.mark.p2
     def test_webhook_with_query_params(self, api_base_url):
         """带 query 参数触发 webhook — 契约：无效 hash 应返回 404"""
         with httpx.Client(base_url=api_base_url, timeout=30, verify=False) as client:
@@ -131,12 +136,14 @@ class TestHooksWebhookAPI:
             assert resp.status_code == 404, \
                 f"带 query 契约应为 404，实际: {resp.status_code}"
 
-    @pytest.mark.xfail(reason="应用缺陷：/hooks/:publicHash 端点未挂载（index.ts 未注册 hooksRoutes，全局兜底 200 空 body），有效 hash 应返回 {received: true}（已确认）", strict=True)
+    @pytest.mark.p1
     def test_webhook_valid_trigger(self, web_client, api_base_url):
         """有效触发器 hash 触发 webhook — 契约：应返回 {received: true}"""
         trigger_hash = _get_trigger_hash(web_client)
         if not trigger_hash:
             pytest.skip("无可用的触发器 hash，无法测试有效 webhook")
+        if "*" in trigger_hash:
+            pytest.skip("控制台返回的 publicHash 已脱敏，无法构造有效 webhook 请求")
 
         with httpx.Client(base_url=api_base_url, timeout=30, verify=False) as client:
             resp = client.post(

@@ -127,6 +127,7 @@ class TestHindsightWebAPI:
 
     # ── Status ──
 
+    @pytest.mark.p1
     def test_get_hindsight_status(self, web_client):
         """获取 Hindsight 状态：返回 enabled 字段"""
         resp = web_client.get_hindsight_status()
@@ -136,6 +137,7 @@ class TestHindsightWebAPI:
 
     # ── Graph ──
 
+    @pytest.mark.p1
     def test_get_hindsight_graph(self, web_client, _hindsight_enabled):
         """获取记忆图谱：返回 nodes 和 edges 数组"""
         resp = web_client.get_hindsight_graph()
@@ -147,6 +149,7 @@ class TestHindsightWebAPI:
 
     # ── Bank Stats ──
 
+    @pytest.mark.p1
     def test_get_hindsight_bank_stats(self, web_client, _hindsight_enabled):
         """获取记忆库统计：返回统计字段"""
         resp = web_client.get_hindsight_bank_stats()
@@ -157,6 +160,7 @@ class TestHindsightWebAPI:
 
     # ── Memories ──
 
+    @pytest.mark.p1
     def test_list_hindsight_memories(self, web_client, _hindsight_enabled):
         """列出记忆：返回 items 和 total"""
         resp = web_client.list_hindsight_memories()
@@ -166,6 +170,7 @@ class TestHindsightWebAPI:
         assert isinstance(resp["items"], list)
         assert isinstance(resp["total"], int)
 
+    @pytest.mark.p1
     def test_create_and_delete_hindsight_memory(self, web_client, _hindsight_enabled):
         """创建并删除记忆：自建自销"""
         created_id = None
@@ -195,6 +200,7 @@ class TestHindsightWebAPI:
                 except Exception as e:
                     logger.warning(f"Cleanup hindsight memory {created_id} failed: {e}")
 
+    @pytest.mark.p1
     def test_get_hindsight_memory_detail(self, web_client, _hindsight_enabled):
         """获取记忆详情：先列表取 ID 再查详情"""
         list_resp = web_client.list_hindsight_memories()
@@ -209,6 +215,7 @@ class TestHindsightWebAPI:
         assert any(k in detail for k in ("id", "memory_id", "content", "type")), \
             f"记忆详情缺少预期字段: {list(detail.keys())}"
 
+    @pytest.mark.p2
     def test_get_hindsight_memory_nonexistent(self, web_client, _hindsight_enabled):
         """获取不存在的记忆：应返回 404 或空结果
 
@@ -229,6 +236,7 @@ class TestHindsightWebAPI:
 
     # ── Recall & Reflect ──
 
+    @pytest.mark.p1
     def test_recall_hindsight(self, web_client, _hindsight_enabled):
         """检索记忆：POST /recall 返回结构化结果"""
         try:
@@ -244,6 +252,7 @@ class TestHindsightWebAPI:
                 pytest.skip(f"Hindsight 上游服务不可用: {e}")
             raise
 
+    @pytest.mark.p1
     def test_reflect_hindsight(self, web_client, _hindsight_enabled):
         """触发反思：POST /reflect 返回分析结果"""
         try:
@@ -258,6 +267,7 @@ class TestHindsightWebAPI:
 
     # ── Documents ──
 
+    @pytest.mark.p1
     def test_list_hindsight_documents(self, web_client, _hindsight_enabled):
         """列出文档：返回 items 和 total"""
         resp = web_client.list_hindsight_documents()
@@ -267,6 +277,7 @@ class TestHindsightWebAPI:
         assert isinstance(resp["items"], list)
         assert isinstance(resp["total"], int)
 
+    @pytest.mark.p2
     def test_delete_hindsight_document_nonexistent(self, web_client, _hindsight_enabled):
         """删除不存在的文档：应返回 404 或幂等成功"""
         try:
@@ -280,6 +291,7 @@ class TestHindsightWebAPI:
             assert "404" in str(e) or "400" in str(e) or "not_found" in str(e).lower(), \
                 f"预期 404/not_found 错误，实际: {e}"
 
+    @pytest.mark.p1
     def test_get_hindsight_document_chunks(self, web_client, _hindsight_enabled):
         """获取文档分块：需要先有文档"""
         docs = web_client.list_hindsight_documents()
@@ -303,6 +315,7 @@ class TestHindsightWebAPI:
 
     # ── Mental Models ──
 
+    @pytest.mark.p1
     def test_list_hindsight_mental_models(self, web_client, _hindsight_enabled):
         """列中心智模型：返回 items 数组"""
         resp = web_client.list_hindsight_mental_models()
@@ -310,6 +323,7 @@ class TestHindsightWebAPI:
         assert "items" in resp
         assert isinstance(resp["items"], list)
 
+    @pytest.mark.p1
     def test_get_hindsight_mental_model(self, web_client, _hindsight_enabled):
         """获取心智模型详情：先列表取 ID 再查详情"""
         list_resp = web_client.list_hindsight_mental_models()
@@ -324,6 +338,7 @@ class TestHindsightWebAPI:
         assert any(k in detail for k in ("id", "model_id", "name", "title")), \
             f"心智模型详情缺少预期字段: {list(detail.keys())}"
 
+    @pytest.mark.p2
     def test_delete_hindsight_mental_model_nonexistent(self, web_client, _hindsight_enabled):
         """删除不存在的心智模型：应返回 404 或幂等成功"""
         try:
@@ -338,6 +353,7 @@ class TestHindsightWebAPI:
 
     # ── Entities ──
 
+    @pytest.mark.p1
     def test_list_hindsight_entities(self, web_client, _hindsight_enabled):
         """列出实体：返回 items 和 total"""
         resp = web_client.list_hindsight_entities()
@@ -347,6 +363,7 @@ class TestHindsightWebAPI:
         assert isinstance(resp["items"], list)
         assert isinstance(resp["total"], int)
 
+    @pytest.mark.p1
     def test_get_hindsight_entity(self, web_client, _hindsight_enabled):
         """获取实体详情：先列表取 ID 再查详情"""
         list_resp = web_client.list_hindsight_entities()
@@ -361,6 +378,7 @@ class TestHindsightWebAPI:
         assert any(k in detail for k in ("id", "entity_id", "name", "type")), \
             f"实体详情缺少预期字段: {list(detail.keys())}"
 
+    @pytest.mark.p2
     def test_get_hindsight_entity_nonexistent(self, web_client, _hindsight_enabled):
         """获取不存在的实体：应返回 404 或空结果"""
         try:
@@ -374,6 +392,7 @@ class TestHindsightWebAPI:
             assert "404" in str(e) or "400" in str(e) or "not_found" in str(e).lower(), \
                 f"预期 404/not_found 错误，实际: {e}"
 
+    @pytest.mark.p1
     def test_get_hindsight_entities_graph(self, web_client, _hindsight_enabled):
         """获取实体关系图谱：Schema 校验 + nodes/edges 断言"""
         resp = web_client.get_hindsight_entities_graph()

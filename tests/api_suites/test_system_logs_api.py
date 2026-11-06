@@ -84,12 +84,14 @@ def _searchable_source(api_client, _system_access):
 class TestSystemLogsListAPI:
     """/api/system/logs 日志源枚举接口（System API Key 认证）"""
 
+    @pytest.mark.p1
     def test_list_log_sources(self, api_client, _system_access):
         """枚举日志源：返回 {sources: [...]}"""
         data = api_client.list_system_log_sources()
         api_client.validate_schema(data, SYSTEM_LOG_SOURCES_RESPONSE)
         assert isinstance(data["sources"], list)
 
+    @pytest.mark.p2
     def test_list_log_sources_structure(self, api_client, _system_access):
         """日志源条目结构：id 形状合法，kind/date/size/modifiedAt 齐全，且不含路径信息"""
         import re
@@ -106,6 +108,7 @@ class TestSystemLogsListAPI:
             assert "/" not in src["id"] and "\\" not in src["id"]
             assert not src["id"].endswith(".log")
 
+    @pytest.mark.p2
     def test_list_log_sources_unauthorized(self, api_base_url):
         """无认证访问日志源列表：应返回 401"""
         client = httpx.Client(base_url=api_base_url, timeout=10, verify=False)
@@ -121,6 +124,7 @@ class TestSystemLogsListAPI:
 class TestSystemLogsSearchAPI:
     """/api/system/logs/search 日志检索接口（System API Key 认证）"""
 
+    @pytest.mark.p1
     def test_search_logs_basic(self, api_client, _searchable_source):
         """基础检索：用可检索的 sourceId 拉取投影"""
         data = api_client.search_system_logs({"sourceId": _searchable_source["id"]})
@@ -131,6 +135,7 @@ class TestSystemLogsSearchAPI:
         assert data["totalMatches"] >= 0
         assert isinstance(data["truncated"], bool)
 
+    @pytest.mark.p1
     def test_search_logs_with_query(self, api_client, _searchable_source):
         """带关键字检索：q 过滤 + limit 上限生效"""
         data = api_client.search_system_logs(
@@ -140,6 +145,7 @@ class TestSystemLogsSearchAPI:
         assert data["totalMatches"] >= 0
         assert len(data["entries"]) <= 10
 
+    @pytest.mark.p2
     def test_search_logs_error_only(self, api_client, _searchable_source):
         """仅错误行检索：errorOnly=true"""
         data = api_client.search_system_logs(
@@ -148,6 +154,7 @@ class TestSystemLogsSearchAPI:
         api_client.validate_schema(data, SYSTEM_LOG_SEARCH_RESPONSE)
         assert isinstance(data["entries"], list)
 
+    @pytest.mark.p1
     def test_search_logs_with_limit(self, api_client, _searchable_source):
         """检索带 limit 参数：限制返回条数"""
         data = api_client.search_system_logs(
@@ -156,6 +163,7 @@ class TestSystemLogsSearchAPI:
         api_client.validate_schema(data, SYSTEM_LOG_SEARCH_RESPONSE)
         assert len(data["entries"]) <= 5
 
+    @pytest.mark.p2
     def test_search_logs_missing_source_id(self, api_client, _system_access):
         """检索缺少 sourceId 参数：应返回 400 + error 信息"""
         with pytest.raises(httpx.HTTPStatusError) as exc_info:
@@ -164,6 +172,7 @@ class TestSystemLogsSearchAPI:
         body = exc_info.value.response.json()
         assert body.get("error") is not None
 
+    @pytest.mark.p2
     def test_search_logs_malformed_source_id(self, api_client, _system_access):
         """检索形状非法的 sourceId（传路径）：应返回 400 VALIDATION_ERROR"""
         with pytest.raises(httpx.HTTPStatusError) as exc_info:
@@ -172,6 +181,7 @@ class TestSystemLogsSearchAPI:
         body = exc_info.value.response.json()
         assert body["error"]["code"] == "VALIDATION_ERROR"
 
+    @pytest.mark.p2
     def test_search_logs_nonexistent_source(self, api_client, _system_access):
         """检索形状合法但未枚举到的 sourceId：应返回 404 NOT_FOUND"""
         with pytest.raises(httpx.HTTPStatusError) as exc_info:
@@ -180,6 +190,7 @@ class TestSystemLogsSearchAPI:
         body = exc_info.value.response.json()
         assert body["error"]["code"] == "NOT_FOUND"
 
+    @pytest.mark.p2
     def test_search_logs_empty_source_id(self, api_client, _system_access):
         """检索空 sourceId：应返回 400"""
         with pytest.raises(httpx.HTTPStatusError) as exc_info:
@@ -188,6 +199,7 @@ class TestSystemLogsSearchAPI:
         body = exc_info.value.response.json()
         assert body.get("error") is not None
 
+    @pytest.mark.p2
     def test_search_logs_invalid_limit(self, api_client, _searchable_source):
         """检索超限 limit（>1000）：应返回 400"""
         with pytest.raises(httpx.HTTPStatusError) as exc_info:
@@ -198,6 +210,7 @@ class TestSystemLogsSearchAPI:
         body = exc_info.value.response.json()
         assert body.get("error") is not None
 
+    @pytest.mark.p2
     def test_search_logs_extra_large_source_413(self, api_client, _system_access):
         """检索超过 50MB 的日志源：应返回 413 FILE_TOO_LARGE"""
         data = api_client.list_system_log_sources()
@@ -210,6 +223,7 @@ class TestSystemLogsSearchAPI:
         body = exc_info.value.response.json()
         assert body["error"]["code"] == "FILE_TOO_LARGE"
 
+    @pytest.mark.p2
     def test_search_logs_unauthorized(self, api_client, _system_access):
         """无认证检索日志：应返回 401"""
         source_id = api_client.list_system_log_sources()["sources"][0]["id"]
@@ -226,6 +240,7 @@ class TestSystemLogsSearchAPI:
 class TestSystemLogsDownloadAPI:
     """/api/system/logs/download 日志投影导出接口（System API Key 认证）"""
 
+    @pytest.mark.p1
     def test_download_log_source(self, api_client, _searchable_source):
         """导出日志源：返回 application/x-ndjson，每行为合法 JSON"""
         resp = api_client._system_raw_response(
@@ -240,6 +255,7 @@ class TestSystemLogsDownloadAPI:
         entry = json.loads(first_line)
         assert "message" in entry
 
+    @pytest.mark.p2
     def test_download_nonexistent_source(self, api_client, _system_access):
         """导出形状合法但未枚举到的 sourceId：应返回 404 NOT_FOUND"""
         with pytest.raises(httpx.HTTPStatusError) as exc_info:
@@ -248,6 +264,7 @@ class TestSystemLogsDownloadAPI:
         body = exc_info.value.response.json()
         assert body["error"]["code"] == "NOT_FOUND"
 
+    @pytest.mark.p2
     def test_download_malformed_source_id(self, api_client, _system_access):
         """导出形状非法的 sourceId：应返回 400 VALIDATION_ERROR"""
         with pytest.raises(httpx.HTTPStatusError) as exc_info:
@@ -256,6 +273,7 @@ class TestSystemLogsDownloadAPI:
         body = exc_info.value.response.json()
         assert body["error"]["code"] == "VALIDATION_ERROR"
 
+    @pytest.mark.p2
     def test_download_unauthorized(self, api_client, _system_access):
         """无认证导出日志：应返回 401"""
         source_id = api_client.list_system_log_sources()["sources"][0]["id"]

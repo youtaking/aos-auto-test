@@ -32,6 +32,7 @@ class TestOpenAIChatAPI:
             return None
         return resp["items"][0]["id"]
 
+    @pytest.mark.p2
     def test_chat_nonexistent_agent(self, api_client, _openapi_access):
         """向不存在的 Agent 发送 chat 请求：应返回 404"""
 
@@ -41,6 +42,7 @@ class TestOpenAIChatAPI:
                 "messages": [{"role": "user", "content": "hello"}],
             })
 
+    @pytest.mark.p2
     def test_chat_no_user_message(self, api_client, _openapi_access):
         """发送不含 user 消息的请求：应返回 400"""
 
@@ -54,6 +56,7 @@ class TestOpenAIChatAPI:
                 "messages": [{"role": "system", "content": "you are a helper"}],
             })
 
+    @pytest.mark.p2
     def test_chat_empty_messages(self, api_client, _openapi_access):
         """发送空 messages 数组：应返回 400"""
 
@@ -67,6 +70,7 @@ class TestOpenAIChatAPI:
                 "messages": [],
             })
 
+    @pytest.mark.p0
     def test_chat_non_stream(self, api_client, _openapi_access):
         """非流式 chat 请求：验证基本响应结构（可能需要较长超时）"""
 

@@ -54,12 +54,14 @@ class TestEnvironmentWebAPI:
     - 创建时必须传 agentConfigId
     """
 
+    @pytest.mark.p0
     def test_list_environments(self, web_client):
         """获取环境列表：返回数组"""
         resp = web_client.list_environments()
         web_client.validate_schema(resp, _WEB_ENV_LIST_DATA)
         assert isinstance(resp, list)
 
+    @pytest.mark.p0
     def test_get_environment(self, web_client):
         """获取环境详情：先拿列表取第一个 id，再查详情"""
         envs = web_client.list_environments()
@@ -72,6 +74,7 @@ class TestEnvironmentWebAPI:
         assert detail["id"] == env_id
         assert "name" in detail
 
+    @pytest.mark.p0
     def test_environment_crud_lifecycle(self, web_client):
         """环境 CRUD 生命周期：创建 → 读取 → 更新 → 删除"""
         agent_config_id = _get_first_agent_config_id(web_client)
@@ -119,6 +122,7 @@ class TestEnvironmentWebAPI:
         finally:
             _cleanup_environment(web_client, test_name)
 
+    @pytest.mark.p2
     def test_create_environment_invalid_config(self, web_client):
         """创建环境使用非法配置：缺少 agentConfigId 应返回 400/422"""
         with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(400|422)"):
@@ -127,6 +131,7 @@ class TestEnvironmentWebAPI:
                 # 故意不传 agentConfigId
             })
 
+    @pytest.mark.p2
     def test_create_environment_invalid_agent_id(self, web_client):
         """创建环境使用无效 agentConfigId：应返回 400/404/422"""
         with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(400|404|422)"):
@@ -135,11 +140,13 @@ class TestEnvironmentWebAPI:
                 "agentConfigId": "nonexistent-agent-id-99999",
             })
 
+    @pytest.mark.p2
     def test_get_nonexistent_environment(self, web_client):
         """获取不存在的环境：应抛出 404 异常"""
         with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"404"):
             web_client.get_environment("nonexistent-env-id-99999")
 
+    @pytest.mark.p0
     def test_list_environment_instances(self, web_client):
         """获取环境实例列表：先拿列表取第一个 id"""
         envs = web_client.list_environments()
@@ -157,6 +164,7 @@ class TestEnvironmentWebAPI:
             if "instances" in resp:
                 assert isinstance(resp["instances"], list)
 
+    @pytest.mark.p2
     def test_create_environment_empty_name(self, web_client):
         """创建空 name 环境：应返回 400 或抛出异常"""
         agent_config_id = _get_first_agent_config_id(web_client)
@@ -170,6 +178,7 @@ class TestEnvironmentWebAPI:
                 "agentConfigId": agent_config_id,
             })
 
+    @pytest.mark.p2
     def test_delete_environment_idempotent(self, web_client):
         """Environment DELETE 幂等性：第二次删除返回 404"""
         agent_config_id = _get_first_agent_config_id(web_client)

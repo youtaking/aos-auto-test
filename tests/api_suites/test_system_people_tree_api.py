@@ -50,12 +50,14 @@ class TestSystemPeopleTreeAPI:
 
     # ── 正向场景（P0） ──
 
+    @pytest.mark.p1
     def test_get_people_tree(self, api_client, _system_access):
         """获取人员层级：返回 {organizations: [...]}"""
         data = api_client.get_people_tree()
         api_client.validate_schema(data, SYSTEM_PEOPLE_TREE_RESPONSE)
         assert isinstance(data["organizations"], list)
 
+    @pytest.mark.p2
     def test_get_people_tree_organization_structure(self, api_client, _system_access):
         """组织结构：每个组织包含 id、name、slug、users"""
         data = api_client.get_people_tree()
@@ -69,6 +71,7 @@ class TestSystemPeopleTreeAPI:
         assert "users" in org
         assert isinstance(org["users"], list)
 
+    @pytest.mark.p2
     def test_get_people_tree_user_structure(self, api_client, _system_access):
         """用户结构：每个用户包含 id、name、email、agents"""
         data = api_client.get_people_tree()
@@ -85,6 +88,7 @@ class TestSystemPeopleTreeAPI:
                 return
         pytest.skip("所有组织均无用户，无法校验用户结构")
 
+    @pytest.mark.p2
     def test_get_people_tree_agent_structure(self, api_client, _system_access):
         """智能体结构：每个 agent 包含 id、name"""
         data = api_client.get_people_tree()
@@ -101,6 +105,7 @@ class TestSystemPeopleTreeAPI:
 
     # ── 权限场景（P0） ──
 
+    @pytest.mark.p2
     def test_get_people_tree_unauthorized(self, api_base_url):
         """无认证访问 people-tree：应返回 401"""
         client = httpx.Client(base_url=api_base_url, timeout=10, verify=False)

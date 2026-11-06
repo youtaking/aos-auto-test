@@ -19,6 +19,7 @@ class TestAgentGenerationWebAPI:
     - 需要服务端配置生成模型，未配置时返回 503
     """
 
+    @pytest.mark.p1
     def test_agent_generation_configured(self, web_client):
         """检查 Agent 生成功能：已配置时返回 name + systemPrompt + skills"""
         try:

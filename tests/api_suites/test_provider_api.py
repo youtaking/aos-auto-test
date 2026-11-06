@@ -2,7 +2,7 @@
 """Provider 接口测试：功能验证 + 契约验证
 
 覆盖控制台接口：
-- TestProviderWebAPI: /web/config/providers 控制台接口（session cookie 认证，action 风格）
+- TestProviderWebAPI: /web/config/providers 控制台接口（session cookie 认证，RESTful 风格）
 
 注：Provider 的 OpenAPI CRUD 在 /api/models/providers 下，由 test_model_api.py 覆盖。
 """
@@ -18,21 +18,24 @@ from tests.api_contracts.provider_schemas import (
 # ── 控制台接口测试 ──
 
 class TestProviderWebAPI:
-    """/web/config/providers 控制台接口测试（session cookie 认证，action 风格）
+    """/web/config/providers 控制台接口测试（session cookie 认证，RESTful /:providerId 风格）
 
     特点：
-    - 用 ?name=xxx 查询参数定位资源
+    - 创建用 POST /config/providers，请求体 name 为配置名（内部唯一键）
+    - 读取/更新/删除用 /:providerId 路径参数定位
     - 响应统一包装为 {success, data} 格式
     - 列表返回 {providers: [...]}
-    - PUT 作为幂等 upsert（不存在时创建，存在时更新）
+    - PATCH 到不存在的 ID 返回 404，不做隐式创建
     """
 
+    @pytest.mark.p0
     def test_list_providers(self, web_client):
         """获取 Provider 列表：返回 providers 数组"""
         resp = web_client.list_providers()
         web_client.validate_schema(resp, WEB_PROVIDER_LIST_DATA)
         assert isinstance(resp["providers"], list)
 
+    @pytest.mark.p0
     def test_get_provider(self, web_client):
         """获取单个 Provider 详情：先拿列表，遍历找到第一个可查询详情的 provider"""
         list_data = web_client.list_providers()
@@ -57,13 +60,24 @@ class TestProviderWebAPI:
         # 所有 provider 都查不到详情
         pytest.skip(f"列表中所有 {len(list_data['providers'])} 个 Provider 均无法查询详情（可能有残留数据），最后错误: {last_error}")
 
+    @pytest.mark.p2
     def test_get_nonexistent_provider(self, web_client):
         """获取不存在的 Provider：应抛出 404 异常"""
         with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"404"):
             web_client.get_provider("nonexistent-provider-name-99999")
 
+    @pytest.mark.p0
+    def test_create_provider_missing_name(self, web_client):
+        """创建 Provider 缺少 name — 应 400 VALIDATION_ERROR"""
+        resp = web_client.client.post("/web/config/providers", json={})
+        assert resp.status_code == 400, f"期望 400，实际 {resp.status_code}: {resp.text[:200]}"
+        err = resp.json().get("error", {})
+        assert err.get("type") == "VALIDATION_ERROR", f"错误类型不符: {err}"
+        assert "name" in err.get("message", ""), f"错误信息应包含 name: {err}"
+
+    @pytest.mark.p0
     def test_provider_crud_lifecycle(self, web_client):
-        """Provider CRUD 生命周期：upsert 创建 → 读取 → 更新 → 删除"""
+        """Provider CRUD 生命周期：创建 → 读取 → 更新 → 删除"""
         test_name = "api-test-web-provider-001"
 
         # 清理可能遗留的数据
@@ -73,15 +87,15 @@ class TestProviderWebAPI:
             import logging
             logging.getLogger("cleanup").warning(f"Cleanup failed: {e}")
 
-        # PUT 作为 upsert 创建
-        create_resp = web_client.update_provider(test_name, {
-            "name": "Test Provider",
+        create_resp = web_client.create_provider({
+            "name": test_name,
+            "displayName": "Test Provider",
             "protocol": "openai",
             "apiKey": "sk-test-key-for-api-testing",
             "baseURL": "https://api.test-provider.example.com",
         })
         web_client.validate_schema(create_resp, PROVIDER_DETAIL)
-        assert create_resp.get("id") == test_name
+        assert create_resp.get("name") == test_name
 
         try:
             # 验证创建成功
@@ -93,11 +107,11 @@ class TestProviderWebAPI:
 
             # 更新
             update_resp = web_client.update_provider(test_name, {
-                "name": "Updated Test Provider",
+                "displayName": "Updated Test Provider",
                 "protocol": "openai",
                 "baseURL": "https://updated.test-provider.example.com",
             })
-            assert update_resp.get("id") == test_name or update_resp.get("name") is not None
+            assert update_resp.get("name") == test_name
 
             # 验证更新生效
             detail = web_client.get_provider(test_name)
@@ -116,13 +130,15 @@ class TestProviderWebAPI:
                 import logging
                 logging.getLogger("cleanup").warning(f"Cleanup failed: {e}")
 
+    @pytest.mark.p2
     def test_delete_nonexistent_provider(self, web_client):
         """删除不存在的 Provider：应抛出 404 异常"""
         with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"404"):
             web_client.delete_provider("nonexistent-provider-to-delete-99999")
 
+    @pytest.mark.p2
     def test_create_provider_duplicate(self, web_client):
-        """PUT 同名 Provider 两次：验证 upsert 行为（第二次为更新而非冲突）"""
+        """POST 同名 Provider 两次：第二次应 409 冲突"""
         test_name = "api-test-web-provider-dup"
 
         # 预清理
@@ -133,26 +149,26 @@ class TestProviderWebAPI:
             logging.getLogger("cleanup").warning(f"Cleanup failed: {e}")
 
         try:
-            # 第一次 PUT = 创建
-            resp1 = web_client.update_provider(test_name, {
-                "name": "Provider Dup V1",
+            resp1 = web_client.create_provider({
+                "name": test_name,
+                "displayName": "Provider Dup V1",
                 "protocol": "openai",
                 "apiKey": "sk-test-key-v1",
                 "baseURL": "https://v1.example.com",
             })
             web_client.validate_schema(resp1, PROVIDER_DETAIL)
 
-            # 第二次 PUT = 更新（upsert）
-            resp2 = web_client.update_provider(test_name, {
-                "name": "Provider Dup V2",
-                "protocol": "openai",
-                "baseURL": "https://v2.example.com",
-            })
-            web_client.validate_schema(resp2, PROVIDER_DETAIL)
+            with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"409"):
+                web_client.create_provider({
+                    "name": test_name,
+                    "displayName": "Provider Dup V2",
+                    "protocol": "openai",
+                    "baseURL": "https://v2.example.com",
+                })
 
-            # 验证更新生效
+            # 冲突不应覆盖原有配置
             detail = web_client.get_provider(test_name)
-            assert detail.get("baseURL") == "https://v2.example.com"
+            assert detail.get("baseURL") == "https://v1.example.com"
         finally:
             try:
                 web_client.delete_provider(test_name)
@@ -160,6 +176,7 @@ class TestProviderWebAPI:
                 import logging
                 logging.getLogger("cleanup").warning(f"Cleanup failed: {e}")
 
+    @pytest.mark.p2
     def test_delete_provider_idempotent(self, web_client):
         """Provider DELETE 幂等性：第二次删除返回 404"""
         test_name = "test-idempotent-delete-provider"
@@ -169,8 +186,9 @@ class TestProviderWebAPI:
             import logging
             logging.getLogger("cleanup").warning(f"Cleanup failed: {e}")
         try:
-            web_client.update_provider(test_name, {
-                "name": "Idempotent Test Provider",
+            web_client.create_provider({
+                "name": test_name,
+                "displayName": "Idempotent Test Provider",
                 "protocol": "openai",
                 "apiKey": "sk-test",
                 "baseURL": "https://example.com",
@@ -187,16 +205,17 @@ class TestProviderWebAPI:
 
 
 class TestProviderModelActions:
-    """Provider 模型管理 Action 接口测试
+    """Provider 模型管理接口测试
 
-    覆盖 /web/config/providers/actions/models 下的 add/update/delete 接口。
+    覆盖 /web/config/providers/:providerId/models 下的 add/update/delete 接口。
     使用自建 Provider 进行测试，测试完毕清理所有自建数据。
     """
 
     def _create_test_provider(self, web_client, name: str):
         """创建测试用 Provider"""
-        return web_client.update_provider(name, {
-            "name": f"Model Action Test ({name})",
+        return web_client.create_provider({
+            "name": name,
+            "displayName": f"Model Action Test ({name})",
             "protocol": "openai",
             "apiKey": "sk-test-key-for-model-actions",
             "baseURL": "https://model-action-test.example.com",
@@ -210,6 +229,7 @@ class TestProviderModelActions:
             import logging
             logging.getLogger("cleanup").warning(f"Cleanup failed: {e}")
 
+    @pytest.mark.p1
     def test_add_provider_model(self, web_client):
         """为 Provider 添加模型：创建 Provider → 添加模型 → 验证 → 删除"""
         test_provider = "api-test-model-action-provider-001"
@@ -231,13 +251,14 @@ class TestProviderModelActions:
             web_client.validate_schema(resp, WEB_PROVIDER_MODEL_RESULT_DATA)
             assert resp["modelId"] == test_model_id
 
-            # 回读验证模型已添加
+            # 回读验证模型已添加（id 为行 UUID，modelId 为上游模型代码）
             detail = web_client.get_provider(test_provider)
-            model_ids = [m.get("id") or m.get("modelId") for m in detail.get("models", [])]
-            assert test_model_id in model_ids, f"模型 {test_model_id} 未出现在 Provider models 列表中"
+            refs = {ref for m in detail.get("models", []) for ref in (m.get("id"), m.get("modelId")) if ref}
+            assert test_model_id in refs, f"模型 {test_model_id} 未出现在 Provider models 列表中"
         finally:
             self._cleanup_provider(web_client, test_provider)
 
+    @pytest.mark.p1
     def test_update_provider_model(self, web_client):
         """更新 Provider 下的模型：创建 Provider → 添加模型 → 更新 → 验证 → 删除"""
         test_provider = "api-test-model-action-provider-002"
@@ -267,12 +288,13 @@ class TestProviderModelActions:
             # 回读验证更新生效
             detail = web_client.get_provider(test_provider)
             models = detail.get("models", [])
-            target = next((m for m in models if (m.get("id") or m.get("modelId")) == test_model_id), None)
+            target = next((m for m in models if test_model_id in (m.get("id"), m.get("modelId"))), None)
             assert target is not None, f"模型 {test_model_id} 未找到"
             assert target.get("name") == "Updated Model Name"
         finally:
             self._cleanup_provider(web_client, test_provider)
 
+    @pytest.mark.p1
     def test_delete_provider_model(self, web_client):
         """删除 Provider 下的模型：创建 Provider → 添加模型 → 删除模型 → 验证 → 删除 Provider"""
         test_provider = "api-test-model-action-provider-003"
@@ -299,18 +321,26 @@ class TestProviderModelActions:
 
             # 回读验证模型已删除
             detail = web_client.get_provider(test_provider)
-            model_ids = [m.get("id") or m.get("modelId") for m in detail.get("models", [])]
-            assert test_model_id not in model_ids, f"模型 {test_model_id} 应已被删除"
+            refs = {ref for m in detail.get("models", []) for ref in (m.get("id"), m.get("modelId")) if ref}
+            assert test_model_id not in refs, f"模型 {test_model_id} 应已被删除"
         finally:
             self._cleanup_provider(web_client, test_provider)
 
+    @pytest.mark.p1
     def test_fetch_provider_models(self, web_client):
         """获取 Provider 模型列表（从上游拉取）：使用已有 Provider"""
         providers = web_client.list_providers()
-        provider_list = providers if isinstance(providers, list) else providers.get("items", providers.get("data", []))
+        provider_list = providers.get("providers", []) if isinstance(providers, dict) else providers
         if not provider_list:
             pytest.skip("Provider 列表为空，无法测试 fetch-models")
-        provider_name = provider_list[0].get("id") or provider_list[0].get("name")
+        # fetch-models 需要用户可管理的 Provider；只读的系统网关会 403
+        writable = [
+            p for p in provider_list
+            if "update" in ((p.get("access") or {}).get("actions") or [])
+        ]
+        if not writable:
+            pytest.skip("无可管理的 Provider，无法测试 fetch-models")
+        provider_name = writable[0].get("id") or writable[0].get("name")
         if not provider_name:
             pytest.skip("Provider 缺少标识字段")
 
@@ -333,6 +363,7 @@ class TestProviderModelActions:
                 pytest.skip(f"Provider 上游服务不可用: {e}")
             raise
 
+    @pytest.mark.p2
     def test_fetch_provider_models_nonexistent(self, web_client):
         """获取不存在 Provider 的模型列表 — 应返回 404"""
         with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(404|400)"):

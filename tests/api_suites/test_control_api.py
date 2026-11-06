@@ -20,6 +20,7 @@ import pytest
 class TestControlWebAPI:
     """/web/sessions/:id/* 的负向契约（session cookie 认证）"""
 
+    @pytest.mark.p2
     def test_send_event_nonexistent_session(self, web_client):
         """向不存在的会话发送事件：应返回 404 或 403"""
         with pytest.raises((httpx.HTTPStatusError, RuntimeError)):
@@ -28,6 +29,7 @@ class TestControlWebAPI:
                 "content": "test",
             })
 
+    @pytest.mark.p2
     def test_interrupt_nonexistent_session(self, web_client):
         """中断不存在的会话：应返回 404 或 403"""
         with pytest.raises((httpx.HTTPStatusError, RuntimeError)):

@@ -22,12 +22,23 @@ class TestProdViewWebAPI:
     - 响应统一包装为 {success, data} 格式
     """
 
+    @pytest.mark.p1
     def test_list_prod_views(self, web_client):
         """获取 ProdView 列表"""
         resp = web_client.list_prod_views()
         web_client.validate_schema(resp, _WEB_PROD_VIEW_LIST_DATA)
         assert isinstance(resp, (list, dict))
 
+    @pytest.mark.p0
+    def test_create_prod_view_missing_name(self, web_client):
+        """创建 ProdView 缺少 name — 应 400 VALIDATION_ERROR"""
+        resp = web_client.client.post("/web/config/prod-views", json={})
+        assert resp.status_code == 400, f"期望 400，实际 {resp.status_code}: {resp.text[:200]}"
+        err = resp.json().get("error", {})
+        assert err.get("type") == "VALIDATION_ERROR", f"错误类型不符: {err}"
+        assert "name" in err.get("message", ""), f"错误信息应包含 name: {err}"
+
+    @pytest.mark.p1
     def test_get_prod_view(self, web_client):
         """获取 ProdView 详情：先拿列表取第一个 id"""
         resp = web_client.list_prod_views()
@@ -41,11 +52,13 @@ class TestProdViewWebAPI:
         web_client.validate_schema(detail, PROD_VIEW_ITEM)
         assert detail["id"] == view_id
 
+    @pytest.mark.p2
     def test_get_nonexistent_prod_view(self, web_client):
         """获取不存在的 ProdView：应抛出 404 异常"""
         with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"404"):
             web_client.get_prod_view("nonexistent-prod-view-id-99999")
 
+    @pytest.mark.p1
     def test_prod_view_crud_lifecycle(self, web_client):
         """ProdView CRUD 生命周期：创建 → 读取 → 更新 → 删除"""
         # 获取第一个 agent 的 ID
@@ -85,8 +98,10 @@ class TestProdViewWebAPI:
 
             # 删除并验证
             web_client.delete_prod_view(view_id)
-            with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"404"):
+            with pytest.raises((httpx.HTTPStatusError, RuntimeError)) as ei:
                 web_client.get_prod_view(view_id)
+            # 应用 Bug：已删除 UUID 走 GET 返回 400（VALIDATION_ERROR: success expected true），契约应为 404
+            assert "404" in str(ei.value), f"删除后读取应 404，实际: {ei.value}"
         finally:
             try:
                 web_client.delete_prod_view(view_id)
@@ -94,6 +109,7 @@ class TestProdViewWebAPI:
                 import logging
                 logging.getLogger("cleanup").warning(f"Cleanup failed: {e}")
 
+    @pytest.mark.p2
     def test_delete_prod_view_idempotent(self, web_client):
         """ProdView DELETE 幂等性：第二次删除返回 404"""
         agents_data = web_client.list_agents()

@@ -25,6 +25,7 @@ class TestOrganizationWebAPI:
     - 组织 CRUD + 成员管理
     """
 
+    @pytest.mark.p1
     def test_list_organizations(self, web_client):
         """获取组织列表：返回数组"""
         resp = web_client.list_organizations()
@@ -32,6 +33,7 @@ class TestOrganizationWebAPI:
         if len(resp) > 0:
             web_client.validate_schema(resp[0], ORGANIZATION_INFO)
 
+    @pytest.mark.p1
     def test_get_organization(self, web_client):
         """获取组织详情：先拿列表取第一个 id"""
         orgs = web_client.list_organizations()
@@ -45,6 +47,7 @@ class TestOrganizationWebAPI:
         assert "name" in detail
         assert "slug" in detail
 
+    @pytest.mark.p1
     def test_list_organization_members(self, web_client):
         """获取组织成员列表：先拿列表取第一个 id"""
         orgs = web_client.list_organizations()
@@ -57,6 +60,7 @@ class TestOrganizationWebAPI:
         if len(members) > 0:
             web_client.validate_schema(members[0], ORGANIZATION_MEMBER)
 
+    @pytest.mark.p1
     def test_search_member_candidates(self, web_client):
         """搜索成员候选项：空关键词返回空列表"""
         orgs = web_client.list_organizations()
@@ -74,12 +78,14 @@ class TestOrganizationWebAPI:
                 f"候选项缺少标识字段: {list(candidate.keys())}"
 
     @pytest.mark.xfail(reason="应用 Bug：查询不存在的组织返回 500 而非 404（源码 schema 声明 404 但路由未做存在性检查，已确认）", strict=True)
+    @pytest.mark.p2
     def test_get_nonexistent_organization(self, web_client):
         """获取不存在的组织：应返回 404（当前返回 500，属应用 Bug）"""
         with pytest.raises(httpx.HTTPStatusError, match=r"404"):
             web_client.get_organization("nonexistent-org-id-99999")
 
     @pytest.mark.xfail(reason="应用 Bug：删除组织后回读返回 500 而非 404（源码 schema 声明 404 但路由未做存在性检查，已确认）", strict=True)
+    @pytest.mark.p1
     def test_organization_crud_lifecycle(self, web_client):
         """组织 CRUD 生命周期：创建 → 读取 → 更新 → 删除"""
         test_name = "api-test-org-crud-001"

@@ -65,6 +65,7 @@ class TestInstanceWebAPI:
     - DELETE /instances/:id 停止实例
     """
 
+    @pytest.mark.p1
     def test_get_instance_activity(self, web_client):
         """获取实例活跃度"""
         resp = web_client.get_instance_activity()
@@ -82,6 +83,7 @@ class TestInstanceWebAPI:
             for item in resp["instances"]:
                 web_client.validate_schema(item, _WEB_INSTANCE_ACTIVITY_ITEM)
 
+    @pytest.mark.p1
     def test_get_instance_activity_all(self, web_client):
         """控制台禁止跨组织实例查询，all=true 必须返回明确的 403。"""
         with pytest.raises(httpx.HTTPStatusError) as caught:
@@ -93,6 +95,7 @@ class TestInstanceWebAPI:
 
     # ── Spawn Instance 测试 ──
 
+    @pytest.mark.p0
     def test_spawn_instance_from_environment(self, web_client):
         """从环境启动实例：正向测试"""
         env_id = _get_test_env_id(web_client)
@@ -121,6 +124,7 @@ class TestInstanceWebAPI:
                 except (httpx.HTTPStatusError, RuntimeError):
                     pass  # 幂等删除，忽略错误
 
+    @pytest.mark.p2
     def test_spawn_instance_missing_environment_id(self, web_client):
         """启动实例缺少 environmentId — 应返回 400/422"""
         try:
@@ -131,6 +135,7 @@ class TestInstanceWebAPI:
             assert any(code in err_str for code in ("400", "422", "validation")), \
                 f"缺少 environmentId 预期 400/422，实际: {e}"
 
+    @pytest.mark.p2
     def test_spawn_instance_empty_environment_id(self, web_client):
         """启动实例 environmentId 为空字符串 — 应返回 400/422"""
         try:
@@ -141,6 +146,7 @@ class TestInstanceWebAPI:
             assert any(code in err_str for code in ("400", "422", "validation")), \
                 f"空 environmentId 预期 400/422，实际: {e}"
 
+    @pytest.mark.p2
     def test_spawn_instance_nonexistent_environment(self, web_client):
         """启动实例 environmentId 不存在 — 应返回 404"""
         with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"404"):
@@ -148,6 +154,7 @@ class TestInstanceWebAPI:
 
     # ── Delete Instance 测试 ──
 
+    @pytest.mark.p2
     def test_delete_instance_idempotent(self, web_client):
         """删除不存在的持久实例，两次均返回 NOT_FOUND，且不产生资源。"""
         for _ in range(2):
@@ -158,6 +165,7 @@ class TestInstanceWebAPI:
             assert body["success"] is False
             assert body["error"]["code"] == "NOT_FOUND"
 
+    @pytest.mark.p1
     def test_delete_instance_after_spawn(self, web_client):
         """启动后删除实例：生命周期测试"""
         env_id = _get_test_env_id(web_client)

@@ -32,6 +32,7 @@ class TestWorkspaceOpenAPI:
             logging.getLogger("cleanup").warning(f"Cleanup failed: {e}")
         return None
 
+    @pytest.mark.p2
     def test_upload_to_nonexistent_environment(self, api_client, _openapi_access):
         """上传到不存在的环境：应返回 404"""
 
@@ -43,6 +44,7 @@ class TestWorkspaceOpenAPI:
                 files=files,
             ).raise_for_status()
 
+    @pytest.mark.p2
     def test_upload_without_files(self, api_client, _openapi_access):
         """上传不含 files 字段：应返回 400"""
 

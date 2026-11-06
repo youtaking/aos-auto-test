@@ -27,6 +27,7 @@ class TestWorkflowDefWebAPI:
     - CRUD + 版本管理 + 触发器
     """
 
+    @pytest.mark.p0
     def test_list_workflow_defs(self, web_client):
         """获取工作流定义列表：返回数组"""
         resp = web_client.list_workflow_defs()
@@ -34,6 +35,7 @@ class TestWorkflowDefWebAPI:
         if len(resp) > 0:
             web_client.validate_schema(resp[0], WORKFLOW_DEF)
 
+    @pytest.mark.p0
     def test_get_workflow_def(self, web_client):
         """获取工作流定义详情：先拿列表取第一个 id"""
         items = web_client.list_workflow_defs()
@@ -46,6 +48,7 @@ class TestWorkflowDefWebAPI:
         assert detail["id"] == wf_id
         assert "name" in detail
 
+    @pytest.mark.p0
     def test_create_and_delete_workflow_def(self, web_client):
         """创建并删除工作流定义：写操作生命周期测试"""
         test_name = "api-test-wf-def-001"
@@ -68,6 +71,7 @@ class TestWorkflowDefWebAPI:
         finally:
             _cleanup_workflow_def(web_client, wf_id)
 
+    @pytest.mark.p1
     def test_list_workflow_def_versions(self, web_client):
         """获取工作流版本列表：先拿列表取第一个 id"""
         items = web_client.list_workflow_defs()
@@ -80,6 +84,7 @@ class TestWorkflowDefWebAPI:
         if versions:
             web_client.validate_schema(versions[0], WORKFLOW_VERSION)
 
+    @pytest.mark.p1
     def test_list_workflow_def_triggers(self, web_client):
         """获取工作流触发器列表：先拿列表取第一个 id"""
         items = web_client.list_workflow_defs()
@@ -92,6 +97,7 @@ class TestWorkflowDefWebAPI:
         if triggers:
             web_client.validate_schema(triggers[0], WORKFLOW_TRIGGER)
 
+    @pytest.mark.p1
     def test_get_recoverable_workflow_defs(self, web_client):
         """获取可恢复的工作流列表"""
         resp = web_client.get_recoverable_workflow_defs()
@@ -99,11 +105,13 @@ class TestWorkflowDefWebAPI:
         if len(resp) > 0:
             web_client.validate_schema(resp[0], WORKFLOW_DEF)
 
+    @pytest.mark.p2
     def test_get_nonexistent_workflow_def(self, web_client):
         """获取不存在的工作流定义：应抛出 404 异常"""
         with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"404"):
             web_client.get_workflow_def("nonexistent-wf-id-99999")
 
+    @pytest.mark.p1
     def test_workflow_def_update_meta(self, web_client):
         """更新工作流定义元数据：创建 → 更新名称/描述 → 验证 → 删除"""
         test_name = "api-test-wf-def-update-001"
@@ -142,6 +150,7 @@ class TestWorkflowDefWebAPI:
         finally:
             _cleanup_workflow_def(web_client, wf_id)
 
+    @pytest.mark.p2
     def test_list_workflow_defs_unauthorized(self, api_base_url):
         """无效 Token 访问工作流列表：应返回 401"""
         from tests.api_clients.web_client import WebClient
@@ -152,6 +161,7 @@ class TestWorkflowDefWebAPI:
         finally:
             bad_client.close()
 
+    @pytest.mark.p2
     def test_delete_workflow_def_idempotent(self, web_client):
         """WorkflowDef DELETE 幂等性：第二次删除返回 404"""
         test_name = "test-idempotent-delete-wfdef"

@@ -60,6 +60,7 @@ class TestWorkflowDefDraftPublishAPI:
     - GET /workflow-defs/:id/params — 参数定义
     """
 
+    @pytest.mark.p1
     def test_save_draft(self, web_client):
         """保存工作流草稿，回读 GET 详情验证保存生效（G8）"""
         test_name = "api-test-wf-draft-001"
@@ -97,6 +98,7 @@ steps:
         finally:
             _cleanup_workflow(web_client, wf_id)
 
+    @pytest.mark.p1
     def test_publish_version(self, web_client):
         """发布工作流版本，回读版本列表验证产生新版本（G8/G11）"""
         test_name = "api-test-wf-publish-001"
@@ -141,6 +143,7 @@ steps:
         finally:
             _cleanup_workflow(web_client, wf_id)
 
+    @pytest.mark.p1
     def test_get_version_yaml(self, web_client):
         """获取指定版本的 YAML 内容"""
         items = web_client.list_workflow_defs()
@@ -176,6 +179,7 @@ steps:
                 pytest.skip(f"版本 {version_tag} 不存在或已删除")
             raise
 
+    @pytest.mark.p1
     def test_set_latest_version(self, web_client):
         """设置指定版本为最新"""
         items = web_client.list_workflow_defs()
@@ -211,6 +215,7 @@ steps:
                 pytest.skip(f"版本 {version_tag} 不存在")
             raise
 
+    @pytest.mark.p1
     def test_restore_version_to_draft(self, web_client):
         """恢复指定版本为草稿"""
         items = web_client.list_workflow_defs()
@@ -257,6 +262,7 @@ steps:
                 pytest.skip(f"版本 {version_tag} 不存在")
             raise
 
+    @pytest.mark.p1
     def test_get_workflow_params(self, web_client):
         """获取工作流参数定义"""
         items = web_client.list_workflow_defs()
@@ -293,6 +299,7 @@ class TestWorkflowDefTriggerAPI:
     - POST /triggers/:triggerId/disable — 禁用
     """
 
+    @pytest.mark.p1
     def test_create_trigger(self, web_client):
         """创建触发器"""
         test_name = f"api-test-wf-trigger-{uuid.uuid4().hex[:8]}"
@@ -327,6 +334,7 @@ class TestWorkflowDefTriggerAPI:
         finally:
             _cleanup_workflow(web_client, wf_id)
 
+    @pytest.mark.p1
     def test_delete_trigger(self, web_client):
         """删除触发器"""
         test_name = f"api-test-wf-trigger-del-{uuid.uuid4().hex[:8]}"
@@ -371,6 +379,7 @@ class TestWorkflowDefTriggerAPI:
         finally:
             _cleanup_workflow(web_client, wf_id)
 
+    @pytest.mark.p1
     def test_enable_disable_trigger(self, web_client):
         """启用/禁用触发器：验证 disable 和 enable 调用成功"""
         test_name = f"api-test-wf-trigger-toggle-{uuid.uuid4().hex[:8]}"
@@ -421,6 +430,7 @@ class TestWorkflowDefTriggerAPI:
         finally:
             _cleanup_workflow(web_client, wf_id)
 
+    @pytest.mark.p1
     def test_regenerate_trigger_hash(self, web_client):
         """重新生成触发器哈希"""
         test_name = f"api-test-wf-trigger-regen-{uuid.uuid4().hex[:8]}"
@@ -458,6 +468,7 @@ class TestWorkflowDefTriggerAPI:
         finally:
             _cleanup_workflow(web_client, wf_id)
 
+    @pytest.mark.p2
     def test_trigger_nonexistent_workflow(self, web_client):
         """为不存在的工作流创建触发器：应返回 404"""
         with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(404|400)"):
@@ -477,6 +488,7 @@ class TestWorkflowDefRecoverAPI:
     - POST /workflow-defs/recover — 确认恢复
     """
 
+    @pytest.mark.p1
     def test_get_recoverable_workflows(self, web_client):
         """获取可恢复工作流列表：源码契约返回 string[]（工作流 ID 列表）"""
         resp = web_client.get_recoverable_workflow_defs()
@@ -486,6 +498,7 @@ class TestWorkflowDefRecoverAPI:
             assert isinstance(item, str) or (isinstance(item, dict) and item.get("id")), \
                 f"可恢复工作流元素应为字符串 ID 或含 id 的对象，实际: {item!r}"
 
+    @pytest.mark.p1
     def test_recover_workflows(self, web_client):
         """确认恢复工作流：恢复后该工作流不再出现在可恢复列表"""
         recoverable = web_client.get_recoverable_workflow_defs()
@@ -517,6 +530,7 @@ class TestWorkflowDefRecoverAPI:
                 pytest.skip(f"恢复接口不可用: {e}")
             raise
 
+    @pytest.mark.p2
     def test_recover_empty_list(self, web_client):
         """空列表恢复：应返回成功（no-op）或 400"""
         try:

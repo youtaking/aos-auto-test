@@ -50,12 +50,14 @@ class TestSkillWebAPI:
     - 列表返回 {skills: [...]}
     """
 
+    @pytest.mark.p0
     def test_list_skills(self, web_client):
         """获取 Skill 列表：返回 skills 数组"""
         resp = web_client.list_skills()
         web_client.validate_schema(resp, WEB_SKILL_LIST_DATA)
         assert isinstance(resp["skills"], list)
 
+    @pytest.mark.p0
     def test_get_skill(self, web_client):
         """获取单个 Skill 详情：先拿列表取第一个 name，再查详情"""
         list_data = web_client.list_skills()
@@ -68,6 +70,7 @@ class TestSkillWebAPI:
         assert detail["name"] == skill_name
         assert "content" in detail or "description" in detail
 
+    @pytest.mark.p0
     def test_create_and_delete_skill(self, web_client):
         """创建并删除 Skill：写操作生命周期测试"""
         test_name = "api-test-web-skill-001"
@@ -94,6 +97,7 @@ class TestSkillWebAPI:
         finally:
             _cleanup_web_skill(web_client, test_name)
 
+    @pytest.mark.p1
     def test_update_skill(self, web_client):
         """更新 Skill：创建 → 修改内容 → 验证 → 删除"""
         test_name = "api-test-web-skill-002"
@@ -127,11 +131,13 @@ class TestSkillWebAPI:
         finally:
             web_client.delete_skill(test_name)
 
+    @pytest.mark.p2
     def test_get_nonexistent_skill(self, web_client):
         """获取不存在的 Skill：应抛出 404 异常"""
         with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"404"):
             web_client.get_skill("nonexistent-skill-name-99999")
 
+    @pytest.mark.p2
     def test_delete_skill_idempotent(self, web_client):
         """Skill DELETE 幂等性：第二次删除返回 404"""
         test_name = "test-idempotent-delete-skill"
@@ -164,6 +170,7 @@ class TestSkillDownloadAPI:
     - 不存在的 skill 返回 404
     """
 
+    @pytest.mark.p2
     def test_download_skill_invalid_token(self, web_client):
         """无效 token 下载 Skill — 应返回 403"""
         list_data = web_client.list_skills()
@@ -180,6 +187,7 @@ class TestSkillDownloadAPI:
         except RuntimeError as e:
             assert "403" in str(e), f"无效 token 预期 403，实际: {e}"
 
+    @pytest.mark.p2
     def test_download_skill_empty_token(self, web_client):
         """空 token 下载 Skill — 应返回 400（Zod 校验 min(1)）或 403"""
         list_data = web_client.list_skills()
@@ -196,6 +204,7 @@ class TestSkillDownloadAPI:
         except RuntimeError as e:
             assert "400" in str(e) or "403" in str(e), f"空 token 预期 400/403，实际: {e}"
 
+    @pytest.mark.p2
     def test_download_skill_missing_token(self, api_base_url):
         """缺少 token 参数下载 Skill — 应返回 400（Zod 校验）或 403"""
         import httpx as _httpx
@@ -204,6 +213,7 @@ class TestSkillDownloadAPI:
             assert resp.status_code in (400, 403), \
                 f"缺少 token 预期 400/403，实际: {resp.status_code}"
 
+    @pytest.mark.p2
     def test_download_nonexistent_skill(self, web_client):
         """下载不存在的 Skill — 应返回 403（token 校验先于 skill 存在性检查）"""
         try:
@@ -217,6 +227,7 @@ class TestSkillDownloadAPI:
             assert "403" in str(e) or "404" in str(e), \
                 f"不存在的 skill 预期 403/404，实际: {e}"
 
+    @pytest.mark.p2
     def test_download_skill_invalid_name(self, web_client):
         """非法 skill name 下载 — 路由层可能过滤路径，token 无效则 403"""
         try:
@@ -243,6 +254,7 @@ class TestSkillOpenAPI:
     - 创建使用 multipart/form-data（此处仅测试 list/get/delete）
     """
 
+    @pytest.mark.p0
     def test_list_skills(self, api_client, _openapi_access):
         """获取 Skill 列表：返回分页结构"""
 
@@ -250,6 +262,7 @@ class TestSkillOpenAPI:
         api_client.validate_schema(resp, API_SKILL_LIST_RESPONSE)
         assert isinstance(resp["items"], list)
 
+    @pytest.mark.p0
     def test_get_skill(self, api_client, _openapi_access):
         """获取单个 Skill 详情：先拿列表取第一个 ID，再查详情"""
 
@@ -263,12 +276,14 @@ class TestSkillOpenAPI:
         assert resp["id"] == skill_id
 
     @pytest.mark.xfail(reason="应用 Bug：不存在 Skill 返回 500 而非 404（源码头 404，已确认）", strict=True)
+    @pytest.mark.p2
     def test_get_nonexistent_skill(self, api_client, _openapi_access):
         """获取不存在的 Skill：契约应返回 404（当前 500，应用 Bug）"""
 
         with pytest.raises(httpx.HTTPStatusError, match=r"404"):
             api_client.get_skill("nonexistent-skill-id-99999")
 
+    @pytest.mark.p2
     def test_list_skills_pagination_page2(self, api_client, _openapi_access):
         """验证获取 Skill 第 2 页数据，不与第 1 页重复"""
 

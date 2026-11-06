@@ -13,6 +13,7 @@ from tests.api_contracts.branding_schemas import BRANDING_DATA, CUSTOM_TOOL, SID
 class TestBrandingWebAPI:
     """/web/branding 品牌配置接口（无需认证）"""
 
+    @pytest.mark.p1
     def test_get_branding(self, web_client):
         """获取品牌配置：返回 brandName 和 logoUrl"""
         resp = web_client.get_branding()
@@ -23,6 +24,7 @@ class TestBrandingWebAPI:
 class TestSidebarConfigWebAPI:
     """/web/sidebar-config 侧边栏配置接口（无需认证）"""
 
+    @pytest.mark.p1
     def test_get_sidebar_config(self, web_client):
         """获取侧边栏配置：Schema 校验 + hiddenTabs 数组"""
         resp = web_client.get_sidebar_config()
@@ -35,6 +37,7 @@ class TestSidebarConfigWebAPI:
 class TestWorkflowCustomToolsWebAPI:
     """/web/workflow-custom-tools 自定义工具列表（session cookie 认证）"""
 
+    @pytest.mark.p1
     def test_list_workflow_custom_tools(self, web_client):
         """获取自定义工具列表：返回工具元数据数组"""
         resp = web_client.list_workflow_custom_tools()

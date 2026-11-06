@@ -18,21 +18,25 @@ class TestWorkflowEngineWebAPI:
     - 支持的 action: run, dryRun, cancel, approve, getRunStatus, getEvents, getOutput, getPendingApprovals, recover, rerunFrom
     """
 
+    @pytest.mark.p2
     def test_unknown_action(self, web_client):
         """未知 action：应返回 400 或 422"""
         with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(400|422)"):
             web_client.workflow_engine_action({"action": "unknown_action_xyz"})
 
+    @pytest.mark.p2
     def test_dry_run_without_yaml(self, web_client):
         """dryRun 缺少 yaml：应返回 400"""
         with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(400|422)"):
             web_client.workflow_engine_action({"action": "dryRun"})
 
+    @pytest.mark.p2
     def test_run_without_yaml(self, web_client):
         """run 缺少 yaml 和 workflowId：应返回 400"""
         with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(400|422)"):
             web_client.workflow_engine_action({"action": "run"})
 
+    @pytest.mark.p2
     def test_get_run_status_nonexistent(self, web_client):
         """获取不存在的 run 状态：应返回 404 或 null 数据"""
         try:
@@ -47,6 +51,7 @@ class TestWorkflowEngineWebAPI:
             assert "404" in str(e) or "not_found" in str(e).lower(), \
                 f"预期 404/not_found，实际: {e}"
 
+    @pytest.mark.p2
     def test_get_events_nonexistent(self, web_client):
         """获取不存在的 run 事件：应返回 404 或空列表"""
         try:
@@ -60,6 +65,7 @@ class TestWorkflowEngineWebAPI:
             assert "404" in str(e) or "not_found" in str(e).lower(), \
                 f"预期 404/not_found，实际: {e}"
 
+    @pytest.mark.p2
     def test_get_pending_approvals_nonexistent(self, web_client):
         """获取不存在的 run 审批列表：应返回 404 或空列表"""
         try:
@@ -74,6 +80,7 @@ class TestWorkflowEngineWebAPI:
                 f"预期 404/not_found，实际: {e}"
 
     @pytest.mark.xfail(reason="应用 Bug：/web/workflow-engine dryRun 合法 YAML 返回 500（应返回 {valid:true}，已确认）", strict=True)
+    @pytest.mark.p1
     def test_dry_run_with_simple_yaml(self, web_client):
         """dryRun 简单 YAML：契约应返回 {valid: true}（当前 500，应用 Bug）"""
         simple_yaml = """

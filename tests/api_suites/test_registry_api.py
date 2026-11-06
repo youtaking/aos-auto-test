@@ -42,6 +42,7 @@ class TestRegistryWebAPI:
     - 机器详情含 recentEvents
     """
 
+    @pytest.mark.p1
     def test_list_machines(self, web_client):
         """获取机器列表：返回分页结构"""
         resp = web_client.list_machines()
@@ -49,6 +50,7 @@ class TestRegistryWebAPI:
         assert "items" in resp
         assert isinstance(resp["items"], list)
 
+    @pytest.mark.p1
     def test_get_machine(self, web_client):
         """获取机器详情：先拿列表取第一个 id"""
         list_resp = web_client.list_machines()
@@ -61,6 +63,7 @@ class TestRegistryWebAPI:
         assert detail["id"] == machine_id
         assert "recentEvents" in detail
 
+    @pytest.mark.p1
     def test_list_machine_events(self, web_client):
         """获取机器事件列表：先拿列表取第一个 id"""
         list_resp = web_client.list_machines()
@@ -73,6 +76,7 @@ class TestRegistryWebAPI:
         assert "items" in resp
         assert isinstance(resp["items"], list)
 
+    @pytest.mark.p2
     def test_get_nonexistent_machine(self, web_client):
         """获取不存在的机器：应抛出 404 异常"""
         with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"404"):

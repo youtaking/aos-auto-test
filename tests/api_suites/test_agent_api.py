@@ -53,6 +53,7 @@ class TestAgentWebAPI:
     - 列表返回 {default_agent, agents: [...]}
     """
 
+    @pytest.mark.p0
     def test_list_agents(self, web_client):
         """获取 Agent 列表：返回 agents 数组且非空"""
         resp = web_client.list_agents()
@@ -61,6 +62,7 @@ class TestAgentWebAPI:
         assert isinstance(resp["agents"], list)
         assert len(resp["agents"]) > 0
 
+    @pytest.mark.p0
     def test_get_agent(self, web_client):
         """获取单个 Agent 详情：先拿列表取第一个 name，再查详情"""
         list_data = web_client.list_agents()
@@ -72,6 +74,7 @@ class TestAgentWebAPI:
         assert detail["name"] == agent_name
         assert "id" in detail
 
+    @pytest.mark.p0
     def test_create_and_delete_agent(self, web_client):
         """创建并删除 Agent：写操作生命周期测试"""
         test_name = "api-test-web-agent-001"
@@ -100,6 +103,7 @@ class TestAgentWebAPI:
             # 清理：无论断言是否失败都要删除
             _cleanup_web_agent(web_client, test_name)
 
+    @pytest.mark.p1
     def test_update_agent(self, web_client):
         """更新 Agent：创建 → 修改描述 → 验证 → 删除"""
         test_name = "api-test-web-agent-002"
@@ -125,17 +129,20 @@ class TestAgentWebAPI:
         finally:
             web_client.delete_agent(test_name)
 
+    @pytest.mark.p2
     def test_get_nonexistent_agent(self, web_client):
         """获取不存在的 Agent：应抛出 404 异常"""
         with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"404"):
             web_client.get_agent("nonexistent-agent-name-99999")
 
+    @pytest.mark.p1
     def test_get_agent_templates(self, web_client):
         """获取 Agent 模板列表：返回 templates 数组"""
         resp = web_client.get_agent_templates()
         web_client.validate_schema(resp, WEB_AGENT_TEMPLATES_DATA)
         assert isinstance(resp["templates"], list)
 
+    @pytest.mark.p1
     def test_set_default_agent(self, web_client):
         """设置默认 Agent：从列表取一个已有 Agent 名称设置为默认"""
         list_data = web_client.list_agents()
@@ -171,12 +178,14 @@ class TestAgentOpenAPI:
     - 响应为裸数据，无 {success, data} 包装
     """
 
+    @pytest.mark.p0
     def test_list_agents(self, api_client, _openapi_access):
         """获取 Agent 列表：返回分页结构"""
         resp = api_client.list_agents()
         api_client.validate_schema(resp, API_AGENT_LIST_RESPONSE)
         assert isinstance(resp["items"], list)
 
+    @pytest.mark.p0
     def test_get_agent(self, api_client, _openapi_access):
         """获取单个 Agent 详情：先拿列表取第一个 ID，再查详情"""
         list_resp = api_client.list_agents()
@@ -188,6 +197,7 @@ class TestAgentOpenAPI:
         api_client.validate_schema(resp, API_AGENT_DETAIL_RESPONSE)
         assert resp["id"] == agent_id
 
+    @pytest.mark.p0
     def test_create_and_delete_agent(self, api_client, _openapi_access):
         """创建并删除 Agent：写操作生命周期测试"""
         test_name = "api-test-openapi-agent-001"
@@ -216,6 +226,7 @@ class TestAgentOpenAPI:
             # 清理
             _cleanup_api_agent(api_client, test_name)
 
+    @pytest.mark.p1
     def test_update_agent(self, api_client, _openapi_access):
         """更新 Agent：创建 → 修改描述 → 验证 → 删除"""
         test_name = "api-test-openapi-agent-002"
@@ -245,11 +256,13 @@ class TestAgentOpenAPI:
             api_client.delete_agent(agent_id)
 
     @pytest.mark.xfail(reason="应用 Bug：不存在 Agent 返回 500 而非 404（源码头 404，已确认）", strict=True)
+    @pytest.mark.p2
     def test_get_nonexistent_agent(self, api_client, _openapi_access):
         """获取不存在的 Agent：契约应返回 404（当前 500，应用 Bug）"""
         with pytest.raises(httpx.HTTPStatusError, match=r"404"):
             api_client.get_agent("nonexistent-agent-id-99999")
 
+    @pytest.mark.p2
     def test_invalid_token_rejected(self, api_base_url, _openapi_access):
         """无效 API Key 访问 OpenAPI：应显式返回 401（不被 _openapi_access 转 skip 掩盖）"""
         from tests.api_clients.api_client import ApiClient
@@ -260,6 +273,7 @@ class TestAgentOpenAPI:
         finally:
             bad_client.close()
 
+    @pytest.mark.p2
     def test_delete_idempotent(self, api_client, _openapi_access):
         """验证 DELETE 同一资源两次，第二次返回 404（幂等性）"""
         test_name = "test-idempotent-delete-agent"
@@ -273,6 +287,7 @@ class TestAgentOpenAPI:
         finally:
             _cleanup_api_agent(api_client, test_name)
 
+    @pytest.mark.p1
     def test_update_agent_partial(self, api_client, _openapi_access):
         """PUT 部分字段更新，验证未修改字段不被清空"""
         test_name = "api-test-openapi-agent-partial"
@@ -305,11 +320,13 @@ class TestAgentOpenAPI:
 class TestAgentWebAPIExtra:
     """Agent Web API 额外场景测试"""
 
+    @pytest.mark.p2
     def test_create_agent_missing_name(self, web_client):
         """创建 Agent 缺少 name：应返回 400 或抛出异常"""
         with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(400|422)"):
             web_client.create_agent({"description": "no name agent"})
 
+    @pytest.mark.p2
     def test_list_agents_unauthorized(self, api_base_url):
         """无效 Token 访问：应返回 401"""
         from tests.api_clients.web_client import WebClient
@@ -320,6 +337,7 @@ class TestAgentWebAPIExtra:
         finally:
             bad_client.close()
 
+    @pytest.mark.p2
     def test_create_agent_duplicate_name(self, web_client):
         """创建同名 Agent：应返回 409 或抛出异常"""
         test_name = "api-test-web-agent-dup-001"
@@ -336,6 +354,7 @@ class TestAgentWebAPIExtra:
 class TestAgentOpenAPIExtra:
     """Agent OpenAPI 额外场景测试"""
 
+    @pytest.mark.p2
     def test_list_agents_pagination(self, api_client, _openapi_access):
         """验证分页参数生效"""
         resp = api_client.list_agents(params={"page": 1, "pageSize": 1})
@@ -343,6 +362,7 @@ class TestAgentOpenAPIExtra:
         assert resp["page"] == 1
         assert resp["pageSize"] == 1
 
+    @pytest.mark.p2
     def test_list_agents_pagination_page2(self, api_client, _openapi_access):
         """验证获取第 2 页数据，不与第 1 页重复"""
         page1 = api_client.list_agents({"page": 1, "pageSize": 1})
@@ -354,6 +374,7 @@ class TestAgentOpenAPIExtra:
         if page1["items"] and page2["items"]:
             assert page1["items"][0]["id"] != page2["items"][0]["id"]
 
+    @pytest.mark.p2
     def test_list_agents_pagination_boundary(self, api_client, _openapi_access):
         """分页边界：超大 pageSize 的处理"""
         try:
@@ -367,6 +388,7 @@ class TestAgentOpenAPIExtra:
             else:
                 raise
 
+    @pytest.mark.p2
     def test_create_agent_special_characters(self, api_client, _openapi_access):
         """name 含特殊字符的处理"""
         test_name = "api-test-special-chars-<>&\"'"
