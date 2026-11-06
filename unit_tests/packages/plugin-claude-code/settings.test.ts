@@ -6,21 +6,31 @@ import { describe, test, expect } from "bun:test";
 
 // ── 复制纯函数（来自 packages/plugin-claude-code/src/runtime/settings.ts）──
 
-interface McpServerConfig {
+interface StdioMcpServerConfig {
   name: string;
-  type: string;
-  command?: string;
+  type: "stdio";
+  command: string;
   args?: string[];
   cwd?: string;
   env?: Record<string, string>;
-  url?: string;
-  headers?: Record<string, string>;
+  timeout?: number;
 }
+
+interface StreamableHttpMcpServerConfig {
+  name: string;
+  type: "streamable-http";
+  url: string;
+  headers?: Record<string, string>;
+  timeout?: number;
+}
+
+type McpServerConfig = StdioMcpServerConfig | StreamableHttpMcpServerConfig;
 
 interface AgentLaunchSpec {
   organizationId: string;
   userId: string;
   env?: Record<string, string>;
+  plugins?: "hindsight"[];
   agent: { name: string; prompt?: string; extra?: Record<string, unknown> | null };
   model: {
     provider: string;
@@ -34,19 +44,25 @@ interface AgentLaunchSpec {
   mcpServers: McpServerConfig[];
 }
 
-interface ClaudeCodeMcpServerConfig {
-  command?: string;
+interface ClaudeCodeMcpStdioConfig {
+  command: string;
   args?: string[];
   env?: Record<string, string>;
   cwd?: string;
-  url?: string;
+}
+
+interface ClaudeCodeMcpRemoteConfig {
+  url: string;
   headers?: Record<string, string>;
 }
+
+type ClaudeCodeMcpServerConfig = ClaudeCodeMcpStdioConfig | ClaudeCodeMcpRemoteConfig;
 
 interface ClaudeCodeSettings {
   env?: Record<string, string>;
   model?: string;
   modelType?: string;
+  enabledPlugins?: Record<string, boolean>;
   permissions?: { allow?: string[]; deny?: string[]; defaultMode?: string };
 }
 
@@ -54,9 +70,7 @@ function isStreamableHttp(server: McpServerConfig): server is Extract<McpServerC
   return server.type === "streamable-http";
 }
 
-function buildMcpConfig(launchSpec: AgentLaunchSpec): { mcpServers: Record<string, ClaudeCodeMcpServerConfig> } | null {
-  if (launchSpec.mcpServers.length === 0) return null;
-
+function buildMcpConfig(launchSpec: AgentLaunchSpec): { mcpServers: Record<string, ClaudeCodeMcpServerConfig> } {
   const mcpServers: Record<string, ClaudeCodeMcpServerConfig> = {};
   for (const server of launchSpec.mcpServers) {
     if (isStreamableHttp(server)) {
@@ -108,6 +122,11 @@ function buildSettings(launchSpec: AgentLaunchSpec, _installedSkills: { name: st
     config.model = model.modelName;
   }
 
+  // 沿用 ccb/peri 镜像预装的市场别名；本地 Claude Code 也需安装同名市场插件。
+  if (launchSpec.plugins?.includes("hindsight")) {
+    config.enabledPlugins = { "hindsight-memory@hindsight-plugin": true };
+  }
+
   return config;
 }
 
@@ -128,8 +147,10 @@ function baseSpec(overrides?: Partial<AgentLaunchSpec>): AgentLaunchSpec {
 // ── 测试 ──
 
 describe("buildMcpConfig", () => {
-  test("正向 - 空 mcpServers 返回 null", () => {
-    expect(buildMcpConfig(baseSpec())).toBeNull();
+  // 空集合必须投影为空对象，不能返回 null：null 会让调用方跳过写文件，
+  // 取消全部 MCP 后 agent 仍按旧清单加载工具。
+  test("边界 - 空 mcpServers 返回空对象而不是 null", () => {
+    expect(buildMcpConfig(baseSpec())).toEqual({ mcpServers: {} });
   });
 
   test("正向 - stdio 类型包含 command/args/env/cwd", () => {
@@ -213,5 +234,16 @@ describe("buildSettings", () => {
     const spec = baseSpec({ model: { provider: "openai", protocol: "openai", baseUrl: "", apiKey: "", model: "gpt-4" } });
     const settings = buildSettings(spec, []);
     expect(settings.env).toBeUndefined();
+  });
+
+  // hindsight 插件由平台预装，必须写进 enabledPlugins，否则本地 Claude Code 不会加载记忆插件。
+  test("正向 - plugins 含 hindsight 时写入 enabledPlugins", () => {
+    const settings = buildSettings(baseSpec({ plugins: ["hindsight"] }), []);
+    expect(settings.enabledPlugins).toEqual({ "hindsight-memory@hindsight-plugin": true });
+  });
+
+  test("分支 - 未声明 plugins 时不写 enabledPlugins", () => {
+    const settings = buildSettings(baseSpec(), []);
+    expect(settings.enabledPlugins).toBeUndefined();
   });
 });

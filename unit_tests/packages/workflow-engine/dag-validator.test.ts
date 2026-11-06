@@ -28,7 +28,7 @@ interface NodeDef {
   url?: string;
   method?: string;
   headers?: Record<string, string>;
-  body?: string;
+  body?: string | { nodes: NodeDef[] };
   // Audit
   display_data?: unknown;
   expires_in?: number;

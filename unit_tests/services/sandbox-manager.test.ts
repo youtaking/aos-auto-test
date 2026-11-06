@@ -506,12 +506,14 @@ describe("SandboxManager machine identity", () => {
   });
 
   // ACP 等待超时后的重试必须复用现有 Provider 资源，不能因为等待失败就删除并创建第二个资源。
-  test("restarts an existing provider resource without destroying it", async () => {
+  test("repairs an existing provider resource without destroying it", async () => {
     const instance = makeInstance({ status: "recovering", externalSandboxId: "provider-sandbox" });
     let resumed = false;
     let destroyed = false;
     let created = false;
     const manager = new SandboxManager({
+      isMachineOnline: async () => false,
+      releaseRuntime: () => {},
       instances: {
         findActive: async () => instance,
         findById: async () => instance,
@@ -537,9 +539,10 @@ describe("SandboxManager machine identity", () => {
       } as never,
     });
 
-    const result = await manager.restart(instance.id);
+    const result = await manager.repairRuntime(instance.id);
 
-    expect(result.externalSandboxId).toBe("provider-sandbox");
+    expect(result.replaced).toBe(false);
+    expect(result.instance.externalSandboxId).toBe("provider-sandbox");
     expect(resumed).toBe(true);
     expect(created).toBe(false);
     expect(destroyed).toBe(false);
@@ -626,5 +629,226 @@ describe("SandboxManager machine identity", () => {
     expect(destroyed).toBe(true);
     expect(created).toBe(true);
     expect(instance.externalSandboxId).toBe("new-provider-sandbox");
+  });
+});
+
+describe("SandboxManager runtime recovery bookkeeping", () => {
+  function recordingManager(
+    instance: SandboxInstance,
+    options: {
+      isMachineOnline?: () => Promise<boolean>;
+      updates?: Array<{ status: string; patch?: Record<string, unknown> }>;
+      destroy?: () => Promise<void>;
+      releaseRuntime?: (machineId: string) => void;
+      deleteInstance?: () => Promise<SandboxInstance | null>;
+      findByIdForUser?: () => Promise<SandboxInstance | null>;
+      /** 生产 repository 提供行锁；打开后删除流程会走 deleting → 副作用 → 删除/回写。 */
+      useLock?: boolean;
+    } = {},
+  ) {
+    const updates = options.updates ?? [];
+    const update = async (_id: string, status: string, patch?: Record<string, unknown>) => {
+      updates.push({ status, patch });
+      return Object.assign(instance, { status, ...patch });
+    };
+    const instances: Record<string, unknown> = {
+      findActive: async () => instance,
+      findById: async () => instance,
+      findByMachineId: async () => instance,
+      findByIdForUser: options.findByIdForUser ?? (async () => instance),
+      update,
+      delete: options.deleteInstance ?? (async () => instance),
+    };
+    if (options.useLock) {
+      instances.withLock = async <T>(
+        _id: string,
+        operation: (scope: {
+          findById: (key: string) => Promise<SandboxInstance | null>;
+          update: (key: string, status: string, patch?: Record<string, unknown>) => Promise<SandboxInstance | null>;
+          delete: (key: string) => Promise<SandboxInstance | null>;
+        }) => Promise<T>,
+      ) =>
+        operation({
+          findById: async () => instance,
+          update,
+          delete: async () => instance,
+        });
+    }
+    return new SandboxManager({
+      isMachineOnline: options.isMachineOnline ?? (async () => false),
+      releaseRuntime: options.releaseRuntime ?? (() => {}),
+      instances: instances as never,
+      providers: {
+        get: () => ({
+          create: async () => ({ sandboxId: "provider-sandbox", status: "creating" as const }),
+          get: async () => null,
+          resume: async () => ({ sandboxId: "provider-sandbox", status: "ready" as const }),
+          destroy: options.destroy ?? (async () => {}),
+        }),
+      } as never,
+    });
+  }
+
+  // ACP 等待超时且机器仍离线时，只把匹配的 Instance 标记为 error。
+  test("marks the matching instance error when its machine stays offline", async () => {
+    const instance = makeInstance({ status: "starting", externalSandboxId: "provider-sandbox" });
+    const updates: Array<{ status: string; patch?: Record<string, unknown> }> = [];
+    const manager = recordingManager(instance, { updates });
+
+    await manager.markRuntimeNotReady(instance);
+
+    expect(updates).toHaveLength(1);
+    expect(updates[0].status).toBe("error");
+    expect(updates[0].patch?.providerPayload).toEqual({ reason: "sandbox_acp_connection_timeout" });
+  });
+
+  // 机器已经回连时，旧的超时不能把健康 Instance 覆盖为 error。
+  test("skips the error write when the machine is back online", async () => {
+    const instance = makeInstance({ status: "starting", externalSandboxId: "provider-sandbox" });
+    const updates: Array<{ status: string; patch?: Record<string, unknown> }> = [];
+    const manager = recordingManager(instance, { updates, isMachineOnline: async () => true });
+
+    await manager.markRuntimeNotReady(instance);
+
+    expect(updates).toHaveLength(0);
+  });
+
+  // 资源身份已被替换时，旧一轮的超时不得污染新资源的状态。
+  test("skips the error write when the resource identity changed", async () => {
+    const current = makeInstance({ status: "starting", externalSandboxId: "new-provider-sandbox" });
+    const updates: Array<{ status: string; patch?: Record<string, unknown> }> = [];
+    const manager = recordingManager(current, { updates });
+
+    await manager.markRuntimeNotReady(makeInstance({ externalSandboxId: "old-provider-sandbox" }));
+
+    expect(updates).toHaveLength(0);
+  });
+
+  // 正在删除的 Instance 不应被恢复失败改写成 error，避免打断删除流程。
+  test("skips the error write while the instance is being deleted", async () => {
+    const instance = makeInstance({ status: "deleting", externalSandboxId: "provider-sandbox" });
+    const updates: Array<{ status: string; patch?: Record<string, unknown> }> = [];
+    const manager = recordingManager(instance, { updates });
+
+    await manager.markRuntimeNotReady(instance);
+
+    expect(updates).toHaveLength(0);
+  });
+
+  // 断连机器只能恢复该用户自己的实例。
+  test("only returns instances owned by the requesting user", async () => {
+    const instance = makeInstance({ userId: "user_test" });
+    const manager = recordingManager(instance);
+
+    await expect(manager.getByMachineForUser(instance.machineId, "user_test")).resolves.toBe(instance);
+    await expect(manager.getByMachineForUser(instance.machineId, "user_other")).resolves.toBeNull();
+  });
+
+  // Provider 销毁失败时必须把失败原因回写到 Instance 并继续抛出。
+  test("records the delete failure and rethrows", async () => {
+    const instance = makeInstance({ externalSandboxId: "provider-sandbox" });
+    const updates: Array<{ status: string; patch?: Record<string, unknown> }> = [];
+    const manager = recordingManager(instance, {
+      updates,
+      useLock: true,
+      destroy: async () => {
+        throw new Error("provider down");
+      },
+    });
+
+    await expect(manager.deleteForUser(instance.id, instance.userId)).rejects.toThrow("provider down");
+
+    expect(updates[0].status).toBe("deleting");
+    const last = updates[updates.length - 1];
+    expect(last.status).toBe("error");
+    expect(last.patch?.providerPayload).toEqual({
+      reason: "sandbox_delete_failed",
+      message: "provider down",
+    });
+  });
+
+  // 资源身份已经变化时，旧一轮的修复只能报告“已替换”，不得销毁或创建任何资源。
+  test("reports replacement without side effects when the resource identity changed", async () => {
+    const instance = makeInstance({ status: "recovering", externalSandboxId: "new-provider-sandbox" });
+    let destroyed = false;
+    let created = false;
+    const manager = new SandboxManager({
+      isMachineOnline: async () => false,
+      instances: {
+        findById: async () => instance,
+        findByIdForUser: async () => instance,
+        update: async () => instance,
+      } as never,
+      providers: {
+        get: () => ({
+          create: async () => {
+            created = true;
+            return { sandboxId: "created", status: "creating" as const };
+          },
+          get: async () => {
+            throw new Error("must not query a superseded resource");
+          },
+          resume: async () => ({ sandboxId: "resumed", status: "ready" as const }),
+          destroy: async () => {
+            destroyed = true;
+          },
+        }),
+      } as never,
+    });
+
+    const result = await manager.repairRuntime(instance.id, {
+      expectedExternalSandboxId: "old-provider-sandbox",
+    });
+
+    expect(result.replaced).toBe(true);
+    expect(result.instance).toBe(instance);
+    expect(destroyed).toBe(false);
+    expect(created).toBe(false);
+  });
+
+  // 请求意图被替换后必须立即中止修复，避免旧请求破坏新请求接管后的资源。
+  test("aborts repair when the recovery intent is superseded", async () => {
+    const instance = makeInstance({ status: "recovering", externalSandboxId: "provider-sandbox" });
+    let destroyed = false;
+    const manager = new SandboxManager({
+      isMachineOnline: async () => false,
+      instances: {
+        findById: async () => instance,
+        findByIdForUser: async () => instance,
+        update: async () => instance,
+      } as never,
+      providers: {
+        get: () => ({
+          create: async () => ({ sandboxId: "created", status: "creating" as const }),
+          get: async () => ({ sandboxId: "provider-sandbox", status: "stopped" as const }),
+          resume: async () => ({ sandboxId: "provider-sandbox", status: "ready" as const }),
+          destroy: async () => {
+            destroyed = true;
+          },
+        }),
+      } as never,
+    });
+
+    await expect(
+      manager.repairRuntime(instance.id, { isCurrent: () => false }),
+    ).rejects.toThrow("sandbox recovery intent superseded");
+
+    expect(destroyed).toBe(false);
+  });
+
+  // 非属主请求删除时不得触碰 Provider 资源。
+  test("does not destroy a resource when the requester is not the owner", async () => {
+    const instance = makeInstance();
+    let destroyed = false;
+    const manager = recordingManager(instance, {
+      findByIdForUser: async () => null,
+      destroy: async () => {
+        destroyed = true;
+      },
+    });
+
+    await manager.deleteForUser(instance.id, "user_other");
+
+    expect(destroyed).toBe(false);
   });
 });

@@ -12,11 +12,11 @@ import { createPeriTaskDetailStore } from "@src/model-management/services/peri-t
 
 // ── Y.Doc 替身（最小接口，让真实 getPeriTasksMap 走通） ──
 
-interface TaskFields {
+type TaskFields = {
   kind?: string;
   detailAvailability?: string;
   summary?: unknown;
-}
+};
 
 function makeYMap<T = unknown>(entries: Record<string, T>): { get: (key: string) => T | undefined } {
   return {
@@ -40,7 +40,7 @@ function makeYDoc(tasks: Record<string, TaskFields>): { getMap: (name: string) =
 
 let currentYDoc: any = null;
 const mockDocManager = {
-  getSessionYdoc: mock((_rcsSessionId: string): unknown => currentYDoc),
+  getSessionYdoc: mock((_rcsSessionId: string): any => currentYDoc),
 };
 
 describe("createPeriTaskDetailStore", () => {

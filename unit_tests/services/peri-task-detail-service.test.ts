@@ -42,6 +42,7 @@ interface PeriTaskDetailContext {
 }
 
 interface PeriTaskDetailQuery {
+  limit: number;
   byteLimit: number;
 }
 
@@ -99,7 +100,7 @@ describe("getPeriTaskDetail", () => {
       detailAvailability: "preview",
     });
 
-    const result = await getPeriTaskDetail(baseContext, { byteLimit: 1000 }, deps as any);
+    const result = await getPeriTaskDetail(baseContext, { limit: 1, byteLimit: 1000 }, deps as any);
     expect(result.kind).toBe("preview");
     if (result.kind === "preview") {
       expect(result.taskId).toBe("task-1");
@@ -124,7 +125,7 @@ describe("getPeriTaskDetail", () => {
       },
     };
 
-    await expect(getPeriTaskDetail(baseContext, { byteLimit: 100 }, deps as any)).rejects.toThrow(
+    await expect(getPeriTaskDetail(baseContext, { limit: 1, byteLimit: 100 }, deps as any)).rejects.toThrow(
       "forbidden",
     );
     expect(deps.store.get).not.toHaveBeenCalled();
@@ -134,7 +135,7 @@ describe("getPeriTaskDetail", () => {
 
   test("任务不存在时抛出 NotFoundError", async () => {
     const deps = buildDeps(null);
-    await expect(getPeriTaskDetail(baseContext, { byteLimit: 100 }, deps as any)).rejects.toThrow(
+    await expect(getPeriTaskDetail(baseContext, { limit: 1, byteLimit: 100 }, deps as any)).rejects.toThrow(
       NotFoundError,
     );
   });
@@ -149,7 +150,7 @@ describe("getPeriTaskDetail", () => {
       detailAvailability: "expired",
     });
 
-    const result = await getPeriTaskDetail(baseContext, { byteLimit: 1000 }, deps as any);
+    const result = await getPeriTaskDetail(baseContext, { limit: 1, byteLimit: 1000 }, deps as any);
     expect(result.kind).toBe("unavailable");
     if (result.kind === "unavailable") {
       expect(result.reason).toBe("expired");
@@ -165,7 +166,7 @@ describe("getPeriTaskDetail", () => {
       detailAvailability: "unavailable",
     });
 
-    const result = await getPeriTaskDetail(baseContext, { byteLimit: 1000 }, deps as any);
+    const result = await getPeriTaskDetail(baseContext, { limit: 1, byteLimit: 1000 }, deps as any);
     expect(result.kind).toBe("unavailable");
     if (result.kind === "unavailable") {
       expect(result.reason).toBe("not_provided");
@@ -180,7 +181,7 @@ describe("getPeriTaskDetail", () => {
       detailAvailability: "preview",
     });
 
-    const result = await getPeriTaskDetail(baseContext, { byteLimit: 1000 }, deps as any);
+    const result = await getPeriTaskDetail(baseContext, { limit: 1, byteLimit: 1000 }, deps as any);
     expect(result.kind).toBe("unavailable");
     if (result.kind === "unavailable") {
       expect(result.reason).toBe("not_provided");
@@ -197,7 +198,7 @@ describe("getPeriTaskDetail", () => {
       detailAvailability: "preview",
     });
 
-    const result = await getPeriTaskDetail(baseContext, { byteLimit: 5 }, deps as any);
+    const result = await getPeriTaskDetail(baseContext, { limit: 1, byteLimit: 5 }, deps as any);
     if (result.kind === "preview") {
       expect(result.items[0].content).toBe("abcde");
     }
@@ -212,7 +213,7 @@ describe("getPeriTaskDetail", () => {
       detailAvailability: "preview",
     });
 
-    const result = await getPeriTaskDetail(baseContext, { byteLimit: 7 }, deps as any);
+    const result = await getPeriTaskDetail(baseContext, { limit: 1, byteLimit: 7 }, deps as any);
     if (result.kind === "preview") {
       expect(result.items[0].content).toBe("你好");
     }
@@ -226,7 +227,7 @@ describe("getPeriTaskDetail", () => {
       detailAvailability: "preview",
     });
 
-    const result = await getPeriTaskDetail(baseContext, { byteLimit: 0 }, deps as any);
+    const result = await getPeriTaskDetail(baseContext, { limit: 1, byteLimit: 0 }, deps as any);
     expect(result.kind).toBe("unavailable");
     if (result.kind === "unavailable") {
       expect(result.reason).toBe("not_provided");
@@ -241,7 +242,7 @@ describe("getPeriTaskDetail", () => {
       detailAvailability: "preview",
     });
 
-    const result = await getPeriTaskDetail(baseContext, { byteLimit: 1000 }, deps as any);
+    const result = await getPeriTaskDetail(baseContext, { limit: 1, byteLimit: 1000 }, deps as any);
     expect(result.kind).toBe("unavailable");
   });
 

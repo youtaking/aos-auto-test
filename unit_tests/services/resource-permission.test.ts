@@ -1,194 +1,89 @@
-import { describe, test, expect } from "bun:test";
+import { describe, expect, test } from "bun:test";
+import type { ResourceAccess, ResourceScope } from "@fenix/platform-sdk/resource/authorization";
+import { toResourceAccessView } from "@fenix/platform-sdk/protocol/resource-access-view";
 
-// ── Pure function copies from src/services/resource-permission.ts ──
+// 旧的 buildResourceAccess 已迁到平台侧的 toResourceAccessView：
+// 视图字段由 scope + 有效动作派生，资源包不再各自实现一份。
 
-class AppError extends Error {
-  readonly code: string;
-  readonly statusCode: number;
-  constructor(message: string, code: string, statusCode: number) {
-    super(message);
-    this.code = code;
-    this.statusCode = statusCode;
-  }
-}
-
-interface AuthContext {
-  organizationId: string;
-  userId: string;
-  role: string;
-  organizationName?: string;
-}
-
-interface ResourceAccessInput {
-  id: string;
-  organizationId: string;
-}
-
-interface ResourceAccess {
-  ownership: "internal" | "external";
-  sourceOrganizationId: string;
-  sourceOrganizationName?: string;
-  resourceUid: string;
-  resourceKey: string;
-  manageable: boolean;
-  writable: boolean;
-  publicReadable?: boolean;
-}
-
-function buildResourceAccess(
-  ctx: AuthContext,
-  _resourceType: string,
-  row: ResourceAccessInput,
-  publicReadable?: boolean,
+function view(
+  scope: ResourceScope,
+  access: ResourceAccess,
+  activeOrganizationId?: string,
   sourceOrganizationName?: string,
-): ResourceAccess {
-  const internal = row.organizationId === ctx.organizationId;
-  return {
-    ownership: internal ? "internal" : "external",
-    sourceOrganizationId: row.organizationId,
+) {
+  return toResourceAccessView({
+    resource: { id: "res-1", scope, access },
+    activeOrganizationId,
     sourceOrganizationName,
-    resourceUid: row.id,
-    resourceKey: `${row.organizationId}/${row.id}`,
-    manageable: internal,
-    writable: internal,
-    publicReadable: internal ? publicReadable : undefined,
-  };
+  });
 }
 
-function assertInternalWritable(
-  ctx: AuthContext,
-  _resourceType: string,
-  _resourceId: string,
-  ownerOrganizationId: string,
-): void {
-  if (ownerOrganizationId !== ctx.organizationId) {
-    throw new AppError("External resource is read-only", "FORBIDDEN", 403);
-  }
-}
+const UPDATE: ResourceAccess = { actions: ["read", "update", "delete"] };
+const READ_ONLY: ResourceAccess = { actions: ["read", "use"] };
 
-// ── Tests ──
-
-describe("buildResourceAccess", () => {
-  const ctx: AuthContext = {
-    organizationId: "org-1",
-    userId: "user-1",
-    role: "admin",
-  };
-
-  test("internal ownership: all writable and manageable", () => {
-    const row: ResourceAccessInput = { id: "res-1", organizationId: "org-1" };
-    const result = buildResourceAccess(ctx, "agent", row);
+describe("toResourceAccessView", () => {
+  // 资源归属组织与当前组织一致时为 internal，并可由有效动作决定是否可写。
+  test("maps an owned resource to internal", () => {
+    const result = view({ organizationId: "org-1", visibility: "private" }, UPDATE, "org-1");
 
     expect(result.ownership).toBe("internal");
-    expect(result.manageable).toBe(true);
-    expect(result.writable).toBe(true);
     expect(result.sourceOrganizationId).toBe("org-1");
     expect(result.resourceUid).toBe("res-1");
+    expect(result.resourceKey).toBe("org-1/res-1");
+    expect(result.manageable).toBe(true);
+    expect(result.writable).toBe(true);
   });
 
-  test("external ownership: read-only, not manageable", () => {
-    const row: ResourceAccessInput = { id: "res-2", organizationId: "org-2" };
-    const result = buildResourceAccess(ctx, "agent", row);
+  // 跨组织资源即使拿到了 update 动作，也必须标记为 external；可写性以动作集合为准。
+  test("maps a shared resource to external while honouring granted actions", () => {
+    const result = view({ organizationId: "org-2", visibility: "private" }, UPDATE, "org-1");
 
     expect(result.ownership).toBe("external");
+    expect(result.sourceOrganizationId).toBe("org-2");
+    expect(result.writable).toBe(true);
+  });
+
+  // 成员默认只拿到 read/use：同样是本组织资源，也不可管理、不可写。
+  test("does not grant manage or write without the update action", () => {
+    const result = view({ organizationId: "org-1", visibility: "private" }, READ_ONLY, "org-1");
+
+    expect(result.ownership).toBe("internal");
     expect(result.manageable).toBe(false);
     expect(result.writable).toBe(false);
-    expect(result.sourceOrganizationId).toBe("org-2");
   });
 
-  test("publicReadable is set for internal resources when true", () => {
-    const row: ResourceAccessInput = { id: "res-1", organizationId: "org-1" };
-    const result = buildResourceAccess(ctx, "agent", row, true);
-
-    expect(result.publicReadable).toBe(true);
+  // publicReadable 由资源自身的 visibility 表达，而不是访问者权限。
+  test("derives publicReadable from resource visibility", () => {
+    expect(view({ organizationId: "org-1", visibility: "public" }, UPDATE, "org-1").publicReadable).toBe(true);
+    expect(view({ organizationId: "org-1", visibility: "private" }, UPDATE, "org-1").publicReadable).toBe(false);
   });
 
-  test("publicReadable is set for internal resources when false", () => {
-    const row: ResourceAccessInput = { id: "res-1", organizationId: "org-1" };
-    const result = buildResourceAccess(ctx, "agent", row, false);
-
-    expect(result.publicReadable).toBe(false);
-  });
-
-  test("publicReadable is undefined for external resources even when param is true", () => {
-    const row: ResourceAccessInput = { id: "res-2", organizationId: "org-2" };
-    const result = buildResourceAccess(ctx, "agent", row, true);
-
-    expect(result.publicReadable).toBeUndefined();
-  });
-
-  test("publicReadable is undefined for internal resources when param not provided", () => {
-    const row: ResourceAccessInput = { id: "res-1", organizationId: "org-1" };
-    const result = buildResourceAccess(ctx, "agent", row);
-
-    expect(result.publicReadable).toBeUndefined();
-  });
-
-  test("resourceKey format is organizationId/id", () => {
-    const row: ResourceAccessInput = { id: "res-abc", organizationId: "org-xyz" };
-    const result = buildResourceAccess(ctx, "skill", row);
-
-    expect(result.resourceKey).toBe("org-xyz/res-abc");
-  });
-
-  test("sourceOrganizationName is passed through when provided", () => {
-    const row: ResourceAccessInput = { id: "res-1", organizationId: "org-2" };
-    const result = buildResourceAccess(ctx, "agent", row, undefined, "Other Org");
+  // 组织名录可用时透出来源组织名，便于外部资源展示。
+  test("passes through the source organization name when provided", () => {
+    const result = view({ organizationId: "org-2", visibility: "private" }, READ_ONLY, "org-1", "Other Org");
 
     expect(result.sourceOrganizationName).toBe("Other Org");
   });
 
-  test("sourceOrganizationName is undefined when not provided", () => {
-    const row: ResourceAccessInput = { id: "res-1", organizationId: "org-1" };
-    const result = buildResourceAccess(ctx, "agent", row);
+  // 名录缺失时省略字段，而不是写 undefined，保持对外协议形状稳定。
+  test("omits the source organization name when unavailable", () => {
+    const result = view({ organizationId: "org-1", visibility: "private" }, UPDATE, "org-1");
 
-    expect(result.sourceOrganizationName).toBeUndefined();
+    expect("sourceOrganizationName" in result).toBe(false);
   });
 
-  test("different resource types produce same structure", () => {
-    const row: ResourceAccessInput = { id: "res-1", organizationId: "org-1" };
-    const agentResult = buildResourceAccess(ctx, "agent", row);
-    const skillResult = buildResourceAccess(ctx, "skill", row);
+  // 无可比对的当前组织时，资源一律按 external 处理。
+  test("treats a resource as external when the active organization is unknown", () => {
+    const result = view({ organizationId: "org-1", visibility: "private" }, UPDATE);
 
-    // _resourceType is unused in the logic, so results should be identical
-    expect(agentResult).toEqual(skillResult);
-  });
-});
-
-describe("assertInternalWritable", () => {
-  const ctx: AuthContext = {
-    organizationId: "org-1",
-    userId: "user-1",
-    role: "admin",
-  };
-
-  test("passes silently for same organization", () => {
-    expect(() => assertInternalWritable(ctx, "agent", "res-1", "org-1")).not.toThrow();
+    expect(result.ownership).toBe("external");
   });
 
-  test("throws AppError for different organization", () => {
-    expect(() => assertInternalWritable(ctx, "agent", "res-1", "org-2")).toThrow(
-      "External resource is read-only",
-    );
-  });
+  // 归属组织缺失时 resourceKey 仍保持稳定格式，不抛错。
+  test("builds the resource key from the owning organization", () => {
+    const result = view({ visibility: "private" }, UPDATE, "org-1");
 
-  test("thrown error has correct code and statusCode", () => {
-    try {
-      assertInternalWritable(ctx, "agent", "res-1", "org-2");
-      expect.unreachable("should have thrown");
-    } catch (err) {
-      const appErr = err as AppError;
-      expect(appErr.code).toBe("FORBIDDEN");
-      expect(appErr.statusCode).toBe(403);
-    }
-  });
-
-  test("error message matches expected format", () => {
-    try {
-      assertInternalWritable(ctx, "skill", "skill-5", "other-org");
-      expect.unreachable("should have thrown");
-    } catch (err) {
-      expect((err as Error).message).toBe("External resource is read-only");
-    }
+    expect(result.sourceOrganizationId).toBe("");
+    expect(result.resourceKey).toBe("/res-1");
   });
 });

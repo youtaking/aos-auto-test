@@ -3,13 +3,23 @@
     "target": "ES2022",
     "module": "ES2022",
     "moduleResolution": "bundler",
-    "baseUrl": ".",
     "types": ["bun"],
     "strict": true,
     "paths": {
       "@fenix/sandbox-provider": ["../fenix-source/packages/sandbox-provider/src"],
       "@fenix/sandbox-provider/*": ["../fenix-source/packages/sandbox-provider/src/*"],
-      "@fenix/*": ["../fenix-source/src/*"]
+      "@fenix/logger": ["../fenix-source/packages/logger/src"],
+      "@fenix/logger/*": ["../fenix-source/packages/logger/src/*"],
+      "@fenix/platform-sdk/*": ["../fenix-source/packages/platform/platform-sdk/src/*"],
+      "@fenix/resource-machine/*": ["../fenix-source/packages/resources/machine/src/*"],
+      "@fenix/resource-sandbox/*": ["../fenix-source/packages/resources/sandbox/src/*"],
+      "@fenix/*": ["../fenix-source/apps/server/src/*"],
+      "@src/resource-sandbox/*": ["../fenix-source/packages/resources/sandbox/src/*"],
+      "@src/resource-machine/*": ["../fenix-source/packages/resources/machine/src/*"],
+      "@src/resource-prod-view/*": ["../fenix-source/packages/resources/prod-view/src/*"],
+      "@src/model-management/*": ["../fenix-source/packages/resources/model-management/src/*"],
+      "@src/identity/*": ["../fenix-source/packages/platform/identity/src/*"],
+      "@src/agent-runtime/*": ["../fenix-source/packages/agent-runtime/src/*"]
     }
   },
   "include": ["**/*.ts"]

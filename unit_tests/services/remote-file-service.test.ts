@@ -6,7 +6,7 @@ describe("remote file machine resolution", () => {
   test("uses the sandbox instance machine id for a sandbox agent node", () => {
     expect(
       selectRemoteMachineId({
-        agentNode: { kind: "sandbox", sandboxPoolId: "default" },
+        agentNode: { kind: "sandbox", sandboxPoolId: "default", organizationId: "org_test" },
         sandboxMachineId: "mach_sandbox_sbi_test",
         sandboxSelected: true,
         defaultMachineId: "mach_default",
@@ -18,7 +18,7 @@ describe("remote file machine resolution", () => {
   test("prefers the default sandbox instance over the default machine", () => {
     expect(
       selectRemoteMachineId({
-        agentNode: {},
+        agentNode: null,
         sandboxMachineId: "mach_sandbox_sbi_default",
         sandboxSelected: true,
         defaultMachineId: "mach_default",
@@ -30,7 +30,7 @@ describe("remote file machine resolution", () => {
   test("keeps explicit machine resolution unchanged", () => {
     expect(
       selectRemoteMachineId({
-        agentNode: { kind: "machine", machineId: "mach_explicit" },
+        agentNode: { kind: "machine", machineId: "mach_explicit", organizationId: "org_test" },
         sandboxMachineId: "mach_sandbox_sbi_test",
         sandboxSelected: false,
         defaultMachineId: "mach_default",
