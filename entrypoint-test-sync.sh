@@ -39,9 +39,12 @@ log "range:      $(echo "$BASE_SHA" | cut -c1-8)..$(echo "$HEAD_SHA" | cut -c1-8
 
 # 1. 影响面
 log ">>> 计算影响面..."
-python -X utf8 "$TEST_REPO/sync/validate_map.py" \
+if ! python -X utf8 "$TEST_REPO/sync/validate_map.py" \
   --impact "$BASE_SHA" "$HEAD_SHA" --repo "$FENIX_REPO" \
-  --json-out "$ARTIFACT_DIR/impact.json" --quiet
+  --json-out "$ARTIFACT_DIR/impact.json" --quiet; then
+  log ">>> 影响面计算失败（coverage-map 与仓库不一致）"
+  exit 11
+fi
 
 EMPTY=$(python -c "import json,sys;print(json.load(open(sys.argv[1],encoding='utf-8'))['empty'])" "$ARTIFACT_DIR/impact.json")
 if [ "$EMPTY" = "True" ]; then
@@ -144,6 +147,8 @@ if [ -n "$UNIT_FILES" ]; then
   WS_INSTALL=$?
   set -e
   [ "$WS_INSTALL" -eq 0 ] || { echo "[sync] FenixAgent 依赖安装失败"; exit 12; }
+  # 兜底路径的 bun install 可能改写锁文件，恢复后只读校验才不会被误判
+  git -C "$FENIX_REPO" checkout -- bun.lock bun.lockb 2>/dev/null || true
 
   log ">>> bun install + bun test..."
   cd "$TEST_REPO/unit_tests"

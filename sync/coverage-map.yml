@@ -87,8 +87,8 @@ rules:
     targets:
       unit:
         - "unit_tests/packages/logger/"
-        - "unit_tests/logs/"
         - "unit_tests/plugins/logger.test.ts"
+        - "unit_tests/services/system-log-service.test.ts"
 
   - id: unit-transport
     match:
