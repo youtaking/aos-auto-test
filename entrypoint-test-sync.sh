@@ -16,7 +16,7 @@ set -eu
 TEST_REPO="${TEST_REPO:-/repo}"
 FENIX_REPO="${FENIX_REPO:-/workspace}"
 ARTIFACT_DIR="${ARTIFACT_DIR:-/artifacts}"
-MAX_SYNC_TURNS="${MAX_SYNC_TURNS:-40}"
+MAX_SYNC_TURNS="${MAX_SYNC_TURNS:-30}"
 
 log() { echo "[sync] $*"; }
 
@@ -169,6 +169,7 @@ def count_lines(fp):
         return 0
 
 
+listing_files = []
 for t in sorted(set(targets)):
     p = os.path.join(repo, t)
     if os.path.isdir(p):
@@ -178,11 +179,40 @@ for t in sorted(set(targets)):
                 fp = os.path.join(root, f)
                 rel = os.path.relpath(fp, repo).replace('\\', '/')
                 listing.append('%s  (%d 行)' % (rel, count_lines(fp)))
+                listing_files.append(rel)
     elif os.path.isfile(p):
         listing.append('%s  (%d 行)' % (t, count_lines(p)))
+        listing_files.append(t)
 if len(listing) > 120:
     listing = listing[:120] + ['... (更多文件已省略，需要时用 Read 按目录读取)']
 target_files = '\n'.join(listing) or '(无既有目标文件，需新建)'
+
+# 既有用例名提纲：模型不必再用 grep/ls 逐个头文件里找"这个行为有没有测过"
+name_re = re.compile(
+    r'^\s*(?:def\s+(test_\w+)|(?:test|it|describe)\s*\(\s*["\'`]([^"\'`]{1,80})["\'`])')
+OUTLINE_TOTAL = 20000
+outline, outline_chars = [], 0
+for rel in listing_files:
+    names = []
+    try:
+        with open(os.path.join(repo, rel), encoding='utf-8', errors='replace') as fh:
+            for line in fh:
+                m = name_re.match(line)
+                if m:
+                    names.append(m.group(1) or m.group(2))
+                if len(names) >= 8:
+                    break
+    except Exception:
+        continue
+    if not names:
+        continue
+    entry = '%s: %s' % (rel, ' | '.join(names))
+    if outline_chars + len(entry) > OUTLINE_TOTAL:
+        outline.append('... (更多用例名已省略)')
+        break
+    outline.append(entry)
+    outline_chars += len(entry) + 1
+test_outline = '\n'.join(outline) or '(无既有用例名)'
 
 # 影响面里的 rules[*].files 与 diff 完全重复（一次 20 提交批次有 73KB），只保留计数；
 # auto.* 是允许修改的目标清单，必须完整保留
@@ -203,6 +233,7 @@ text = text.replace('{{IMPACT_JSON}}', json.dumps(impact_view, ensure_ascii=Fals
 text = text.replace('{{DIFF_STAT}}', diff_stat)
 text = text.replace('{{DIFF}}', diff)
 text = text.replace('{{TARGET_FILES}}', target_files)
+text = text.replace('{{TEST_OUTLINE}}', test_outline)
 open(dst, 'w', encoding='utf-8').write(text)
 print('[sync] 提示词 %d 字节（diff %d，目标清单 %d 项）' % (len(text), len(diff), len(listing)))
 PY
@@ -217,7 +248,7 @@ cd "$TEST_REPO"
 timeout 2700 claude -p \
   --add-dir "$FENIX_REPO" \
   --dangerously-skip-permissions \
-  --disallowedTools Skill \
+  --disallowedTools Skill Bash Task \
   --strict-mcp-config \
   --setting-sources local \
   --max-turns "$MAX_SYNC_TURNS" \
@@ -383,8 +414,11 @@ open(dst, 'w', encoding='utf-8').write(text)
 print('[sync] 复核材料 %d 字节' % len(text))
 PY
 
+BASELINE_SHA=$(python -X utf8 -c "import json,sys;print(json.load(open(sys.argv[1],encoding='utf-8')).get('main_sha',''))" "$TEST_REPO/sync/baseline.json" 2>/dev/null || echo "")
+
 {
   printf '你是独立的 sync-reviewer（Checker），与生成补丁的 Maker 分离。严格按下面的检查项审查本轮改动（本次对齐 HEAD_SHA=%s）。改动内容已完整附在最后，只审查这些改动，禁止浏览测试仓库其他文件、禁止执行 git 命令、禁止修改任何文件；仅当核对 E2E 选择器依据时，可 Read fenix-source 中对应的组件源码。全部检查项通过则输出 APPROVE，否则输出 REJECT 并逐条说明。最后一行只输出一个词：APPROVE 或 REJECT。\n\n' "$HEAD_SHA"
+  printf '基线状态：sync/baseline.json 的 main_sha = %s；本轮 HEAD_SHA = %s。若两者相等，说明基线已对齐，本轮不需要改动 baseline.json，不得以“未改动 baseline”为由 REJECT。\n\n' "${BASELINE_SHA:-未知}" "$HEAD_SHA"
   printf '%s\n\n' "$REVIEW_SPEC"
   cat "$ARTIFACT_DIR/review-diff.txt"
 } > "$ARTIFACT_DIR/review-prompt.txt"
