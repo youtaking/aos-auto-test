@@ -195,7 +195,7 @@ pipeline {
             when { expression { env.SYNC_STATE == 'run' } }
             steps {
                 // 总时长兜底：入口内部分别有 30/15 分钟超时，这里防 bun install 等卡死
-                timeout(time: 60, unit: 'MINUTES') {
+                timeout(time: 40, unit: 'MINUTES') {
                 sh 'mkdir -p artifacts'
                 withCredentials([string(credentialsId: 'litellm-main-test-sync-key', variable: 'LITELLM_KEY')]) {
                 sh '''
