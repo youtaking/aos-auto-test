@@ -338,9 +338,11 @@ pipeline {
             archiveArtifacts artifacts: 'artifacts/**', allowEmptyArchive: true
 
             script {
-                // 只在有补丁 / 失败 / 需要人看时通知：“已是最新”“已存在分支”不打扰
+                // 只在真正产出（Draft MR / DRY RUN 补丁）时通知；失败只在 Jenkins 标红，不上企微
                 def st = env.SYNC_STATE ?: 'error'
-                if (NOTIFY_WECOM_ON() && st != 'unconfigured' && st != 'empty' && st != 'skip') {
+                def publish = fileExists('.publish_result') ? readFile('.publish_result').trim() : ''
+                def delivered = DRY_RUN_ON() || publish == 'published' || publish == 'nochange'
+                if (NOTIFY_WECOM_ON() && st == 'ready' && delivered) {
                     withCredentials([string(credentialsId: 'wecom-webhook', variable: 'WECOM_WEBHOOK')]) {
                     sh '''
                         set +x
@@ -353,8 +355,6 @@ def read(path, default=''):
     except Exception:
         return default
 
-state = read('.sync_state', 'unknown')
-result = read('.sync_result', '')
 build_url = os.environ.get('BUILD_URL', '')
 sha = read('.head_sha', '')
 sha8 = read('.sha8', sha[:8])
@@ -377,21 +377,12 @@ except Exception:
 
 publish = read('.publish_result', '')
 
-if state == 'skip':
-    icon, title = '⏭️', '已存在同步分支/MR，跳过'
-elif state == 'empty':
-    icon, title = '✅', '已是最新（无需同步）'
-elif state == 'ready' or result:
-    if dry:
-        icon, title = '🧪', '同步补丁已生成（DRY RUN）'
-    elif publish == 'published':
-        icon, title = '✅', '已提交 Draft MR'
-    elif publish == 'nochange':
-        icon, title = '✅', '无实际改动'
-    else:
-        icon, title = '❌', '发布失败'
+if dry:
+    icon, title = '🧪', '同步补丁已生成（DRY RUN）'
+elif publish == 'published':
+    icon, title = '✅', '已提交 Draft MR'
 else:
-    icon, title = '❌', '同步失败'
+    icon, title = '✅', '无实际改动'
 
 lines = [
     f'### {icon} main-test-sync {title}',
