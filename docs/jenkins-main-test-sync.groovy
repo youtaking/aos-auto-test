@@ -194,6 +194,8 @@ pipeline {
         stage('Sync In Container') {
             when { expression { env.SYNC_STATE == 'run' } }
             steps {
+                // 总时长兜底：入口内部分别有 30/15 分钟超时，这里防 bun install 等卡死
+                timeout(time: 60, unit: 'MINUTES') {
                 sh 'mkdir -p artifacts'
                 withCredentials([string(credentialsId: 'litellm-main-test-sync-key', variable: 'LITELLM_KEY')]) {
                 sh '''
@@ -207,7 +209,7 @@ pipeline {
                     # fenix 挂载可写：单测要 import main 源码，必须在仓库根 bun install 生成 node_modules。
                     # 源码不被改动由 entrypoint 的 git status 校验兜底（任何改动即失败）。
                     # 入口脚本从仓库挂载，工作区 checkout 无执行位，显式用 sh 调起
-                    docker run --rm --entrypoint /bin/sh \
+                    docker run --rm --name "main-sync-$BUILD_NUMBER" --entrypoint /bin/sh \
                       -v "$WS_HOST/fenix:/workspace" \
                       -v "$WS_HOST/autotest:/repo" \
                       -v "$WS_HOST/autotest/entrypoint-test-sync.sh:/app/entrypoint-test-sync.sh:ro" \
@@ -216,6 +218,10 @@ pipeline {
                       -e HEAD_SHA="$HEAD_SHA" \
                       -e DRY_RUN="$DRY_FLAG" \
                       -e MAX_SYNC_TURNS=30 \
+                      -e MAX_SYNC_BUDGET=3 \
+                      -e MAX_FIX_TURNS=16 \
+                      -e MAX_FIX_BUDGET=1 \
+                      -e SYNC_RETRY_LIMIT=1 \
                       -e IS_SANDBOX=1 \
                       -e ANTHROPIC_BASE_URL="__BASE_URL__" \
                       -e ANTHROPIC_AUTH_TOKEN="$LITELLM_KEY" \
@@ -242,6 +248,7 @@ pipeline {
                 '''.replace('__DRY__', DRY_RUN_ON().toString())
                    .replace('__BASE_URL__', env.ANTHROPIC_BASE_URL_ENV)
                    .replace('__MODEL__', params.SYNC_MODEL.trim())
+                }
                 }
                 script {
                     def result = fileExists('.sync_result') ? readFile('.sync_result').trim() : 'error'
@@ -336,6 +343,9 @@ pipeline {
     post {
         always {
             archiveArtifacts artifacts: 'artifacts/**', allowEmptyArchive: true
+
+            // 超时或中止时 docker run 客户端被杀，容器会残留并继续跑模型；按名字兜底清理
+            sh 'docker rm -f "main-sync-$BUILD_NUMBER" >/dev/null 2>&1 || true'
 
             script {
                 // 只在真正产出（Draft MR / DRY RUN 补丁）时通知；失败只在 Jenkins 标红，不上企微

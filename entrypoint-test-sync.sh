@@ -8,7 +8,11 @@
 #   FENIX_REPO            FenixAgent 源码（默认 /workspace）
 #   ARTIFACT_DIR          产物目录（默认 /artifacts）
 #   DRY_RUN               true/false，仅用于日志，发布在 groovy 侧
-#   MAX_SYNC_TURNS        Claude Code 最大轮次（默认 40）
+#   MAX_SYNC_TURNS        初始生成最大轮次（默认 30）
+#   MAX_SYNC_BUDGET       初始生成美元预算（默认 3）
+#   MAX_FIX_TURNS         自动修复最大轮次（默认 16）
+#   MAX_FIX_BUDGET        自动修复美元预算（默认 1）
+#   SYNC_RETRY_LIMIT      自动修复次数上限（默认 1，即整轮最多 2 次模型调用）
 #
 # 退出码：0 有可用补丁 10 影响面为空 11 触碰禁区 12 校验失败 13 AI 失败 14 无改动 15 复核未通过
 set -eu
@@ -17,6 +21,9 @@ TEST_REPO="${TEST_REPO:-/repo}"
 FENIX_REPO="${FENIX_REPO:-/workspace}"
 ARTIFACT_DIR="${ARTIFACT_DIR:-/artifacts}"
 MAX_SYNC_TURNS="${MAX_SYNC_TURNS:-30}"
+MAX_SYNC_BUDGET="${MAX_SYNC_BUDGET:-3}"
+MAX_FIX_TURNS="${MAX_FIX_TURNS:-16}"
+MAX_FIX_BUDGET="${MAX_FIX_BUDGET:-1}"
 
 log() { echo "[sync] $*"; }
 
@@ -284,7 +291,7 @@ PY
 
 log ">>> 调用 Claude Code（max-turns=$MAX_SYNC_TURNS）..."
 set +e
-run_ai "$ARTIFACT_DIR/prompt.txt" "$ARTIFACT_DIR/claude.jsonl" "$MAX_SYNC_TURNS" 3 2700
+run_ai "$ARTIFACT_DIR/prompt.txt" "$ARTIFACT_DIR/claude.jsonl" "$MAX_SYNC_TURNS" "$MAX_SYNC_BUDGET" 1800
 AI_EXIT=$?
 set -e
 log ">>> Claude Code 退出码: $AI_EXIT"
@@ -588,7 +595,7 @@ while :; do
     [ -s "$FAIL_LOG" ] || tail -n 200 "$CHECK_LOG" > "$FAIL_LOG" || true
     build_fix_prompt checks "$FAIL_LOG"
     set +e
-    run_ai "$ARTIFACT_DIR/fix-prompt.txt" "$ARTIFACT_DIR/claude-fix-$ATTEMPT.jsonl" 24 2 1800
+    run_ai "$ARTIFACT_DIR/fix-prompt.txt" "$ARTIFACT_DIR/claude-fix-$ATTEMPT.jsonl" "$MAX_FIX_TURNS" "$MAX_FIX_BUDGET" 900
     FIX_EXIT=$?
     set -e
     if [ "$FIX_EXIT" -ne 0 ]; then
@@ -623,7 +630,7 @@ while :; do
       log ">>> 复核未通过，第 $ATTEMPT 次自动修复（上限 $RETRY_LIMIT）..."
       build_fix_prompt review "$ARTIFACT_DIR/review-result.txt"
       set +e
-      run_ai "$ARTIFACT_DIR/fix-prompt.txt" "$ARTIFACT_DIR/claude-fix-$ATTEMPT.jsonl" 24 2 1800
+      run_ai "$ARTIFACT_DIR/fix-prompt.txt" "$ARTIFACT_DIR/claude-fix-$ATTEMPT.jsonl" "$MAX_FIX_TURNS" "$MAX_FIX_BUDGET" 900
       FIX_EXIT=$?
       set -e
       if [ "$FIX_EXIT" -ne 0 ]; then
