@@ -541,6 +541,7 @@ prompt = """# 任务：修复上一轮测试同步补丁
 ## 硬约束（违反即整轮作废）
 - 只能写：unit_tests/、tests/api_suites/、tests/api_clients/、tests/api_contracts/、tests/suites/、tests/pages/、tests/fixtures/、docs/手工用例/、sync/baseline.json
 - 只做最小修正：不要重写已通过的部分，不要新增无关文件，不要删除有依据的既有断言
+- 控制探索：按报错里的文件名/行号直接定位，Read 总数控制在 5 次以内，同一类问题一次改完
 - 禁止恒真断言；异常用例必须同时断言 status_code 与 error.code；skip 只能放在用例开头
 - 写操作必须自建数据并 try/finally 清理，禁止修改或删除已存在数据
 - 单测断言必须是具体值，内联副本必须与当前源码逐段一致
@@ -583,13 +584,18 @@ while :; do
     [ -s "$FAIL_LOG" ] || tail -n 200 "$CHECK_LOG" > "$FAIL_LOG" || true
     build_fix_prompt checks "$FAIL_LOG"
     set +e
-    run_ai "$ARTIFACT_DIR/fix-prompt.txt" "$ARTIFACT_DIR/claude-fix-$ATTEMPT.jsonl" 12 1.5 1800
+    run_ai "$ARTIFACT_DIR/fix-prompt.txt" "$ARTIFACT_DIR/claude-fix-$ATTEMPT.jsonl" 24 2 1800
     FIX_EXIT=$?
     set -e
     if [ "$FIX_EXIT" -ne 0 ]; then
-      echo "[sync] 自动修复执行失败，尾部日志："
-      tail -40 "$ARTIFACT_DIR/claude-fix-$ATTEMPT.jsonl" || true
-      exit 13
+      # 达到轮次上限时改动可能已部分落盘，先按现状重跑校验，由校验/复核决定成败
+      if grep -q '"subtype":"error_max_turns"' "$ARTIFACT_DIR/claude-fix-$ATTEMPT.jsonl" 2>/dev/null; then
+        echo "[sync] 自动修复达到轮次上限，先按已落盘的改动重跑校验"
+      else
+        echo "[sync] 自动修复执行失败，尾部日志："
+        tail -40 "$ARTIFACT_DIR/claude-fix-$ATTEMPT.jsonl" || true
+        exit 13
+      fi
     fi
     check_dirty=$(git -C "$FENIX_REPO" status --porcelain || true)
     [ -z "$check_dirty" ] || fail_fenix_dirty
@@ -613,13 +619,18 @@ while :; do
       log ">>> 复核未通过，第 $ATTEMPT 次自动修复（上限 $RETRY_LIMIT）..."
       build_fix_prompt review "$ARTIFACT_DIR/review-result.txt"
       set +e
-      run_ai "$ARTIFACT_DIR/fix-prompt.txt" "$ARTIFACT_DIR/claude-fix-$ATTEMPT.jsonl" 12 1.5 1800
+      run_ai "$ARTIFACT_DIR/fix-prompt.txt" "$ARTIFACT_DIR/claude-fix-$ATTEMPT.jsonl" 24 2 1800
       FIX_EXIT=$?
       set -e
       if [ "$FIX_EXIT" -ne 0 ]; then
-        echo "[sync] 自动修复执行失败，尾部日志："
-        tail -40 "$ARTIFACT_DIR/claude-fix-$ATTEMPT.jsonl" || true
-        exit 13
+        # 达到轮次上限时改动可能已部分落盘，先按现状重跑校验，由校验/复核决定成败
+        if grep -q '"subtype":"error_max_turns"' "$ARTIFACT_DIR/claude-fix-$ATTEMPT.jsonl" 2>/dev/null; then
+          echo "[sync] 自动修复达到轮次上限，先按已落盘的改动重跑校验"
+        else
+          echo "[sync] 自动修复执行失败，尾部日志："
+          tail -40 "$ARTIFACT_DIR/claude-fix-$ATTEMPT.jsonl" || true
+          exit 13
+        fi
       fi
       check_dirty=$(git -C "$FENIX_REPO" status --porcelain || true)
       [ -z "$check_dirty" ] || fail_fenix_dirty
