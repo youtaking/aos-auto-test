@@ -349,7 +349,7 @@ PY
 
     post {
         always {
-            archiveArtifacts artifacts: 'artifacts/impact.json, artifacts/changes.json, artifacts/review.json, artifacts/status.txt, artifacts/diff-stat.txt, artifacts/mr.json', allowEmptyArchive: true
+            archiveArtifacts artifacts: 'artifacts/**', allowEmptyArchive: true
             sh '''
                 rm -rf fenix artifacts autotest
                 rm -f .base_sha .head_sha .sha8 .sync_state .sync_result .sync_exit .publish_result wecom_sync_payload.json
