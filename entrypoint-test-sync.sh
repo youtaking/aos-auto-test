@@ -238,28 +238,28 @@ open(dst, 'w', encoding='utf-8').write(text)
 print('[sync] 提示词 %d 字节（diff %d，目标清单 %d 项）' % (len(text), len(diff), len(listing)))
 PY
 
-log ">>> 调用 Claude Code（max-turns=$MAX_SYNC_TURNS）..."
-set +e
-cd "$TEST_REPO"
-# 提示词含完整 diff，可能超过 Linux 单个参数上限（128KB），统一走 stdin
+# 统一的大模型调用入口：提示词走 stdin（可能超 128KB 单参数上限），用量只进日志/产物
 # 禁止加载任何 Skill：仓库里的技能多为本地交互式（AskUserQuestion / git pull / Playwright MCP / 实跑环境），
-# 在容器里会卡住或写白名单外路径；本轮规则已全部渲染在 prompt.txt 内。
+# 在容器里会卡住或写白名单外路径；规则已全部渲染在提示词内。
 # --strict-mcp-config 防止仓库 .mcp.json 里的 Playwright MCP 在无桌面容器里启动。
-timeout 2700 claude -p \
-  --add-dir "$FENIX_REPO" \
-  --dangerously-skip-permissions \
-  --disallowedTools Skill Bash Task \
-  --strict-mcp-config \
-  --setting-sources local \
-  --max-turns "$MAX_SYNC_TURNS" \
-  --max-budget-usd 3 \
-  --output-format stream-json --verbose \
-  < "$ARTIFACT_DIR/prompt.txt" \
-  > "$ARTIFACT_DIR/claude.jsonl" 2>&1
-AI_EXIT=$?
-set -e
-# 用量只进日志/产物，不进企微通知
-python - "$ARTIFACT_DIR/claude.jsonl" <<'PY' || true
+run_ai() {
+  _prompt=$1; _out=$2; _turns=$3; _budget=$4; _timeout=$5
+  # 记住调用方的 errexit：内部要临时关掉，返回前必须恢复，否则调用方捕获不到失败
+  case $- in *e*) _was_e=1 ;; *) _was_e=0 ;; esac
+  set +e
+  cd "$TEST_REPO"
+  timeout "$_timeout" claude -p \
+    --add-dir "$FENIX_REPO" \
+    --dangerously-skip-permissions \
+    --disallowedTools Skill Bash Task \
+    --strict-mcp-config \
+    --setting-sources local \
+    --max-turns "$_turns" \
+    --max-budget-usd "$_budget" \
+    --output-format stream-json --verbose \
+    < "$_prompt" > "$_out" 2>&1
+  _rc=$?
+  python - "$_out" <<'PY' || true
 import json, sys
 u, cost = None, None
 for line in open(sys.argv[1], encoding='utf-8', errors='replace'):
@@ -278,6 +278,15 @@ if u:
         u.get('input_tokens'), u.get('cache_read_input_tokens'),
         u.get('output_tokens'), cost))
 PY
+  if [ "$_was_e" -eq 1 ]; then set -e; fi
+  return $_rc
+}
+
+log ">>> 调用 Claude Code（max-turns=$MAX_SYNC_TURNS）..."
+set +e
+run_ai "$ARTIFACT_DIR/prompt.txt" "$ARTIFACT_DIR/claude.jsonl" "$MAX_SYNC_TURNS" 3 2700
+AI_EXIT=$?
+set -e
 log ">>> Claude Code 退出码: $AI_EXIT"
 if [ "$AI_EXIT" -ne 0 ]; then
   echo "[sync] Claude Code 执行失败，尾部日志："
@@ -289,27 +298,26 @@ fi
 check_dirty=$(git -C "$FENIX_REPO" status --porcelain || true)
 [ -z "$check_dirty" ] || fail_fenix_dirty
 
-# 4. 策略校验（白名单 / 禁区 / 改动数量上限）
-log ">>> 校验改动范围..."
-if ! python -X utf8 "$TEST_REPO/sync/check_policy.py" \
-  --repo "$TEST_REPO" \
-  --json-out "$ARTIFACT_DIR/changes.json"; then
-  log ">>> 改动触碰禁区或超出允许范围（见上）"
-  exit 11
-fi
+# 4~6. 策略校验 → 校验 → 独立复核；任一失败时带报错自动修复一次（SYNC_RETRY_LIMIT）
+ATTEMPT=0
+RETRY_LIMIT="${SYNC_RETRY_LIMIT:-1}"
+WS_INSTALLED=0
+UT_INSTALLED=0
+CHECK_LOG=""
+FAIL_LOG=""
 
-git -C "$TEST_REPO" status --porcelain > "$ARTIFACT_DIR/status.txt" || true
+read_changes() {
+  UNIT_FILES=$(python -c "import json,sys;print('\n'.join(json.load(open(sys.argv[1],encoding='utf-8'))['unit']))" "$ARTIFACT_DIR/changes.json")
+  PY_FILES=$(python -c "import json,sys;print('\n'.join(json.load(open(sys.argv[1],encoding='utf-8'))['python']))" "$ARTIFACT_DIR/changes.json")
+}
 
-FILE_COUNT=$(python -c "import json,sys;print(len(json.load(open(sys.argv[1],encoding='utf-8'))['files']))" "$ARTIFACT_DIR/changes.json")
-log ">>> AI 改动文件数: $FILE_COUNT"
-if [ "$FILE_COUNT" -eq 0 ]; then
-  log ">>> 无改动，结束"
-  exit 14
-fi
-
-# 5. 校验：py 收集 + ts 单测
-UNIT_FILES=$(python -c "import json,sys;print('\n'.join(json.load(open(sys.argv[1],encoding='utf-8'))['unit']))" "$ARTIFACT_DIR/changes.json")
-PY_FILES=$(python -c "import json,sys;print('\n'.join(json.load(open(sys.argv[1],encoding='utf-8'))['python']))" "$ARTIFACT_DIR/changes.json")
+# 校验输出同时落盘：失败时作为自动修复的输入
+run_checks() {
+  CHECK_LOG="$ARTIFACT_DIR/checks-$ATTEMPT.log"
+  FAIL_LOG="$ARTIFACT_DIR/checks-fail.log"
+  : > "$CHECK_LOG"
+  : > "$FAIL_LOG"
+  read_changes
 
 if [ -n "$PY_FILES" ]; then
   log ">>> pytest --collect-only..."
@@ -318,60 +326,92 @@ if [ -n "$PY_FILES" ]; then
     [ -n "$f" ] || continue
     # 退出码 5 = 没收集到用例（Page Object / client 等非测试文件），不算失败
     set +e
-    python -X utf8 -m pytest --collect-only -q "$f"
+    python -X utf8 -m pytest --collect-only -q "$f" >> "$CHECK_LOG" 2>&1
     rc=$?
     set -e
     [ "$rc" -eq 0 ] || [ "$rc" -eq 5 ] || PY_FAIL=1
   done <<EOF
 $PY_FILES
 EOF
-  [ "$PY_FAIL" -eq 0 ] || { echo "[sync] pytest 收集失败"; exit 12; }
+  if [ "$PY_FAIL" -ne 0 ]; then
+    echo "[sync] pytest 收集失败"
+    tail -n 40 "$CHECK_LOG" >> "$FAIL_LOG" || true
+    tail -n 40 "$CHECK_LOG" || true
+    return 1
+  fi
 fi
 
 if [ -n "$UNIT_FILES" ]; then
   # 单测 import 的被测源码需要 FenixAgent 根依赖；node_modules 由 .gitignore 屏蔽，不会污染只读校验
-  log ">>> 安装 FenixAgent 依赖（bun install）..."
-  cd "$FENIX_REPO"
-  set +e
-  bun install --frozen-lockfile >/dev/null 2>&1 || \
-    BUN_CONFIG_REGISTRY=https://registry.npmmirror.com bun install --no-save >/dev/null 2>&1 || \
-    bun install --no-save >/dev/null 2>&1
-  WS_INSTALL=$?
-  set -e
-  [ "$WS_INSTALL" -eq 0 ] || { echo "[sync] FenixAgent 依赖安装失败"; exit 12; }
-  # 兜底路径的 bun install 可能改写锁文件，恢复后只读校验才不会被误判
-  git -C "$FENIX_REPO" checkout -- bun.lock bun.lockb 2>/dev/null || true
+  if [ "$WS_INSTALLED" -eq 0 ]; then
+    log ">>> 安装 FenixAgent 依赖（bun install）..."
+    cd "$FENIX_REPO"
+    set +e
+    bun install --frozen-lockfile >/dev/null 2>&1 || \
+      BUN_CONFIG_REGISTRY=https://registry.npmmirror.com bun install --no-save >/dev/null 2>&1 || \
+      bun install --no-save >/dev/null 2>&1
+    WS_INSTALL=$?
+    set -e
+    [ "$WS_INSTALL" -eq 0 ] || { echo "[sync] FenixAgent 依赖安装失败"; exit 12; }
+    # 兜底路径的 bun install 可能改写锁文件，恢复后只读校验才不会被误判
+    git -C "$FENIX_REPO" checkout -- bun.lock bun.lockb 2>/dev/null || true
+    WS_INSTALLED=1
+  fi
 
-  log ">>> bun install + bun test..."
-  cd "$TEST_REPO/unit_tests"
-  set +e
-  bun install --frozen-lockfile >/dev/null 2>&1 || \
-    BUN_CONFIG_REGISTRY=https://registry.npmmirror.com bun install >/dev/null 2>&1 || \
-    bun install >/dev/null 2>&1
-  INSTALL_EXIT=$?
-  set -e
-  # bun install 可能改写锁文件，恢复仓库状态
-  git -C "$TEST_REPO" checkout -- unit_tests/bun.lock 2>/dev/null || true
-  git -C "$TEST_REPO" checkout -- unit_tests/bun.lockb 2>/dev/null || true
-  [ "$INSTALL_EXIT" -eq 0 ] || { echo "[sync] unit_tests bun install 失败"; exit 12; }
+  if [ "$UT_INSTALLED" -eq 0 ]; then
+    log ">>> 安装 unit_tests 依赖（bun install）..."
+    cd "$TEST_REPO/unit_tests"
+    set +e
+    bun install --frozen-lockfile >/dev/null 2>&1 || \
+      BUN_CONFIG_REGISTRY=https://registry.npmmirror.com bun install >/dev/null 2>&1 || \
+      bun install >/dev/null 2>&1
+    INSTALL_EXIT=$?
+    set -e
+    # bun install 可能改写锁文件，恢复仓库状态
+    git -C "$TEST_REPO" checkout -- unit_tests/bun.lock 2>/dev/null || true
+    git -C "$TEST_REPO" checkout -- unit_tests/bun.lockb 2>/dev/null || true
+    [ "$INSTALL_EXIT" -eq 0 ] || { echo "[sync] unit_tests bun install 失败"; exit 12; }
+    UT_INSTALLED=1
+  fi
 
+  log ">>> bun test..."
   UNIT_FAIL=0
   while IFS= read -r f; do
     [ -n "$f" ] || continue
     rel=${f#"$TEST_REPO"/}
     rel=${rel#unit_tests/}
-    bun test "./$rel" || UNIT_FAIL=1
+    set +e
+    bun test "./$rel" > "$CHECK_LOG.part" 2>&1
+    rc=$?
+    set -e
+    cat "$CHECK_LOG.part" >> "$CHECK_LOG"
+    cat "$CHECK_LOG.part"
+    if [ "$rc" -ne 0 ]; then
+      UNIT_FAIL=1
+      # 只留失败文件的输出，避免重试提示词被大量通过用例挤掉
+      printf '\n### %s\n' "$rel" >> "$FAIL_LOG"
+      tail -n 80 "$CHECK_LOG.part" >> "$FAIL_LOG"
+    fi
   done <<EOF
 $UNIT_FILES
 EOF
   cd "$TEST_REPO"
-  [ "$UNIT_FAIL" -eq 0 ] || { echo "[sync] 单测失败"; exit 12; }
+  if [ "$UNIT_FAIL" -ne 0 ]; then
+    echo "[sync] 单测失败"
+    return 1
+  fi
 
   check_dirty=$(git -C "$FENIX_REPO" status --porcelain || true)
   [ -z "$check_dirty" ] || fail_fenix_dirty
 fi
+  return 0
+}
 
-# 6. 独立复核（Maker/Checker 分离）
+# 独立复核（Maker/Checker 分离）：0=APPROVE，1=REJECT，2=执行失败
+run_review() {
+# 记住调用方的 errexit：内部要临时关掉，返回前必须恢复，否则调用方捕获不到 REJECT
+case $- in *e*) _re_e=1 ;; *) _re_e=0 ;; esac
+set +e
 log ">>> 独立复核（sync-reviewer）..."
 if [ -f "$TEST_REPO/sync/reviewer.md" ]; then
   REVIEW_SPEC=$(cat "$TEST_REPO/sync/reviewer.md")
@@ -436,14 +476,14 @@ timeout 600 claude -p \
   < "$ARTIFACT_DIR/review-prompt.txt" \
   > "$ARTIFACT_DIR/review.json" 2> "$ARTIFACT_DIR/review.stderr.txt"
 REVIEW_EXIT=$?
-set -e
 if [ "$REVIEW_EXIT" -ne 0 ]; then
   echo "[sync] 复核执行失败，尾部日志："
   tail -40 "$ARTIFACT_DIR/review.json" || true
-  exit 15
+  if [ "$_re_e" -eq 1 ]; then set -e; fi
+  return 2
 fi
-VERDICT=$(python -c "
-import json,sys
+VERDICT=$(python - "$ARTIFACT_DIR/review.json" "$ARTIFACT_DIR/review-result.txt" <<'PY'
+import json, sys
 r = ''
 # 输出里可能夹带 CLI 告警行，逐行找可解析且带 result 的对象
 for line in open(sys.argv[1], encoding='utf-8', errors='replace'):
@@ -456,13 +496,136 @@ for line in open(sys.argv[1], encoding='utf-8', errors='replace'):
         continue
     if isinstance(obj, dict) and 'result' in obj:
         r = obj.get('result') or ''
+# 复核全文供自动修复使用
+open(sys.argv[2], 'w', encoding='utf-8').write(r)
 parts = r.split()
 print(parts[-1] if parts else '')
-" "$ARTIFACT_DIR/review.json" 2>/dev/null || echo "")
+PY
+) || VERDICT=""
 case "$VERDICT" in
-  APPROVE*) log ">>> 复核通过" ;;
-  *) echo "[sync] 复核未通过: $VERDICT"; exit 15 ;;
+  APPROVE*) log ">>> 复核通过"; _verdict_rc=0 ;;
+  *) echo "[sync] 复核未通过: $VERDICT"; _verdict_rc=1 ;;
 esac
+if [ "$_re_e" -eq 1 ]; then set -e; fi
+return $_verdict_rc
+}
+
+# 把失败详情回喂给生成器，只修最小范围；已改文件在 /repo 里可直接 Read
+build_fix_prompt() {
+  python - "$TEST_REPO" "$ARTIFACT_DIR" "$1" "$2" <<'PY'
+import json, os, sys
+repo, art, kind, detail_path = sys.argv[1:5]
+changed = json.load(open(os.path.join(art, 'changes.json'), encoding='utf-8')).get('files') or []
+detail = open(detail_path, encoding='utf-8', errors='replace').read() if os.path.exists(detail_path) else ''
+if kind == 'checks':
+    if len(detail) > 14000:
+        detail = '... (前部已截断)\n' + detail[-14000:]
+    header = '上一轮改动没有通过自动化校验。下面是校验输出，请只修正这些失败。'
+else:
+    if len(detail) > 14000:
+        detail = detail[:14000] + '\n... (已截断)'
+    header = '独立复核（sync-reviewer）判定 REJECT。下面是复核意见，请只修正被指出的问题。'
+
+prompt = """# 任务：修复上一轮测试同步补丁
+
+%s
+
+上一轮你已经修改了下面这些文件（位于 /repo，当前内容已包含你的改动）：
+%s
+
+被测源码只读挂载在 /workspace，仓库内的 fenix-source 也可见。可用工具：Read / Glob / Grep / Write / Edit（Bash 已禁用）。
+
+## 失败详情
+%s
+
+## 硬约束（违反即整轮作废）
+- 只能写：unit_tests/、tests/api_suites/、tests/api_clients/、tests/api_contracts/、tests/suites/、tests/pages/、tests/fixtures/、docs/手工用例/、sync/baseline.json
+- 只做最小修正：不要重写已通过的部分，不要新增无关文件，不要删除有依据的既有断言
+- 禁止恒真断言；异常用例必须同时断言 status_code 与 error.code；skip 只能放在用例开头
+- 写操作必须自建数据并 try/finally 清理，禁止修改或删除已存在数据
+- 单测断言必须是具体值，内联副本必须与当前源码逐段一致
+- 不要运行 bun/pytest（由流水线执行）；不要 commit/push
+直接修改文件，不要输出计划。
+""" % (header, '\n'.join('- ' + f for f in changed) or '(无)', detail)
+open(os.path.join(art, 'fix-prompt.txt'), 'w', encoding='utf-8').write(prompt)
+print('[sync] 修复提示词 %d 字节（kind=%s，改动文件 %d）' % (len(prompt), kind, len(changed)))
+PY
+}
+
+while :; do
+  # 4. 策略校验（白名单 / 禁区 / 改动数量上限）
+  log ">>> 校验改动范围..."
+  if ! python -X utf8 "$TEST_REPO/sync/check_policy.py" \
+    --repo "$TEST_REPO" \
+    --json-out "$ARTIFACT_DIR/changes.json"; then
+    log ">>> 改动触碰禁区或超出允许范围（见上）"
+    exit 11
+  fi
+
+  git -C "$TEST_REPO" status --porcelain > "$ARTIFACT_DIR/status.txt" || true
+
+  FILE_COUNT=$(python -c "import json,sys;print(len(json.load(open(sys.argv[1],encoding='utf-8'))['files']))" "$ARTIFACT_DIR/changes.json")
+  log ">>> AI 改动文件数: $FILE_COUNT"
+  if [ "$FILE_COUNT" -eq 0 ]; then
+    log ">>> 无改动，结束"
+    exit 14
+  fi
+
+  # 5. 校验：py 收集 + ts 单测
+  if ! run_checks; then
+    if [ "$ATTEMPT" -ge "$RETRY_LIMIT" ]; then
+      echo "[sync] 校验失败，自动修复次数已用尽"
+      exit 12
+    fi
+    ATTEMPT=$((ATTEMPT + 1))
+    log ">>> 校验未通过，第 $ATTEMPT 次自动修复（上限 $RETRY_LIMIT）..."
+    # 失败输出为空时退回完整日志尾部，保证重试拿到上下文
+    [ -s "$FAIL_LOG" ] || tail -n 200 "$CHECK_LOG" > "$FAIL_LOG" || true
+    build_fix_prompt checks "$FAIL_LOG"
+    set +e
+    run_ai "$ARTIFACT_DIR/fix-prompt.txt" "$ARTIFACT_DIR/claude-fix-$ATTEMPT.jsonl" 12 1.5 1800
+    FIX_EXIT=$?
+    set -e
+    if [ "$FIX_EXIT" -ne 0 ]; then
+      echo "[sync] 自动修复执行失败，尾部日志："
+      tail -40 "$ARTIFACT_DIR/claude-fix-$ATTEMPT.jsonl" || true
+      exit 13
+    fi
+    check_dirty=$(git -C "$FENIX_REPO" status --porcelain || true)
+    [ -z "$check_dirty" ] || fail_fenix_dirty
+    continue
+  fi
+
+  # 6. 独立复核（Maker/Checker 分离）
+  set +e
+  run_review
+  REVIEW_RC=$?
+  set -e
+  case "$REVIEW_RC" in
+    0) break ;;
+    2) exit 15 ;;
+    *)
+      if [ "$ATTEMPT" -ge "$RETRY_LIMIT" ]; then
+        echo "[sync] 复核未通过，自动修复次数已用尽"
+        exit 15
+      fi
+      ATTEMPT=$((ATTEMPT + 1))
+      log ">>> 复核未通过，第 $ATTEMPT 次自动修复（上限 $RETRY_LIMIT）..."
+      build_fix_prompt review "$ARTIFACT_DIR/review-result.txt"
+      set +e
+      run_ai "$ARTIFACT_DIR/fix-prompt.txt" "$ARTIFACT_DIR/claude-fix-$ATTEMPT.jsonl" 12 1.5 1800
+      FIX_EXIT=$?
+      set -e
+      if [ "$FIX_EXIT" -ne 0 ]; then
+        echo "[sync] 自动修复执行失败，尾部日志："
+        tail -40 "$ARTIFACT_DIR/claude-fix-$ATTEMPT.jsonl" || true
+        exit 13
+      fi
+      check_dirty=$(git -C "$FENIX_REPO" status --porcelain || true)
+      [ -z "$check_dirty" ] || fail_fenix_dirty
+      ;;
+  esac
+done
 
 log ">>> 再跑一次映射校验..."
 if ! python -X utf8 "$TEST_REPO/sync/validate_map.py" --quiet; then

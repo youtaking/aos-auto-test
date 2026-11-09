@@ -15,8 +15,8 @@ trigger:
 
 ai:
   image: autotest/test-sync-runner
-  # 单次运行最多 3 轮（生成 → 校验失败修正 → 再校验）
-  max_iterations: 3
+  # 最多 2 轮 AI 调用（初始生成 → 校验/复核失败时自动修复一次；SYNC_RETRY_LIMIT 可覆盖）
+  max_iterations: 2
   # 改动文件数量上限，超出视为跑偏
   max_files_changed: 40
   # 模型由 LiteLLM 虚拟 key 的 model_name 决定，运行期由 Jenkins 注入
