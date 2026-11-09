@@ -8,7 +8,7 @@
 #   FENIX_REPO            FenixAgent 源码（默认 /workspace）
 #   ARTIFACT_DIR          产物目录（默认 /artifacts）
 #   DRY_RUN               true/false，仅用于日志，发布在 groovy 侧
-#   MAX_SYNC_TURNS        Claude Code 最大轮次（默认 45）
+#   MAX_SYNC_TURNS        Claude Code 最大轮次（默认 55）
 #
 # 退出码：0 有可用补丁 10 影响面为空 11 触碰禁区 12 校验失败 13 AI 失败 14 无改动 15 复核未通过
 set -eu
@@ -16,7 +16,7 @@ set -eu
 TEST_REPO="${TEST_REPO:-/repo}"
 FENIX_REPO="${FENIX_REPO:-/workspace}"
 ARTIFACT_DIR="${ARTIFACT_DIR:-/artifacts}"
-MAX_SYNC_TURNS="${MAX_SYNC_TURNS:-45}"
+MAX_SYNC_TURNS="${MAX_SYNC_TURNS:-55}"
 
 log() { echo "[sync] $*"; }
 
@@ -129,7 +129,12 @@ if [ -n "$PY_FILES" ]; then
   PY_FAIL=0
   while IFS= read -r f; do
     [ -n "$f" ] || continue
-    python -X utf8 -m pytest --collect-only -q "$f" || PY_FAIL=1
+    # 退出码 5 = 没收集到用例（Page Object / client 等非测试文件），不算失败
+    set +e
+    python -X utf8 -m pytest --collect-only -q "$f"
+    rc=$?
+    set -e
+    [ "$rc" -eq 0 ] || [ "$rc" -eq 5 ] || PY_FAIL=1
   done <<EOF
 $PY_FILES
 EOF
