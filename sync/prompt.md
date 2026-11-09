@@ -17,8 +17,10 @@ FenixAgent 源码以只读方式挂在 `fenix-source/`。只修改测试用例�
 
 ## 工作步骤
 
-1. 逐个看源码改动（不要凭文件名猜）：
-   `git -C fenix-source diff {{BASE_SHA}} {{HEAD_SHA}} -- <file>`
+1. 一次性看源码改动（不要凭文件名猜）：
+   `git -C fenix-source diff --stat {{BASE_SHA}} {{HEAD_SHA}}`，
+   再对影响面相关路径跑一次 `git -C fenix-source diff {{BASE_SHA}} {{HEAD_SHA}} -- <paths...>`。
+   不要逐个文件反复调 git、不要读与改动无关的文件。
 
 2. **单测**（`auto.unit` 非空时）：Bun test。纯函数优先内联副本，避免拉起整套依赖。
    每个行为改动点覆盖 5 类场景：正向 / 全部分支 / 边界 / 异常 / 依赖隔离。
@@ -55,7 +57,7 @@ FenixAgent 源码以只读方式挂在 `fenix-source/`。只修改测试用例�
 - 不要 commit、不要 push、不要开 MR。
 - 不创建计划 / 分析文档，直接改代码。
 - 效率：只看 `git diff` 和影响面列出的文件，不要遍历仓库或读无关文件；
-  同一校验命令最多跑 2 次；30 轮内完成，改动尽量一次写对。
+  同一校验命令最多跑 2 次；45 轮内完成，改动尽量一次写对。
 
 ## 结束
 

@@ -8,7 +8,7 @@
 #   FENIX_REPO            FenixAgent 源码（默认 /workspace）
 #   ARTIFACT_DIR          产物目录（默认 /artifacts）
 #   DRY_RUN               true/false，仅用于日志，发布在 groovy 侧
-#   MAX_SYNC_TURNS        Claude Code 最大轮次（默认 30）
+#   MAX_SYNC_TURNS        Claude Code 最大轮次（默认 45）
 #
 # 退出码：0 有可用补丁 10 影响面为空 11 触碰禁区 12 校验失败 13 AI 失败 14 无改动 15 复核未通过
 set -eu
@@ -16,7 +16,7 @@ set -eu
 TEST_REPO="${TEST_REPO:-/repo}"
 FENIX_REPO="${FENIX_REPO:-/workspace}"
 ARTIFACT_DIR="${ARTIFACT_DIR:-/artifacts}"
-MAX_SYNC_TURNS="${MAX_SYNC_TURNS:-30}"
+MAX_SYNC_TURNS="${MAX_SYNC_TURNS:-45}"
 
 log() { echo "[sync] $*"; }
 
