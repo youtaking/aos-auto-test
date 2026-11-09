@@ -86,9 +86,6 @@ publish:
     target_branch: main
     branch_prefix: "sync/main-"
     draft: true
-  github:
-    remote: origin
-    mirror: true
 
 notify:
   wecom: true

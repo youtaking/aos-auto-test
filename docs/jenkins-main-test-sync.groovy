@@ -1,6 +1,6 @@
 // main-test-sync：每日批量比对 FenixAgent main 与 baseline，按影响面同步 unit/API/E2E 用例。
 // COMMIT_SHA 留空时自动解析 refs/heads/main 的最新提交。
-// 只生成 sync/main-<sha8> 分支 + GitLab Draft MR + GitHub 镜像分支，绝不自动合并。
+// 只生成 sync/main-<sha8> 分支 + GitLab Draft MR，绝不自动合并。
 //
 // 逐提交触发会在大模型上调起大量重复分析（每月约 69 次、~$128），改为每天一次批量：
 // baseline..main 的全部改动一次分析完，成本约 30 次/月。
@@ -139,7 +139,7 @@ pipeline {
                         exit 0
                     fi
                     if [ "$BRANCH_EXISTS" = "1" ]; then
-                        # 上一轮可能已推分支但发布中断（如 GitHub 镜像网络失败），只补建 MR，不重复调用模型
+                        # 上一轮可能已推分支但发布中断，只补建 MR，不重复调用模型
                         echo ">>> 分支 sync/main-$SHA8 已存在但无 MR，续跑补建 MR"
                         echo "ready" > .sync_state
                         exit 0
@@ -274,8 +274,7 @@ pipeline {
             when { expression { env.SYNC_STATE == 'ready' && !DRY_RUN_ON() } }
             steps {
                 withCredentials([
-                    string(credentialsId: 'gitlab-write-token', variable: 'GL_WRITE_TOKEN'),
-                    usernamePassword(credentialsId: 'mygithub-token', usernameVariable: 'GH_USER', passwordVariable: 'GH_TOKEN')
+                    string(credentialsId: 'gitlab-write-token', variable: 'GL_WRITE_TOKEN')
                 ]) {
                 sh '''
                     set +x
@@ -307,7 +306,7 @@ pipeline {
                     fi
                     cd ..
 
-                    # GitLab Draft MR 是主产物，先建 MR；GitHub 镜像失败不能连累发布
+                    # 唯一产物是 GitLab Draft MR（GitHub 镜像已移除：服务器直连 github.com 不可达）
                     mkdir -p artifacts
                     BASE_SHA=$(cat .base_sha)
                     HEAD_SHA=$(cat .head_sha)
@@ -324,14 +323,6 @@ pipeline {
                         exit 1
                     fi
                     echo ">>> MR: $(cat artifacts/mr_url.txt)"
-
-                    git remote add github "https://github.com/youtaking/aos-auto-test.git" || true
-                    GH_AUTH=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\\n')
-                    if GIT_TERMINAL_PROMPT=0 timeout 120 git -c http.extraHeader="AUTHORIZATION: basic ${GH_AUTH}" push github "$BRANCH"; then
-                        echo ">>> GitHub 镜像已更新"
-                    else
-                        echo ">>> WARN: GitHub 镜像推送失败（内网到 github.com 不稳定），GitLab MR 不受影响"
-                    fi
                     echo "published" > .publish_result
                 '''.replace('__GITLAB_API__', env.GITLAB_API)
                 }
