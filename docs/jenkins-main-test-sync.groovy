@@ -177,6 +177,7 @@ pipeline {
                     docker run --rm \
                       -v "$WS_HOST/fenix:/workspace" \
                       -v "$WS_HOST/autotest:/repo" \
+                      -v "$WS_HOST/autotest/entrypoint-test-sync.sh:/app/entrypoint-test-sync.sh:ro" \
                       -v "$WS_HOST/artifacts:/artifacts" \
                       -e BASE_SHA="$BASE_SHA" \
                       -e HEAD_SHA="$HEAD_SHA" \

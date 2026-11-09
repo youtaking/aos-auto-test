@@ -195,7 +195,7 @@ $REVIEW_SPEC" \
   --dangerously-skip-permissions \
   --max-turns 20 \
   --output-format json \
-  > "$ARTIFACT_DIR/review.json" 2>&1
+  > "$ARTIFACT_DIR/review.json" 2> "$ARTIFACT_DIR/review.stderr.txt"
 REVIEW_EXIT=$?
 set -e
 if [ "$REVIEW_EXIT" -ne 0 ]; then
@@ -205,10 +205,18 @@ if [ "$REVIEW_EXIT" -ne 0 ]; then
 fi
 VERDICT=$(python -c "
 import json,sys
-try:
-    r = json.load(open(sys.argv[1], encoding='utf-8')).get('result', '')
-except Exception:
-    r = ''
+r = ''
+# 输出里可能夹带 CLI 告警行，逐行找可解析且带 result 的对象
+for line in open(sys.argv[1], encoding='utf-8', errors='replace'):
+    line = line.strip()
+    if not line.startswith('{'):
+        continue
+    try:
+        obj = json.loads(line)
+    except Exception:
+        continue
+    if isinstance(obj, dict) and 'result' in obj:
+        r = obj.get('result') or ''
 parts = r.split()
 print(parts[-1] if parts else '')
 " "$ARTIFACT_DIR/review.json" 2>/dev/null || echo "")
