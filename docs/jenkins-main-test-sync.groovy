@@ -139,13 +139,16 @@ pipeline {
                     HEAD_SHA=$(cat .head_sha)
                     echo ">>> Cloning FenixAgent main and checking out $(echo "$HEAD_SHA" | cut -c1-8)..."
                     ok=0
+                    # 单次尝试 240s 上限：代理挂起时不会无限期阻塞整个构建
                     for proxy in "https://gh-proxy.com/" "https://ghproxy.net/" "https://ghfast.top/" ""; do
                         rm -rf fenix
                         echo "    Trying: ${proxy:-direct}"
-                        if git clone --single-branch --branch main "${proxy}__FENIX__" fenix 2>/dev/null; then
+                        if GIT_TERMINAL_PROMPT=0 timeout 240 git clone --single-branch --branch main \
+                             "${proxy}__FENIX__" fenix 2>/dev/null; then
                             ok=1
                             break
                         fi
+                        echo "    failed or timed out"
                         sleep 3
                     done
                     [ "$ok" = "1" ] || { echo "    ERROR: clone FenixAgent failed"; exit 1; }
