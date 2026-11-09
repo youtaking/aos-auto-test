@@ -166,12 +166,14 @@ pipeline {
                     HEAD_SHA=$(cat .head_sha)
                     if [ "__DRY__" = "true" ]; then DRY_FLAG=true; else DRY_FLAG=false; fi
                     set +e
+                    # docker 守护进程在宿主机解析 -v 路径，而 WORKSPACE 是容器内路径，需换成宿主机路径
+                    WS_HOST=$(echo "$WORKSPACE" | sed 's|^/var/jenkins_home|/opt/1panel/apps/jenkins/jenkins/data|')
                     # fenix 挂载可写：单测要 import main 源码，必须在仓库根 bun install 生成 node_modules。
                     # 源码不被改动由 entrypoint 的 git status 校验兜底（任何改动即失败）。
                     docker run --rm \
-                      -v "$WORKSPACE/fenix:/workspace" \
-                      -v "$WORKSPACE/autotest:/repo" \
-                      -v "$WORKSPACE/artifacts:/artifacts" \
+                      -v "$WS_HOST/fenix:/workspace" \
+                      -v "$WS_HOST/autotest:/repo" \
+                      -v "$WS_HOST/artifacts:/artifacts" \
                       -e BASE_SHA="$BASE_SHA" \
                       -e HEAD_SHA="$HEAD_SHA" \
                       -e DRY_RUN="$DRY_FLAG" \
