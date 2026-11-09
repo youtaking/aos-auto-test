@@ -221,7 +221,7 @@ pipeline {
             steps {
                 withCredentials([
                     string(credentialsId: 'gitlab-write-token', variable: 'GL_WRITE_TOKEN'),
-                    string(credentialsId: 'mygithub-token', variable: 'GH_TOKEN')
+                    usernamePassword(credentialsId: 'mygithub-token', usernameVariable: 'GH_USER', passwordVariable: 'GH_TOKEN')
                 ]) {
                 sh '''
                     set +x
