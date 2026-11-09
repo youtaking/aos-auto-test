@@ -174,7 +174,8 @@ pipeline {
                     WS_HOST=$(echo "$WORKSPACE" | sed 's|^/var/jenkins_home|/opt/1panel/apps/jenkins/jenkins/data|')
                     # fenix 挂载可写：单测要 import main 源码，必须在仓库根 bun install 生成 node_modules。
                     # 源码不被改动由 entrypoint 的 git status 校验兜底（任何改动即失败）。
-                    docker run --rm \
+                    # 入口脚本从仓库挂载，工作区 checkout 无执行位，显式用 sh 调起
+                    docker run --rm --entrypoint /bin/sh \
                       -v "$WS_HOST/fenix:/workspace" \
                       -v "$WS_HOST/autotest:/repo" \
                       -v "$WS_HOST/autotest/entrypoint-test-sync.sh:/app/entrypoint-test-sync.sh:ro" \
@@ -191,7 +192,7 @@ pipeline {
                       -e ANTHROPIC_DEFAULT_SONNET_MODEL="__MODEL__" \
                       -e ANTHROPIC_DEFAULT_HAIKU_MODEL="__MODEL__" \
                       -e ANTHROPIC_SMALL_FAST_MODEL="__MODEL__" \
-                      test-sync-runner:latest
+                      test-sync-runner:latest /app/entrypoint-test-sync.sh
                     SYNC_EXIT=$?
                     set -e
                     echo "$SYNC_EXIT" > .sync_exit
