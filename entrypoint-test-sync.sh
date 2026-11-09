@@ -317,6 +317,8 @@ run_checks() {
   FAIL_LOG="$ARTIFACT_DIR/checks-fail.log"
   : > "$CHECK_LOG"
   : > "$FAIL_LOG"
+  # 每轮从仓库根开始：上一轮可能停在 unit_tests/，不重置会让后续相对路径全部失配
+  cd "$TEST_REPO"
   read_changes
 
 if [ -n "$PY_FILES" ]; then
@@ -374,6 +376,8 @@ if [ -n "$UNIT_FILES" ]; then
     UT_INSTALLED=1
   fi
 
+  # bun test 的路径过滤相对当前目录，必须在 unit_tests/ 下执行
+  cd "$TEST_REPO/unit_tests"
   log ">>> bun test..."
   UNIT_FAIL=0
   while IFS= read -r f; do
