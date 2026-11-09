@@ -127,16 +127,21 @@ pipeline {
                     fi
 
                     GL_AUTH=$(printf 'oauth2:%s' "$GL_TOKEN" | base64 | tr -d '\\n')
+                    BRANCH_EXISTS=0
                     if git -c http.extraHeader="Authorization: Basic ${GL_AUTH}" ls-remote --heads "__GITLAB__" "refs/heads/sync/main-$SHA8" | grep -q .; then
-                        echo ">>> 分支 sync/main-$SHA8 已存在，跳过"
-                        echo "skip" > .sync_state
-                        exit 0
+                        BRANCH_EXISTS=1
                     fi
 
                     MR=$(curl -s -H "PRIVATE-TOKEN: ${GL_TOKEN}" "__GITLAB_API__/merge_requests?source_branch=sync/main-$SHA8&state=opened")
                     if echo "$MR" | grep -q '"iid"'; then
                         echo ">>> 已存在 Draft MR，跳过"
                         echo "skip" > .sync_state
+                        exit 0
+                    fi
+                    if [ "$BRANCH_EXISTS" = "1" ]; then
+                        # 上一轮可能已推分支但发布中断（如 GitHub 镜像网络失败），只补建 MR，不重复调用模型
+                        echo ">>> 分支 sync/main-$SHA8 已存在但无 MR，续跑补建 MR"
+                        echo "ready" > .sync_state
                         exit 0
                     fi
 
@@ -271,35 +276,55 @@ pipeline {
                     BRANCH="sync/main-$SHA8"
 
                     cd autotest
-                    git config user.email "ci@autotest.local"
-                    git config user.name "autotest-ci"
-                    git checkout -b "$BRANCH"
-                    git add unit_tests tests docs/手工用例 sync/baseline.json
-                    if git diff --cached --quiet; then
-                        echo ">>> 没有可提交的改动"
-                        echo "nochange" > ../.publish_result
-                        exit 0
-                    fi
-                    git commit -m "test: 同步 main $SHA8 变更到测试用例"
                     GL_AUTH=$(printf 'oauth2:%s' "$GL_WRITE_TOKEN" | base64 | tr -d '\\n')
-                    git -c http.extraHeader="Authorization: Basic ${GL_AUTH}" push origin "$BRANCH"
 
-                    git remote add github "https://github.com/youtaking/aos-auto-test.git" || true
-                    GH_AUTH=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\\n')
-                    git -c http.extraHeader="AUTHORIZATION: basic ${GH_AUTH}" push github "$BRANCH"
+                    # 续跑场景（上一轮已推分支但没建成 MR）：不再提交，直接补 MR
+                    REMOTE_EXISTS=0
+                    if git -c http.extraHeader="Authorization: Basic ${GL_AUTH}" ls-remote --heads origin "refs/heads/$BRANCH" | grep -q .; then
+                        REMOTE_EXISTS=1
+                        echo ">>> 分支已存在，跳过提交，直接补建 MR"
+                    fi
+
+                    if [ "$REMOTE_EXISTS" = "0" ]; then
+                        git config user.email "ci@autotest.local"
+                        git config user.name "autotest-ci"
+                        git checkout -b "$BRANCH"
+                        git add unit_tests tests docs/手工用例 sync/baseline.json
+                        if git diff --cached --quiet; then
+                            echo ">>> 没有可提交的改动"
+                            echo "nochange" > ../.publish_result
+                            exit 0
+                        fi
+                        git commit -m "test: 同步 main $SHA8 变更到测试用例"
+                        git -c http.extraHeader="Authorization: Basic ${GL_AUTH}" push origin "$BRANCH"
+                    fi
                     cd ..
 
+                    # GitLab Draft MR 是主产物，先建 MR；GitHub 镜像失败不能连累发布
+                    mkdir -p artifacts
                     BASE_SHA=$(cat .base_sha)
                     HEAD_SHA=$(cat .head_sha)
                     DESC=$(printf '自动同步 FenixAgent main `%s` 的测试用例。\\n\\n- BASE: `%s`\\n- 影响面与改动：见构建产物 impact.json / changes.json\\n- Claude Code 生成并复核，人工 Review 后再合并。' "$HEAD_SHA" "$BASE_SHA")
-                    curl -s -X POST -H "PRIVATE-TOKEN: ${GL_WRITE_TOKEN}" \
+                    curl -sS -X POST -H "PRIVATE-TOKEN: ${GL_WRITE_TOKEN}" \
                       --data-urlencode "source_branch=$BRANCH" \
                       --data-urlencode "target_branch=main" \
                       --data-urlencode "title=Draft: 同步 main $SHA8 的测试用例" \
                       --data-urlencode "description=$DESC" \
                       "__GITLAB_API__/merge_requests" > artifacts/mr.json
-                    python3 -c "import json;d=json.load(open('artifacts/mr.json',encoding='utf-8'));print(d.get('web_url') or d)" > artifacts/mr_url.txt || true
-                    echo ">>> MR: $(cat artifacts/mr_url.txt 2>/dev/null)"
+                    python3 -c "import json;d=json.load(open('artifacts/mr.json',encoding='utf-8'));print(d.get('web_url') or '')" > artifacts/mr_url.txt || true
+                    if ! grep -q 'http' artifacts/mr_url.txt; then
+                        echo ">>> ERROR: Draft MR 创建失败：$(head -c 300 artifacts/mr.json)"
+                        exit 1
+                    fi
+                    echo ">>> MR: $(cat artifacts/mr_url.txt)"
+
+                    git remote add github "https://github.com/youtaking/aos-auto-test.git" || true
+                    GH_AUTH=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\\n')
+                    if GIT_TERMINAL_PROMPT=0 timeout 120 git -c http.extraHeader="AUTHORIZATION: basic ${GH_AUTH}" push github "$BRANCH"; then
+                        echo ">>> GitHub 镜像已更新"
+                    else
+                        echo ">>> WARN: GitHub 镜像推送失败（内网到 github.com 不稳定），GitLab MR 不受影响"
+                    fi
                     echo "published" > .publish_result
                 '''.replace('__GITLAB_API__', env.GITLAB_API)
                 }
