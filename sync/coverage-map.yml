@@ -1,0 +1,524 @@
+# main 变更 → 测试用例影响面映射
+#
+# 用法：
+#   python -X utf8 sync/validate_map.py                     # 校验所有目标路径存在
+#   python -X utf8 sync/validate_map.py --impact BASE HEAD --repo <FenixAgent 仓库>
+#
+# 规则自上而下全部匹配（不短路），命中的 target 取并集。
+# targets 可以是目录（以 / 结尾，表示候选集合，由 AI 在集合内挑选文件）
+# 或具体文件。mode=manual 表示只进入人工关注清单，不触发 AI。
+
+version: 1
+
+ignore:
+  - "docs/**"
+  - "*.md"
+  - ".github/**"
+  - "bun.lock"
+  - "drizzle/**"
+  - "deploy/**"
+  - "docker/**"
+  - "data/**"
+  - "workspaces/**"
+  - "**/node_modules/**"
+  - "**/__tests__/**"
+  - "**/*.test.ts"
+  - "**/*.test.tsx"
+  - "**/*.css"
+  - "**/i18n/**"
+
+rules:
+  # ─────────────── 单测 ───────────────
+  - id: unit-acp-link
+    match: ["packages/acp-link/**"]
+    targets: { unit: ["unit_tests/packages/acp-link/"] }
+  - id: unit-chat-channel
+    match: ["packages/chat-channel/**"]
+    targets: { unit: ["unit_tests/packages/chat-channel/"] }
+  - id: unit-core
+    match: ["packages/core/**"]
+    targets: { unit: ["unit_tests/packages/core/"] }
+  - id: unit-opensandbox-cluster
+    match: ["packages/opensandbox-cluster/**"]
+    targets: { unit: ["unit_tests/packages/opensandbox-cluster/"] }
+  - id: unit-orchestration
+    match: ["packages/orchestration/**"]
+    targets: { unit: ["unit_tests/packages/orchestration/"] }
+  - id: unit-plugin-ccb
+    match: ["packages/plugin-ccb/**"]
+    targets: { unit: ["unit_tests/packages/plugin-ccb/"] }
+  - id: unit-plugin-claude-code
+    match: ["packages/plugin-claude-code/**"]
+    targets: { unit: ["unit_tests/packages/plugin-claude-code/"] }
+  - id: unit-plugin-opencode
+    match: ["packages/plugin-opencode/**"]
+    targets: { unit: ["unit_tests/packages/plugin-opencode/"] }
+  - id: unit-plugin-sdk
+    match: ["packages/plugin-sdk/**"]
+    targets: { unit: ["unit_tests/packages/plugin-sdk/"] }
+  - id: unit-sandbox-provider
+    match: ["packages/sandbox-provider/**"]
+    targets: { unit: ["unit_tests/packages/sandbox-provider/"] }
+  - id: unit-workflow-engine
+    match: ["packages/workflow-engine/**"]
+    targets: { unit: ["unit_tests/packages/workflow-engine/"] }
+
+  - id: unit-auth
+    match:
+      - "packages/platform/identity/src/**"
+    targets:
+      unit:
+        - "unit_tests/auth/"
+        - "unit_tests/plugins/system-api-auth.test.ts"
+
+  - id: unit-errors
+    match:
+      - "packages/*/src/errors/**"
+      - "packages/platform/*/src/errors/**"
+      - "apps/server/src/errors/**"
+    targets:
+      unit:
+        - "unit_tests/errors/"
+
+  - id: unit-logger
+    match:
+      - "packages/logger/**"
+      - "apps/server/src/telemetry/**"
+    targets:
+      unit:
+        - "unit_tests/packages/logger/"
+        - "unit_tests/logs/"
+        - "unit_tests/plugins/logger.test.ts"
+
+  - id: unit-transport
+    match:
+      - "packages/acp-server/**"
+      - "packages/remote-runtime/**"
+      - "packages/agent-runtime/src/transport/**"
+      - "packages/chat-channel/src/transport/**"
+      - "packages/chat-channel/src/relay/**"
+    targets:
+      unit:
+        - "unit_tests/transport/"
+
+  - id: unit-services
+    match:
+      - "packages/*/src/services/**"
+      - "packages/*/src/domain/**"
+      - "packages/platform/*/src/services/**"
+      - "packages/resources/*/src/**"
+      - "apps/server/src/services/**"
+    targets:
+      unit:
+        - "unit_tests/services/"
+
+  - id: unit-utils
+    match:
+      - "packages/*/src/utils/**"
+      - "packages/platform/*/src/utils/**"
+      - "apps/server/src/utils/**"
+    targets:
+      unit:
+        - "unit_tests/utils/"
+
+  # ─────────────── API 用例 ───────────────
+  - id: api-agent-runtime
+    match:
+      - "packages/agent-runtime/src/routes/acp/**"
+    targets:
+      api:
+        - "tests/api_suites/test_acp_api.py"
+
+  - id: api-instance
+    match:
+      - "packages/agent-runtime/src/routes/api/instances.ts"
+      - "packages/agent-runtime/src/routes/web/instances.ts"
+      - "packages/agent-runtime/web/api/instances.ts"
+      - "packages/agent-runtime/src/server/**"
+    targets:
+      api:
+        - "tests/api_suites/test_instance_api.py"
+        - "tests/api_suites/test_instance_connect_api.py"
+
+  - id: api-openai-chat
+    match:
+      - "packages/agent-runtime/src/routes/api/openai-chat.ts"
+    targets:
+      api:
+        - "tests/api_suites/test_openai_chat_api.py"
+
+  - id: api-chat-space
+    match:
+      - "packages/agent-runtime/src/routes/web/chat-spaces.ts"
+      - "packages/agent-runtime/web/api/chat-spaces.ts"
+    targets:
+      api:
+        - "tests/api_suites/test_chat_space_api.py"
+
+  - id: api-control
+    match:
+      - "packages/agent-runtime/src/routes/web/control.ts"
+    targets:
+      api:
+        - "tests/api_suites/test_control_api.py"
+
+  - id: api-environment
+    match:
+      - "packages/agent-runtime/src/routes/web/environments.ts"
+      - "packages/agent-runtime/web/api/environments.ts"
+    targets:
+      api:
+        - "tests/api_suites/test_environment_api.py"
+
+  - id: api-agent-config
+    match:
+      - "packages/resources/agent-config/web/api/**"
+    targets:
+      api:
+        - "tests/api_suites/test_agent_api.py"
+        - "tests/api_suites/test_agent_generation_api.py"
+        - "tests/api_suites/test_agent_site_api.py"
+        - "tests/api_suites/test_workspace_api.py"
+        - "tests/suites/test_sites.py"
+
+  - id: api-channel
+    match:
+      - "packages/resources/channel/web/api/**"
+    targets:
+      api:
+        - "tests/api_suites/test_channel_api.py"
+
+  - id: api-knowledge
+    match:
+      - "packages/resources/knowledge/web/api/**"
+    targets:
+      api:
+        - "tests/api_suites/test_knowledge_base_api.py"
+        - "tests/api_suites/test_knowledge_base_web_api.py"
+        - "tests/api_suites/test_knowledge_base_advanced_api.py"
+
+  - id: api-machine
+    match:
+      - "packages/resources/machine/web/api/**"
+    targets:
+      api:
+        - "tests/api_suites/test_fs_api.py"
+        - "tests/api_suites/test_registry_api.py"
+
+  - id: api-mcp
+    match:
+      - "packages/resources/mcp/web/api/**"
+    targets:
+      api:
+        - "tests/api_suites/test_mcp_api.py"
+
+  - id: api-memory
+    match:
+      - "packages/resources/memory/web/api/**"
+    targets:
+      api:
+        - "tests/api_suites/test_hindsight_api.py"
+
+  - id: api-model-management
+    match:
+      - "packages/resources/model-management/web/api/**"
+    targets:
+      api:
+        - "tests/api_suites/test_model_api.py"
+        - "tests/api_suites/test_provider_api.py"
+        - "tests/api_suites/test_model_gateway_api.py"
+        - "tests/api_suites/test_peri_task_detail_api.py"
+
+  - id: api-observer
+    match:
+      - "packages/resources/observer/web/api/**"
+    targets:
+      api:
+        - "tests/api_suites/test_system_logs_api.py"
+        - "tests/api_suites/test_system_observer_api.py"
+        - "tests/api_suites/test_system_people_tree_api.py"
+
+  - id: api-plugin-market
+    match:
+      - "packages/resources/plugin-market/web/api/**"
+    targets:
+      api:
+        - "tests/api_suites/test_plugin_market_api.py"
+
+  - id: api-prod-view
+    match:
+      - "packages/resources/prod-view/web/api/**"
+    targets:
+      api:
+        - "tests/api_suites/test_prod_view_api.py"
+
+  - id: api-sandbox
+    match:
+      - "packages/resources/sandbox/web/api/**"
+    targets:
+      api:
+        - "tests/api_suites/test_sandbox_api.py"
+        - "tests/api_suites/test_sandbox_pool_config_api.py"
+
+  - id: api-skill
+    match:
+      - "packages/resources/skill/web/api/**"
+    targets:
+      api:
+        - "tests/api_suites/test_skill_api.py"
+
+  - id: api-task
+    match:
+      - "packages/resources/task/web/api/**"
+    targets:
+      api:
+        - "tests/api_suites/test_task_api.py"
+
+  - id: api-workflow-v2
+    match:
+      - "packages/resources/workflow-v2/web/api/**"
+      - "packages/resources/workflow/**"
+    targets:
+      api:
+        - "tests/api_suites/test_workflow_v2_api.py"
+        - "tests/api_suites/test_workflow_api.py"
+        - "tests/api_suites/test_workflow_def_api.py"
+        - "tests/api_suites/test_workflow_def_advanced_api.py"
+        - "tests/api_suites/test_workflow_run_api.py"
+        - "tests/api_suites/test_workflow_sse_api.py"
+        - "tests/api_suites/test_workflow_engine_api.py"
+        - "tests/api_suites/test_workflow_custom_tools_api.py"
+        - "tests/api_suites/test_hooks_api.py"
+
+  - id: api-identity
+    match:
+      - "packages/platform/identity/web/api/api-keys.ts"
+      - "packages/platform/identity/src/routes/web/api-keys.ts"
+    targets:
+      api:
+        - "tests/api_suites/test_api_key_api.py"
+
+  - id: api-organization
+    match:
+      - "packages/platform/identity/web/api/organizations.ts"
+      - "packages/platform/identity/src/routes/web/organizations.ts"
+    targets:
+      api:
+        - "tests/api_suites/test_organization_api.py"
+
+  - id: api-system
+    match:
+      - "packages/platform/identity/src/routes/api/system.ts"
+      - "apps/server/src/routes/api/**"
+      - "apps/server/src/routes/web/**"
+    targets:
+      api:
+        - "tests/api_suites/test_system_api.py"
+        - "tests/api_suites/test_branding_api.py"
+        - "tests/api_suites/test_sidebar_config_api.py"
+
+  - id: api-sandbox-cluster
+    match:
+      - "packages/opensandbox-cluster/src/routes/**"
+      - "packages/opensandbox-cluster/web/api/**"
+    targets:
+      api:
+        - "tests/api_suites/test_sandbox_cluster_api.py"
+
+  - id: api-tickets
+    match:
+      - "packages/resources/tickets/web/api/**"
+    mode: manual
+    targets:
+      api: []
+
+  - id: api-trace
+    match:
+      - "packages/resources/trace/web/api/**"
+    mode: manual
+    targets:
+      api: []
+
+  # ─────────────── E2E 用例 ───────────────
+  - id: e2e-agent-config
+    match:
+      - "packages/resources/agent-config/web/pages/**"
+      - "apps/web/src/routes/agent/$agentId.tsx"
+      - "apps/web/src/routes/agent/_panel.tsx"
+    targets:
+      e2e:
+        - "tests/suites/test_agent_manage.py"
+        - "tests/suites/test_agent_config_v2.py"
+        - "tests/suites/test_sites.py"
+
+  - id: e2e-algorithms
+    match:
+      - "apps/web/src/routes/agent/_panel/algorithms.tsx"
+    targets:
+      e2e:
+        - "tests/suites/test_algorithms.py"
+
+  - id: e2e-chat
+    match:
+      - "packages/agent-runtime/web/agent-panel/**"
+      - "packages/agent-runtime/web/yjs/**"
+      - "apps/web/src/routes/agent/$agentId_.$sessionId.tsx"
+      - "apps/web/src/pages/agent-panel/**"
+    targets:
+      e2e:
+        - "tests/suites/test_chat.py"
+        - "tests/suites/test_chat_gaps.py"
+        - "tests/suites/test_chat_supplement.py"
+        - "tests/suites/test_chat_v2.py"
+        - "tests/suites/test_chat_multi_client_sync.py"
+        - "tests/suites/test_chat_sidebar.py"
+        - "tests/suites/test_artifacts_file_tree.py"
+
+  - id: e2e-channel
+    match:
+      - "packages/resources/channel/web/pages/**"
+    targets:
+      e2e:
+        - "tests/suites/test_channels.py"
+
+  - id: e2e-knowledge
+    match:
+      - "packages/resources/knowledge/web/pages/**"
+    targets:
+      e2e:
+        - "tests/suites/test_knowledge.py"
+        - "tests/suites/test_gap_search_no_result.py"
+
+  - id: e2e-mcp
+    match:
+      - "packages/resources/mcp/web/pages/**"
+    targets:
+      e2e:
+        - "tests/suites/test_mcp.py"
+
+  - id: e2e-memory
+    match:
+      - "packages/resources/memory/web/pages/**"
+    targets:
+      e2e:
+        - "tests/suites/test_memories.py"
+
+  - id: e2e-model-management
+    match:
+      - "packages/resources/model-management/web/pages/**"
+      - "apps/web/src/routes/admin/model-gateway.tsx"
+    targets:
+      e2e:
+        - "tests/suites/test_model_config.py"
+        - "tests/suites/test_vertical_models.py"
+        - "tests/suites/test_model_gateway_usage.py"
+        - "tests/suites/test_admin_model_gateway.py"
+
+  - id: e2e-observer
+    match:
+      - "packages/resources/observer/web/pages/**"
+      - "apps/web/src/routes/admin/logs.tsx"
+      - "apps/web/src/routes/admin/people.tsx"
+      - "apps/web/src/routes/admin/index.tsx"
+    targets:
+      e2e:
+        - "tests/suites/test_admin.py"
+        - "tests/suites/test_dashboard.py"
+        - "tests/suites/test_org.py"
+
+  - id: e2e-plugin-market
+    match:
+      - "packages/resources/plugin-market/web/pages/**"
+      - "apps/web/src/routes/admin/plugin-market.tsx"
+    targets:
+      e2e:
+        - "tests/suites/test_admin.py"
+
+  - id: e2e-prod-view
+    match:
+      - "packages/resources/prod-view/web/pages/**"
+      - "apps/web/src/routes/view/$prodViewId.tsx"
+    targets:
+      e2e:
+        - "tests/suites/test_views.py"
+
+  - id: e2e-sandbox
+    match:
+      - "packages/resources/sandbox/web/pages/**"
+      - "packages/opensandbox-cluster/web/**"
+      - "apps/web/src/routes/admin/sandbox.tsx"
+    targets:
+      e2e:
+        - "tests/suites/test_admin.py"
+
+  - id: e2e-skill
+    match:
+      - "packages/resources/skill/web/pages/**"
+    targets:
+      e2e:
+        - "tests/suites/test_skills_v2.py"
+
+  - id: e2e-task
+    match:
+      - "packages/resources/task/web/pages/**"
+    targets:
+      e2e:
+        - "tests/suites/test_tasks.py"
+
+  - id: e2e-tickets
+    match:
+      - "packages/resources/tickets/web/pages/**"
+      - "apps/web/src/routes/admin/tickets.tsx"
+    targets:
+      e2e:
+        - "tests/suites/test_admin.py"
+
+  - id: e2e-workflow
+    match:
+      - "packages/resources/workflow-v2/web/pages/**"
+    targets:
+      e2e:
+        - "tests/suites/test_workflow.py"
+
+  - id: e2e-identity
+    match:
+      - "packages/platform/identity/web/pages/**"
+      - "apps/web/src/routes/login.tsx"
+      - "apps/web/src/routes/no-access.tsx"
+    targets:
+      e2e:
+        - "tests/suites/test_auth.py"
+        - "tests/suites/test_org.py"
+        - "tests/suites/test_apikey.py"
+
+  - id: e2e-shell
+    match:
+      - "apps/web/src/shell/**"
+      - "apps/web/src/routes/__root.tsx"
+      - "apps/web/src/routes/index.tsx"
+    targets:
+      e2e:
+        - "tests/suites/test_home.py"
+        - "tests/suites/test_sidebar.py"
+        - "tests/suites/test_dashboard.py"
+        - "tests/suites/test_gap_search_no_result.py"
+
+  # ─────────────── 需要人工判断的公共层 ───────────────
+  - id: shared-ui
+    match:
+      - "packages/ui-components/web/**"
+      - "packages/web-runtime/web/**"
+      - "apps/web/src/components/**"
+      - "apps/web/src/lib/**"
+    mode: manual
+    targets: {}
+
+  - id: shared-contracts
+    match:
+      - "packages/platform/platform-sdk/**"
+      - "packages/platform/access-control/**"
+      - "packages/common/**"
+    mode: manual
+    targets:
+      unit:
+        - "unit_tests/services/"

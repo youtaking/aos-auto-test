@@ -1,0 +1,25 @@
+{
+  "main_sha": "37ba688777ee84bf07c8e351c2b01bde8fc149ed",
+  "synced_at": "2026-11-09",
+  "note": "三套用例最近一次人工对齐的 main 提交；main-test-sync 以该 SHA 为 BASE",
+  "suites": {
+    "unit": {
+      "path": "unit_tests",
+      "files": 213,
+      "cases": 3813,
+      "aligned_sha": "37ba688777ee84bf07c8e351c2b01bde8fc149ed"
+    },
+    "api": {
+      "path": "tests/api_suites",
+      "files": 49,
+      "cases": 443,
+      "aligned_sha": "37ba688777ee84bf07c8e351c2b01bde8fc149ed"
+    },
+    "e2e": {
+      "path": "tests/suites",
+      "files": 31,
+      "cases": 392,
+      "aligned_sha": "37ba688777ee84bf07c8e351c2b01bde8fc149ed"
+    }
+  }
+}

@@ -1,0 +1,85 @@
+# main-test-sync 策略：触发条件、AI 边界、校验与发布方式
+
+version: 1
+
+source:
+  owner: HuangPuStar
+  repo: FenixAgent
+  branch: main
+
+trigger:
+  job: main-test-sync
+  # 影响面为空（只改了忽略/无映射路径）时不调用 AI
+  require_non_empty_impact: true
+  dry_run_default: true
+
+ai:
+  image: autotest/test-sync-runner
+  # 单次运行最多 3 轮（生成 → 校验失败修正 → 再校验）
+  max_iterations: 3
+  # 改动文件数量上限，超出视为跑偏
+  max_files_changed: 40
+  # 模型由 LiteLLM 虚拟 key 的 model_name 决定，运行期由 Jenkins 注入
+  timeout_minutes: 45
+
+# 运行期产物，不参与策略判定
+ignore_paths:
+  - "fenix-source"
+  - "_*"
+  - "**/node_modules/**"
+  - "**/__pycache__/**"
+  - ".pytest_cache/**"
+  - "tests/results/**"
+  - "allure-report/**"
+
+# AI 只允许写这些路径；其余一律失败
+allowed_write_paths:
+  - "unit_tests/"
+  - "tests/api_suites/"
+  - "tests/api_clients/"
+  - "tests/api_contracts/"
+  - "tests/suites/"
+  - "tests/pages/"
+  - "tests/fixtures/"
+  - "docs/手工用例/"
+  - "sync/baseline.json"
+
+forbidden_paths:
+  - "tsconfig.json"
+  - "bunfig.toml"
+  - "package.json"
+  - "bun.lock"
+  - "Dockerfile*"
+  - "entrypoint-*"
+  - "docs/jenkins-*"
+  - ".github/"
+  - ".claude/"
+  - "backend/"
+  - "frontend/"
+  - "engine/"
+  - "sync/coverage-map.yml"
+  - "sync/policy.yml"
+  - "sync/validate_map.py"
+  - "sync/prompt.md"
+
+checks:
+  unit: "bun test {files}"
+  api_collect: "python -X utf8 -m pytest --collect-only -q {files}"
+  e2e_collect: "python -X utf8 -m pytest --collect-only -q {files}"
+  map: "python -X utf8 sync/validate_map.py"
+
+publish:
+  # 只开 Draft MR，绝不自动合并
+  auto_merge: false
+  gitlab:
+    remote: gitlab
+    target_branch: main
+    branch_prefix: "sync/main-"
+    draft: true
+  github:
+    remote: origin
+    mirror: true
+
+notify:
+  wecom: true
+  # 通知内容由 groovy 组装：SHA、影响面命中数、用例增删改计数、MR 链接
