@@ -11,16 +11,21 @@ def DRY_RUN_ON()     { return params.DRY_RUN != null ? params.DRY_RUN : true }
 pipeline {
     agent any
 
+    options {
+        // 定时与手动同时触发会各自 clone/push，互相覆盖
+        disableConcurrentBuilds()
+    }
+
     triggers {
-        // 每天 03:xx（H 打散）跑一次批量同步
-        cron('H 3 * * *')
+        // Jenkins 是 UTC，H 19 = 北京时间次日 03:xx（H 打散分钟，避免整点堆积）
+        cron('H 19 * * *')
     }
 
     parameters {
         string(name: 'COMMIT_SHA', defaultValue: '', description: '目标提交；留空自动取 refs/heads/main 最新提交')
         string(name: 'BASE_SHA',   defaultValue: '', description: '对比基线；留空读 sync/baseline.json 的 main_sha')
         string(name: 'SYNC_MODEL', defaultValue: 'deepseek-v4-flash-anthropic', description: 'LiteLLM 模型别名（Models 页的 model_name）')
-        booleanParam(name: 'DRY_RUN', defaultValue: true, description: '只生成补丁并校验，不提交/推送/开 MR')
+        booleanParam(name: 'DRY_RUN', defaultValue: false, description: '勾选则只生成补丁不发布；默认关（会自动开 Draft MR，但绝不自动合并）')
         booleanParam(name: 'NOTIFY_WECOM', defaultValue: true, description: '发送企业微信通知')
     }
 
@@ -244,8 +249,10 @@ pipeline {
                     } else if (result == 'run') {
                         env.SYNC_STATE = 'ready'
                     } else {
+                        // 标记失败但不抛异常：否则后续 post 里的企微通知会被跳过
                         env.SYNC_STATE = result
-                        error("同步失败：${result}（详见 artifacts/）")
+                        currentBuild.result = 'FAILURE'
+                        echo "同步失败：${result}（详见 artifacts/）"
                     }
                 }
             }
@@ -299,13 +306,20 @@ pipeline {
             }
         }
 
-        stage('Notify WeCom') {
-            when { expression { NOTIFY_WECOM_ON() && env.SYNC_STATE != 'unconfigured' } }
-            steps {
-                withCredentials([string(credentialsId: 'wecom-webhook', variable: 'WECOM_WEBHOOK')]) {
-                sh '''
-                    set +x
-                    python3 - <<'PY'
+    }
+
+    post {
+        always {
+            archiveArtifacts artifacts: 'artifacts/**', allowEmptyArchive: true
+
+            script {
+                // 只在有补丁 / 失败 / 需要人看时通知：“已是最新”“已存在分支”不打扰
+                def st = env.SYNC_STATE ?: 'error'
+                if (NOTIFY_WECOM_ON() && st != 'unconfigured' && st != 'empty' && st != 'skip') {
+                    withCredentials([string(credentialsId: 'wecom-webhook', variable: 'WECOM_WEBHOOK')]) {
+                    sh '''
+                        set +x
+                        python3 - <<'PY'
 import json, os
 
 def read(path, default=''):
@@ -368,16 +382,12 @@ if build_url:
 payload = {'msgtype': 'markdown', 'markdown': {'content': chr(10).join(lines)}}
 open('wecom_sync_payload.json', 'w', encoding='utf-8').write(json.dumps(payload, ensure_ascii=False))
 PY
-                    curl -s -X POST "$WECOM_WEBHOOK" -H "Content-Type: application/json" -d @wecom_sync_payload.json
-                '''.replace('__DRY__', DRY_RUN_ON().toString())
+                        curl -s -X POST "$WECOM_WEBHOOK" -H "Content-Type: application/json" -d @wecom_sync_payload.json || true
+                    '''.replace('__DRY__', DRY_RUN_ON().toString())
+                    }
                 }
             }
-        }
-    }
 
-    post {
-        always {
-            archiveArtifacts artifacts: 'artifacts/**', allowEmptyArchive: true
             sh '''
                 rm -rf fenix artifacts autotest
                 rm -f .base_sha .head_sha .resolved_head .sha8 .sync_state .sync_result .sync_exit .publish_result wecom_sync_payload.json

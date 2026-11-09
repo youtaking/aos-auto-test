@@ -75,7 +75,7 @@ unset ANTHROPIC_API_KEY || true
 # 一次性把 diff 与目标文件清单渲染进提示词：AI 无需再探索仓库，省掉每轮重复的上下文
 python - "$TEST_REPO/sync/prompt.md" "$ARTIFACT_DIR/prompt.txt" \
   "$BASE_SHA" "$HEAD_SHA" "$ARTIFACT_DIR/impact.json" "$FENIX_REPO" "$TEST_REPO" <<'PY'
-import json, os, subprocess, sys
+import json, os, re, subprocess, sys
 
 src, dst, base, head, impact_path, fenix, repo = sys.argv[1:8]
 impact = json.load(open(impact_path, encoding='utf-8'))
@@ -100,8 +100,57 @@ for rule in (impact.get('rules') or {}).values():
     if rule.get('mode') == 'auto':
         paths.extend(rule.get('files') or [])
 paths = sorted(set(paths))
+
+# 真实一周 diff 可达 1.8MB，直接整体截断会丢掉大半改动：
+# 改为逐文件限额 + 总预算，小文件优先，生成物跳过，遗漏项显式列出（AI 可 Read 源码当前版本）
+PER_FILE_CAP = 6000
+TOTAL_CAP = 110000
+SKIP_GENERATED = re.compile(
+    r'(^|/)(bun\.lockb?|package-lock\.json|pnpm-lock\.yaml|yarn\.lock)$'
+    r'|(^|/)(dist|build|node_modules)/'
+    r'|\.snap$'
+    r'|(^|/)drizzle/meta/.*\.json$'
+)
+
 if paths:
-    diff = git(['diff', base, head, '--'] + paths, fenix, 160000)
+    # 不把成百上千个路径拼进 argv（Windows 会报参数过长，Linux 也有 ARG_MAX 上限），
+    # 取全量改动名后按 auto 命中集合过滤
+    auto_files = set(paths)
+    files = [f for f in git(['diff', '--name-only', base, head], fenix, 0).splitlines()
+             if f.strip() and f in auto_files]
+    sized, skipped = [], []
+    for f in files:
+        if SKIP_GENERATED.search(f):
+            skipped.append(f)
+            continue
+        body = git(['diff', base, head, '--', f], fenix, 0)
+        if body:
+            sized.append((len(body), f, body))
+    sized.sort()  # 小文件优先：信息密度高，避免被生成物/大文件挤掉
+    pieces, truncated, omitted, used = [], [], [], 0
+    for size, f, body in sized:
+        if used >= TOTAL_CAP:
+            omitted.append(f)
+            continue
+        if size > PER_FILE_CAP:
+            body = body[:PER_FILE_CAP] + '\n... (此文件 diff 已截断，请用 Read 读取 fenix-source/%s 的当前版本)' % f
+            truncated.append(f)
+        if used + len(body) > TOTAL_CAP:
+            omitted.append(f)
+            continue
+        pieces.append(body)
+        used += len(body)
+    diff = '\n'.join(pieces) if pieces else '(无可用 diff)'
+    notes = []
+    if skipped:
+        notes.append('已跳过生成物 %d 个：%s' % (len(skipped), ', '.join(skipped[:20])))
+    if truncated:
+        notes.append('已截断 %d 个（单文件超 %d 字节）：%s' % (len(truncated), PER_FILE_CAP, ', '.join(truncated[:20])))
+    if omitted:
+        notes.append('已省略 %d 个（超出总预算）：%s —— 需要时用 Read 读取 fenix-source 中的当前版本'
+                     % (len(omitted), ', '.join(omitted[:40])))
+    if notes:
+        diff += '\n\n### diff 覆盖说明\n' + '\n'.join('- ' + n for n in notes)
 else:
     diff = '(影响面未命中源码文件)'
 
@@ -131,13 +180,26 @@ for t in sorted(set(targets)):
                 listing.append('%s  (%d 行)' % (rel, count_lines(fp)))
     elif os.path.isfile(p):
         listing.append('%s  (%d 行)' % (t, count_lines(p)))
-if len(listing) > 200:
-    listing = listing[:200] + ['... (更多文件已省略)']
+if len(listing) > 120:
+    listing = listing[:120] + ['... (更多文件已省略，需要时用 Read 按目录读取)']
 target_files = '\n'.join(listing) or '(无既有目标文件，需新建)'
+
+# 影响面里的 rules[*].files 与 diff 完全重复（一次 20 提交批次有 73KB），只保留计数；
+# auto.* 是允许修改的目标清单，必须完整保留
+impact_view = {
+    'changed': impact.get('changed'),
+    'ignored': len(impact.get('ignored') or []),
+    'unmapped': impact.get('unmapped') or [],
+    'manual_rules': impact.get('manual_rules') or [],
+    'auto': impact.get('auto') or {},
+    'rules': {k: {'mode': v.get('mode'),
+                  'files': len(v.get('files') or [])}
+              for k, v in (impact.get('rules') or {}).items()},
+}
 
 text = open(src, encoding='utf-8').read()
 text = text.replace('{{BASE_SHA}}', base).replace('{{HEAD_SHA}}', head)
-text = text.replace('{{IMPACT_JSON}}', json.dumps(impact, ensure_ascii=False, indent=2))
+text = text.replace('{{IMPACT_JSON}}', json.dumps(impact_view, ensure_ascii=False, indent=2))
 text = text.replace('{{DIFF_STAT}}', diff_stat)
 text = text.replace('{{DIFF}}', diff)
 text = text.replace('{{TARGET_FILES}}', target_files)
@@ -149,15 +211,42 @@ log ">>> 调用 Claude Code（max-turns=$MAX_SYNC_TURNS）..."
 set +e
 cd "$TEST_REPO"
 # 提示词含完整 diff，可能超过 Linux 单个参数上限（128KB），统一走 stdin
+# 禁止加载任何 Skill：仓库里的技能多为本地交互式（AskUserQuestion / git pull / Playwright MCP / 实跑环境），
+# 在容器里会卡住或写白名单外路径；本轮规则已全部渲染在 prompt.txt 内。
+# --strict-mcp-config 防止仓库 .mcp.json 里的 Playwright MCP 在无桌面容器里启动。
 timeout 2700 claude -p \
   --add-dir "$FENIX_REPO" \
   --dangerously-skip-permissions \
+  --disallowedTools Skill \
+  --strict-mcp-config \
+  --setting-sources local \
   --max-turns "$MAX_SYNC_TURNS" \
+  --max-budget-usd 3 \
   --output-format stream-json --verbose \
   < "$ARTIFACT_DIR/prompt.txt" \
   > "$ARTIFACT_DIR/claude.jsonl" 2>&1
 AI_EXIT=$?
 set -e
+# 用量只进日志/产物，不进企微通知
+python - "$ARTIFACT_DIR/claude.jsonl" <<'PY' || true
+import json, sys
+u, cost = None, None
+for line in open(sys.argv[1], encoding='utf-8', errors='replace'):
+    line = line.strip()
+    if not line.startswith('{'):
+        continue
+    try:
+        obj = json.loads(line)
+    except Exception:
+        continue
+    if isinstance(obj, dict):
+        u = obj.get('usage') or u
+        cost = obj.get('total_cost_usd', cost)
+if u:
+    print('[sync] 生成用量：输入 %s（缓存命中 %s）/ 输出 %s / 费用 $%s' % (
+        u.get('input_tokens'), u.get('cache_read_input_tokens'),
+        u.get('output_tokens'), cost))
+PY
 log ">>> Claude Code 退出码: $AI_EXIT"
 if [ "$AI_EXIT" -ne 0 ]; then
   echo "[sync] Claude Code 执行失败，尾部日志："
@@ -171,9 +260,12 @@ check_dirty=$(git -C "$FENIX_REPO" status --porcelain || true)
 
 # 4. 策略校验（白名单 / 禁区 / 改动数量上限）
 log ">>> 校验改动范围..."
-python -X utf8 "$TEST_REPO/sync/check_policy.py" \
+if ! python -X utf8 "$TEST_REPO/sync/check_policy.py" \
   --repo "$TEST_REPO" \
-  --json-out "$ARTIFACT_DIR/changes.json"
+  --json-out "$ARTIFACT_DIR/changes.json"; then
+  log ">>> 改动触碰禁区或超出允许范围（见上）"
+  exit 11
+fi
 
 git -C "$TEST_REPO" status --porcelain > "$ARTIFACT_DIR/status.txt" || true
 
@@ -285,8 +377,8 @@ for rel in run(['ls-files', '--others', '--exclude-standard']).splitlines():
     parts.append('--- /dev/null\n+++ b/%s\n%s' % (rel, body))
 
 text = '\n'.join(parts)
-if len(text) > 240000:
-    text = text[:240000] + '\n... (改动全文已截断)'
+if len(text) > 120000:
+    text = text[:120000] + '\n... (改动全文已截断，未展示的改动可 Read 对应文件)'
 open(dst, 'w', encoding='utf-8').write(text)
 print('[sync] 复核材料 %d 字节' % len(text))
 PY
@@ -301,7 +393,11 @@ set +e
 timeout 600 claude -p \
   --add-dir "$FENIX_REPO" \
   --dangerously-skip-permissions \
-  --max-turns 8 \
+  --disallowedTools Skill \
+  --strict-mcp-config \
+  --setting-sources local \
+  --max-turns 6 \
+  --max-budget-usd 1 \
   --output-format json \
   < "$ARTIFACT_DIR/review-prompt.txt" \
   > "$ARTIFACT_DIR/review.json" 2> "$ARTIFACT_DIR/review.stderr.txt"
@@ -335,7 +431,10 @@ case "$VERDICT" in
 esac
 
 log ">>> 再跑一次映射校验..."
-python -X utf8 "$TEST_REPO/sync/validate_map.py" --quiet
+if ! python -X utf8 "$TEST_REPO/sync/validate_map.py" --quiet; then
+  log ">>> 映射校验失败"
+  exit 11
+fi
 
 git -C "$TEST_REPO" diff --stat > "$ARTIFACT_DIR/diff-stat.txt" || true
 log ">>> 同步补丁已就绪（DRY_RUN=${DRY_RUN:-true}）"

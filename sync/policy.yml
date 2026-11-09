@@ -11,7 +11,7 @@ trigger:
   job: main-test-sync
   # 影响面为空（只改了忽略/无映射路径）时不调用 AI
   require_non_empty_impact: true
-  dry_run_default: true
+  dry_run_default: false
 
 ai:
   image: autotest/test-sync-runner
@@ -45,6 +45,8 @@ allowed_write_paths:
   - "sync/baseline.json"
 
 forbidden_paths:
+  # 测试环境地址/账号所在，禁止 AI 改动
+  - "tests/fixtures/test_data.yaml"
   - "tsconfig.json"
   - "**/tsconfig.json"
   - "bunfig.toml"
