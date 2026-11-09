@@ -11,7 +11,7 @@ pipeline {
     parameters {
         string(name: 'COMMIT_SHA', defaultValue: '', description: 'FenixAgent main 的目标提交（branch-poll-main 自动传入）')
         string(name: 'BASE_SHA',   defaultValue: '', description: '对比基线；留空读 sync/baseline.json 的 main_sha')
-        string(name: 'SYNC_MODEL', defaultValue: '', description: 'LiteLLM 模型别名（Models 页的 model_name）')
+        string(name: 'SYNC_MODEL', defaultValue: 'deepseek-v4-flash-anthropic', description: 'LiteLLM 模型别名（Models 页的 model_name）')
         booleanParam(name: 'DRY_RUN', defaultValue: true, description: '只生成补丁并校验，不提交/推送/开 MR')
         booleanParam(name: 'NOTIFY_WECOM', defaultValue: true, description: '发送企业微信通知')
     }
@@ -221,7 +221,7 @@ pipeline {
             steps {
                 withCredentials([
                     string(credentialsId: 'gitlab-write-token', variable: 'GL_WRITE_TOKEN'),
-                    string(credentialsId: 'github-write-token', variable: 'GH_TOKEN')
+                    string(credentialsId: 'mygithub-token', variable: 'GH_TOKEN')
                 ]) {
                 sh '''
                     set +x
