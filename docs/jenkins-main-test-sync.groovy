@@ -140,7 +140,8 @@ pipeline {
                     echo ">>> Cloning FenixAgent main and checking out $(echo "$HEAD_SHA" | cut -c1-8)..."
                     ok=0
                     # 单次尝试 240s 上限：代理挂起时不会无限期阻塞整个构建
-                    for proxy in "https://gh-proxy.com/" "https://ghproxy.net/" "https://ghfast.top/" ""; do
+                    # 实测直连最快（11s/93MB），gh-proxy 会挂死，故直连优先
+                    for proxy in "" "https://ghfast.top/" "https://ghproxy.net/" "https://gh-proxy.com/"; do
                         rm -rf fenix
                         echo "    Trying: ${proxy:-direct}"
                         if GIT_TERMINAL_PROMPT=0 timeout 240 git clone --single-branch --branch main \
