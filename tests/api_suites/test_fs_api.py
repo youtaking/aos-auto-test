@@ -281,3 +281,33 @@ class TestFsWebAPI:
             # 也可能返回 404（文件不存在）
             assert "404" in str(e) or "503" in str(e), \
                 f"预期幂等删除或 404/503，实际: {e}"
+
+    @pytest.mark.p2
+    def test_download_fs_zip_missing_path(self, web_client):
+        """打包下载缺少 path 参数：应返回 400 validation_error"""
+        env_id = _get_test_env(web_client)
+        if not env_id:
+            pytest.skip("环境列表为空，无法测试 FS 接口")
+
+        resp = web_client.client.get(f"/web/environments/{env_id}/fs/download-zip")
+        assert resp.status_code == 400, f"期望 400，实际 {resp.status_code}: {resp.text[:200]}"
+        err = resp.json().get("error", {})
+        assert err.get("type") == "validation_error"
+        assert "path" in err.get("message", "")
+
+    @pytest.mark.p2
+    def test_download_fs_zip(self, web_client):
+        """打包下载 workspace 目录：返回 zip 字节流"""
+        env_id = _get_test_env(web_client)
+        if not env_id:
+            pytest.skip("环境列表为空，无法测试 FS 接口")
+
+        try:
+            content = web_client.download_fs_zip(env_id, ".")
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code in (503, 404):
+                pytest.skip(f"文件服务不可用：{e.response.status_code}")
+            raise
+
+        assert len(content) > 0
+        assert content[:2] == b"PK", f"期望 zip 魔数 PK，实际 {content[:8]!r}"

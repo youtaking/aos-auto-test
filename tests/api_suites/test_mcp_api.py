@@ -3,7 +3,7 @@
 
 覆盖两套接口：
 - TestMcpWebAPI: /web/config/mcp 控制台接口（session cookie 认证，action 风格）
-- TestMcpOpenAPI: /api/mcp 对外 OpenAPI（API Key 认证，RESTful 风格）
+- TestMcpOpenAPI: /api/v1/mcp-servers 对外 OpenAPI（API Key 认证，RESTful 风格）
 """
 import httpx
 import pytest
@@ -206,13 +206,14 @@ class TestMcpWebAPI:
 # ── 对外 OpenAPI 测试 ──
 
 class TestMcpOpenAPI:
-    """/api/mcp 对外 OpenAPI 测试（API Key 认证，RESTful 风格）
+    """/api/v1/mcp-servers 对外 OpenAPI 测试（API Key 认证，RESTful 风格）
 
     特点：
-    - 用 ID 定位资源（/:id）
+    - 用 ID 定位资源（/:id），更新用 PATCH
     - 列表带分页 {items, total, page, pageSize}
-    - 响应为裸数据，无 {success, data} 包装
-    - 创建 body 直接传 {name, type, url/command, ...}，无包装
+    - 服务端响应为 {success, data} 信封，client 已解包为裸数据
+    - 创建 body: {name, config: {type: local|remote|streamable-http, ...}}
+    - 更新 body: {enabled} | {config} | {publicReadable} 三选一
     """
 
     @pytest.mark.p0
@@ -247,8 +248,7 @@ class TestMcpOpenAPI:
         # 创建 remote 类型
         create_resp = api_client.create_mcp_server({
             "name": test_name,
-            "type": "remote",
-            "url": "https://example.com/mcp",
+            "config": {"type": "remote", "url": "https://example.com/mcp"},
         })
         api_client.validate_schema(create_resp, API_CREATE_MCP_RESPONSE)
         server_id = create_resp["id"]
@@ -276,8 +276,7 @@ class TestMcpOpenAPI:
 
         create_resp = api_client.create_mcp_server({
             "name": test_name,
-            "type": "remote",
-            "url": "https://original.example.com/mcp",
+            "config": {"type": "remote", "url": "https://original.example.com/mcp"},
         })
         server_id = create_resp["id"]
 
@@ -287,26 +286,29 @@ class TestMcpOpenAPI:
             original_name = original_detail.get("name")
 
             update_resp = api_client.update_mcp_server(server_id, {
-                "type": "remote",
-                "url": updated_url,
+                "config": {"type": "remote", "url": updated_url},
             })
+            api_client.validate_schema(update_resp, API_MCP_DETAIL_RESPONSE)
 
             # 再次获取确认更新生效
             get_resp = api_client.get_mcp_server(server_id)
             api_client.validate_schema(get_resp, API_MCP_DETAIL_RESPONSE)
-            assert get_resp["summary"] == updated_url
+            assert get_resp["config"]["url"] == updated_url
             # 验证未修改字段未被清空
             assert get_resp.get("name") == original_name
         finally:
             api_client.delete_mcp_server(server_id)
 
-    @pytest.mark.xfail(reason="应用 Bug：不存在 MCP Server 返回 500 而非 404（源码头 404，已确认）", strict=True)
     @pytest.mark.p2
     def test_get_nonexistent_mcp_server(self, api_client, _openapi_access):
-        """获取不存在的 MCP Server：契约应返回 404（当前 500，应用 Bug）"""
+        """获取不存在的 MCP Server：返回 404 + NOT_FOUND"""
 
-        with pytest.raises(httpx.HTTPStatusError, match=r"404"):
+        with pytest.raises(httpx.HTTPStatusError) as caught:
             api_client.get_mcp_server("nonexistent-mcp-id-99999")
+        assert caught.value.response.status_code == 404
+        body = caught.value.response.json()
+        assert body["success"] is False
+        assert body["error"]["code"] == "NOT_FOUND"
 
     @pytest.mark.p2
     def test_delete_mcp_idempotent(self, api_client, _openapi_access):
@@ -316,8 +318,7 @@ class TestMcpOpenAPI:
         try:
             create_resp = api_client.create_mcp_server({
                 "name": test_name,
-                "type": "remote",
-                "url": "https://example.com/mcp",
+                "config": {"type": "remote", "url": "https://example.com/mcp"},
             })
             server_id = create_resp["id"]
             api_client.delete_mcp_server(server_id)
@@ -328,23 +329,25 @@ class TestMcpOpenAPI:
 
     @pytest.mark.p2
     def test_create_mcp_server_duplicate_name(self, api_client, _openapi_access):
-        """创建同名 MCP Server：应返回 409 或抛出冲突异常"""
+        """创建同名 MCP Server：返回 409 ALREADY_EXISTS"""
 
         test_name = "api-test-openapi-mcp-dup"
         _cleanup_api_mcp(api_client, test_name)
 
         create_resp = api_client.create_mcp_server({
             "name": test_name,
-            "type": "remote",
-            "url": "https://example.com/mcp",
+            "config": {"type": "remote", "url": "https://example.com/mcp"},
         })
         try:
-            with pytest.raises(httpx.HTTPStatusError, match=r"(409|400)"):
+            with pytest.raises(httpx.HTTPStatusError) as caught:
                 api_client.create_mcp_server({
                     "name": test_name,
-                    "type": "remote",
-                    "url": "https://example.com/mcp",
+                    "config": {"type": "remote", "url": "https://example.com/mcp"},
                 })
+            assert caught.value.response.status_code == 409
+            body = caught.value.response.json()
+            assert body["success"] is False
+            assert body["error"]["code"] == "ALREADY_EXISTS"
         finally:
             api_client.delete_mcp_server(create_resp["id"])
 
@@ -363,3 +366,24 @@ class TestMcpWebAPIExtra:
                 "type": "invalid_type_xyz",
                 "url": "https://example.com",
             })
+
+    @pytest.mark.p1
+    def test_test_url_missing_url(self, web_client):
+        """测试 MCP URL 缺少 url：应返回 400 VALIDATION_ERROR"""
+        resp = web_client.client.post("/web/config/mcp/test-url", json={})
+        assert resp.status_code == 400, f"期望 400，实际 {resp.status_code}: {resp.text[:200]}"
+        err = resp.json().get("error", {})
+        assert err.get("code") == "VALIDATION_ERROR"
+        assert "URL" in err.get("message", "")
+
+    @pytest.mark.p2
+    def test_test_nonexistent_server(self, web_client):
+        """测试不存在的 MCP Server：应返回 404 NOT_FOUND"""
+        with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(404|NOT_FOUND)"):
+            web_client.test_mcp_server("nonexistent-mcp-id-99999")
+
+    @pytest.mark.p2
+    def test_inspect_nonexistent_server(self, web_client):
+        """探测不存在的 MCP Server：应返回 404 NOT_FOUND"""
+        with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(404|NOT_FOUND)"):
+            web_client.inspect_mcp_server("nonexistent-mcp-id-99999")

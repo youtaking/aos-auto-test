@@ -3,15 +3,17 @@
 
 覆盖两套接口：
 - TestSkillWebAPI: /web/config/skills 控制台接口（session cookie 认证，RESTful /:name 风格）
-- TestSkillOpenAPI: /api/skills 对外 OpenAPI（API Key 认证，RESTful /:id 风格）
+- TestSkillOpenAPI: /api/v1/skills 对外 OpenAPI（API Key 认证，RESTful /:id 风格）
 """
 import httpx
 import pytest
 from tests.api_contracts.skill_schemas import (
     WEB_SKILL_LIST_DATA,
+    SKILL_LIST_ITEM,
     SKILL_DETAIL,
     API_SKILL_LIST_RESPONSE,
     API_SKILL_DETAIL_RESPONSE,
+    API_DELETE_SKILL_RESPONSE,
 )
 
 
@@ -84,7 +86,8 @@ class TestSkillWebAPI:
                 "content": "# Test Skill\nThis is a test skill.",
             },
         })
-        web_client.validate_schema(create_resp, SKILL_DETAIL)
+        # 创建/更新返回的是保存结果片段（无 content），详情才含正文
+        web_client.validate_schema(create_resp, SKILL_LIST_ITEM)
         assert create_resp["name"] == test_name
 
         try:
@@ -245,14 +248,22 @@ class TestSkillDownloadAPI:
 # ── 对外 OpenAPI 测试 ──
 
 class TestSkillOpenAPI:
-    """/api/skills 对外 OpenAPI 测试（API Key 认证，RESTful /:id 风格）
+    """/api/v1/skills 对外 OpenAPI 测试（API Key 认证，RESTful /:id 风格）
 
     特点：
-    - 用 ID 定位资源（/:id）
+    - 用 ID 定位资源（/:id），更新用 PATCH
     - 列表带分页 {items, total, page, pageSize}
-    - 响应为裸数据，无 {success, data} 包装
-    - 创建使用 multipart/form-data（此处仅测试 list/get/delete）
+    - 响应为 {success, data} 信封，client 已解包为裸数据；删除返回 data: null
+    - 创建/覆盖走 multipart/form-data：manifest（JSON 字符串）+ files（≥1）+ overwrite
     """
+
+    @staticmethod
+    def _payload(name: str, description: str, body: str = "# Test Skill") -> tuple[list, list]:
+        """构造导入 Skill 的 manifest 与文件：manifest 与 files 顺序一一对应"""
+        manifest = [{"skillName": name, "relativePath": "SKILL.md"}]
+        content = f"---\nname: {name}\ndescription: {description}\n---\n\n{body}\n"
+        files = [(f"{name}.md", content.encode("utf-8"))]
+        return manifest, files
 
     @pytest.mark.p0
     def test_list_skills(self, api_client, _openapi_access):
@@ -275,13 +286,73 @@ class TestSkillOpenAPI:
         api_client.validate_schema(resp, API_SKILL_DETAIL_RESPONSE)
         assert resp["id"] == skill_id
 
-    @pytest.mark.xfail(reason="应用 Bug：不存在 Skill 返回 500 而非 404（源码头 404，已确认）", strict=True)
+    @pytest.mark.p0
+    def test_create_and_delete_skill(self, api_client, _openapi_access):
+        """创建并删除 Skill：multipart 导入 → 读取 → 删除 → 读取 404"""
+        test_name = "api-test-openapi-skill-001"
+
+        _cleanup_api_skill(api_client, test_name)
+
+        manifest, files = self._payload(test_name, "created by openapi test")
+        create_resp = api_client.create_skill(manifest, files)
+        api_client.validate_schema(create_resp, API_SKILL_DETAIL_RESPONSE)
+        skill_id = create_resp["id"]
+        assert create_resp["name"] == test_name
+
+        try:
+            detail = api_client.get_skill(skill_id)
+            assert detail["name"] == test_name
+            assert "content" in detail
+
+            del_resp = api_client.delete_skill(skill_id)
+            api_client.validate_schema(del_resp, API_DELETE_SKILL_RESPONSE)
+
+            with pytest.raises(httpx.HTTPStatusError) as caught:
+                api_client.get_skill(skill_id)
+            assert caught.value.response.status_code == 404
+            body = caught.value.response.json()
+            assert body["success"] is False
+            assert body["error"]["code"] == "NOT_FOUND"
+        finally:
+            _cleanup_api_skill(api_client, test_name)
+
+    @pytest.mark.p1
+    def test_update_skill(self, api_client, _openapi_access):
+        """更新 Skill：创建 → PATCH description → 验证生效且 name 不变 → 删除"""
+        test_name = "api-test-openapi-skill-002"
+        updated_desc = "updated by openapi test"
+
+        _cleanup_api_skill(api_client, test_name)
+
+        manifest, files = self._payload(test_name, "original description")
+        create_resp = api_client.create_skill(manifest, files)
+        skill_id = create_resp["id"]
+
+        try:
+            original = api_client.get_skill(skill_id)
+            assert original["description"] == "original description"
+
+            update_resp = api_client.update_skill(skill_id, {"description": updated_desc})
+            api_client.validate_schema(update_resp, API_SKILL_DETAIL_RESPONSE)
+            assert update_resp["description"] == updated_desc
+
+            detail = api_client.get_skill(skill_id)
+            assert detail["description"] == updated_desc
+            # 验证未修改字段未被清空
+            assert detail["name"] == original["name"]
+        finally:
+            _cleanup_api_skill(api_client, test_name)
+
     @pytest.mark.p2
     def test_get_nonexistent_skill(self, api_client, _openapi_access):
-        """获取不存在的 Skill：契约应返回 404（当前 500，应用 Bug）"""
+        """获取不存在的 Skill：返回 404 + NOT_FOUND"""
 
-        with pytest.raises(httpx.HTTPStatusError, match=r"404"):
+        with pytest.raises(httpx.HTTPStatusError) as caught:
             api_client.get_skill("nonexistent-skill-id-99999")
+        assert caught.value.response.status_code == 404
+        body = caught.value.response.json()
+        assert body["success"] is False
+        assert body["error"]["code"] == "NOT_FOUND"
 
     @pytest.mark.p2
     def test_list_skills_pagination_page2(self, api_client, _openapi_access):
@@ -295,3 +366,146 @@ class TestSkillOpenAPI:
         assert page2["page"] == 2
         if page1["items"] and page2["items"]:
             assert page1["items"][0]["id"] != page2["items"][0]["id"]
+
+    @pytest.mark.p1
+    def test_create_skill_duplicate_name(self, api_client, _openapi_access):
+        """重复导入同名 Skill 且未指定 overwrite：返回 409 ALREADY_EXISTS"""
+        test_name = "api-test-openapi-skill-dup"
+        manifest, files = self._payload(test_name, "duplicate test")
+
+        _cleanup_api_skill(api_client, test_name)
+
+        try:
+            api_client.create_skill(manifest, files)
+            with pytest.raises(httpx.HTTPStatusError) as caught:
+                api_client.create_skill(manifest, files)
+            assert caught.value.response.status_code == 409
+            body = caught.value.response.json()
+            assert body["success"] is False
+            assert body["error"]["code"] == "ALREADY_EXISTS"
+        finally:
+            _cleanup_api_skill(api_client, test_name)
+
+    @pytest.mark.p1
+    def test_create_skill_with_overwrite(self, api_client, _openapi_access):
+        """覆盖导入同名 Skill（overwrite=true）：成功且内容被替换"""
+        test_name = "api-test-openapi-skill-overwrite"
+        manifest, files = self._payload(test_name, "first version")
+        manifest2, files2 = self._payload(test_name, "second version")
+
+        _cleanup_api_skill(api_client, test_name)
+
+        try:
+            create_resp = api_client.create_skill(manifest, files)
+            skill_id = create_resp["id"]
+
+            overwrite_resp = api_client.create_skill(manifest2, files2, overwrite="true")
+            api_client.validate_schema(overwrite_resp, API_SKILL_DETAIL_RESPONSE)
+            assert overwrite_resp["name"] == test_name
+            assert overwrite_resp["description"] == "second version"
+
+            detail = api_client.get_skill(skill_id)
+            assert detail["description"] == "second version"
+        finally:
+            _cleanup_api_skill(api_client, test_name)
+
+    @pytest.mark.p2
+    def test_create_skill_missing_manifest(self, api_client, _openapi_access):
+        """导入 Skill 缺少 manifest：返回 400 VALIDATION_ERROR"""
+        resp = api_client.client.post(
+            "/api/v1/skills",
+            files=[("files", ("SKILL.md", b"# Test", "application/octet-stream"))],
+        )
+        assert resp.status_code == 400, f"期望 400，实际 {resp.status_code}: {resp.text[:200]}"
+        body = resp.json()
+        assert body["success"] is False
+        assert body["error"]["code"] == "VALIDATION_ERROR"
+        assert "manifest" in body["error"]["message"]
+
+    @pytest.mark.p2
+    def test_create_skill_missing_files(self, api_client, _openapi_access):
+        """导入 Skill 只有 manifest 没有文件：返回 400 VALIDATION_ERROR"""
+        resp = api_client.client.post(
+            "/api/v1/skills",
+            data={"manifest": '[{"skillName": "api-test-skill-no-files", "relativePath": "SKILL.md"}]'},
+        )
+        assert resp.status_code == 400, f"期望 400，实际 {resp.status_code}: {resp.text[:200]}"
+        body = resp.json()
+        assert body["success"] is False
+        assert body["error"]["code"] == "VALIDATION_ERROR"
+
+    @pytest.mark.p2
+    def test_create_skill_invalid_manifest(self, api_client, _openapi_access):
+        """导入 Skill 的 manifest 不是合法 JSON：返回 400 VALIDATION_ERROR"""
+        resp = api_client.client.post(
+            "/api/v1/skills",
+            data={"manifest": "not-a-json"},
+            files=[("files", ("SKILL.md", b"# Test", "application/octet-stream"))],
+        )
+        assert resp.status_code == 400, f"期望 400，实际 {resp.status_code}: {resp.text[:200]}"
+        body = resp.json()
+        assert body["success"] is False
+        assert body["error"]["code"] == "VALIDATION_ERROR"
+
+    @pytest.mark.p2
+    def test_update_skill_empty_body(self, api_client, _openapi_access):
+        """PATCH 空 body：返回 400 VALIDATION_ERROR（schema 拒绝空更新）"""
+        with pytest.raises(httpx.HTTPStatusError) as caught:
+            api_client.update_skill("nonexistent-skill-id-99999", {})
+        assert caught.value.response.status_code == 400
+        body = caught.value.response.json()
+        assert body["success"] is False
+        assert body["error"]["code"] == "VALIDATION_ERROR"
+
+    @pytest.mark.p2
+    def test_delete_skill_idempotent(self, api_client, _openapi_access):
+        """DELETE 同一 Skill 两次：第二次返回 404 NOT_FOUND"""
+        test_name = "api-test-openapi-skill-idempotent"
+        manifest, files = self._payload(test_name, "idempotent delete test")
+
+        _cleanup_api_skill(api_client, test_name)
+
+        try:
+            create_resp = api_client.create_skill(manifest, files)
+            skill_id = create_resp["id"]
+            api_client.delete_skill(skill_id)
+
+            with pytest.raises(httpx.HTTPStatusError) as caught:
+                api_client.delete_skill(skill_id)
+            assert caught.value.response.status_code == 404
+            body = caught.value.response.json()
+            assert body["success"] is False
+            assert body["error"]["code"] == "NOT_FOUND"
+        finally:
+            _cleanup_api_skill(api_client, test_name)
+
+
+class TestSkillWebAPIExtra:
+    """/web/config/skills 可见范围与下载接口"""
+
+    @pytest.mark.p1
+    def test_update_access_missing_public_readable(self, web_client):
+        """更新可见范围缺少 publicReadable：应返回 400 VALIDATION_ERROR"""
+        resp = web_client.client.patch("/web/config/skills/nonexistent-skill/access", json={})
+        assert resp.status_code == 400, f"期望 400，实际 {resp.status_code}: {resp.text[:200]}"
+        err = resp.json().get("error", {})
+        assert err.get("code") == "VALIDATION_ERROR"
+        assert "publicReadable" in err.get("message", "")
+
+    @pytest.mark.p2
+    def test_download_nonexistent_skill(self, web_client):
+        """下载不存在的 Skill：应返回 404 NOT_FOUND"""
+        with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(404|NOT_FOUND)"):
+            web_client.download_skill_file("nonexistent-skill-id-99999")
+
+    @pytest.mark.p1
+    def test_download_skill_package(self, web_client):
+        """下载已有 Skill：返回非空 zip 字节流"""
+        data = web_client.list_skills()
+        if not data["skills"]:
+            pytest.skip("Skill 列表为空，无法测试下载")
+        skill_id = data["skills"][0]["id"]
+
+        content = web_client.download_skill_file(skill_id)
+        assert len(content) > 0
+        assert content[:2] == b"PK", f"期望 zip 魔数 PK，实际 {content[:8]!r}"

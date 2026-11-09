@@ -2,7 +2,7 @@
 """Knowledge Base 接口测试：功能验证 + 契约验证
 
 覆盖两套接口：
-- TestKnowledgeBaseOpenAPI: /api/knowledge-bases 对外 OpenAPI（API Key 认证）
+- TestKnowledgeBaseOpenAPI: /api/v1/knowledge-bases 对外 OpenAPI（API Key 认证）
 """
 import pytest
 from tests.api_contracts.openapi_extra_schemas import (
@@ -13,11 +13,12 @@ from tests.api_contracts.openapi_extra_schemas import (
 # ── 对外 OpenAPI 测试 ──
 
 class TestKnowledgeBaseOpenAPI:
-    """/api/knowledge-bases 对外 OpenAPI 测试（API Key 认证）
+    """/api/v1/knowledge-bases 对外 OpenAPI 测试（API Key 认证）
 
     特点：
     - 仅有一个列表端点
     - 列表带分页 {items, total, page, pageSize}
+    - 响应为 {success, data} 信封，client 已解包为裸数据
     """
 
     @pytest.mark.p0
@@ -28,7 +29,7 @@ class TestKnowledgeBaseOpenAPI:
         api_client.validate_schema(resp, API_KNOWLEDGE_BASE_LIST_RESPONSE)
         assert isinstance(resp["items"], list)
         if len(resp["items"]) > 0:
-            # 验证元素结构：至少包含 id 和 name
             item = resp["items"][0]
             assert isinstance(item, dict)
-            assert "id" in item or "name" in item, f"知识库条目缺少 id/name 字段: {list(item.keys())}"
+            assert isinstance(item.get("id"), str)
+            assert isinstance(item.get("name"), str)

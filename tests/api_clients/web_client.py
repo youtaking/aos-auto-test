@@ -118,6 +118,48 @@ class WebClient(BaseClient):
         resp = self.post("/web/config/agents/default", json={"name": name})
         return self._unwrap(resp)
 
+    def restart_agent(self, name: str) -> dict:
+        """重启 Agent
+        POST /web/config/agents/:id/restart → {success, data: {...}}
+        入参可为配置名或资源 ID。
+        """
+        agent_id = self._resolve_resource_id("/web/config/agents", "agents", name)
+        resp = self.post(f"/web/config/agents/{agent_id}/restart")
+        return self._unwrap(resp)
+
+    # ── Trace 模块（/web/agents/:environmentId/sessions/:sessionId/traces） ──
+
+    def list_session_traces(self, environment_id: str, session_id: str, params: dict | None = None) -> dict:
+        """获取会话的 Trace 列表
+        GET /web/agents/:environmentId/sessions/:sessionId/traces → {success, data: {traces, page, totalItems}}
+        """
+        resp = self.get(
+            f"/web/agents/{environment_id}/sessions/{session_id}/traces",
+            params=params,
+        )
+        return self._unwrap(resp)
+
+    def list_trace_observations(self, environment_id: str, session_id: str, trace_id: str) -> dict:
+        """获取 Trace 的 Observation 列表
+        GET /web/agents/:envId/sessions/:sessionId/traces/:traceId/observations → {success, data: {...}}
+        """
+        resp = self.get(
+            f"/web/agents/{environment_id}/sessions/{session_id}/traces/{trace_id}/observations"
+        )
+        return self._unwrap(resp)
+
+    def get_trace_observation(
+        self, environment_id: str, session_id: str, trace_id: str, observation_id: str
+    ) -> dict:
+        """获取单个 Observation 详情
+        GET /web/agents/:envId/sessions/:sessionId/traces/:traceId/observations/:observationId
+        """
+        resp = self.get(
+            f"/web/agents/{environment_id}/sessions/{session_id}/traces/{trace_id}"
+            f"/observations/{observation_id}"
+        )
+        return self._unwrap(resp)
+
     # ── MCP 模块（RESTful 风格，资源用 /:id 路径参数定位） ──
 
     def _resolve_mcp_id(self, ref: str) -> str:
@@ -187,6 +229,27 @@ class WebClient(BaseClient):
         resp = self.get(f"/web/config/mcp/{self._resolve_mcp_id(ref)}/tools")
         return self._unwrap(resp)
 
+    def test_mcp_url(self, data: dict) -> dict:
+        """测试未保存的 MCP URL 连通性
+        POST /web/config/mcp/test-url body: {url} → {success, data: {...}}
+        """
+        resp = self.post("/web/config/mcp/test-url", json=data)
+        return self._unwrap(resp)
+
+    def test_mcp_server(self, ref: str) -> dict:
+        """冒烟测试已保存的 MCP Server
+        POST /web/config/mcp/:id/test → {success, data: {...}}
+        """
+        resp = self.post(f"/web/config/mcp/{self._resolve_mcp_id(ref)}/test")
+        return self._unwrap(resp)
+
+    def inspect_mcp_server(self, ref: str) -> dict:
+        """实时探测 MCP Server 的工具清单（不读缓存）
+        POST /web/config/mcp/:id/inspect → {success, data: {...}}
+        """
+        resp = self.post(f"/web/config/mcp/{self._resolve_mcp_id(ref)}/inspect")
+        return self._unwrap(resp)
+
     # ── Skill 模块（RESTful 风格，资源用 /:name 路径参数定位） ──
 
     def list_skills(self) -> dict:
@@ -230,6 +293,23 @@ class WebClient(BaseClient):
         skill_id = self._resolve_resource_id("/web/config/skills", "skills", name)
         resp = self.delete(f"/web/config/skills/{skill_id}")
         return self._unwrap(resp)
+
+    def update_skill_access(self, ref: str, public_readable: bool) -> dict:
+        """更新 Skill 可见范围
+        PATCH /web/config/skills/:id/access body: {publicReadable} → {success, data: {...}}
+        """
+        skill_id = self._resolve_resource_id("/web/config/skills", "skills", ref)
+        resp = self.patch(f"/web/config/skills/{skill_id}/access", json={"publicReadable": public_readable})
+        return self._unwrap(resp)
+
+    def download_skill_file(self, ref: str) -> bytes:
+        """下载 Skill 压缩包（返回原始字节）
+        GET /web/config/skills/:id/download → application/zip
+        """
+        skill_id = self._resolve_resource_id("/web/config/skills", "skills", ref)
+        resp = self._request_with_retry("get", f"/web/config/skills/{skill_id}/download")
+        resp.raise_for_status()
+        return resp.content
 
     # ── Provider 模块（RESTful，资源用 /:id 定位） ──
 
@@ -641,6 +721,20 @@ class WebClient(BaseClient):
         resp = self.delete(f"/web/instances/{instance_id}")
         return self._unwrap(resp)
 
+    def stop_instance(self, instance_id: str) -> dict:
+        """停止实例
+        POST /web/instances/:id/stop → {success, data: null}
+        """
+        resp = self.post(f"/web/instances/{instance_id}/stop")
+        return self._unwrap(resp)
+
+    def restart_instance(self, instance_id: str) -> dict:
+        """重启实例
+        POST /web/instances/:id/restart → {success, data: null}
+        """
+        resp = self.post(f"/web/instances/{instance_id}/restart")
+        return self._unwrap(resp)
+
     # ── Registry 模块（RESTful /:id） ──
 
     def list_machines(self, params: dict | None = None) -> dict:
@@ -677,6 +771,29 @@ class WebClient(BaseClient):
         """
         resp = self.get(f"/web/registry/machines/{machine_id}/events", params=params)
         return self._unwrap(resp)
+
+    def get_machine_connection_parameters(self, machine_id: str) -> dict:
+        """获取机器连接参数
+        GET /web/registry/machines/:id/connection-parameters → {success, data: {machineId, agentType, rcsUrl}}
+        """
+        resp = self.get(f"/web/registry/machines/{machine_id}/connection-parameters")
+        return self._unwrap(resp)
+
+    def get_acp_runtime(self, platform: str) -> bytes:
+        """下载指定平台的 ACP Runtime 二进制（返回原始字节）
+        GET /web/registry/acp-runtime/:platform → application/octet-stream
+        platform 枚举：linux-x64 / linux-arm64 / darwin-x64 / darwin-arm64
+        """
+        resp = self._request_with_retry("get", f"/web/registry/acp-runtime/{platform}")
+        resp.raise_for_status()
+        return resp.content
+
+    def list_acp_agents(self) -> list:
+        """获取 ACP 注册的 agent 列表（裸数组）
+        GET /acp/agents → [{id, agent_name, status, last_seen_at, created_at}]
+        """
+        resp = self.get("/acp/agents")
+        return resp
 
     # ── Hindsight 模块（代理到外部服务） ──
 
@@ -822,6 +939,21 @@ class WebClient(BaseClient):
         resp = self.get("/web/sidebar-config")
         return self._unwrap(resp)
 
+    def get_branding_logo(self) -> bytes:
+        """获取品牌 Logo（返回原始字节，未配置时 404）
+        GET /web/branding/logo
+        """
+        resp = self._request_with_retry("get", "/web/branding/logo")
+        resp.raise_for_status()
+        return resp.content
+
+    def get_system_modules(self) -> dict:
+        """获取当前部署启用的模块清单
+        GET /web/system/modules → {success, data: {modules: [...], web: [...]}}
+        """
+        resp = self.get("/web/system/modules")
+        return self._unwrap(resp)
+
     def list_workflow_custom_tools(self) -> dict:
         """获取自定义工具列表
         GET /web/workflow-custom-tools → {success, data: [...]}
@@ -896,11 +1028,45 @@ class WebClient(BaseClient):
         resp = self.post(f"/web/agent-sites/apps/{app_id}/deploy")
         return self._unwrap(resp)
 
+    def upload_agent_site_file(self, app_id: str, path: str, content: bytes) -> dict:
+        """上传单个站点文件（原始 body）
+        PUT /web/agent-sites/apps/:id/files/:path → {success, data: {...}}
+        """
+        resp = self._request_with_retry(
+            "put", f"/web/agent-sites/apps/{app_id}/files/{path}", content=content
+        )
+        resp.raise_for_status()
+        return self._unwrap(resp.json())
+
+    def upload_agent_site_bundle(self, app_id: str, content: bytes) -> dict:
+        """上传站点文件包（原始 tar.gz body）
+        POST /web/agent-sites/apps/:id/files/bundle → {success, data: {...}}
+        """
+        resp = self._request_with_retry(
+            "post", f"/web/agent-sites/apps/{app_id}/files/bundle", content=content
+        )
+        resp.raise_for_status()
+        return self._unwrap(resp.json())
+
     def list_agent_config_sites(self, agent_config_id: str) -> dict:
         """获取 Agent 配置关联的 Sites
-        GET /web/agent-configs/:agentConfigId/sites → {success, data: [...]}
+        GET /web/agent-sites/agent-configs/:agentConfigId/sites → {success, data: [...]}
         """
-        resp = self.get(f"/web/agent-configs/{agent_config_id}/sites")
+        resp = self.get(f"/web/agent-sites/agent-configs/{agent_config_id}/sites")
+        return self._unwrap(resp)
+
+    def bind_agent_config_site(self, agent_config_id: str, site_app_id: str) -> dict:
+        """挂载单个 Site 到 Agent（幂等）
+        POST /web/agent-sites/agent-configs/:agentConfigId/sites/:siteAppId → {success, data: null}
+        """
+        resp = self.post(f"/web/agent-sites/agent-configs/{agent_config_id}/sites/{site_app_id}")
+        return self._unwrap(resp)
+
+    def unbind_agent_config_site(self, agent_config_id: str, site_app_id: str) -> dict:
+        """从 Agent 卸载单个 Site（幂等）
+        DELETE /web/agent-sites/agent-configs/:agentConfigId/sites/:siteAppId → {success, data: null}
+        """
+        resp = self.delete(f"/web/agent-sites/agent-configs/{agent_config_id}/sites/{site_app_id}")
         return self._unwrap(resp)
 
     # ── Organization 模块（RESTful /:id） ──
@@ -1114,6 +1280,13 @@ class WebClient(BaseClient):
         resp = self.post(f"/web/workflow-runs/{run_id}/rerun", json=body or {})
         return self._unwrap(resp)
 
+    def approve_workflow_run(self, run_id: str, body: dict) -> dict:
+        """审批工作流运行中的等待节点
+        POST /web/workflow-runs/:runId/approve body: {nodeId, approved, ...} → {success, data: {...}}
+        """
+        resp = self.post(f"/web/workflow-runs/{run_id}/approve", json=body)
+        return self._unwrap(resp)
+
     # ── Knowledge Base 模块（RESTful /:id） ──
 
     def list_knowledge_bases(self) -> dict:
@@ -1193,35 +1366,51 @@ class WebClient(BaseClient):
         resp = self.patch(f"/web/knowledgeBases/{kb_id}/resources/{resource_id}/enabled", json={"enabled": enabled})
         return self._unwrap(resp)
 
-    # ── Files 模块（/web/environments/:id/user/*） ──
-
-    def list_user_files(self, env_id: str, path: str = "") -> dict:
-        """列出用户目录
-        GET /web/environments/:id/user?path=xxx → {success, data: {entries: [...]}}
+    def add_knowledge_url(self, kb_id: str, data: dict) -> dict:
+        """按 URL 添加知识库资源
+        POST /web/knowledgeBases/:id/resources/url body: {url, ...} → {success, data: {...}}
         """
-        resp = self.get(f"/web/environments/{env_id}/user", params={"path": path})
+        resp = self.post(f"/web/knowledgeBases/{kb_id}/resources/url", json=data)
         return self._unwrap(resp)
 
-    def read_user_file(self, env_id: str, file_path: str) -> dict:
-        """读取用户文件内容（文本）
-        GET /web/environments/:id/user/* → {success, data: {name, path, content, size, encoding}}
+    def upload_knowledge_file(self, kb_id: str, files: dict, data: dict | None = None) -> dict:
+        """上传知识库资源文件（multipart）
+        POST /web/knowledgeBases/:id/resources/upload → {success, data: {...}}
         """
-        resp = self.get(f"/web/environments/{env_id}/user/{file_path}")
+        resp = self.client.post(
+            f"/web/knowledgeBases/{kb_id}/resources/upload",
+            files=files,
+            data=data or {},
+        )
+        resp.raise_for_status()
+        return self._unwrap(resp.json())
+
+    def reparse_knowledge_resource(self, kb_id: str, resource_id: str) -> dict:
+        """重新解析知识库资源
+        POST /web/knowledgeBases/:id/resources/:resourceId/reparse → {success, data: {...}}
+        """
+        resp = self.post(f"/web/knowledgeBases/{kb_id}/resources/{resource_id}/reparse")
         return self._unwrap(resp)
 
-    def write_user_file(self, env_id: str, file_path: str, content: str) -> dict:
-        """写入用户文件
-        PUT /web/environments/:id/user/* body: {content} → {success, data: {name, path, size}}
+    def get_knowledge_resource_file(self, kb_id: str, resource_id: str) -> bytes:
+        """下载知识库资源原文件（返回原始字节）
+        GET /web/knowledgeBases/:id/resources/:resourceId/file
         """
-        resp = self.put(f"/web/environments/{env_id}/user/{file_path}", json={"content": content})
-        return self._unwrap(resp)
+        resp = self._request_with_retry(
+            "get", f"/web/knowledgeBases/{kb_id}/resources/{resource_id}/file"
+        )
+        resp.raise_for_status()
+        return resp.content
 
-    def delete_user_file(self, env_id: str, file_path: str) -> dict:
-        """删除用户文件或目录
-        DELETE /web/environments/:id/user/* → {success, data: null}
+    def get_knowledge_resource_pdf(self, kb_id: str, resource_id: str) -> bytes:
+        """下载知识库资源 PDF 预览（返回原始字节）
+        GET /web/knowledgeBases/:id/resources/:resourceId/pdf
         """
-        resp = self.delete(f"/web/environments/{env_id}/user/{file_path}")
-        return self._unwrap(resp)
+        resp = self._request_with_retry(
+            "get", f"/web/knowledgeBases/{kb_id}/resources/{resource_id}/pdf"
+        )
+        resp.raise_for_status()
+        return resp.content
 
     # ── FS 模块（/web/environments/:id/fs/*） ──
 
@@ -1281,35 +1470,15 @@ class WebClient(BaseClient):
         resp = self.delete(f"/web/environments/{env_id}/fs/batch", json={"paths": paths})
         return self._unwrap(resp)
 
-    # ── User-File 模块（/web/environments/:id/user-file/*） ──
-
-    def get_user_file_tree(self, env_id: str) -> dict:
-        """获取 user 文件树
-        GET /web/environments/:id/user-file/tree → {success, data: {paths, mtimes, errors}}
+    def download_fs_zip(self, env_id: str, path: str) -> bytes:
+        """打包下载 workspace 目录（返回原始字节）
+        GET /web/environments/:id/fs/download-zip?path=xxx → application/zip
         """
-        resp = self.get(f"/web/environments/{env_id}/user-file/tree")
-        return self._unwrap(resp)
-
-    def user_file_mkdir(self, env_id: str, path: str) -> dict:
-        """在 user 目录下创建目录
-        POST /web/environments/:id/user-file/mkdir body: {path} → {success, data: {path}}
-        """
-        resp = self.post(f"/web/environments/{env_id}/user-file/mkdir", json={"path": path})
-        return self._unwrap(resp)
-
-    def user_file_rename(self, env_id: str, old_path: str, new_path: str) -> dict:
-        """重命名 user 文件/目录
-        POST /web/environments/:id/user-file/rename body: {oldPath, newPath} → {success, data: {oldPath, newPath}}
-        """
-        resp = self.post(f"/web/environments/{env_id}/user-file/rename", json={"oldPath": old_path, "newPath": new_path})
-        return self._unwrap(resp)
-
-    def user_file_batch_delete(self, env_id: str, paths: list) -> dict:
-        """批量删除 user 文件/目录
-        DELETE /web/environments/:id/user-file/batch body: {paths} → {success, data: {deleted, failed}}
-        """
-        resp = self.delete(f"/web/environments/{env_id}/user-file/batch", json={"paths": paths})
-        return self._unwrap(resp)
+        resp = self._request_with_retry(
+            "get", f"/web/environments/{env_id}/fs/download-zip", params={"path": path}
+        )
+        resp.raise_for_status()
+        return resp.content
 
     # ── Control 模块（已废弃，/web/sessions/:id/* 路由未挂载） ──
     # 被测项目 0ea07115「移除无用的 sessions 模块」在 src/routes/web/index.ts 中
@@ -1347,69 +1516,134 @@ class WebClient(BaseClient):
         resp = self.post("/web/workflow-engine", json=data)
         return self._unwrap(resp)
 
-    # ── Task V1 模块（已废弃，/web/tasks/*） ──
+    # ── Chat Spaces 模块（/web/chat-spaces，按实例作用域） ──
 
-    def list_tasks(self) -> dict:
-        """获取任务列表（v1 已废弃）
-        GET /web/tasks → {success, data: [...]}
+    def list_chat_spaces(self, instance_uid: str) -> dict:
+        """列出实例下的会话分组
+        GET /web/chat-spaces?instanceUid=xxx → {success, data: {spaces: [...]}}
         """
-        resp = self.get("/web/tasks")
+        resp = self.get("/web/chat-spaces", params={"instanceUid": instance_uid})
         return self._unwrap(resp)
 
-    def get_task(self, task_id: str) -> dict:
-        """获取任务详情（v1 已废弃）
-        GET /web/tasks/:id → {success, data: {task}}
+    def create_chat_space(self, instance_uid: str, name: str) -> dict:
+        """新建会话分组
+        POST /web/chat-spaces body: {instanceUid, name} → {success, data: {space}}
         """
-        resp = self.get(f"/web/tasks/{task_id}")
+        resp = self.post("/web/chat-spaces", json={"instanceUid": instance_uid, "name": name})
         return self._unwrap(resp)
 
-    def create_task(self, data: dict) -> dict:
-        """创建任务（v1 已废弃）
-        POST /web/tasks body: {...} → {success, data: {task}}
+    def rename_chat_space(self, space_id: str, instance_uid: str, name: str) -> dict:
+        """重命名会话分组
+        PATCH /web/chat-spaces/:id?instanceUid=xxx body: {name} → {success, data: {space}}
         """
-        resp = self.post("/web/tasks", json=data)
+        resp = self.patch(
+            f"/web/chat-spaces/{space_id}", params={"instanceUid": instance_uid}, json={"name": name}
+        )
         return self._unwrap(resp)
 
-    def update_task(self, task_id: str, data: dict) -> dict:
-        """更新任务（v1 已废弃）
-        PUT /web/tasks/:id body: {...} → {success, data: {task}}
+    def assign_chat_session(self, space_id: str, session_id: str, instance_uid: str) -> dict:
+        """把会话移入分组
+        PUT /web/chat-spaces/:id/sessions/:sessionId?instanceUid=xxx → {success, data: {space}}
         """
-        resp = self.put(f"/web/tasks/{task_id}", json=data)
+        resp = self.put(
+            f"/web/chat-spaces/{space_id}/sessions/{session_id}",
+            params={"instanceUid": instance_uid},
+        )
         return self._unwrap(resp)
 
-    def delete_task(self, task_id: str) -> dict:
-        """删除任务（v1 已废弃）
-        DELETE /web/tasks/:id → {success, data: null}
+    def remove_chat_session(self, session_id: str, instance_uid: str) -> dict:
+        """取消会话分组归属（幂等）
+        DELETE /web/chat-spaces/sessions/:sessionId?instanceUid=xxx → {success, data: {space}}
         """
-        resp = self.delete(f"/web/tasks/{task_id}")
+        resp = self.delete(
+            f"/web/chat-spaces/sessions/{session_id}", params={"instanceUid": instance_uid}
+        )
         return self._unwrap(resp)
 
-    def toggle_task(self, task_id: str) -> dict:
-        """切换任务启用状态（v1 已废弃）
-        POST /web/tasks/:id/toggle → {success, data: {task}}
+    # ── Workflow V2 模块（/web/workflow-v2） ──
+
+    def list_workflow_v2_workflows(self, params: dict | None = None) -> dict:
+        """列出 V2 工作流
+        GET /web/workflow-v2/workflows → {success, data: {items, ...}}
         """
-        resp = self.post(f"/web/tasks/{task_id}/toggle")
+        resp = self.get("/web/workflow-v2/workflows", params=params)
         return self._unwrap(resp)
 
-    def trigger_task(self, task_id: str) -> dict:
-        """手动触发任务（v1 已废弃）
-        POST /web/tasks/:id/trigger → {success, data: {task}}
+    def get_workflow_v2_publish_records(self, workflow_id: str) -> dict:
+        """获取 V2 工作流发布记录
+        GET /web/workflow-v2/workflows/:id/publish-records → {success, data: {...}}
         """
-        resp = self.post(f"/web/tasks/{task_id}/trigger")
+        resp = self.get(f"/web/workflow-v2/workflows/{workflow_id}/publish-records")
         return self._unwrap(resp)
 
-    def get_task_logs(self, task_id: str, params: dict | None = None) -> dict:
-        """获取任务执行日志（v1 已废弃）
-        GET /web/tasks/:id/logs → {success, data: {logs}}
+    def list_workflow_v2_run_records(self, params: dict | None = None) -> dict:
+        """列出 V2 运行记录
+        GET /web/workflow-v2/run-records → {success, data: {items, workflows, ...}}
         """
-        resp = self.get(f"/web/tasks/{task_id}/logs", params=params)
+        resp = self.get("/web/workflow-v2/run-records", params=params)
         return self._unwrap(resp)
 
-    def clear_task_logs(self, task_id: str) -> dict:
-        """清空任务日志（v1 已废弃）
-        DELETE /web/tasks/:id/logs → {success, data: null}
+    def get_workflow_v2_run_record_io(self, execute_id: str, upstream_workflow_id: str) -> dict:
+        """获取 V2 运行记录的输入输出
+        GET /web/workflow-v2/run-records/:executeId/io?upstreamWorkflowId=xxx → {success, data: {...}}
         """
-        resp = self.delete(f"/web/tasks/{task_id}/logs")
+        resp = self.get(
+            f"/web/workflow-v2/run-records/{execute_id}/io",
+            params={"upstreamWorkflowId": upstream_workflow_id},
+        )
+        return self._unwrap(resp)
+
+    def get_workflow_v2_org_app(self) -> dict:
+        """获取组织级 V2 应用绑定
+        GET /web/workflow-v2/org-app → {success, data: {appId, status}}
+        """
+        resp = self.get("/web/workflow-v2/org-app")
+        return self._unwrap(resp)
+
+    def get_workflow_v2_platform_account(self) -> dict:
+        """获取 V2 平台账号状态
+        GET /web/workflow-v2/platform-account → {success, data: {...}}
+        """
+        resp = self.get("/web/workflow-v2/platform-account")
+        return self._unwrap(resp)
+
+    def create_workflow_v2_iframe_code(self, data: dict) -> dict:
+        """生成 V2 工作流 iframe 嵌入代码
+        POST /web/workflow-v2/iframe-code body: {workflowId, ...} → {success, data: {...}}
+        """
+        resp = self.post("/web/workflow-v2/iframe-code", json=data)
+        return self._unwrap(resp)
+
+    def delete_workflow_v2_workflow(self, workflow_id: str) -> dict:
+        """删除 V2 工作流
+        DELETE /web/workflow-v2/workflows/:id → {success, data: null}
+        """
+        resp = self.delete(f"/web/workflow-v2/workflows/{workflow_id}")
+        return self._unwrap(resp)
+
+    # ── Model Gateway 模块（/web/model-gateway） ──
+
+    def get_model_gateway_usage(self, provider_id: str, params: dict) -> dict:
+        """获取模型网关用量
+        GET /web/model-gateway/:providerId/usage?startAt=...&endAt=... → {success, data: {...}}
+        """
+        resp = self.get(f"/web/model-gateway/{provider_id}/usage", params=params)
+        return self._unwrap(resp)
+
+    # ── Plugin Market 模块（/web/config/plugin-market） ──
+
+    def list_plugin_market_packages(self) -> dict:
+        """列出插件市场包
+        GET /web/config/plugin-market/packages → {success, data: {packages, total}}
+        """
+        resp = self.get("/web/config/plugin-market/packages")
+        return self._unwrap(resp)
+
+    def get_plugin_market_package(self, slug: str) -> dict:
+        """获取插件市场包详情
+        GET /web/config/plugin-market/packages/:slug → {success, data: {...}}
+        """
+        resp = self.get(f"/web/config/plugin-market/packages/{slug}")
         return self._unwrap(resp)
 
     # ── Peri Task Details 模块 ──

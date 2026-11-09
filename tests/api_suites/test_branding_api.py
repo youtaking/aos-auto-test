@@ -20,6 +20,32 @@ class TestBrandingWebAPI:
         web_client.validate_schema(resp, BRANDING_DATA)
         assert isinstance(resp["brandName"], str)
 
+    @pytest.mark.p2
+    def test_get_branding_logo(self, web_client):
+        """获取品牌 Logo：未配置时 404 为环境前置，配置时返回图片字节"""
+        resp = web_client.client.get("/web/branding/logo")
+        if resp.status_code == 404:
+            body = resp.json()
+            assert body["success"] is False
+            assert body["error"]["code"] == "NOT_FOUND"
+            pytest.skip("当前部署未配置品牌 Logo（404）")
+
+        assert resp.status_code == 200, f"期望 200，实际 {resp.status_code}: {resp.text[:200]}"
+        assert resp.headers.get("content-type", "").startswith("image/")
+        assert len(resp.content) > 0
+
+
+class TestSystemModulesWebAPI:
+    """/web/system/modules 部署模块清单接口"""
+
+    @pytest.mark.p1
+    def test_get_system_modules(self, web_client):
+        """获取启用模块清单：modules 与 web 均为非空数组"""
+        resp = web_client.get_system_modules()
+        assert isinstance(resp["modules"], list) and resp["modules"]
+        assert isinstance(resp["web"], list) and resp["web"]
+        assert "knowledge" in resp["modules"]
+
 
 class TestSidebarConfigWebAPI:
     """/web/sidebar-config 侧边栏配置接口（无需认证）"""

@@ -141,3 +141,14 @@ class TestWorkflowRunWebAPI:
         """重新运行不存在的运行 — 应返回 400 或 404"""
         with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(400|404)"):
             web_client.rerun_workflow_run("nonexistent-run-id-99999")
+
+    @pytest.mark.p2
+    def test_approve_missing_node_id(self, web_client):
+        """审批缺少 nodeId：应返回 400 VALIDATION_ERROR"""
+        resp = web_client.client.post(
+            "/web/workflow-runs/nonexistent-run-id-99999/approve", json={}
+        )
+        assert resp.status_code == 400, f"期望 400，实际 {resp.status_code}: {resp.text[:200]}"
+        err = resp.json().get("error", {})
+        assert err.get("type") == "VALIDATION_ERROR"
+        assert "nodeId" in err.get("message", "")

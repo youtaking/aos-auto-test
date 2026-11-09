@@ -1,6 +1,6 @@
 // agent-chat-service.test.ts — Agent 聊天服务纯逻辑测试
-// 测试目标：isTurnMessage 消息过滤、createAgentSession 构造
-// 业务意图：确保共享 relay handle 的并发 run 之间消息不串扰
+// 测试目标：isTurnMessage 消息过滤、生命周期信号合成、ACP 握手超时错误码
+// 业务意图：确保共享 relay handle 的并发 run 之间消息不串扰，且运行时生命周期能中止请求
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -174,6 +174,113 @@ describe("agent-chat-service 聊天服务", () => {
         } as unknown as EngineRelayMessage;
         expect(isTurnMessage(msg, sessionId, turnId)).toBe(false);
       });
+    });
+  });
+
+  describe("生命周期信号合成（onResolved 之后）", () => {
+    // 复制 openAdmittedAgentSession 中 onResolved 之后的信号合并逻辑：
+    // lifecycleSignal 存在时与请求 signal 合并，否则沿用原 signal。
+    function composeLifecycleSignal(
+      base: AbortSignal | undefined,
+      lifecycle: AbortSignal | undefined,
+    ): AbortSignal | undefined {
+      if (!lifecycle) return base;
+      return base ? AbortSignal.any([base, lifecycle]) : lifecycle;
+    }
+
+    test("没有生命周期信号时沿用请求 signal", () => {
+      const controller = new AbortController();
+      expect(composeLifecycleSignal(controller.signal, undefined)).toBe(controller.signal);
+    });
+
+    test("只有生命周期信号时直接使用它", () => {
+      const lifecycle = new AbortController().signal;
+      expect(composeLifecycleSignal(undefined, lifecycle)).toBe(lifecycle);
+    });
+
+    test("两者都存在时任一中止即可中止合成信号", () => {
+      const request = new AbortController();
+      const lifecycle = new AbortController();
+      const merged = composeLifecycleSignal(request.signal, lifecycle.signal)!;
+      expect(merged.aborted).toBe(false);
+      lifecycle.abort(new Error("runtime died"));
+      expect(merged.aborted).toBe(true);
+      expect(merged.reason).toBeInstanceOf(Error);
+    });
+
+    test("请求中止同样中止合成信号", () => {
+      const request = new AbortController();
+      const lifecycle = new AbortController();
+      const merged = composeLifecycleSignal(request.signal, lifecycle.signal)!;
+      request.abort(new Error("client gone"));
+      expect(merged.aborted).toBe(true);
+    });
+
+    test("合成后中止会让后续 throwIfAborted 抛错，避免继续打开会话", () => {
+      const lifecycle = new AbortController();
+      lifecycle.abort(new Error("instance stopped"));
+      const merged = composeLifecycleSignal(undefined, lifecycle.signal)!;
+      expect(() => merged.throwIfAborted()).toThrow("instance stopped");
+    });
+  });
+
+  describe("onResolved 回调载荷", () => {
+    interface ApiChatSessionOwner {
+      organizationId: string;
+      userId: string;
+      agentConfigId: string;
+      environmentId: string;
+      instanceId: string;
+      runtimeGeneration: number;
+    }
+
+    /** 复制 openAdmittedAgentSession 传给 onResolved 的对象构造。 */
+    function buildResolvedOwner(
+      input: { organizationId: string; userId: string },
+      resolved: { agentConfigId: string; environmentId: string; instance: { id: string } },
+      runtimeGeneration: number,
+    ): ApiChatSessionOwner {
+      return {
+        organizationId: input.organizationId,
+        userId: input.userId,
+        agentConfigId: resolved.agentConfigId,
+        environmentId: resolved.environmentId,
+        instanceId: resolved.instance.id,
+        runtimeGeneration,
+      };
+    }
+
+    test("使用解析后的 Agent/环境身份，而不是请求入参", () => {
+      const owner = buildResolvedOwner(
+        { organizationId: "org-1", userId: "user-1" },
+        { agentConfigId: "agent-resolved", environmentId: "env-resolved", instance: { id: "inst-1" } },
+        7,
+      );
+      expect(owner).toEqual({
+        organizationId: "org-1",
+        userId: "user-1",
+        agentConfigId: "agent-resolved",
+        environmentId: "env-resolved",
+        instanceId: "inst-1",
+        runtimeGeneration: 7,
+      });
+    });
+  });
+
+  describe("ACP 握手超时错误码", () => {
+    // 源：agent-prompt-turn.ts 中 ACP_HANDSHAKE_TIMEOUT
+    const ACP_HANDSHAKE_TIMEOUT = "ACP_HANDSHAKE_TIMEOUT";
+
+    function handshakeTimeoutError(): Error {
+      return Object.assign(new Error("ACP session handshake timed out; session state is unconfirmed"), {
+        code: ACP_HANDSHAKE_TIMEOUT,
+      });
+    }
+
+    test("超时错误携带 ACP_HANDSHAKE_TIMEOUT 供调用方识别未确认状态", () => {
+      const error = handshakeTimeoutError();
+      expect(error.message).toContain("session state is unconfirmed");
+      expect((error as Error & { code: string }).code).toBe("ACP_HANDSHAKE_TIMEOUT");
     });
   });
 });

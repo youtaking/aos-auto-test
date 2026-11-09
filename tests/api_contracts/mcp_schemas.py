@@ -3,10 +3,26 @@
 
 两套接口响应格式不同：
 - /web/config/mcp（控制台）: action 风格，响应包装为 {success, data}，资源用 ?name=xxx 定位
-- /api/mcp（OpenAPI）: RESTful 风格，响应为裸数据，列表带分页，资源用 /:id 定位
+- /api/v1/mcp-servers（OpenAPI）: RESTful 风格，响应为 {success, data}，客户端解包后为裸数据，资源用 /:id 定位
 """
 
 # ── 通用字段定义 ──
+
+_SCOPE = {
+    "type": "object",
+    "properties": {
+        "organizationId": {"type": "string"},
+        "ownerUserId": {"type": "string"},
+        "visibility": {"type": "string", "enum": ["private", "public"]},
+    },
+    "additionalProperties": True,
+}
+
+_ACCESS = {
+    "type": "object",
+    "properties": {"actions": {"type": "array", "items": {"type": "string"}}},
+    "additionalProperties": True,
+}
 
 MCP_LIST_ITEM = {
     "type": "object",
@@ -18,7 +34,8 @@ MCP_LIST_ITEM = {
         "enabled": {"type": "boolean"},
         "summary": {"type": "string"},
         "toolsCount": {"type": "integer"},
-        "resourceAccess": {"type": "object"},
+        "scope": _SCOPE,
+        "access": _ACCESS,
     },
     "additionalProperties": True,
 }
@@ -33,12 +50,16 @@ MCP_DETAIL = {
         "enabled": {"type": "boolean"},
         "summary": {"type": "string"},
         "config": {},  # unknown/any 类型，不做严格校验
-        "resourceAccess": {"type": "object"},
+        "headerNames": {"type": "array", "items": {"type": "string"}},
+        "environmentNames": {"type": "array", "items": {"type": "string"}},
+        "hasClientSecret": {"type": "boolean"},
+        "scope": _SCOPE,
+        "access": _ACCESS,
     },
     "additionalProperties": True,
 }
 
-# ── /api/* OpenAPI 响应格式（裸数据） ──
+# ── /api/v1/* OpenAPI 响应格式（客户端解包 {success,data} 后的裸数据） ──
 
 API_MCP_LIST_RESPONSE = {
     "type": "object",
@@ -55,14 +76,8 @@ API_MCP_DETAIL_RESPONSE = MCP_DETAIL
 
 API_CREATE_MCP_RESPONSE = MCP_DETAIL
 
-API_DELETE_MCP_RESPONSE = {
-    "type": "object",
-    "required": ["id", "deleted"],
-    "properties": {
-        "id": {"type": "string"},
-        "deleted": {"type": "boolean"},
-    },
-}
+# v1 删除成功返回 data: null
+API_DELETE_MCP_RESPONSE = {"type": "null"}
 
 # ── /web/* 控制台响应格式（{success, data} 包装） ──
 

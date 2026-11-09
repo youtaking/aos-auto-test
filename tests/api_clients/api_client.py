@@ -1,11 +1,11 @@
 # tests/api_clients/api_client.py
-"""/api/* 对外接口客户端（API Key 认证）
+"""/api/v1/* 对外接口客户端（API Key 认证）
 
-对外 OpenAPI 接口特点：
-- 路径前缀 /api/
-- RESTful 风格：用 /:id 定位资源
+对外 OpenAPI 特点（FenixAgent main e01f1bb7e 起重整为 v1）：
+- 业务接口前缀 /api/v1/（平台系统接口仍是 /api/system/）
+- RESTful 风格：用 /:id 定位资源，更新统一用 PATCH
 - 列表接口带分页 {items, total, page, pageSize}
-- 响应为裸数据，无 {success, data} 包装
+- 响应统一信封 {success: true, data}，错误 {success: false, error: {code, message}}
 """
 from tests.api_clients.base_client import BaseClient
 
@@ -76,161 +76,205 @@ class ApiClient(BaseClient):
         resp = self._request_with_retry(method, path, **kwargs)
         return self._parse_response(resp)
 
+    def _v1(self, method: str, path: str, params: dict | None = None, json: dict | None = None, **extra) -> dict:
+        """v1 业务接口通用请求：解包 {success, data}，错误由 _parse_response 抛 HTTPStatusError
+
+        extra 透传给 httpx（如 multipart 的 data/files），并支持 get_v1/post_v1 等场景复用。
+        """
+        kwargs: dict = {"params": params, **extra}
+        if json is not None:
+            kwargs["json"] = json
+        resp = self._request_with_retry(method, path, **kwargs)
+        body = self._parse_response(resp)
+        return self._unwrap(body)
+
+    def _v1_raw(self, method: str, path: str, params: dict | None = None, **extra) -> "httpx.Response":
+        """v1 接口返回原始 Response（用于文件下载、流式响应等非 JSON 场景）"""
+        kwargs: dict = {"params": params, **extra}
+        resp = self._request_with_retry(method, path, **kwargs)
+        resp.raise_for_status()
+        return resp
+
     # ── Agent 模块 ──
 
     def list_agents(self, params: dict | None = None) -> dict:
         """获取 Agent 列表
-        GET /api/agents?page=1&pageSize=20 → {items, total, page, pageSize}
+        GET /api/v1/agents?page=1&pageSize=20 → {items, total, page, pageSize}
         """
-        return self.get("/api/agents", params=params)
+        return self._v1("get", "/api/v1/agents", params=params)
 
     def get_agent(self, agent_id: str) -> dict:
         """获取 Agent 详情
-        GET /api/agents/:id → agent detail
+        GET /api/v1/agents/:id → agent detail
         """
-        return self.get(f"/api/agents/{agent_id}")
+        return self._v1("get", f"/api/v1/agents/{agent_id}")
 
     def create_agent(self, data: dict) -> dict:
-        """创建 Agent
-        POST /api/agents body: {name, description, ...} → agent detail
+        """创建 Agent（201）
+        POST /api/v1/agents body: {name, description, ...} → agent detail
         """
-        return self.post("/api/agents", json=data)
+        return self._v1("post", "/api/v1/agents", json=data)
 
     def update_agent(self, agent_id: str, data: dict) -> dict:
         """更新 Agent
-        PUT /api/agents/:id body: {description, ...} → agent detail
+        PATCH /api/v1/agents/:id body: {description, ...} → agent detail
         """
-        return self.put(f"/api/agents/{agent_id}", json=data)
+        return self._v1("patch", f"/api/v1/agents/{agent_id}", json=data)
 
-    def delete_agent(self, agent_id: str) -> dict:
+    def delete_agent(self, agent_id: str) -> None:
         """删除 Agent
-        DELETE /api/agents/:id → {id, deleted: true}
+        DELETE /api/v1/agents/:id → data: null
         """
-        return self.delete(f"/api/agents/{agent_id}")
+        return self._v1("delete", f"/api/v1/agents/{agent_id}")
 
     # ── MCP 模块（RESTful，资源用 /:id 定位） ──
 
     def list_mcp_servers(self, params: dict | None = None) -> dict:
         """获取 MCP Server 列表
-        GET /api/mcp?page=1&pageSize=20 → {items, total, page, pageSize}
+        GET /api/v1/mcp-servers?page=1&pageSize=20 → {items, total, page, pageSize}
         """
-        return self.get("/api/mcp", params=params)
+        return self._v1("get", "/api/v1/mcp-servers", params=params)
 
     def get_mcp_server(self, server_id: str) -> dict:
         """获取 MCP Server 详情
-        GET /api/mcp/:id → mcp detail {id, name, type, enabled, summary, config, resourceAccess}
+        GET /api/v1/mcp-servers/:id → {id, name, type, enabled, summary, config, headerNames, ...}
         """
-        return self.get(f"/api/mcp/{server_id}")
+        return self._v1("get", f"/api/v1/mcp-servers/{server_id}")
 
     def create_mcp_server(self, data: dict) -> dict:
-        """创建 MCP Server
-        POST /api/mcp body: {name, type, command/url, ...} → mcp detail
+        """创建 MCP Server（201）
+        POST /api/v1/mcp-servers body: {name, config: {type: local|remote|streamable-http, ...}}
         """
-        return self.post("/api/mcp", json=data)
+        return self._v1("post", "/api/v1/mcp-servers", json=data)
 
     def update_mcp_server(self, server_id: str, data: dict) -> dict:
-        """更新 MCP Server（按 ID 定位）
-        PUT /api/mcp/:id body: {type, command/url, ...} → mcp detail
+        """更新 MCP Server（enabled / config / publicReadable 三选一）
+        PATCH /api/v1/mcp-servers/:id → mcp detail
         """
-        return self.put(f"/api/mcp/{server_id}", json=data)
+        return self._v1("patch", f"/api/v1/mcp-servers/{server_id}", json=data)
 
-    def delete_mcp_server(self, server_id: str) -> dict:
+    def delete_mcp_server(self, server_id: str) -> None:
         """删除 MCP Server
-        DELETE /api/mcp/:id → {id, deleted: true}
+        DELETE /api/v1/mcp-servers/:id → data: null
         """
-        return self.delete(f"/api/mcp/{server_id}")
+        return self._v1("delete", f"/api/v1/mcp-servers/{server_id}")
 
     # ── Skill 模块 ──
 
     def list_skills(self, params: dict | None = None) -> dict:
         """获取 Skill 列表
-        GET /api/skills?page=1&pageSize=20 → {items, total, page, pageSize}
+        GET /api/v1/skills?page=1&pageSize=20 → {items, total, page, pageSize}
         """
-        return self.get("/api/skills", params=params)
+        return self._v1("get", "/api/v1/skills", params=params)
 
     def get_skill(self, skill_id: str) -> dict:
         """获取 Skill 详情
-        GET /api/skills/:id → skill detail
+        GET /api/v1/skills/:id → {id, name, description, scope, access, content, metadata}
         """
-        return self.get(f"/api/skills/{skill_id}")
+        return self._v1("get", f"/api/v1/skills/{skill_id}")
 
-    def delete_skill(self, skill_id: str) -> dict:
-        """删除 Skill
-        DELETE /api/skills/:id → {id, deleted: true}
+    def create_skill(self, manifest: list | str, files: list[tuple], overwrite: str = "false") -> dict:
+        """导入 Skill（multipart）
+
+        POST /api/v1/skills
+        - manifest: [{"skillName": "demo", "relativePath": "SKILL.md"}]，或已序列化的 JSON 字符串
+        - files: [(filename, bytes), ...]，与 manifest 条目顺序一一对应
+        - overwrite: "true" / "false"
+        新建返回 201，覆盖返回 200；data 为 skill detail。
         """
-        return self.delete(f"/api/skills/{skill_id}")
+        import json as _json
+        manifest_raw = manifest if isinstance(manifest, str) else _json.dumps(manifest, ensure_ascii=False)
+        multipart = [("files", (name, content, "application/octet-stream")) for name, content in files]
+        return self._v1(
+            "post",
+            "/api/v1/skills",
+            data={"manifest": manifest_raw, "overwrite": overwrite},
+            files=multipart,
+        )
+
+    def update_skill(self, skill_id: str, data: dict) -> dict:
+        """更新 Skill（content / description / metadata / publicReadable，空更新报错）
+        PATCH /api/v1/skills/:id → skill detail
+        """
+        return self._v1("patch", f"/api/v1/skills/{skill_id}", json=data)
+
+    def delete_skill(self, skill_id: str) -> None:
+        """删除 Skill
+        DELETE /api/v1/skills/:id → data: null
+        """
+        return self._v1("delete", f"/api/v1/skills/{skill_id}")
 
     # ── Provider 模块（OpenAPI） ──
 
     def list_providers(self, params: dict | None = None) -> dict:
         """获取 Provider 列表
-        GET /api/models/providers?page=1&pageSize=20 → {items, total, page, pageSize}
+        GET /api/v1/providers?page=1&pageSize=20 → {items, total, page, pageSize}
         """
-        return self.get("/api/models/providers", params=params)
+        return self._v1("get", "/api/v1/providers", params=params)
 
     def get_provider(self, provider_id: str) -> dict:
         """获取 Provider 详情
-        GET /api/models/providers/:providerId → provider detail
+        GET /api/v1/providers/:providerId → provider detail
         """
-        return self.get(f"/api/models/providers/{provider_id}")
+        return self._v1("get", f"/api/v1/providers/{provider_id}")
 
     def create_provider(self, data: dict) -> dict:
-        """创建 Provider
-        POST /api/models/providers body: {name, protocol, ...} → provider detail
+        """创建 Provider（201）
+        POST /api/v1/providers body: {name, protocol, ...} → provider detail
         """
-        return self.post("/api/models/providers", json=data)
+        return self._v1("post", "/api/v1/providers", json=data)
 
     def update_provider(self, provider_id: str, data: dict) -> dict:
         """更新 Provider
-        PUT /api/models/providers/:providerId body: {...} → provider detail
+        PATCH /api/v1/providers/:providerId body: {...} → provider detail
         """
-        return self.put(f"/api/models/providers/{provider_id}", json=data)
+        return self._v1("patch", f"/api/v1/providers/{provider_id}", json=data)
 
-    def delete_provider(self, provider_id: str) -> dict:
+    def delete_provider(self, provider_id: str) -> None:
         """删除 Provider
-        DELETE /api/models/providers/:providerId → {id, deleted: true}
+        DELETE /api/v1/providers/:providerId → data: null
         """
-        return self.delete(f"/api/models/providers/{provider_id}")
+        return self._v1("delete", f"/api/v1/providers/{provider_id}")
 
     # ── Model 模块（OpenAPI） ──
 
     def list_models(self, provider_id: str, params: dict | None = None) -> dict:
         """获取 Model 列表
-        GET /api/models/providers/:providerId/models → {items, total, page, pageSize}
+        GET /api/v1/providers/:providerId/models → {items, total, page, pageSize}
         """
-        return self.get(f"/api/models/providers/{provider_id}/models", params=params)
+        return self._v1("get", f"/api/v1/providers/{provider_id}/models", params=params)
 
     def get_model(self, provider_id: str, model_id: str) -> dict:
         """获取 Model 详情
-        GET /api/models/providers/:providerId/models/:id → model detail
+        GET /api/v1/providers/:providerId/models/:id → model detail
         """
-        return self.get(f"/api/models/providers/{provider_id}/models/{model_id}")
+        return self._v1("get", f"/api/v1/providers/{provider_id}/models/{model_id}")
 
     def create_model(self, provider_id: str, data: dict) -> dict:
-        """创建 Model
-        POST /api/models/providers/:providerId/models body: {modelId, ...} → model detail
+        """创建 Model（201）
+        POST /api/v1/providers/:providerId/models body: {modelId, ...} → model detail
         """
-        return self.post(f"/api/models/providers/{provider_id}/models", json=data)
+        return self._v1("post", f"/api/v1/providers/{provider_id}/models", json=data)
 
     def update_model(self, provider_id: str, model_id: str, data: dict) -> dict:
         """更新 Model
-        PUT /api/models/providers/:providerId/models/:id body: {...} → model detail
+        PATCH /api/v1/providers/:providerId/models/:id body: {...} → model detail
         """
-        return self.put(f"/api/models/providers/{provider_id}/models/{model_id}", json=data)
+        return self._v1("patch", f"/api/v1/providers/{provider_id}/models/{model_id}", json=data)
 
-    def delete_model(self, provider_id: str, model_id: str) -> dict:
+    def delete_model(self, provider_id: str, model_id: str) -> None:
         """删除 Model
-        DELETE /api/models/providers/:providerId/models/:id → {id, deleted: true}
+        DELETE /api/v1/providers/:providerId/models/:id → data: null
         """
-        return self.delete(f"/api/models/providers/{provider_id}/models/{model_id}")
+        return self._v1("delete", f"/api/v1/providers/{provider_id}/models/{model_id}")
 
-    # ── Knowledge Bases 模块 ──
+    # ── Knowledge Bases 模块（只读） ──
 
     def list_knowledge_bases(self, params: dict | None = None) -> dict:
-        """获取知识库列表
-        GET /api/knowledge-bases?page=1&pageSize=20 → {items, total, page, pageSize}
+        """获取知识库列表（v1 仅提供只读列表）
+        GET /api/v1/knowledge-bases?page=1&pageSize=20 → {items, total, page, pageSize}
         """
-        return self.get("/api/knowledge-bases", params=params)
+        return self._v1("get", "/api/v1/knowledge-bases", params=params)
 
     # ── System API 模块（/api/system，需要 System API Key） ──
 
@@ -318,21 +362,119 @@ class ApiClient(BaseClient):
         """
         return self._system_request("delete", f"/api/system/api-keys/{key_id}")
 
-    # ── Instance Connect 模块 ──
+    # ── Instance 模块 ──
 
     def connect_instance(self, agent_id: str, data: dict | None = None) -> dict:
-        """连接 Agent Instance
-        POST /api/agents/:agentId/instances/connect body: {...}
+        """连接 Agent Instance（必要时自动创建 environment 并启动实例）
+        POST /api/v1/agents/:id/instances/connect
+        body: {instanceId?: "inst_..."}（可选，用于复用已有实例）
+        → {agentConfigId, environmentId, instanceId, status: "running", runtimeGeneration, relay: {wsUrl}}
         """
-        return self.post(f"/api/agents/{agent_id}/instances/connect", json=data or {})
+        return self._v1("post", f"/api/v1/agents/{agent_id}/instances/connect", json=data or {})
 
-    # ── Workflow 模块 ──
+    def list_instances(self, agent_id: str, params: dict | None = None) -> dict:
+        """查询 Agent 的现有实例
+        GET /api/v1/agents/:id/instances → {items, total, page, pageSize}
+        """
+        return self._v1("get", f"/api/v1/agents/{agent_id}/instances", params=params)
+
+    def get_instance(self, instance_id: str) -> dict:
+        """查询现有实例
+        GET /api/v1/instances/:id → instance detail
+        """
+        return self._v1("get", f"/api/v1/instances/{instance_id}")
+
+    def stop_instance(self, instance_id: str) -> None:
+        """严格停止实例
+        POST /api/v1/instances/:id/stop → data: null
+        """
+        return self._v1("post", f"/api/v1/instances/{instance_id}/stop")
+
+    def restart_instance(self, instance_id: str) -> dict:
+        """重启实例
+        POST /api/v1/instances/:id/restart → instance detail
+        """
+        return self._v1("post", f"/api/v1/instances/{instance_id}/restart")
+
+    # ── Workflow 模块（经典引擎） ──
 
     def execute_workflow(self, workflow_id: str, data: dict) -> dict:
         """执行工作流
-        POST /api/workflows/:workflowId/execute body: {inputs, mode}
+        POST /api/v1/workflows/:workflowId/execute body: {inputs, mode: sync|async, version?, timeout?}
         """
-        return self.post(f"/api/workflows/{workflow_id}/execute", json=data)
+        return self._v1("post", f"/api/v1/workflows/{workflow_id}/execute", json=data)
+
+    # ── Workflow v2 模块 ──
+
+    def run_workflow_v2(self, workflow_id: str, data: dict | None = None) -> dict:
+        """触发工作流 v2 运行
+        POST /api/v1/workflow-v2/workflows/:id/run
+        body: {parameters?: object|string, isAsync?: boolean, ext?: {user_id?}}
+        → {executeId, data, token, cost, debugUrl}
+        """
+        return self._v1("post", f"/api/v1/workflow-v2/workflows/{workflow_id}/run", json=data or {})
+
+    # ── Workspace 文件模块 ──
+
+    def list_workspace_files(self, environment_id: str) -> dict:
+        """查询 Environment 工作区文件树
+        GET /api/v1/environments/:environmentId/workspace/files
+        → {environmentId, paths, mtimes?, errors?}
+        """
+        return self._v1("get", f"/api/v1/environments/{environment_id}/workspace/files")
+
+    def download_workspace_file(self, environment_id: str, path: str) -> bytes:
+        """下载工作区文件（原始文件流）
+        GET /api/v1/environments/:environmentId/workspace/files/download?path=...
+        """
+        resp = self._v1_raw(
+            "get",
+            f"/api/v1/environments/{environment_id}/workspace/files/download",
+            params={"path": path},
+        )
+        return resp.content
+
+    def upload_workspace_files(
+        self,
+        environment_id: str,
+        files: list[tuple],
+        path: str = "user",
+        relative_paths: str | None = None,
+    ) -> dict:
+        """上传文件到工作区（multipart）
+        POST /api/v1/environments/:environmentId/workspace/files
+        - files: [(filename, bytes), ...]
+        - path: 工作区内相对目录，省略为 user，"" 或 "." 表示根目录
+        → {environmentId, written, skipped, ...}
+        """
+        multipart = [("files", (name, content, "application/octet-stream")) for name, content in files]
+        data = {"path": path}
+        if relative_paths is not None:
+            data["relativePaths"] = relative_paths
+        return self._v1(
+            "post",
+            f"/api/v1/environments/{environment_id}/workspace/files",
+            data=data,
+            files=multipart,
+        )
+
+    # ── OpenAI 兼容对话模块 ──
+
+    def chat_completions(self, data: dict) -> dict:
+        """OpenAI 兼容对话（非流式）
+        POST /api/v1/chat/completions
+        body: {model: <agentConfigId uuid>, messages: [{role, content}], stream: false}
+        → {id, object: "chat.completion", created, model, choices: [...]}
+        """
+        payload = {"stream": False, **data}
+        # chat 走 OpenAI 原生格式，不是 {success, data} 信封，不能 _unwrap
+        resp = self._request_with_retry("post", "/api/v1/chat/completions", json=payload)
+        return self._parse_response(resp)
+
+    def chat_completions_raw(self, data: dict) -> "httpx.Response":
+        """OpenAI 兼容对话（原始响应，供流式 SSE 用例读取）"""
+        payload = {"stream": False, **data}
+        return self._v1_raw("post", "/api/v1/chat/completions", json=payload)
 
     # ── Sandbox 模块（/api/system，需要 System API Key） ──
 
@@ -404,7 +546,7 @@ class ApiClient(BaseClient):
             error = resp.get("error", {})
             code = error.get("code", "UNKNOWN")
             message = error.get("message", "")
-            raise RuntimeError(f"System API error: {code} - {message}")
+            raise RuntimeError(f"API error: {code} - {message}")
         return resp.get("data")
 
     def list_system_log_sources(self) -> dict:
@@ -451,3 +593,144 @@ class ApiClient(BaseClient):
         """
         resp = self._system_get("/api/system/people-tree")
         return self._unwrap(resp)
+
+    # ── Auth 模块（/api/auth，无需 System Key） ──
+
+    def get_auth_encryption_key(self) -> dict:
+        """获取当前会话的加密公钥
+        GET /api/auth/encryption-key → {key}
+        """
+        return self.get("/api/auth/encryption-key")
+
+    def get_auth_signup_status(self) -> dict:
+        """查询是否开放注册
+        GET /api/auth/signup-status → {signupAllowed}
+        """
+        return self.get("/api/auth/signup-status")
+
+    # ── System Channels 模块（/api/system/channels，System API Key） ──
+
+    def list_system_channels(self) -> dict:
+        """获取渠道接入总览
+        GET /api/system/channels → {success, data: {status, organizations}}
+        返回 data 部分
+        """
+        resp = self._system_get("/api/system/channels")
+        return self._unwrap(resp)
+
+    # ── System Model Gateway 模块（/api/system/model-gateway，System API Key） ──
+
+    def get_system_model_gateway_config(self) -> dict:
+        """获取模型网关配置
+        GET /api/system/model-gateway/config → {provider, adminUiUrl, ...}
+        """
+        return self._system_request("get", "/api/system/model-gateway/config")
+
+    def list_system_model_gateway_keys(self, params: dict | None = None) -> dict:
+        """获取模型网关 Key 列表
+        GET /api/system/model-gateway/keys → {items, total}
+        """
+        return self._system_request("get", "/api/system/model-gateway/keys", params=params)
+
+    def list_system_model_gateway_budgets(self, params: dict | None = None) -> dict:
+        """获取模型网关预算列表
+        GET /api/system/model-gateway/budgets → {items, total}
+        """
+        return self._system_request("get", "/api/system/model-gateway/budgets", params=params)
+
+    def get_system_model_gateway_models_status(self) -> dict:
+        """获取模型同步状态
+        GET /api/system/model-gateway/models/status → {status, changes, models}
+        """
+        return self._system_request("get", "/api/system/model-gateway/models/status")
+
+    def list_system_model_gateway_subjects_users(self, params: dict | None = None) -> dict:
+        """获取模型网关计费主体（用户）
+        GET /api/system/model-gateway/subjects/users → {items, total}
+        """
+        return self._system_request(
+            "get", "/api/system/model-gateway/subjects/users", params=params
+        )
+
+    def list_system_model_gateway_subjects_agents(self, params: dict | None = None) -> list:
+        """获取模型网关计费主体（Agent）
+        GET /api/system/model-gateway/subjects/agents → [{id, name, ...}]
+        """
+        return self._system_request(
+            "get", "/api/system/model-gateway/subjects/agents", params=params
+        )
+
+    def get_system_model_gateway_usage(self, params: dict | None = None) -> dict:
+        """获取模型网关用量
+        GET /api/system/model-gateway/usage?startAt=... → {items, ...}
+        """
+        return self._system_request("get", "/api/system/model-gateway/usage", params=params)
+
+    # ── System Plugin Market 模块（/api/system/plugin-market，System API Key） ──
+
+    def list_system_plugin_market_packages(self, params: dict | None = None) -> dict:
+        """列出插件市场包
+        GET /api/system/plugin-market/packages → {success, data: {packages, total}}
+        返回 data 部分
+        """
+        resp = self._system_get("/api/system/plugin-market/packages", params=params)
+        return self._unwrap(resp)
+
+    def get_system_plugin_market_package(self, slug: str) -> dict:
+        """获取插件市场包详情
+        GET /api/system/plugin-market/packages/:slug → package detail
+        """
+        return self._system_request("get", f"/api/system/plugin-market/packages/{slug}")
+
+    # ── System Sandbox Cluster 模块（/api/system/sandbox-cluster，System API Key） ──
+
+    def list_sandbox_cluster_pools(self, params: dict | None = None) -> list:
+        """获取沙盒集群池列表
+        GET /api/system/sandbox-cluster/pools → [{id, name, status, ...}]
+        """
+        return self._system_request("get", "/api/system/sandbox-cluster/pools", params=params)
+
+    def get_sandbox_cluster_pool(self, pool_id: str) -> dict:
+        """获取沙盒集群池详情
+        GET /api/system/sandbox-cluster/pools/:poolId → pool detail
+        """
+        return self._system_request("get", f"/api/system/sandbox-cluster/pools/{pool_id}")
+
+    def list_sandbox_cluster_servers(self, params: dict | None = None) -> list:
+        """获取沙盒集群服务器列表
+        GET /api/system/sandbox-cluster/servers → [{id, poolId, status, ...}]
+        """
+        return self._system_request("get", "/api/system/sandbox-cluster/servers", params=params)
+
+    def get_sandbox_cluster_server(self, server_id: str) -> dict:
+        """获取沙盒集群服务器详情
+        GET /api/system/sandbox-cluster/servers/:serverId → server detail
+        """
+        return self._system_request("get", f"/api/system/sandbox-cluster/servers/{server_id}")
+
+    # ── System Sandbox Server 模块（/api/system/sandbox-server，System API Key） ──
+
+    def list_sandbox_server_sandboxes(self, server_id: str, params: dict | None = None) -> dict:
+        """列出服务器上的沙盒
+        GET /api/system/sandbox-server/servers/:serverId/sandboxes → {items, ...}
+        """
+        return self._system_request(
+            "get", f"/api/system/sandbox-server/servers/{server_id}/sandboxes", params=params
+        )
+
+    def get_sandbox_server_sandbox(self, server_id: str, sandbox_id: str) -> dict:
+        """获取服务器上的沙盒详情
+        GET /api/system/sandbox-server/servers/:serverId/sandboxes/:sandboxId
+        """
+        return self._system_request(
+            "get", f"/api/system/sandbox-server/servers/{server_id}/sandboxes/{sandbox_id}"
+        )
+
+    def get_sandbox_server_sandbox_diagnostics(self, server_id: str, sandbox_id: str) -> dict:
+        """获取沙盒诊断信息
+        GET /api/system/sandbox-server/servers/:serverId/sandboxes/:sandboxId/diagnostics
+        """
+        return self._system_request(
+            "get",
+            f"/api/system/sandbox-server/servers/{server_id}/sandboxes/{sandbox_id}/diagnostics",
+        )

@@ -1,8 +1,9 @@
 // scheduler-agent-executor.test.ts — Agent 任务执行器纯逻辑测试
-// 测试目标：parseDefinition、extractPlainText 事件解析
-// 业务意图：确保 Agent 任务从 ACP 事件流中正确提取纯文本输出
+// 测试目标：parseDefinition、extractPlainText 单事件解析、MCP 初始化等待判定
+// 业务意图：确保 Agent 任务从 ACP 事件流中正确提取纯文本输出，且等待窗口不拖垮预算
+// 源：packages/resources/task/src/server/services/scheduler/agent-executor.ts（main a7f477a9e）
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
 // ── 复制纯函数 ──
 
@@ -11,29 +12,32 @@ interface AgentDefinition {
 }
 
 function parseDefinition(raw: unknown): AgentDefinition {
-  const def = (raw ?? {}) as AgentDefinition;
+  const def = raw as AgentDefinition;
   return { prompt: String(def.prompt ?? "") };
 }
 
-function extractPlainText(events: Array<{ type: string; payload?: unknown }>): string {
-  const lines: string[] = [];
-  for (const ev of events) {
-    const payload = (ev.payload ?? ev) as Record<string, unknown> | undefined;
-    if (!payload) continue;
+function extractJsonRpc(msg: unknown): Record<string, unknown> | null {
+  const record = msg as Record<string, unknown>;
+  if (record.jsonrpc === "2.0") return record;
+  const payload = record.payload as Record<string, unknown> | undefined;
+  if (payload?.jsonrpc === "2.0") return payload;
+  return null;
+}
 
-    if (payload.jsonrpc === "2.0" && (payload as any).result?.stopReason) continue;
+/** 只保留有界文本摘要：单事件输入，非 agent_message_chunk 返回空串。 */
+function extractPlainText(event: unknown): string {
+  const rpc = extractJsonRpc(event);
+  if (rpc?.method !== "session/update") return "";
+  const params = rpc.params as Record<string, unknown> | undefined;
+  const update = params?.update as Record<string, unknown> | undefined;
+  if (update?.sessionUpdate !== "agent_message_chunk") return "";
+  const content = update.content as Record<string, unknown> | undefined;
+  return typeof content?.text === "string" ? content.text : "";
+}
 
-    if (payload.method === "session/update") {
-      const params = payload.params as Record<string, unknown> | undefined;
-      const update = params?.update as Record<string, unknown> | undefined;
-      if (!update) continue;
-      if (update.sessionUpdate !== "agent_message_chunk") continue;
-      const content = update.content as Record<string, unknown> | undefined;
-      if (content && typeof content.text === "string") lines.push(content.text);
-    }
-  }
-  const text = lines.join("").trim();
-  return text.slice(0, 2000);
+/** 剩余预算必须严格大于等待窗口才值得等，否则等待会把任务拖到超时。 */
+function shouldWaitForMcpInit(remainingMs: number, mcpInitGraceMs: number): boolean {
+  return mcpInitGraceMs > 0 && remainingMs > mcpInitGraceMs;
 }
 
 // ── 辅助工厂 ──
@@ -83,173 +87,111 @@ function makeToolCallEvent() {
 // ── tests ──
 
 describe("scheduler-agent-executor Agent 执行器", () => {
-  beforeEach(() => {
-    mock.restore();
-  });
-
   describe("parseDefinition 定义解析", () => {
     test("正常 prompt 提取", () => {
-      const result = parseDefinition({ prompt: "请分析这段代码" });
-      expect(result.prompt).toBe("请分析这段代码");
+      expect(parseDefinition({ prompt: "请分析这段代码" }).prompt).toBe("请分析这段代码");
     });
 
     test("缺失 prompt 默认空字符串", () => {
-      const result = parseDefinition({});
-      expect(result.prompt).toBe("");
-    });
-
-    test("null 输入默认空字符串", () => {
-      const result = parseDefinition(null);
-      expect(result.prompt).toBe("");
+      expect(parseDefinition({}).prompt).toBe("");
     });
 
     test("prompt 为数字时转为字符串", () => {
-      const result = parseDefinition({ prompt: 12345 });
-      expect(result.prompt).toBe("12345");
+      expect(parseDefinition({ prompt: 12345 }).prompt).toBe("12345");
     });
 
     test("空字符串 prompt 保持空", () => {
-      const result = parseDefinition({ prompt: "" });
-      expect(result.prompt).toBe("");
+      expect(parseDefinition({ prompt: "" }).prompt).toBe("");
     });
   });
 
-  describe("extractPlainText 文本提取", () => {
+  describe("extractPlainText 单事件文本提取", () => {
     test("从 agent_message_chunk 提取文本", () => {
-      const events = [
-        makeAgentMessageChunkEvent("Hello "),
-        makeAgentMessageChunkEvent("World"),
-      ];
-      const result = extractPlainText(events);
-      expect(result).toBe("Hello World");
+      expect(extractPlainText(makeAgentMessageChunkEvent("Hello World"))).toBe("Hello World");
     });
 
     test("忽略 tool_call 事件", () => {
-      const events = [
-        makeAgentMessageChunkEvent("Before tool"),
-        makeToolCallEvent(),
-        makeAgentMessageChunkEvent(" After tool"),
-      ];
-      const result = extractPlainText(events);
-      expect(result).toBe("Before tool After tool");
+      expect(extractPlainText(makeToolCallEvent())).toBe("");
     });
 
-    test("忽略 stopReason 事件", () => {
-      const events = [
-        makeAgentMessageChunkEvent("Content"),
-        makeStopEvent(),
-      ];
-      const result = extractPlainText(events);
-      expect(result).toBe("Content");
-    });
-
-    test("空事件数组返回空字符串", () => {
-      const result = extractPlainText([]);
-      expect(result).toBe("");
-    });
-
-    test("结果 trim 前后空格", () => {
-      const events = [makeAgentMessageChunkEvent("  hello  ")];
-      const result = extractPlainText(events);
-      expect(result).toBe("hello");
-    });
-
-    test("截断到 2000 字符", () => {
-      const longText = "x".repeat(3000);
-      const events = [makeAgentMessageChunkEvent(longText)];
-      const result = extractPlainText(events);
-      expect(result.length).toBe(2000);
+    test("忽略 stopReason 结果事件", () => {
+      expect(extractPlainText(makeStopEvent())).toBe("");
     });
 
     test("忽略非 session/update 方法的通知", () => {
-      const events = [
-        {
-          type: "message",
-          payload: {
-            jsonrpc: "2.0",
-            method: "session/status",
-            params: { status: "running" },
-          },
-        },
-        makeAgentMessageChunkEvent("Real content"),
-      ];
-      const result = extractPlainText(events);
-      expect(result).toBe("Real content");
+      const event = {
+        jsonrpc: "2.0",
+        method: "session/status",
+        params: { status: "running" },
+      };
+      expect(extractPlainText(event)).toBe("");
     });
 
     test("忽略无 content 的 agent_message_chunk", () => {
-      const events = [
-        {
-          type: "message",
-          payload: {
-            jsonrpc: "2.0",
-            method: "session/update",
-            params: {
-              update: { sessionUpdate: "agent_message_chunk" },
-            },
-          },
-        },
-      ];
-      const result = extractPlainText(events);
-      expect(result).toBe("");
+      const event = {
+        jsonrpc: "2.0",
+        method: "session/update",
+        params: { update: { sessionUpdate: "agent_message_chunk" } },
+      };
+      expect(extractPlainText(event)).toBe("");
     });
 
     test("忽略非 text 类型的 content", () => {
-      const events = [
-        {
-          type: "message",
-          payload: {
-            jsonrpc: "2.0",
-            method: "session/update",
-            params: {
-              update: {
-                sessionUpdate: "agent_message_chunk",
-                content: { type: "image", url: "https://example.com/img.png" },
-              },
-            },
+      const event = {
+        jsonrpc: "2.0",
+        method: "session/update",
+        params: {
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "image", url: "https://example.com/img.png" },
           },
         },
-      ];
-      const result = extractPlainText(events);
-      expect(result).toBe("");
+      };
+      expect(extractPlainText(event)).toBe("");
     });
 
-    test("混合事件流正确提取", () => {
+    test("无 payload 的事件返回空串", () => {
+      expect(extractPlainText({ type: "empty" })).toBe("");
+    });
+
+    test("直接 JSON-RPC（无 payload 包裹）也能提取", () => {
+      const event = {
+        jsonrpc: "2.0",
+        method: "session/update",
+        params: {
+          update: { sessionUpdate: "agent_message_chunk", content: { text: "raw text" } },
+        },
+      };
+      expect(extractPlainText(event)).toBe("raw text");
+    });
+
+    test("多事件逐条提取后拼接并截断", () => {
       const events = [
         makeAgentMessageChunkEvent("第一段"),
         makeToolCallEvent(),
         makeAgentMessageChunkEvent("第二段"),
-        makeStopEvent(),
-        makeAgentMessageChunkEvent("第三段"),
       ];
-      const result = extractPlainText(events);
-      expect(result).toBe("第一段第二段第三段");
+      let summary = "";
+      for (const event of events) summary = (summary + extractPlainText(event)).slice(0, 2000);
+      expect(summary).toBe("第一段第二段");
+    });
+  });
+
+  describe("shouldWaitForMcpInit 等待窗口判定", () => {
+    test("预算充足时等待", () => {
+      expect(shouldWaitForMcpInit(5000, 1000)).toBe(true);
     });
 
-    test("原始 jsonrpc 格式事件正确提取", () => {
-      const events = [
-        {
-          type: "raw",
-          payload: {
-            jsonrpc: "2.0",
-            method: "session/update",
-            params: {
-              update: {
-                sessionUpdate: "agent_message_chunk",
-                content: { text: "raw text" },
-              },
-            },
-          },
-        },
-      ];
-      const result = extractPlainText(events);
-      expect(result).toBe("raw text");
+    test("预算恰好等于窗口时不等", () => {
+      expect(shouldWaitForMcpInit(1000, 1000)).toBe(false);
     });
 
-    test("无 payload 时跳过", () => {
-      const events = [{ type: "empty" }];
-      const result = extractPlainText(events);
-      expect(result).toBe("");
+    test("预算不足时不等", () => {
+      expect(shouldWaitForMcpInit(500, 1000)).toBe(false);
+    });
+
+    test("窗口为 0 时不等", () => {
+      expect(shouldWaitForMcpInit(5000, 0)).toBe(false);
     });
   });
 });

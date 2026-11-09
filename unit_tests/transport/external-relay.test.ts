@@ -1,6 +1,6 @@
 // external-relay.test.ts — 外部 ACP 客户端 Relay 纯逻辑测试
-// 测试目标：handleExternalRelayMessage 消息解析、ping/pong 处理、pending buffer
-// 业务意图：确保外部客户端消息正确解析和转发，非法消息被忽略
+// 测试目标：消息解析、ping/pong、pending buffer、认证 cwd 注入、连接授权
+// 业务意图：确保外部客户端消息正确解析和转发，且无法改变服务端认证的工作区
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -274,6 +274,165 @@ describe("external-relay 外部 Relay", () => {
         relay.send(msg as { type: string; payload?: unknown });
       }
       expect(relay.sentMessages.length).toBe(0);
+    });
+  });
+
+  // ── main 新增：认证工作区 cwd 注入 ──
+
+  describe("injectAuthenticatedCwd cwd 注入", () => {
+    function extractJsonRpc(message: Record<string, unknown>): Record<string, unknown> | null {
+      if (message.jsonrpc === "2.0") return message;
+      const payload = message.payload as Record<string, unknown> | undefined;
+      return payload?.jsonrpc === "2.0" ? payload : null;
+    }
+
+    function injectAuthenticatedCwd(message: Record<string, unknown>, cwd: string): Record<string, unknown> {
+      const rpc = extractJsonRpc(message);
+      if (!rpc) return message;
+      if (
+        rpc.jsonrpc !== "2.0" ||
+        !["session/new", "session/load", "session/list", "session/resume"].includes(String(rpc.method))
+      )
+        return rpc;
+      const params = typeof rpc.params === "object" && rpc.params !== null ? rpc.params : {};
+      return { ...rpc, params: { ...params, cwd } };
+    }
+
+    test("session/new 被追加服务端 cwd", () => {
+      const result = injectAuthenticatedCwd(
+        { jsonrpc: "2.0", id: 1, method: "session/new", params: { model: "x" } },
+        "/workspace/env",
+      );
+      expect(result.params).toEqual({ model: "x", cwd: "/workspace/env" });
+    });
+
+    test("客户端伪造的 cwd 被覆盖", () => {
+      const result = injectAuthenticatedCwd(
+        { jsonrpc: "2.0", id: 1, method: "session/load", params: { cwd: "/etc" } },
+        "/workspace/env",
+      );
+      expect(result.params).toEqual({ cwd: "/workspace/env" });
+    });
+
+    test("session/list 与 session/resume 同样注入", () => {
+      for (const method of ["session/list", "session/resume"]) {
+        const result = injectAuthenticatedCwd({ jsonrpc: "2.0", id: 1, method, params: {} }, "/w");
+        expect(result.params).toEqual({ cwd: "/w" });
+      }
+    });
+
+    test("缺少 params 时创建对象", () => {
+      const result = injectAuthenticatedCwd({ jsonrpc: "2.0", id: 1, method: "session/new" }, "/w");
+      expect(result.params).toEqual({ cwd: "/w" });
+    });
+
+    test("params 非对象时被替换", () => {
+      const result = injectAuthenticatedCwd({ jsonrpc: "2.0", id: 1, method: "session/new", params: "x" }, "/w");
+      expect(result.params).toEqual({ cwd: "/w" });
+    });
+
+    test("session/prompt 等非会话动作不注入", () => {
+      const message = { jsonrpc: "2.0", id: 2, method: "session/prompt", params: { text: "hi" } };
+      expect(injectAuthenticatedCwd(message, "/w")).toEqual(message);
+    });
+
+    test("包裹在 payload 中的 JSON-RPC 也能注入", () => {
+      const result = injectAuthenticatedCwd(
+        { type: "message", payload: { jsonrpc: "2.0", id: 3, method: "session/new", params: {} } },
+        "/w",
+      );
+      expect(result).toEqual({ jsonrpc: "2.0", id: 3, method: "session/new", params: { cwd: "/w" } });
+    });
+
+    test("非 JSON-RPC 消息原样返回", () => {
+      const message = { type: "ping" };
+      expect(injectAuthenticatedCwd(message, "/w")).toBe(message);
+    });
+
+    test("jsonrpc 版本非 2.0 时原样返回 rpc", () => {
+      const rpc = { jsonrpc: "1.0", id: 1, method: "session/new", params: {} };
+      expect(injectAuthenticatedCwd(rpc, "/w")).toBe(rpc);
+    });
+  });
+
+  describe("prepareExternalRelayOpen 预注册 pending buffer", () => {
+    class FakeQueue {
+      static created: FakeQueue[] = [];
+      messages: Record<string, unknown>[] = [];
+      constructor(
+        public scope: string,
+        public onLimit: () => void,
+        public onError: (error: unknown) => void,
+      ) {
+        FakeQueue.created.push(this);
+      }
+    }
+
+    function prepare(ws: WsConnection, relayWsId: string): void {
+      if (pendingRelayMessages.has(relayWsId)) return;
+      pendingRelayMessages.set(relayWsId, new FakeQueue("unauthenticated", () => {}, () => {}) as never);
+    }
+
+    beforeEach(() => {
+      FakeQueue.created.length = 0;
+    });
+
+    test("首次调用注册缓冲区", () => {
+      prepare(makeWs(), "ws-1");
+      expect(pendingRelayMessages.has("ws-1")).toBe(true);
+      expect(FakeQueue.created).toHaveLength(1);
+    });
+
+    test("重复调用保留原缓冲区，不覆盖已缓存消息", () => {
+      prepare(makeWs(), "ws-1");
+      const first = pendingRelayMessages.get("ws-1");
+      prepare(makeWs(), "ws-1");
+      expect(pendingRelayMessages.get("ws-1")).toBe(first);
+      expect(FakeQueue.created).toHaveLength(1);
+    });
+  });
+
+  describe("连接实例授权判定", () => {
+    // 复制 handleExternalRelayOpen 中的归属与来源校验
+    function isAuthorizedRelayInstance(
+      instance: { ownerUserId: string; environmentId: string; creationSource: string } | undefined,
+      userId: string,
+      environmentId: string,
+    ): boolean {
+      return Boolean(
+        instance &&
+          instance.ownerUserId === userId &&
+          instance.environmentId === environmentId &&
+          instance.creationSource !== "workflow",
+      );
+    }
+
+    test("本用户同环境的 api 实例通过", () => {
+      expect(
+        isAuthorizedRelayInstance({ ownerUserId: "u1", environmentId: "e1", creationSource: "api" }, "u1", "e1"),
+      ).toBe(true);
+    });
+
+    test("他人实例被拒绝", () => {
+      expect(
+        isAuthorizedRelayInstance({ ownerUserId: "u2", environmentId: "e1", creationSource: "api" }, "u1", "e1"),
+      ).toBe(false);
+    });
+
+    test("跨环境实例被拒绝", () => {
+      expect(
+        isAuthorizedRelayInstance({ ownerUserId: "u1", environmentId: "e2", creationSource: "api" }, "u1", "e1"),
+      ).toBe(false);
+    });
+
+    test("workflow 创建的实例不得经外部 relay 连接", () => {
+      expect(
+        isAuthorizedRelayInstance({ ownerUserId: "u1", environmentId: "e1", creationSource: "workflow" }, "u1", "e1"),
+      ).toBe(false);
+    });
+
+    test("实例不存在时拒绝", () => {
+      expect(isAuthorizedRelayInstance(undefined, "u1", "e1")).toBe(false);
     });
   });
 });

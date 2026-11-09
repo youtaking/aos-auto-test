@@ -393,7 +393,7 @@ class TestWorkflow:
         dialog.first.wait_for(state="visible", timeout=8000)
         text = dialog.first.inner_text()
         assert name in text, f"调用接口弹窗未包含工作流名 '{name}'"
-        assert re.search(r"/api/workflow-v2/workflows/[^/]+/run", text), \
+        assert re.search(r"/api/v1/workflow-v2/workflows/[^/]+/run", text), \
             f"调用接口弹窗未展示 run 调用地址: {text[:200]}"
         assert "Authorization: Bearer" in text, "调用接口弹窗缺少鉴权说明"
         logged_in_page.get_by_role("button", name="Close").click()

@@ -3,7 +3,7 @@
 
 覆盖两套接口：
 - TestAgentWebAPI: /web/config/agents 控制台接口（session cookie 认证，action 风格）
-- TestAgentOpenAPI: /api/agents 对外 OpenAPI（API Key 认证，RESTful 风格）
+- TestAgentOpenAPI: /api/v1/agents 对外 OpenAPI（API Key 认证，RESTful 风格）
 """
 import httpx
 import pytest
@@ -170,12 +170,12 @@ class TestAgentWebAPI:
 # ── 对外 OpenAPI 测试 ──
 
 class TestAgentOpenAPI:
-    """/api/agents 对外 OpenAPI 测试（API Key 认证，RESTful 风格）
+    """/api/v1/agents 对外 OpenAPI 测试（API Key 认证，RESTful 风格）
 
     特点：
-    - 用 ID 定位资源（/:id）
+    - 用 ID 定位资源（/:id），更新用 PATCH
     - 列表带分页 {items, total, page, pageSize}
-    - 响应为裸数据，无 {success, data} 包装
+    - 服务端响应为 {success, data} 信封，client 已解包为裸数据
     """
 
     @pytest.mark.p0
@@ -255,12 +255,15 @@ class TestAgentOpenAPI:
         finally:
             api_client.delete_agent(agent_id)
 
-    @pytest.mark.xfail(reason="应用 Bug：不存在 Agent 返回 500 而非 404（源码头 404，已确认）", strict=True)
     @pytest.mark.p2
     def test_get_nonexistent_agent(self, api_client, _openapi_access):
-        """获取不存在的 Agent：契约应返回 404（当前 500，应用 Bug）"""
-        with pytest.raises(httpx.HTTPStatusError, match=r"404"):
+        """获取不存在的 Agent：返回 404 + NOT_FOUND"""
+        with pytest.raises(httpx.HTTPStatusError) as caught:
             api_client.get_agent("nonexistent-agent-id-99999")
+        assert caught.value.response.status_code == 404
+        body = caught.value.response.json()
+        assert body["success"] is False
+        assert body["error"]["code"] == "NOT_FOUND"
 
     @pytest.mark.p2
     def test_invalid_token_rejected(self, api_base_url, _openapi_access):
@@ -289,7 +292,7 @@ class TestAgentOpenAPI:
 
     @pytest.mark.p1
     def test_update_agent_partial(self, api_client, _openapi_access):
-        """PUT 部分字段更新，验证未修改字段不被清空"""
+        """PATCH 部分字段更新，验证未修改字段不被清空"""
         test_name = "api-test-openapi-agent-partial"
         _cleanup_api_agent(api_client, test_name)
 
@@ -376,17 +379,13 @@ class TestAgentOpenAPIExtra:
 
     @pytest.mark.p2
     def test_list_agents_pagination_boundary(self, api_client, _openapi_access):
-        """分页边界：超大 pageSize 的处理"""
-        try:
-            resp = api_client.list_agents({"page": 1, "pageSize": 99999})
-            api_client.validate_schema(resp, API_AGENT_LIST_RESPONSE)
-            assert isinstance(resp["items"], list)
-        except httpx.HTTPStatusError as e:
-            # 服务端可能拒绝超大 pageSize（422/400）
-            if "422" in str(e) or "400" in str(e):
-                pass  # 合理的服务端校验
-            else:
-                raise
+        """分页边界：pageSize 超过上限 100 返回 400 VALIDATION_ERROR"""
+        with pytest.raises(httpx.HTTPStatusError) as caught:
+            api_client.list_agents({"page": 1, "pageSize": 99999})
+        assert caught.value.response.status_code == 400
+        body = caught.value.response.json()
+        assert body["success"] is False
+        assert body["error"]["code"] == "VALIDATION_ERROR"
 
     @pytest.mark.p2
     def test_create_agent_special_characters(self, api_client, _openapi_access):
@@ -399,13 +398,46 @@ class TestAgentOpenAPIExtra:
                 "description": "Special characters test",
             })
             agent_id = create_resp["id"]
-            # 验证 name 被正确处理（原样保存或转义）
+            # 验证 name 被原样保存
             get_resp = api_client.get_agent(agent_id)
             assert get_resp["name"] == test_name
-            api_client.delete_agent(agent_id)
-        except (httpx.HTTPStatusError, RuntimeError) as e:
-            if "400" in str(e) or "422" in str(e):
-                pytest.skip("服务端拒绝特殊字符 name")
-            raise
         finally:
             _cleanup_api_agent(api_client, test_name)
+
+
+class TestAgentRuntimeWebAPI:
+    """/web/config/agents 重启与 Trace 接口"""
+
+    @pytest.mark.p1
+    def test_restart_nonexistent_agent(self, web_client):
+        """重启不存在的 Agent：应返回 404 NOT_FOUND"""
+        with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(404|NOT_FOUND)"):
+            web_client.restart_agent("nonexistent-agent-id-99999")
+
+    @pytest.mark.p1
+    def test_list_session_traces(self, web_client):
+        """查询不存在的会话 Trace：应返回空列表且结构完整"""
+        envs = web_client.list_environments()
+        items = envs if isinstance(envs, list) else envs.get("items", [])
+        if not items:
+            pytest.skip("环境列表为空，无法测试 Trace")
+
+        data = web_client.list_session_traces(items[0]["id"], "nonexistent-session-id-99999")
+        assert isinstance(data.get("traces"), list)
+        assert isinstance(data.get("page"), int)
+        assert isinstance(data.get("totalItems"), int)
+
+    @pytest.mark.p2
+    def test_get_trace_observation_nonexistent(self, web_client):
+        """获取不存在环境的 Observation 详情：应返回 404 NOT_FOUND"""
+        with pytest.raises(httpx.HTTPStatusError) as caught:
+            web_client.get_trace_observation(
+                "nonexistent-env-99999",
+                "nonexistent-session-99999",
+                "nonexistent-trace-99999",
+                "nonexistent-obs-99999",
+            )
+        assert caught.value.response.status_code == 404
+        body = caught.value.response.json()
+        assert body["success"] is False
+        assert body["error"]["code"] == "NOT_FOUND"

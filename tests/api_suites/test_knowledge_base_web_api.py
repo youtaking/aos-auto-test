@@ -325,3 +325,63 @@ class TestKnowledgeBaseResourceAPI:
                 except (httpx.HTTPStatusError, RuntimeError) as e:
                     import logging
                     logging.getLogger("cleanup").warning(f"恢复资源状态失败: {e}")
+
+    @pytest.mark.p2
+    def test_add_resource_url_missing_url(self, web_client, _kb_service_access):
+        """按 URL 添加资源缺少 url：应返回 400 VALIDATION_ERROR"""
+        items = web_client.list_knowledge_bases()
+        if len(items) == 0:
+            pytest.skip("知识库列表为空，无法测试 URL 资源")
+        kb_id = items[0]["id"]
+
+        resp = web_client.client.post(f"/web/knowledgeBases/{kb_id}/resources/url", json={})
+        assert resp.status_code == 400, f"期望 400，实际 {resp.status_code}: {resp.text[:200]}"
+        err = resp.json().get("error", {})
+        assert err.get("type") == "VALIDATION_ERROR"
+        assert "url" in err.get("message", "")
+
+    @pytest.mark.p2
+    def test_upload_resource_without_body(self, web_client, _kb_service_access):
+        """上传资源缺少 multipart 请求体：应返回 400 VALIDATION_ERROR"""
+        items = web_client.list_knowledge_bases()
+        if len(items) == 0:
+            pytest.skip("知识库列表为空，无法测试资源上传")
+        kb_id = items[0]["id"]
+
+        resp = web_client.client.post(f"/web/knowledgeBases/{kb_id}/resources/upload")
+        assert resp.status_code == 400, f"期望 400，实际 {resp.status_code}: {resp.text[:200]}"
+        err = resp.json().get("error", {})
+        assert err.get("code") == "VALIDATION_ERROR"
+        assert "form data" in err.get("message", "").lower()
+
+    @pytest.mark.p2
+    def test_download_nonexistent_resource_file(self, web_client, _kb_service_access):
+        """下载不存在资源的原文件：应返回 404 NOT_FOUND"""
+        items = web_client.list_knowledge_bases()
+        if len(items) == 0:
+            pytest.skip("知识库列表为空，无法测试资源下载")
+        kb_id = items[0]["id"]
+
+        resp = web_client.client.get(
+            f"/web/knowledgeBases/{kb_id}/resources/nonexistent-resource-99999/file"
+        )
+        assert resp.status_code == 404, f"期望 404，实际 {resp.status_code}: {resp.text[:200]}"
+        err = resp.json().get("error", {})
+        assert err.get("type") == "NOT_FOUND"
+        assert "Resource not found" in err.get("message", "")
+
+    @pytest.mark.p2
+    def test_download_nonexistent_resource_pdf(self, web_client, _kb_service_access):
+        """下载不存在资源的 PDF 预览：应返回 404 NOT_FOUND"""
+        items = web_client.list_knowledge_bases()
+        if len(items) == 0:
+            pytest.skip("知识库列表为空，无法测试 PDF 预览")
+        kb_id = items[0]["id"]
+
+        resp = web_client.client.get(
+            f"/web/knowledgeBases/{kb_id}/resources/nonexistent-resource-99999/pdf"
+        )
+        assert resp.status_code == 404, f"期望 404，实际 {resp.status_code}: {resp.text[:200]}"
+        err = resp.json().get("error", {})
+        assert err.get("type") == "NOT_FOUND"
+        assert "Resource not found" in err.get("message", "")

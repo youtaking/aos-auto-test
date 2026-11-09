@@ -68,6 +68,17 @@ def api_client(api_base_url, api_test_config):
     client.close()
 
 
+@pytest.fixture(scope="session")
+def system_access(api_client):
+    """System API Key 可用性检查：无权限时跳过依赖它的用例。"""
+    try:
+        api_client.list_users(params={"page": 1, "pageSize": 1})
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code in (401, 403):
+            pytest.skip("System API Key 未配置或无权限，跳过 System API 测试")
+        raise
+
+
 @pytest.fixture(scope="module")
 def _openapi_access(api_client, api_test_config):
     """模块级 OpenAPI 访问检查：验证 API Key 是否有效

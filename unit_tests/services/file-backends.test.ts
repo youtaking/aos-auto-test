@@ -1,7 +1,8 @@
-// file-backends.test.ts — If-Match 版本比对纯函数测试
-// 测试目标：etagEquals、assertVersionMatch、computeReadFingerprint
+// file-backends.test.ts — If-Match 版本比对与安全上传纯函数测试
+// 测试目标：etagEquals、assertVersionMatch、computeReadFingerprint、上传路径校验、errno 映射
 
 import { describe, expect, test } from "bun:test";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 
 // ── 复制纯函数（避免引入 workspace-fs / remote-file-service 依赖链）──
 
@@ -168,5 +169,120 @@ describe("assertVersionMatch", () => {
   test("size-only 模式下 size 不同则冲突", () => {
     const etag = computeReadFingerprint(100, undefined);
     expect(() => assertVersionMatch(etag, "/test.txt", 200, undefined)).toThrow(FileServiceError);
+  });
+});
+
+// ── 安全上传（plugin-sdk/secure-workspace-upload）──
+
+class ValidationError extends Error {
+  readonly type = "validation_error";
+  readonly statusCode = 400;
+  constructor(message: string) {
+    super(message);
+    this.name = "ValidationError";
+  }
+}
+
+/** 复制 secure-workspace-upload 的路径校验部分（原生 openat 在纯函数测试中不执行）。 */
+function resolveUploadLocalPath(workspace: string, path: string): string {
+  const local = relative(resolve(workspace), resolve(workspace, path));
+  if (!local || isAbsolute(path) || local === ".." || local.startsWith(`..${sep}`) || path.includes("\0"))
+    throw new Error("Invalid upload path");
+  return local;
+}
+
+/** 复制 errno → 错误码映射表。 */
+function mapUploadErrno(platform: "darwin" | "linux", value: number): string {
+  return (
+    ({ 17: "EEXIST", 20: "ENOTDIR", [platform === "darwin" ? 62 : 40]: "ELOOP" } as Record<number, string>)[value] ??
+    "EIO"
+  );
+}
+
+/** file-backends 对上传错误的统一映射：符号链接/非目录 → 校验错误。 */
+function mapUploadError(error: unknown): unknown {
+  if (
+    error instanceof Error &&
+    "code" in error &&
+    ["ELOOP", "ENOTDIR"].includes(String((error as NodeJS.ErrnoException).code ?? ""))
+  )
+    throw new ValidationError("上传目标路径包含 symbolic link");
+  throw error;
+}
+
+describe("resolveUploadLocalPath 上传路径校验", () => {
+  const workspace = resolve("workspace-root");
+
+  test("工作区内相对路径被保留", () => {
+    expect(resolveUploadLocalPath(workspace, "user/a.txt")).toBe(`user${sep}a.txt`);
+    expect(resolveUploadLocalPath(workspace, "user/sub/a.txt")).toBe(`user${sep}sub${sep}a.txt`);
+  });
+
+  test("空路径被拒绝", () => {
+    expect(() => resolveUploadLocalPath(workspace, "")).toThrow("Invalid upload path");
+  });
+
+  test("绝对路径被拒绝", () => {
+    expect(() => resolveUploadLocalPath(workspace, resolve("external", "a.txt"))).toThrow("Invalid upload path");
+  });
+
+  test("逃出工作区的 .. 被拒绝", () => {
+    expect(() => resolveUploadLocalPath(workspace, "../escape.txt")).toThrow("Invalid upload path");
+    expect(() => resolveUploadLocalPath(workspace, "user/../../escape.txt")).toThrow("Invalid upload path");
+  });
+
+  test("路径中间含 .. 但仍在工作区内时允许", () => {
+    expect(resolveUploadLocalPath(workspace, "user/sub/../a.txt")).toBe(`user${sep}a.txt`);
+  });
+
+  test("NUL 字符被拒绝", () => {
+    expect(() => resolveUploadLocalPath(workspace, "user/a\0.txt")).toThrow("Invalid upload path");
+  });
+});
+
+describe("mapUploadErrno errno 映射", () => {
+  test("EEXIST 表示已存在", () => {
+    expect(mapUploadErrno("linux", 17)).toBe("EEXIST");
+  });
+
+  test("ENOTDIR 表示路径段不是目录", () => {
+    expect(mapUploadErrno("linux", 20)).toBe("ENOTDIR");
+  });
+
+  test("Linux 下 40 为 ELOOP（符号链接环）", () => {
+    expect(mapUploadErrno("linux", 40)).toBe("ELOOP");
+  });
+
+  test("Darwin 下 62 为 ELOOP", () => {
+    expect(mapUploadErrno("darwin", 62)).toBe("ELOOP");
+  });
+
+  test("未知 errno 退化为 EIO", () => {
+    expect(mapUploadErrno("linux", 999)).toBe("EIO");
+  });
+
+  test("同一数值在平台间语义不同", () => {
+    expect(mapUploadErrno("darwin", 40)).toBe("EIO");
+  });
+});
+
+describe("mapUploadError 上传错误映射", () => {
+  test("ELOOP 转为 400 校验错误", () => {
+    const error = Object.assign(new Error("loop"), { code: "ELOOP" });
+    expect(() => mapUploadError(error)).toThrow("上传目标路径包含 symbolic link");
+  });
+
+  test("ENOTDIR 转为 400 校验错误", () => {
+    const error = Object.assign(new Error("notdir"), { code: "ENOTDIR" });
+    expect(() => mapUploadError(error)).toThrow(ValidationError);
+  });
+
+  test("其他 errno 原样抛出", () => {
+    const error = Object.assign(new Error("exists"), { code: "EEXIST" });
+    expect(() => mapUploadError(error)).toThrow("exists");
+  });
+
+  test("普通错误原样抛出", () => {
+    expect(() => mapUploadError(new Error("boom"))).toThrow("boom");
   });
 });

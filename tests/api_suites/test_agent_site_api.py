@@ -6,6 +6,8 @@
 
 注：Agent Site 创建需要连接外部 agent-sites 服务，部分写操作可能因服务不可用而跳过。
 """
+import uuid
+
 import httpx
 import pytest
 from tests.api_contracts.agent_site_schemas import AGENT_SITE_APP
@@ -52,7 +54,7 @@ class TestAgentSiteWebAPI:
     @pytest.mark.p1
     def test_create_and_delete_agent_site_app(self, web_client):
         """创建并删除 Agent Site App：自建自销"""
-        test_name = "test-site-api-auto"
+        test_name = f"test-site-api-{uuid.uuid4().hex[:8]}"
         created_id = None
         try:
             # 先清理可能遗留的数据
@@ -65,10 +67,16 @@ class TestAgentSiteWebAPI:
                 import logging
                 logging.getLogger("cleanup").warning(f"Cleanup failed: {e}")
 
-            create_resp = web_client.create_agent_site_app({
-                "name": test_name,
-                "type": "custom",
-            })
+            try:
+                create_resp = web_client.create_agent_site_app({
+                    "name": test_name,
+                    "type": "custom",
+                })
+            except httpx.HTTPStatusError as e:
+                body = e.response.text or ""
+                if e.response.status_code == 409 and "数量已达上限" in body:
+                    pytest.skip(f"上游 agent-sites 应用配额已满，无法创建：{body[:200]}")
+                raise
             assert create_resp is not None
             assert isinstance(create_resp, dict)
             created_id = create_resp.get("id")
@@ -115,20 +123,59 @@ class TestAgentSiteWebAPI:
 
     @pytest.mark.p1
     def test_list_agent_config_sites(self, web_client):
-        """获取 Agent 配置关联的 Sites：使用列表首个 agent 的 configId"""
+        """获取 Agent 配置关联的 Sites：使用列表首个 agent 的 id 作为 configId"""
         agents = web_client.list_agents()
-        agent_list = agents if isinstance(agents, list) else agents.get("items", agents.get("data", []))
+        agent_list = agents.get("agents", []) if isinstance(agents, dict) else agents
         if not agent_list:
             pytest.skip("Agent 列表为空，无法测试 agent-config sites")
-        # 取第一个 agent 的 name（config 标识）
-        agent_name = agent_list[0].get("name") or agent_list[0].get("configName")
-        if not agent_name:
-            pytest.skip("Agent 缺少 name 字段")
-        try:
-            sites = web_client.list_agent_config_sites(agent_name)
-            assert isinstance(sites, list)
-        except (httpx.HTTPStatusError, RuntimeError) as e:
-            if "404" in str(e):
-                pytest.skip("Agent config sites 接口不可用")
-            raise
+        agent_config_id = agent_list[0].get("id")
+        if not agent_config_id:
+            pytest.skip("Agent 缺少 id 字段")
+
+        sites = web_client.list_agent_config_sites(agent_config_id)
+        assert isinstance(sites, list)
+
+    @pytest.mark.p2
+    def test_bind_nonexistent_agent_config_site(self, web_client):
+        """挂载 Site 到不存在的 Agent 配置：应返回 404 NOT_FOUND"""
+        resp = web_client.client.post(
+            "/web/agent-sites/agent-configs/nonexistent-config-99999/sites/nonexistent-site-99999"
+        )
+        assert resp.status_code == 404, f"期望 404，实际 {resp.status_code}: {resp.text[:200]}"
+        err = resp.json().get("error", {})
+        assert err.get("type") == "NOT_FOUND"
+        assert "Resource not found" in err.get("message", "")
+
+    @pytest.mark.p2
+    def test_unbind_nonexistent_agent_config_site(self, web_client):
+        """从不存在 Agent 配置卸载 Site：应返回 404 NOT_FOUND"""
+        resp = web_client.client.delete(
+            "/web/agent-sites/agent-configs/nonexistent-config-99999/sites/nonexistent-site-99999"
+        )
+        assert resp.status_code == 404, f"期望 404，实际 {resp.status_code}: {resp.text[:200]}"
+        err = resp.json().get("error", {})
+        assert err.get("type") == "NOT_FOUND"
+        assert "Resource not found" in err.get("message", "")
+
+    @pytest.mark.p2
+    def test_upload_file_to_nonexistent_app(self, web_client):
+        """向不存在的 App 上传文件：app id 非法 UUID 应返回 400 VALIDATION_ERROR"""
+        resp = web_client.client.put(
+            "/web/agent-sites/apps/nonexistent-app-99999/files/index.html", content=b"x"
+        )
+        assert resp.status_code == 400, f"期望 400，实际 {resp.status_code}: {resp.text[:200]}"
+        err = resp.json().get("error", {})
+        assert err.get("type") == "VALIDATION_ERROR"
+        assert "Invalid UUID" in err.get("message", "")
+
+    @pytest.mark.p2
+    def test_upload_bundle_to_nonexistent_app(self, web_client):
+        """向不存在的 App 上传文件包：app id 非法 UUID 应返回 400 VALIDATION_ERROR"""
+        resp = web_client.client.post(
+            "/web/agent-sites/apps/nonexistent-app-99999/files/bundle", content=b"x"
+        )
+        assert resp.status_code == 400, f"期望 400，实际 {resp.status_code}: {resp.text[:200]}"
+        err = resp.json().get("error", {})
+        assert err.get("type") == "VALIDATION_ERROR"
+        assert "Invalid UUID" in err.get("message", "")
 

@@ -3,10 +3,26 @@
 
 两套接口响应格式不同：
 - /web/config/agents（控制台）: action 风格，响应包装为 {success, data}
-- /api/agents（OpenAPI）: RESTful 风格，响应为裸数据，列表带分页
+- /api/v1/agents（OpenAPI）: RESTful 风格，响应为 {success, data}，客户端解包后为裸数据，列表带分页
 """
 
 # ── 通用 Agent 字段定义 ──
+
+_SCOPE = {
+    "type": "object",
+    "properties": {
+        "organizationId": {"type": "string"},
+        "ownerUserId": {"type": "string"},
+        "visibility": {"type": "string", "enum": ["private", "public"]},
+    },
+    "additionalProperties": True,
+}
+
+_ACCESS = {
+    "type": "object",
+    "properties": {"actions": {"type": "array", "items": {"type": "string"}}},
+    "additionalProperties": True,
+}
 
 AGENT_LIST_ITEM = {
     "type": "object",
@@ -20,7 +36,9 @@ AGENT_LIST_ITEM = {
         "description": {"type": ["string", "null"]},
         "machineId": {"type": ["string", "null"]},
         "knowledgeBaseCount": {"type": "integer"},
-        "resourceAccess": {"type": "object"},
+        "agentNode": {"type": "object"},
+        "scope": _SCOPE,
+        "access": _ACCESS,
     },
     "additionalProperties": True,
 }
@@ -40,13 +58,16 @@ AGENT_DETAIL = {
         "knowledge": {},
         "skillIds": {"type": "array"},
         "mcpIds": {"type": "array"},
+        "enableMemory": {"type": "boolean"},
+        "publicReadable": {"type": "boolean"},
         "machineId": {"type": ["string", "null"]},
-        "resourceAccess": {"type": "object"},
+        "scope": _SCOPE,
+        "access": _ACCESS,
     },
     "additionalProperties": True,
 }
 
-# ── /api/* OpenAPI 响应格式（裸数据） ──
+# ── /api/v1/* OpenAPI 响应格式（客户端解包 {success,data} 后的裸数据） ──
 
 API_AGENT_LIST_RESPONSE = {
     "type": "object",
@@ -63,14 +84,8 @@ API_AGENT_DETAIL_RESPONSE = AGENT_DETAIL
 
 API_CREATE_AGENT_RESPONSE = AGENT_DETAIL
 
-API_DELETE_AGENT_RESPONSE = {
-    "type": "object",
-    "required": ["id", "deleted"],
-    "properties": {
-        "id": {"type": "string"},
-        "deleted": {"type": "boolean"},
-    },
-}
+# v1 删除成功返回 data: null
+API_DELETE_AGENT_RESPONSE = {"type": "null"}
 
 # ── /web/* 控制台响应格式（{success, data} 包装） ──
 

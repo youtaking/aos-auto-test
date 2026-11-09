@@ -28,10 +28,17 @@ function getSnapshotEnvConfigFresh(): SnapshotEnvConfig {
 }
 
 // ========== reportSnapshotCasMetric (copy with injectable metrics) ==========
-// The original uses a module-level `snapshotMetrics` object. We copy the function
-// and accept the metrics object as a parameter so tests can reset it between runs.
+// The original uses module-level `snapshotMetrics` / OTel meters. We copy the
+// function and accept both as parameters so tests are isolated.
 
 type SnapshotMetrics = { windowStart: number; windowCount: number };
+
+type MetricSample = { value: number; attributes: Record<string, string> };
+type MetricRecorder = { size: MetricSample[]; duration: MetricSample[] };
+
+function makeMetricRecorder(): MetricRecorder {
+  return { size: [], duration: [] };
+}
 
 function reportSnapshotCasMetric(
   log: ((msg: string) => void) | undefined,
@@ -41,7 +48,13 @@ function reportSnapshotCasMetric(
   casMs: number,
   persisted: boolean,
   metrics: SnapshotMetrics,
+  recorder: MetricRecorder,
 ): void {
+  recorder.size.push({ value: bytes, attributes: { storage: "redis" } });
+  recorder.duration.push({
+    value: casMs / 1000,
+    attributes: { storage: "redis", result: persisted ? "success" : "failure" },
+  });
   if (!log) return;
 
   const now = Date.now();
@@ -63,11 +76,14 @@ const ENV_KEYS = [
   "RCS_YJS_SNAPSHOT_TTL_SECONDS",
 ];
 
+let rec = makeMetricRecorder();
+
 afterEach(() => {
-  // 每个测试结束后清理环境变量，避免串扰
+  // 每个测试结束后清理环境变量与指标样本，避免串扰
   for (const key of ENV_KEYS) {
     delete process.env[key];
   }
+  rec = makeMetricRecorder();
 });
 
 // ========== Tests ==========
@@ -217,7 +233,7 @@ describe("reportSnapshotCasMetric", () => {
     // log=undefined 时函数应立即返回，不抛异常
     const metrics: SnapshotMetrics = { windowStart: Date.now(), windowCount: 0 };
     expect(() => {
-      reportSnapshotCasMetric(undefined, "doc1", 100, 5, 3, true, metrics);
+      reportSnapshotCasMetric(undefined, "doc1", 100, 5, 3, true, metrics, rec);
     }).not.toThrow();
     // windowCount 不应递增
     expect(metrics.windowCount).toBe(0);
@@ -229,7 +245,7 @@ describe("reportSnapshotCasMetric", () => {
     const logFn = (msg: string) => logs.push(msg);
     const metrics: SnapshotMetrics = { windowStart: Date.now(), windowCount: 0 };
 
-    reportSnapshotCasMetric(logFn, "my-doc", 1024, 12, 8, true, metrics);
+    reportSnapshotCasMetric(logFn, "my-doc", 1024, 12, 8, true, metrics, rec);
 
     expect(logs.length).toBe(1);
     expect(logs[0]).toContain("doc=my-doc");
@@ -246,9 +262,9 @@ describe("reportSnapshotCasMetric", () => {
     const logFn = (msg: string) => logs.push(msg);
     const metrics: SnapshotMetrics = { windowStart: Date.now(), windowCount: 0 };
 
-    reportSnapshotCasMetric(logFn, "doc", 100, 1, 1, true, metrics);
-    reportSnapshotCasMetric(logFn, "doc", 200, 2, 2, false, metrics);
-    reportSnapshotCasMetric(logFn, "doc", 300, 3, 3, true, metrics);
+    reportSnapshotCasMetric(logFn, "doc", 100, 1, 1, true, metrics, rec);
+    reportSnapshotCasMetric(logFn, "doc", 200, 2, 2, false, metrics, rec);
+    reportSnapshotCasMetric(logFn, "doc", 300, 3, 3, true, metrics, rec);
 
     expect(logs.length).toBe(3);
     expect(logs[0]).toContain("casPerMin=1");
@@ -263,7 +279,7 @@ describe("reportSnapshotCasMetric", () => {
     const logFn = (msg: string) => logs.push(msg);
     const metrics: SnapshotMetrics = { windowStart: Date.now() - 61_000, windowCount: 50 };
 
-    reportSnapshotCasMetric(logFn, "doc", 100, 1, 1, true, metrics);
+    reportSnapshotCasMetric(logFn, "doc", 100, 1, 1, true, metrics, rec);
 
     expect(logs.length).toBe(1);
     // 窗口重置后 casPerMin 应为 1
@@ -277,7 +293,7 @@ describe("reportSnapshotCasMetric", () => {
     const logFn = (msg: string) => logs.push(msg);
     const metrics: SnapshotMetrics = { windowStart: Date.now() - 59_999, windowCount: 10 };
 
-    reportSnapshotCasMetric(logFn, "doc", 100, 1, 1, true, metrics);
+    reportSnapshotCasMetric(logFn, "doc", 100, 1, 1, true, metrics, rec);
 
     // 未超过 60 秒，windowCount 继续递增
     expect(logs[0]).toContain("casPerMin=11");
@@ -290,7 +306,7 @@ describe("reportSnapshotCasMetric", () => {
     const logFn = (msg: string) => logs.push(msg);
     const metrics: SnapshotMetrics = { windowStart: Date.now(), windowCount: 0 };
 
-    reportSnapshotCasMetric(logFn, "doc", 500, 10, 5, false, metrics);
+    reportSnapshotCasMetric(logFn, "doc", 500, 10, 5, false, metrics, rec);
 
     expect(logs[0]).toContain("persisted=false");
   });
@@ -301,7 +317,7 @@ describe("reportSnapshotCasMetric", () => {
     const logFn = (msg: string) => logs.push(msg);
     const metrics: SnapshotMetrics = { windowStart: Date.now(), windowCount: 0 };
 
-    reportSnapshotCasMetric(logFn, "doc", 100, 1, 1, true, metrics);
+    reportSnapshotCasMetric(logFn, "doc", 100, 1, 1, true, metrics, rec);
 
     expect(logs[0]).toMatch(/^\[redis-provider\] snapshot cas /);
   });
@@ -312,10 +328,40 @@ describe("reportSnapshotCasMetric", () => {
     const logFn = (msg: string) => logs.push(msg);
     const metrics: SnapshotMetrics = { windowStart: Date.now(), windowCount: 0 };
 
-    reportSnapshotCasMetric(logFn, "empty-doc", 0, 0, 0, true, metrics);
+    reportSnapshotCasMetric(logFn, "empty-doc", 0, 0, 0, true, metrics, rec);
 
     expect(logs[0]).toContain("bytes=0");
     expect(logs[0]).toContain("encodeMs=0");
     expect(logs[0]).toContain("casMs=0");
+  });
+
+  test("上报快照大小与持久化耗时两项指标", () => {
+    const metrics: SnapshotMetrics = { windowStart: Date.now(), windowCount: 0 };
+    reportSnapshotCasMetric(() => {}, "doc", 2048, 7, 15, true, metrics, rec);
+
+    expect(rec.size).toEqual([{ value: 2048, attributes: { storage: "redis" } }]);
+    expect(rec.duration).toEqual([
+      { value: 0.015, attributes: { storage: "redis", result: "success" } },
+    ]);
+  });
+
+  test("casMs 毫秒换算为秒", () => {
+    const metrics: SnapshotMetrics = { windowStart: Date.now(), windowCount: 0 };
+    reportSnapshotCasMetric(() => {}, "doc", 1, 1, 2500, true, metrics, rec);
+    expect(rec.duration[0]!.value).toBe(2.5);
+  });
+
+  test("persisted=false 的耗时指标标记 failure", () => {
+    const metrics: SnapshotMetrics = { windowStart: Date.now(), windowCount: 0 };
+    reportSnapshotCasMetric(undefined, "doc", 1, 1, 4, false, metrics, rec);
+    expect(rec.duration[0]!.attributes.result).toBe("failure");
+  });
+
+  test("log 缺失时仍上报指标且不递增窗口计数", () => {
+    const metrics: SnapshotMetrics = { windowStart: Date.now(), windowCount: 0 };
+    reportSnapshotCasMetric(undefined, "doc", 512, 2, 6, true, metrics, rec);
+    expect(rec.size).toHaveLength(1);
+    expect(rec.duration).toHaveLength(1);
+    expect(metrics.windowCount).toBe(0);
   });
 });

@@ -81,3 +81,41 @@ class TestRegistryWebAPI:
         """获取不存在的机器：应抛出 404 异常"""
         with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"404"):
             web_client.get_machine("nonexistent-machine-id-99999")
+
+    @pytest.mark.p2
+    def test_get_machine_connection_parameters(self, web_client):
+        """获取机器连接参数：返回 machineId/agentType/rcsUrl"""
+        list_resp = web_client.list_machines()
+        if len(list_resp["items"]) == 0:
+            pytest.skip("机器列表为空，无法测试连接参数")
+        machine_id = list_resp["items"][0]["id"]
+
+        params = web_client.get_machine_connection_parameters(machine_id)
+        assert params["machineId"] == machine_id
+        assert isinstance(params["agentType"], str) and params["agentType"]
+        assert params["rcsUrl"].startswith(("ws://", "wss://", "http://", "https://"))
+
+    @pytest.mark.p2
+    def test_acp_runtime_invalid_platform(self, web_client):
+        """下载 ACP Runtime 使用非法平台：应返回 400 VALIDATION_ERROR"""
+        resp = web_client.client.get("/web/registry/acp-runtime/bogus-platform")
+        assert resp.status_code == 400, f"期望 400，实际 {resp.status_code}: {resp.text[:200]}"
+        err = resp.json().get("error", {})
+        assert err.get("type") == "VALIDATION_ERROR"
+        assert "platform" in err.get("message", "")
+
+    @pytest.mark.p2
+    def test_download_acp_runtime_linux_x64(self, web_client):
+        """下载 linux-x64 ACP Runtime：返回非空 ELF 二进制"""
+        content = web_client.get_acp_runtime("linux-x64")
+        assert len(content) > 0
+        assert content[:4] == b"\x7fELF", f"期望 ELF 魔数，实际 {content[:8]!r}"
+
+    @pytest.mark.p2
+    def test_list_acp_agents(self, web_client):
+        """获取 ACP agent 列表：返回数组且元素含 id/status"""
+        agents = web_client.list_acp_agents()
+        assert isinstance(agents, list)
+        for agent in agents:
+            assert isinstance(agent.get("id"), str)
+            assert isinstance(agent.get("status"), str)

@@ -54,6 +54,27 @@ function normalizeKnowledgeBaseIds(knowledgeBaseIds: string[] | undefined): stri
   return ids;
 }
 
+interface AgentKnowledgeConfig {
+  knowledgeBaseIds: string[];
+  policy?: AgentKnowledgePolicy | null;
+}
+
+interface KnowledgeBaseRepo {
+  getByOrgAndId(organizationId: string, id: string): Promise<unknown | null>;
+}
+
+/** main 新增：绑定替换前先校验整批知识库归属，任一不存在/无权限即抛错。 */
+async function validateAgentKnowledgeBindings(
+  knowledgeBaseRepo: KnowledgeBaseRepo,
+  organizationId: string,
+  knowledge: AgentKnowledgeConfig | null | undefined,
+): Promise<void> {
+  for (const id of knowledge?.knowledgeBaseIds ?? []) {
+    if (!(await knowledgeBaseRepo.getByOrgAndId(organizationId, id)))
+      throw new InvalidKnowledgeBindingError("知识库不存在或无权限访问");
+  }
+}
+
 // ── tests ──
 
 describe("agent-knowledge 知识库绑定", () => {
@@ -164,6 +185,41 @@ describe("agent-knowledge 知识库绑定", () => {
     test("trim 后相同的 ID 视为重复", () => {
       const result = normalizeKnowledgeBaseIds(["kb-1", "  kb-1  "]);
       expect(result).toEqual(["kb-1"]);
+    });
+  });
+
+  describe("validateAgentKnowledgeBindings", () => {
+    test("未绑定知识库（undefined / null / 空数组）不查询仓储", async () => {
+      const getByOrgAndId = mock(async () => ({ id: "kb-1" }));
+      await validateAgentKnowledgeBindings({ getByOrgAndId }, "org-1", undefined);
+      await validateAgentKnowledgeBindings({ getByOrgAndId }, "org-1", null);
+      await validateAgentKnowledgeBindings({ getByOrgAndId }, "org-1", { knowledgeBaseIds: [] });
+      expect(getByOrgAndId).toHaveBeenCalledTimes(0);
+    });
+
+    test("全部知识库归属本组织时通过校验", async () => {
+      const getByOrgAndId = mock(async (_org: string, id: string) => ({ id }));
+      await validateAgentKnowledgeBindings({ getByOrgAndId }, "org-1", { knowledgeBaseIds: ["kb-1", "kb-2"] });
+      expect(getByOrgAndId).toHaveBeenCalledTimes(2);
+      expect(getByOrgAndId).toHaveBeenNthCalledWith(1, "org-1", "kb-1");
+      expect(getByOrgAndId).toHaveBeenNthCalledWith(2, "org-1", "kb-2");
+    });
+
+    test("任一知识库不存在时抛出 INVALID_KNOWLEDGE_BINDINGS", async () => {
+      const getByOrgAndId = mock(async (_org: string, id: string) => (id === "kb-1" ? { id } : null));
+      const promise = validateAgentKnowledgeBindings({ getByOrgAndId }, "org-1", { knowledgeBaseIds: ["kb-1", "kb-2"] });
+      await expect(promise).rejects.toThrow("知识库不存在或无权限访问");
+      await expect(
+        validateAgentKnowledgeBindings({ getByOrgAndId }, "org-1", { knowledgeBaseIds: ["missing"] }),
+      ).rejects.toMatchObject({ code: "INVALID_KNOWLEDGE_BINDINGS" });
+    });
+
+    test("使用传入的组织 ID 做归属校验（跨组织拒绝）", async () => {
+      const getByOrgAndId = mock(async (_org: string, _id: string) => null);
+      await expect(
+        validateAgentKnowledgeBindings({ getByOrgAndId }, "org-other", { knowledgeBaseIds: ["kb-1"] }),
+      ).rejects.toThrow("知识库不存在或无权限访问");
+      expect(getByOrgAndId).toHaveBeenCalledWith("org-other", "kb-1");
     });
   });
 

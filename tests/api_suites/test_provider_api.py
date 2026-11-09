@@ -4,7 +4,8 @@
 覆盖控制台接口：
 - TestProviderWebAPI: /web/config/providers 控制台接口（session cookie 认证，RESTful 风格）
 
-注：Provider 的 OpenAPI CRUD 在 /api/models/providers 下，由 test_model_api.py 覆盖。
+注：Provider 的 OpenAPI CRUD 在 /api/v1/providers 与 /api/v1/providers/:providerId/models 下，
+由 test_model_api.py 覆盖。
 """
 import httpx
 import pytest

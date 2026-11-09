@@ -1,8 +1,9 @@
 # tests/api_suites/test_instance_api.py
 """Instance 接口测试：功能验证 + 契约验证
 
-覆盖控制台接口：
+覆盖两套接口：
 - TestInstanceWebAPI: /web/instances（session cookie 认证）
+- TestInstanceOpenAPI: /api/v1/agents/:id/instances 与 /api/v1/instances/:id（API Key 认证）
 """
 import httpx
 import pytest
@@ -10,6 +11,7 @@ from tests.api_contracts.instance_schemas import (
     INSTANCE_INFO,
     WEB_INSTANCE_SPAWN_DATA,
 )
+from tests.api_contracts.openapi_extra_schemas import API_INSTANCE_LIST_RESPONSE
 
 
 # unwrapped schema (data portion after _unwrap) - can be array or object
@@ -203,3 +205,97 @@ class TestInstanceWebAPI:
             if "403" in err_str:
                 pytest.skip(f"无权限删除实例: {e}")
             raise
+
+    @pytest.mark.p1
+    def test_stop_nonexistent_instance(self, web_client):
+        """停止不存在的实例：应返回 404 NOT_FOUND"""
+        with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(404|NOT_FOUND)"):
+            web_client.stop_instance("nonexistent-instance-id-99999")
+
+    @pytest.mark.p1
+    def test_restart_nonexistent_instance(self, web_client):
+        """重启不存在的实例：应返回 404 NOT_FOUND"""
+        with pytest.raises((httpx.HTTPStatusError, RuntimeError), match=r"(404|NOT_FOUND)"):
+            web_client.restart_instance("nonexistent-instance-id-99999")
+
+
+# ── 对外 OpenAPI 测试 ──
+
+class TestInstanceOpenAPI:
+    """/api/v1/agents/:id/instances 与 /api/v1/instances/:id（API Key 认证）
+
+    特点：
+    - GET  /api/v1/agents/:id/instances → 分页实例快照
+    - GET  /api/v1/instances/:id → 单个实例详情
+    - POST /api/v1/instances/:id/stop → data: null
+    - POST /api/v1/instances/:id/restart → 实例详情
+    - 响应为 {success, data} 信封，client 已解包为 data
+    """
+
+    def _get_first_agent_id(self, api_client):
+        resp = api_client.list_agents()
+        if len(resp["items"]) == 0:
+            return None
+        return resp["items"][0]["id"]
+
+    @pytest.mark.p1
+    def test_list_instances(self, api_client, _openapi_access):
+        """列出 Agent 现有实例：返回分页结构"""
+        agent_id = self._get_first_agent_id(api_client)
+        if agent_id is None:
+            pytest.skip("Agent 列表为空，跳过实例列表测试")
+
+        resp = api_client.list_instances(agent_id)
+        api_client.validate_schema(resp, API_INSTANCE_LIST_RESPONSE)
+        assert resp["page"] == 1
+        assert isinstance(resp["items"], list)
+
+    @pytest.mark.p2
+    def test_list_instances_nonexistent_agent(self, api_client, _openapi_access):
+        """列出不存在 Agent 的实例：返回 404 NOT_FOUND"""
+        with pytest.raises(httpx.HTTPStatusError) as caught:
+            api_client.list_instances("nonexistent-agent-id-99999")
+        assert caught.value.response.status_code == 404
+        body = caught.value.response.json()
+        assert body["success"] is False
+        assert body["error"]["code"] == "NOT_FOUND"
+
+    @pytest.mark.p2
+    def test_list_instances_invalid_page_size(self, api_client, _openapi_access):
+        """pageSize 超出上限（100）：返回 400 VALIDATION_ERROR"""
+        with pytest.raises(httpx.HTTPStatusError) as caught:
+            api_client.list_instances("nonexistent-agent-id-99999", {"pageSize": 99999})
+        assert caught.value.response.status_code == 400
+        body = caught.value.response.json()
+        assert body["success"] is False
+        assert body["error"]["code"] == "VALIDATION_ERROR"
+
+    @pytest.mark.p2
+    def test_get_nonexistent_instance(self, api_client, _openapi_access):
+        """查询不存在的实例：返回 404 NOT_FOUND"""
+        with pytest.raises(httpx.HTTPStatusError) as caught:
+            api_client.get_instance("nonexistent-instance-id-99999")
+        assert caught.value.response.status_code == 404
+        body = caught.value.response.json()
+        assert body["success"] is False
+        assert body["error"]["code"] == "NOT_FOUND"
+
+    @pytest.mark.p2
+    def test_stop_nonexistent_instance(self, api_client, _openapi_access):
+        """停止不存在的实例：返回 404 NOT_FOUND"""
+        with pytest.raises(httpx.HTTPStatusError) as caught:
+            api_client.stop_instance("nonexistent-instance-id-99999")
+        assert caught.value.response.status_code == 404
+        body = caught.value.response.json()
+        assert body["success"] is False
+        assert body["error"]["code"] == "NOT_FOUND"
+
+    @pytest.mark.p2
+    def test_restart_nonexistent_instance(self, api_client, _openapi_access):
+        """重启不存在的实例：返回 404 NOT_FOUND"""
+        with pytest.raises(httpx.HTTPStatusError) as caught:
+            api_client.restart_instance("nonexistent-instance-id-99999")
+        assert caught.value.response.status_code == 404
+        body = caught.value.response.json()
+        assert body["success"] is False
+        assert body["error"]["code"] == "NOT_FOUND"

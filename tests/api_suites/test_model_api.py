@@ -3,7 +3,8 @@
 
 覆盖两套接口：
 - TestModelWebAPI: /web/config/models 控制台接口（session cookie 认证，用户偏好设置）
-- TestModelOpenAPI: /api/models/providers/* 对外 OpenAPI（API Key 认证，Provider + Model CRUD）
+- TestModelOpenAPI: /api/v1/providers 与 /api/v1/providers/:providerId/models 对外 OpenAPI
+  （API Key 认证，Provider + Model CRUD）
 """
 import httpx
 import pytest
@@ -76,12 +77,13 @@ class TestModelWebAPI:
 # ── 对外 OpenAPI 测试 ──
 
 class TestModelOpenAPI:
-    """/api/models/providers/* 对外 OpenAPI 测试（API Key 认证）
+    """/api/v1/providers 对外 OpenAPI 测试（API Key 认证）
 
     特点：
-    - Provider CRUD: /api/models/providers
-    - Model CRUD: /api/models/providers/:providerId/models
+    - Provider CRUD: /api/v1/providers（更新用 PATCH）
+    - Model CRUD: /api/v1/providers/:providerId/models（更新用 PATCH）
     - 列表带分页 {items, total, page, pageSize}
+    - 服务端响应为 {success, data} 信封，client 已解包为裸数据
     """
 
     @pytest.mark.p0
@@ -215,40 +217,50 @@ class TestModelOpenAPI:
         finally:
             api_client.delete_provider(provider_id)
 
-    @pytest.mark.xfail(reason="应用 Bug：不存在 Provider 返回 500 而非 404（源码头 404，已确认）", strict=True)
     @pytest.mark.p2
     def test_get_nonexistent_provider(self, api_client, _openapi_access):
-        """获取不存在的 Provider：契约应返回 404（当前 500，应用 Bug）"""
+        """获取不存在的 Provider：返回 404 + NOT_FOUND"""
 
-        with pytest.raises(httpx.HTTPStatusError, match=r"404"):
+        with pytest.raises(httpx.HTTPStatusError) as caught:
             api_client.get_provider("nonexistent-provider-id-99999")
+        assert caught.value.response.status_code == 404
+        body = caught.value.response.json()
+        assert body["success"] is False
+        assert body["error"]["code"] == "NOT_FOUND"
 
     @pytest.mark.p2
     def test_create_model_invalid_id(self, api_client, _openapi_access):
-        """创建 Model 使用无效 modelId：应返回 400/422"""
+        """创建 Model 使用空 modelId：返回 400 VALIDATION_ERROR"""
 
         list_resp = api_client.list_providers()
         if len(list_resp["items"]) == 0:
             pytest.skip("Provider 列表为空，无法测试 Model 创建")
         provider_id = list_resp["items"][0]["id"]
 
-        # 空 modelId
-        with pytest.raises(httpx.HTTPStatusError, match=r"(400|422)"):
+        with pytest.raises(httpx.HTTPStatusError) as caught:
             api_client.create_model(provider_id, {
                 "modelId": "",
                 "displayName": "Invalid Model",
             })
+        assert caught.value.response.status_code == 400
+        body = caught.value.response.json()
+        assert body["success"] is False
+        assert body["error"]["code"] == "VALIDATION_ERROR"
 
     @pytest.mark.p2
     def test_create_model_missing_model_id(self, api_client, _openapi_access):
-        """创建 Model 缺少 modelId 字段：应返回 400/422"""
+        """创建 Model 缺少 modelId 字段：返回 400 VALIDATION_ERROR"""
 
         list_resp = api_client.list_providers()
         if len(list_resp["items"]) == 0:
             pytest.skip("Provider 列表为空，无法测试 Model 创建")
         provider_id = list_resp["items"][0]["id"]
 
-        with pytest.raises(httpx.HTTPStatusError, match=r"(400|422)"):
+        with pytest.raises(httpx.HTTPStatusError) as caught:
             api_client.create_model(provider_id, {
                 "displayName": "No modelId",
             })
+        assert caught.value.response.status_code == 400
+        body = caught.value.response.json()
+        assert body["success"] is False
+        assert body["error"]["code"] == "VALIDATION_ERROR"

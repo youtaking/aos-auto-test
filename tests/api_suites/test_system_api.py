@@ -359,3 +359,21 @@ class TestSystemApiKeyAPI:
         with pytest.raises(httpx.HTTPStatusError) as exc_info:
             api_client.delete_api_key(f"nonexistent-key-{uuid.uuid4().hex[:8]}")
         assert exc_info.value.response.status_code == 404
+
+
+# ── 渠道接入总览 ──
+
+class TestSystemChannelAPI:
+    """/api/system/channels 渠道接入总览（System API Key 认证）"""
+
+    @pytest.mark.p1
+    def test_list_system_channels(self, api_client, system_access):
+        """获取渠道接入总览：返回 status 与 organizations"""
+        data = api_client.list_system_channels()
+        status = data["status"]
+        assert isinstance(status["reachable"], bool)
+        assert isinstance(data["organizations"], list)
+        for org in data["organizations"]:
+            assert isinstance(org.get("id"), str)
+            assert isinstance(org.get("name"), str)
+            assert isinstance(org.get("users"), list)

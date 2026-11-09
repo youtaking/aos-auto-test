@@ -1,0 +1,27 @@
+# Custom Jenkins image with Python 3 + Docker Compose pre-installed
+# Prevents environment loss on container recreation / host restart
+#
+# Build:  docker build -t jenkins-custom:2.568.1 -f Dockerfile.jenkins .
+# Usage:  Replace jenkins/jenkins:2.568.1-lts with jenkins-custom:2.568.1 in 1Panel
+
+FROM jenkins/jenkins:2.568.1-lts
+
+USER root
+
+# ---- Python 3 (for JSON parsing in Pipeline scripts) ----
+# Use TUNA mirror (China mainland)
+RUN sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null; \
+    sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list 2>/dev/null; \
+    apt-get update && \
+    apt-get install -y --no-install-recommends python3 curl jq && \
+    rm -rf /var/lib/apt/lists/*
+
+# ---- Docker Compose v2 (for docker-compose commands in Pipeline) ----
+RUN curl -fsSL "https://github.com/docker/compose/releases/download/v2.29.2/docker-compose-linux-$(dpkg --print-architecture)" \
+      -o /usr/local/bin/docker-compose && \
+    chmod +x /usr/local/bin/docker-compose
+
+# ---- Verify ----
+RUN python3 --version && docker-compose --version
+
+USER jenkins

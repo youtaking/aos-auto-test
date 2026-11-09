@@ -3,38 +3,56 @@
 
 两套接口响应格式不同：
 - /web/config/skills（控制台）: RESTful 风格（/:name），响应包装为 {success, data}
-- /api/skills（OpenAPI）: RESTful 风格（/:id），响应为裸数据，列表带分页
+- /api/v1/skills（OpenAPI）: RESTful 风格（/:id），响应为 {success, data}，客户端解包后为裸数据
 """
 
 # ── 通用字段定义 ──
 
+_SCOPE = {
+    "type": "object",
+    "properties": {
+        "organizationId": {"type": "string"},
+        "ownerUserId": {"type": "string"},
+        "visibility": {"type": "string", "enum": ["private", "public"]},
+    },
+    "additionalProperties": True,
+}
+
+_ACCESS = {
+    "type": "object",
+    "properties": {"actions": {"type": "array", "items": {"type": "string"}}},
+    "additionalProperties": True,
+}
+
 SKILL_LIST_ITEM = {
     "type": "object",
-    "required": ["name"],
+    "required": ["id", "name"],
     "properties": {
         "id": {"type": "string"},
         "name": {"type": "string"},
         "description": {"type": ["string", "null"]},
-        "resourceAccess": {"type": "object"},
+        "scope": _SCOPE,
+        "access": _ACCESS,
     },
     "additionalProperties": True,
 }
 
 SKILL_DETAIL = {
     "type": "object",
-    "required": ["name"],
+    "required": ["id", "name", "content"],
     "properties": {
         "id": {"type": "string"},
         "name": {"type": "string"},
         "description": {"type": ["string", "null"]},
         "content": {"type": "string"},
         "metadata": {"type": "object"},
-        "resourceAccess": {"type": "object"},
+        "scope": _SCOPE,
+        "access": _ACCESS,
     },
     "additionalProperties": True,
 }
 
-# ── /api/* OpenAPI 响应格式（裸数据） ──
+# ── /api/v1/* OpenAPI 响应格式（客户端解包 {success,data} 后的裸数据） ──
 
 API_SKILL_LIST_RESPONSE = {
     "type": "object",
@@ -49,14 +67,8 @@ API_SKILL_LIST_RESPONSE = {
 
 API_SKILL_DETAIL_RESPONSE = SKILL_DETAIL
 
-API_DELETE_SKILL_RESPONSE = {
-    "type": "object",
-    "required": ["id", "deleted"],
-    "properties": {
-        "id": {"type": "string"},
-        "deleted": {"type": "boolean"},
-    },
-}
+# v1 删除成功返回 data: null
+API_DELETE_SKILL_RESPONSE = {"type": "null"}
 
 # ── /web/* 控制台响应格式（{success, data} 包装） ──
 
