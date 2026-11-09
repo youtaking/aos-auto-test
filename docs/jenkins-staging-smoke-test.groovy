@@ -1,7 +1,7 @@
 // Staging 冒烟测试：health commitId 变化时运行，只跑 E2E 冒烟用例（pytest -m smoke）
 // 参考 staging-monitor，去掉单元测试与全量用例解析，仅保留冒烟链路。
 def buildTestArchiveUrl(String repo, String branch) {
-    def br = branch ?: 'master'
+    def br = branch ?: 'main'
     def base = repo.replaceAll(/\.git$/, '')
     if (base.contains('gitlab.')) {
         def m = (base =~ /^(https?:\/\/[^\/]+)\/(.+)$/)
@@ -22,7 +22,7 @@ pipeline {
         string(name: 'TARGET_URL',       defaultValue: 'http://100.105.9.16:38879',          description: '测试目标地址')
         string(name: 'AUTOTEST_URL',     defaultValue: 'http://100.105.114.178:8111',        description: 'AutoTest 后端地址')
         string(name: 'TEST_REPO',        defaultValue: 'https://gitlab.pazhoulab-huangpu.com/aos-test/aos-auto-test.git', description: '测试代码仓库')
-        string(name: 'TEST_REPO_BRANCH', defaultValue: 'master',                            description: '测试代码分支')
+        string(name: 'TEST_REPO_BRANCH', defaultValue: 'main',                            description: '测试代码分支')
         booleanParam(name: 'FORCE_RESET', defaultValue: false,                               description: '强制触发一次冒烟（清除上次 commitId 记录）')
         booleanParam(name: 'NOTIFY_WECOM', defaultValue: true,                               description: '完成后发送企业微信通知（手动触发时可取消勾选）')
     }
@@ -97,7 +97,7 @@ pipeline {
                         fi
                         rm -rf /tmp/smoke-autotest /tmp/autotest.tar.gz
                     fi
-                '''.replace('__TEST_ARCHIVE_URL__', buildTestArchiveUrl(params.TEST_REPO, params.TEST_REPO_BRANCH ?: 'master'))
+                '''.replace('__TEST_ARCHIVE_URL__', buildTestArchiveUrl(params.TEST_REPO, params.TEST_REPO_BRANCH ?: 'main'))
                 }
             }
         }
@@ -253,8 +253,8 @@ except Exception as e:
                     rm -f /tmp/autotest.tar.gz
                     echo "    Test code: $(ls autotest/ | wc -l) files/dirs"
                     echo "    Test branch: __TEST_BRANCH__"
-                '''.replace('__TEST_ARCHIVE_URL__', buildTestArchiveUrl(params.TEST_REPO, params.TEST_REPO_BRANCH ?: 'master'))
-                  .replace('__TEST_BRANCH__', params.TEST_REPO_BRANCH ?: 'master')
+                '''.replace('__TEST_ARCHIVE_URL__', buildTestArchiveUrl(params.TEST_REPO, params.TEST_REPO_BRANCH ?: 'main'))
+                  .replace('__TEST_BRANCH__', params.TEST_REPO_BRANCH ?: 'main')
                 }
             }
         }
