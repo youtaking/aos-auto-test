@@ -176,6 +176,7 @@ pipeline {
                       -e HEAD_SHA="$HEAD_SHA" \
                       -e DRY_RUN="$DRY_FLAG" \
                       -e MAX_SYNC_TURNS=60 \
+                      -e IS_SANDBOX=1 \
                       -e ANTHROPIC_BASE_URL="__BASE_URL__" \
                       -e ANTHROPIC_AUTH_TOKEN="$LITELLM_KEY" \
                       -e ANTHROPIC_MODEL="__MODEL__" \
