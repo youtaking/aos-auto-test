@@ -180,6 +180,10 @@ pipeline {
                       -e ANTHROPIC_BASE_URL="__BASE_URL__" \
                       -e ANTHROPIC_AUTH_TOKEN="$LITELLM_KEY" \
                       -e ANTHROPIC_MODEL="__MODEL__" \
+                      -e ANTHROPIC_DEFAULT_OPUS_MODEL="__MODEL__" \
+                      -e ANTHROPIC_DEFAULT_SONNET_MODEL="__MODEL__" \
+                      -e ANTHROPIC_DEFAULT_HAIKU_MODEL="__MODEL__" \
+                      -e ANTHROPIC_SMALL_FAST_MODEL="__MODEL__" \
                       test-sync-runner:latest
                     SYNC_EXIT=$?
                     set -e
