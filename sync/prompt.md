@@ -15,12 +15,35 @@ FenixAgent 源码以只读方式挂在 `fenix-source/`。只修改测试用例�
 `auto.unit` / `auto.api` / `auto.e2e` 是**允许修改的候选目标**；
 `manual_rules` 和 `unmapped` 只做人工关注，不要改。
 
+## 已准备好的材料（不要再自行获取）
+
+本轮需要的源码改动和目标文件清单**已全部渲染在下面**。禁止重复执行 `git diff` 取同样的内容，
+禁止 `git log` / `git show` / `git blame` 考古提交历史，禁止阅读 `Dockerfile*`、`entrypoint-*`、
+`docs/jenkins-*`、`.github/`、`.claude/` 等 CI 配置，禁止浏览与本轮改动无关的源码或测试。
+
+### 改动概览（git diff --stat {{BASE_SHA}}..{{HEAD_SHA}}）
+
+```
+{{DIFF_STAT}}
+```
+
+### 命中路径的完整 diff
+
+```diff
+{{DIFF}}
+```
+
+### 现有目标文件清单（路径 + 行数）
+
+```
+{{TARGET_FILES}}
+```
+
 ## 工作步骤
 
-1. 一次性看源码改动（不要凭文件名猜）：
-   `git -C fenix-source diff --stat {{BASE_SHA}} {{HEAD_SHA}}`，
-   再对影响面相关路径跑一次 `git -C fenix-source diff {{BASE_SHA}} {{HEAD_SHA}} -- <paths...>`。
-   不要逐个文件反复调 git、不要读与改动无关的文件。
+1. 直接基于上面的 diff 判断行为变化，**不要重新跑 git diff**。
+   需要看目标文件全文时，用**一次并行的 Read** 把要改的文件全部读完；
+   不要串行逐个读，不要读清单之外的文件。
 
 2. **单测**（`auto.unit` 非空时）：Bun test。纯函数优先内联副本，避免拉起整套依赖。
    每个行为改动点覆盖 5 类场景：正向 / 全部分支 / 边界 / 异常 / 依赖隔离。
@@ -56,8 +79,8 @@ FenixAgent 源码以只读方式挂在 `fenix-source/`。只修改测试用例�
 - 不删除、不修改已有业务数据。
 - 不要 commit、不要 push、不要开 MR。
 - 不创建计划 / 分析文档，直接改代码。
-- 效率：只看 `git diff` 和影响面列出的文件，不要遍历仓库或读无关文件；
-  同一校验命令最多跑 2 次；55 轮内完成，改动尽量一次写对。
+- 效率：diff 已给出，不要重新获取；只改影响面列出的文件，不要遍历仓库；
+  同一校验命令最多跑 2 次；40 轮内完成，改动尽量一次写对。
 
 ## 结束
 

@@ -8,7 +8,7 @@
 #   FENIX_REPO            FenixAgent 源码（默认 /workspace）
 #   ARTIFACT_DIR          产物目录（默认 /artifacts）
 #   DRY_RUN               true/false，仅用于日志，发布在 groovy 侧
-#   MAX_SYNC_TURNS        Claude Code 最大轮次（默认 55）
+#   MAX_SYNC_TURNS        Claude Code 最大轮次（默认 40）
 #
 # 退出码：0 有可用补丁 10 影响面为空 11 触碰禁区 12 校验失败 13 AI 失败 14 无改动 15 复核未通过
 set -eu
@@ -16,7 +16,7 @@ set -eu
 TEST_REPO="${TEST_REPO:-/repo}"
 FENIX_REPO="${FENIX_REPO:-/workspace}"
 ARTIFACT_DIR="${ARTIFACT_DIR:-/artifacts}"
-MAX_SYNC_TURNS="${MAX_SYNC_TURNS:-55}"
+MAX_SYNC_TURNS="${MAX_SYNC_TURNS:-40}"
 
 log() { echo "[sync] $*"; }
 
@@ -72,25 +72,89 @@ ln -sfn "$FENIX_REPO" "$TEST_REPO/fenix-source"
 [ -n "${ANTHROPIC_AUTH_TOKEN:-}" ] || { echo "[sync] ANTHROPIC_AUTH_TOKEN 未注入"; exit 3; }
 unset ANTHROPIC_API_KEY || true
 
+# 一次性把 diff 与目标文件清单渲染进提示词：AI 无需再探索仓库，省掉每轮重复的上下文
 python - "$TEST_REPO/sync/prompt.md" "$ARTIFACT_DIR/prompt.txt" \
-  "$BASE_SHA" "$HEAD_SHA" "$ARTIFACT_DIR/impact.json" <<'PY'
-import json, sys
-src, dst, base, head, impact_path = sys.argv[1:6]
+  "$BASE_SHA" "$HEAD_SHA" "$ARTIFACT_DIR/impact.json" "$FENIX_REPO" "$TEST_REPO" <<'PY'
+import json, os, subprocess, sys
+
+src, dst, base, head, impact_path, fenix, repo = sys.argv[1:8]
 impact = json.load(open(impact_path, encoding='utf-8'))
+
+
+def git(args, cwd, limit):
+    try:
+        out = subprocess.run(['git', '-C', cwd] + args, capture_output=True, text=True,
+                             encoding='utf-8', errors='replace', timeout=120).stdout
+    except Exception:
+        return ''
+    if limit and len(out) > limit:
+        out = out[:limit] + '\n... (已截断，剩余请自行 git diff 该路径)'
+    return out
+
+
+diff_stat = git(['diff', '--stat', base, head], fenix, 20000) or '(无)'
+
+# 只取 auto 规则命中的源码路径，避免把整棵树的 diff 塞进上下文
+paths = []
+for rule in (impact.get('rules') or {}).values():
+    if rule.get('mode') == 'auto':
+        paths.extend(rule.get('files') or [])
+paths = sorted(set(paths))
+if paths:
+    diff = git(['diff', base, head, '--'] + paths, fenix, 160000)
+else:
+    diff = '(影响面未命中源码文件)'
+
+# 目标既有文件清单（带行数），让 AI 一次看清要改哪些文件
+targets = []
+for kind in ('unit', 'api', 'e2e'):
+    targets.extend((impact.get('auto') or {}).get(kind) or [])
+listing = []
+
+
+def count_lines(fp):
+    try:
+        with open(fp, encoding='utf-8', errors='replace') as fh:
+            return sum(1 for _ in fh)
+    except Exception:
+        return 0
+
+
+for t in sorted(set(targets)):
+    p = os.path.join(repo, t)
+    if os.path.isdir(p):
+        for root, dirs, files in os.walk(p):
+            dirs.sort()
+            for f in sorted(files):
+                fp = os.path.join(root, f)
+                rel = os.path.relpath(fp, repo).replace('\\', '/')
+                listing.append('%s  (%d 行)' % (rel, count_lines(fp)))
+    elif os.path.isfile(p):
+        listing.append('%s  (%d 行)' % (t, count_lines(p)))
+if len(listing) > 200:
+    listing = listing[:200] + ['... (更多文件已省略)']
+target_files = '\n'.join(listing) or '(无既有目标文件，需新建)'
+
 text = open(src, encoding='utf-8').read()
 text = text.replace('{{BASE_SHA}}', base).replace('{{HEAD_SHA}}', head)
 text = text.replace('{{IMPACT_JSON}}', json.dumps(impact, ensure_ascii=False, indent=2))
+text = text.replace('{{DIFF_STAT}}', diff_stat)
+text = text.replace('{{DIFF}}', diff)
+text = text.replace('{{TARGET_FILES}}', target_files)
 open(dst, 'w', encoding='utf-8').write(text)
+print('[sync] 提示词 %d 字节（diff %d，目标清单 %d 项）' % (len(text), len(diff), len(listing)))
 PY
 
 log ">>> 调用 Claude Code（max-turns=$MAX_SYNC_TURNS）..."
 set +e
 cd "$TEST_REPO"
-timeout 2700 claude -p "$(cat "$ARTIFACT_DIR/prompt.txt")" \
+# 提示词含完整 diff，可能超过 Linux 单个参数上限（128KB），统一走 stdin
+timeout 2700 claude -p \
   --add-dir "$FENIX_REPO" \
   --dangerously-skip-permissions \
   --max-turns "$MAX_SYNC_TURNS" \
   --output-format stream-json --verbose \
+  < "$ARTIFACT_DIR/prompt.txt" \
   > "$ARTIFACT_DIR/claude.jsonl" 2>&1
 AI_EXIT=$?
 set -e
@@ -192,14 +256,54 @@ else
   REVIEW_SPEC="检查范围是否落在白名单、有无恒真断言、异常断言是否完整、skip 是否只在用例开头、写操作是否自建自清、单测是否覆盖五类、API 四类产物是否一致、E2E 选择器是否有源码依据、baseline 是否已更新。"
 fi
 cd "$TEST_REPO"
-set +e
-timeout 900 claude -p "你是独立的 sync-reviewer（Checker），与生成补丁的 Maker 分离。严格按下面的检查项审查当前仓库（$TEST_REPO）未提交的改动（本次对齐 HEAD_SHA=$HEAD_SHA）。只允许只读操作，不要修改任何文件。全部检查项通过则输出 APPROVE，否则输出 REJECT 并逐条说明。最后一行只输出一个词：APPROVE 或 REJECT。
 
-$REVIEW_SPEC" \
+# 复核只喂改动本身（已跟踪文件的 diff + 新增文件全文），不探索仓库
+python - "$TEST_REPO" "$ARTIFACT_DIR/review-diff.txt" <<'PY'
+import os, subprocess, sys
+
+repo, dst = sys.argv[1:3]
+
+
+def run(args):
+    return subprocess.run(['git', '-C', repo] + args, capture_output=True, text=True,
+                          encoding='utf-8', errors='replace').stdout
+
+
+parts = ['### 已跟踪文件改动（git diff HEAD）', run(['diff', '--stat', 'HEAD']), run(['diff', 'HEAD'])]
+parts.append('### 新增文件全文')
+for rel in run(['ls-files', '--others', '--exclude-standard']).splitlines():
+    fp = os.path.join(repo, rel)
+    if not os.path.isfile(fp):
+        continue
+    try:
+        if os.path.getsize(fp) > 400000:
+            parts.append('--- b/%s (过大，省略)' % rel)
+            continue
+        body = open(fp, encoding='utf-8', errors='replace').read()
+    except Exception:
+        continue
+    parts.append('--- /dev/null\n+++ b/%s\n%s' % (rel, body))
+
+text = '\n'.join(parts)
+if len(text) > 240000:
+    text = text[:240000] + '\n... (改动全文已截断)'
+open(dst, 'w', encoding='utf-8').write(text)
+print('[sync] 复核材料 %d 字节' % len(text))
+PY
+
+{
+  printf '你是独立的 sync-reviewer（Checker），与生成补丁的 Maker 分离。严格按下面的检查项审查本轮改动（本次对齐 HEAD_SHA=%s）。改动内容已完整附在最后，只审查这些改动，禁止浏览测试仓库其他文件、禁止执行 git 命令、禁止修改任何文件；仅当核对 E2E 选择器依据时，可 Read fenix-source 中对应的组件源码。全部检查项通过则输出 APPROVE，否则输出 REJECT 并逐条说明。最后一行只输出一个词：APPROVE 或 REJECT。\n\n' "$HEAD_SHA"
+  printf '%s\n\n' "$REVIEW_SPEC"
+  cat "$ARTIFACT_DIR/review-diff.txt"
+} > "$ARTIFACT_DIR/review-prompt.txt"
+
+set +e
+timeout 600 claude -p \
   --add-dir "$FENIX_REPO" \
   --dangerously-skip-permissions \
-  --max-turns 20 \
+  --max-turns 8 \
   --output-format json \
+  < "$ARTIFACT_DIR/review-prompt.txt" \
   > "$ARTIFACT_DIR/review.json" 2> "$ARTIFACT_DIR/review.stderr.txt"
 REVIEW_EXIT=$?
 set -e

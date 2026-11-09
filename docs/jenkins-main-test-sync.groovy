@@ -1,6 +1,9 @@
-// main-test-sync：FenixAgent main 有新提交时，按影响面同步 unit/API/E2E 用例。
-// 由 branch-poll-main 触发（传 COMMIT_SHA=新 main 提交）。
+// main-test-sync：每日批量比对 FenixAgent main 与 baseline，按影响面同步 unit/API/E2E 用例。
+// COMMIT_SHA 留空时自动解析 refs/heads/main 的最新提交。
 // 只生成 sync/main-<sha8> 分支 + GitLab Draft MR + GitHub 镜像分支，绝不自动合并。
+//
+// 逐提交触发会在大模型上调起大量重复分析（每月约 69 次、~$128），改为每天一次批量：
+// baseline..main 的全部改动一次分析完，成本约 30 次/月。
 
 def NOTIFY_WECOM_ON() { return params.NOTIFY_WECOM != null ? params.NOTIFY_WECOM : true }
 def DRY_RUN_ON()     { return params.DRY_RUN != null ? params.DRY_RUN : true }
@@ -8,8 +11,13 @@ def DRY_RUN_ON()     { return params.DRY_RUN != null ? params.DRY_RUN : true }
 pipeline {
     agent any
 
+    triggers {
+        // 每天 03:xx（H 打散）跑一次批量同步
+        cron('H 3 * * *')
+    }
+
     parameters {
-        string(name: 'COMMIT_SHA', defaultValue: '', description: 'FenixAgent main 的目标提交（branch-poll-main 自动传入）')
+        string(name: 'COMMIT_SHA', defaultValue: '', description: '目标提交；留空自动取 refs/heads/main 最新提交')
         string(name: 'BASE_SHA',   defaultValue: '', description: '对比基线；留空读 sync/baseline.json 的 main_sha')
         string(name: 'SYNC_MODEL', defaultValue: 'deepseek-v4-flash-anthropic', description: 'LiteLLM 模型别名（Models 页的 model_name）')
         booleanParam(name: 'DRY_RUN', defaultValue: true, description: '只生成补丁并校验，不提交/推送/开 MR')
@@ -34,14 +42,11 @@ pipeline {
                     echo "  base:   __BASE__"
                     echo "  dry:    __DRY__"
                     echo "============================================================"
-                '''.replace('__HEAD__', params.COMMIT_SHA ?: '(empty)')
+                '''.replace('__HEAD__', params.COMMIT_SHA ?: '(resolve latest main)')
                   .replace('__BASE__', params.BASE_SHA ?: '(from baseline)')
                   .replace('__DRY__', DRY_RUN_ON().toString())
 
                 script {
-                    if (!params.COMMIT_SHA?.trim()) {
-                        error('COMMIT_SHA 必填：请手动传目标提交，或由 branch-poll-main 自动触发')
-                    }
                     if (!params.SYNC_MODEL?.trim()) {
                         // 凭证 / 模型别名尚未配置时只跳过，不刷失败构建
                         env.SYNC_STATE = 'unconfigured'
@@ -67,6 +72,22 @@ pipeline {
                       clone --depth 50 -b main "__GITLAB__" autotest
                     echo "    HEAD: $(git -C autotest rev-parse --short HEAD)"
 
+                    # 未指定 COMMIT_SHA 时取 main 最新提交（每日批量模式）
+                    if [ -n "__HEAD_PARAM__" ]; then
+                        HEAD_SHA="__HEAD_PARAM__"
+                    else
+                        HEAD_SHA=""
+                        for proxy in "https://ghfast.top/" "" "https://ghproxy.net/"; do
+                            HEAD_SHA=$(GIT_TERMINAL_PROMPT=0 timeout 60 \
+                              git ls-remote "${proxy}__FENIX__" refs/heads/main 2>/dev/null | cut -f1)
+                            [ -n "$HEAD_SHA" ] && break
+                            sleep 2
+                        done
+                        [ -n "$HEAD_SHA" ] || { echo "    ERROR: 无法解析 main 最新提交"; exit 1; }
+                    fi
+                    echo "$HEAD_SHA" > .resolved_head
+                    echo "    TARGET: $(echo "$HEAD_SHA" | cut -c1-8)"
+
                     if [ -n "__BASE_PARAM__" ]; then
                         BASE_SHA="__BASE_PARAM__"
                     else
@@ -76,6 +97,8 @@ pipeline {
                     echo "    BASE: $(echo "$BASE_SHA" | cut -c1-8)"
                 '''.replace('__GITLAB__', env.GITLAB_HTTPS)
                    .replace('__BASE_PARAM__', params.BASE_SHA ?: '')
+                   .replace('__HEAD_PARAM__', params.COMMIT_SHA ?: '')
+                   .replace('__FENIX__', env.FENIX_REPO_CLONE)
                 }
             }
         }
@@ -87,7 +110,7 @@ pipeline {
                 sh '''
                     set +x
                     BASE_SHA=$(cat .base_sha)
-                    HEAD_SHA="__HEAD__"
+                    HEAD_SHA=$(cat .resolved_head)
                     SHA8=$(echo "$HEAD_SHA" | cut -c1-8)
                     echo "$SHA8" > .sha8
                     echo "$HEAD_SHA" > .head_sha
@@ -113,8 +136,7 @@ pipeline {
                     fi
 
                     echo "run" > .sync_state
-                '''.replace('__HEAD__', params.COMMIT_SHA.trim())
-                   .replace('__GITLAB__', env.GITLAB_HTTPS)
+                '''.replace('__GITLAB__', env.GITLAB_HTTPS)
                    .replace('__GITLAB_API__', env.GITLAB_API)
                 }
                 script {
@@ -183,7 +205,7 @@ pipeline {
                       -e BASE_SHA="$BASE_SHA" \
                       -e HEAD_SHA="$HEAD_SHA" \
                       -e DRY_RUN="$DRY_FLAG" \
-                      -e MAX_SYNC_TURNS=55 \
+                      -e MAX_SYNC_TURNS=40 \
                       -e IS_SANDBOX=1 \
                       -e ANTHROPIC_BASE_URL="__BASE_URL__" \
                       -e ANTHROPIC_AUTH_TOKEN="$LITELLM_KEY" \
@@ -358,7 +380,7 @@ PY
             archiveArtifacts artifacts: 'artifacts/**', allowEmptyArchive: true
             sh '''
                 rm -rf fenix artifacts autotest
-                rm -f .base_sha .head_sha .sha8 .sync_state .sync_result .sync_exit .publish_result wecom_sync_payload.json
+                rm -f .base_sha .head_sha .resolved_head .sha8 .sync_state .sync_result .sync_exit .publish_result wecom_sync_payload.json
             '''
         }
     }

@@ -1,11 +1,12 @@
 # sync-reviewer 检查项
 
-审查对象是当前工作副本里未提交的改动（`git status --porcelain` / `git diff`），
-以及 `sync/policy.yml`、`sync/coverage-map.yml` 的约束。只读审查，不修改任何文件。
+审查对象是随附的改动内容（已跟踪文件的 `git diff HEAD` + 新增文件全文），
+以及其中的改动是否违反 `sync/policy.yml`、`sync/coverage-map.yml` 的约束。
+只读审查，不修改任何文件；除核对 E2E 选择器外，不浏览其他文件、不执行 git 命令。
 
 ## 必须逐项检查
 
-1. **范围**：`git status --porcelain` 的每个文件都必须在 `sync/policy.yml` 的
+1. **范围**：改动涉及的每个文件都必须在 `sync/policy.yml` 的
    `allowed_write_paths` 内，且不命中 `forbidden_paths`。
    出现 `tsconfig.json`、`bunfig.toml`、`package.json`、`bun.lock`、`Dockerfile*`、
    `entrypoint-*`、`docs/jenkins-*`、`.github/`、`.claude/`、`backend/`、`frontend/`、
@@ -24,6 +25,7 @@
    `api_suites`、`docs/手工用例/API用例/` 必须一致；只改其中一类 → REJECT。
 8. **E2E 选择器**：新增 / 修改的选择器必须在 `fenix-source/` 的真实组件源码里能找到依据
    （`data-slot`、`role`、可见文案）；仅凭 `[class*=...]` 猜测 → REJECT。
+   这是唯一允许额外读取源码的检查项，只读与选择器对应的组件文件。
 9. **基线**：`sync/baseline.json` 的 `main_sha` 等于本次 `HEAD_SHA`。
 
 ## 输出格式
