@@ -36,6 +36,20 @@ RUN python3 -m venv /opt/venv && set -eux; \
     /opt/venv/bin/python -c "import pytest, yaml, jsonschema, playwright"
 ENV PATH=/opt/venv/bin:/usr/local/bin:$PATH
 
+# Claude Code 要求 Node >= 22，发行版自带的是 v20；装官方 tarball 到 /usr/local（PATH 优先）
+ARG NODE_VERSION=22.20.0
+RUN set -eux; \
+    for base in "https://npmmirror.com/mirrors/node/v${NODE_VERSION}" "https://nodejs.org/dist/v${NODE_VERSION}"; do \
+      if curl -fsSL --connect-timeout 10 --max-time 300 \
+        "$base/node-v${NODE_VERSION}-linux-x64.tar.gz" -o /tmp/node.tar.gz; then \
+        tar -xzf /tmp/node.tar.gz -C /usr/local --strip-components=1; \
+        rm -f /tmp/node.tar.gz; \
+        break; \
+      fi; \
+    done; \
+    node --version | grep -q '^v22\.'; \
+    npm --version
+
 # npm 源先走 npmmirror，失败回落官方
 RUN set -eux; \
     npm config set registry https://registry.npmmirror.com; \
