@@ -194,7 +194,7 @@ pipeline {
         stage('Sync In Container') {
             when { expression { env.SYNC_STATE == 'run' } }
             steps {
-                // 总时长兜底：入口内部分别有 30/15 分钟超时，这里防 bun install 等卡死
+                // 总时长兜底：入口内部分别有 30/15/15 分钟超时，这里防 bun install 等卡死
                 timeout(time: 40, unit: 'MINUTES') {
                 sh 'mkdir -p artifacts'
                 withCredentials([string(credentialsId: 'litellm-main-test-sync-key', variable: 'LITELLM_KEY')]) {
@@ -221,6 +221,8 @@ pipeline {
                       -e MAX_SYNC_BUDGET=3 \
                       -e MAX_FIX_TURNS=16 \
                       -e MAX_FIX_BUDGET=1 \
+                      -e MAX_REVIEW_TURNS=12 \
+                      -e MAX_REVIEW_BUDGET=1.5 \
                       -e SYNC_RETRY_LIMIT=1 \
                       -e IS_SANDBOX=1 \
                       -e ANTHROPIC_BASE_URL="__BASE_URL__" \

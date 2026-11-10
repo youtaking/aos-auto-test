@@ -12,6 +12,8 @@
 #   MAX_SYNC_BUDGET       初始生成美元预算（默认 3）
 #   MAX_FIX_TURNS         自动修复最大轮次（默认 16）
 #   MAX_FIX_BUDGET        自动修复美元预算（默认 1）
+#   MAX_REVIEW_TURNS      独立复核最大轮次（默认 12）
+#   MAX_REVIEW_BUDGET     独立复核美元预算（默认 1.5）
 #   SYNC_RETRY_LIMIT      自动修复次数上限（默认 1，即整轮最多 2 次模型调用）
 #
 # 退出码：0 有可用补丁 10 影响面为空 11 触碰禁区 12 校验失败 13 AI 失败 14 无改动 15 复核未通过
@@ -24,6 +26,8 @@ MAX_SYNC_TURNS="${MAX_SYNC_TURNS:-30}"
 MAX_SYNC_BUDGET="${MAX_SYNC_BUDGET:-3}"
 MAX_FIX_TURNS="${MAX_FIX_TURNS:-16}"
 MAX_FIX_BUDGET="${MAX_FIX_BUDGET:-1}"
+MAX_REVIEW_TURNS="${MAX_REVIEW_TURNS:-12}"
+MAX_REVIEW_BUDGET="${MAX_REVIEW_BUDGET:-1.5}"
 
 log() { echo "[sync] $*"; }
 
@@ -469,30 +473,26 @@ BASELINE_SHA=$(python -X utf8 -c "import json,sys;print(json.load(open(sys.argv[
 
 {
   printf '你是独立的 sync-reviewer（Checker），与生成补丁的 Maker 分离。严格按下面的检查项审查本轮改动（本次对齐 HEAD_SHA=%s）。改动内容已完整附在最后，只审查这些改动，禁止浏览测试仓库其他文件、禁止执行 git 命令、禁止修改任何文件；仅当核对 E2E 选择器依据时，可 Read fenix-source 中对应的组件源码。全部检查项通过则输出 APPROVE，否则输出 REJECT 并逐条说明。最后一行只输出一个词：APPROVE 或 REJECT。\n\n' "$HEAD_SHA"
+  printf '执行约束：只允许 Read fenix-source 下与选择器直接相关的组件文件，累计不超过 5 次；禁止使用 Bash / Task / Write / Edit；不要复述 diff 内容，每条检查项只写 PASS 或 FAIL 加一行理由；确认完检查项后立即给出结论，不要继续探索。\n\n'
   printf '基线状态：sync/baseline.json 的 main_sha = %s；本轮 HEAD_SHA = %s。若两者相等，说明基线已对齐，本轮不需要改动 baseline.json，不得以“未改动 baseline”为由 REJECT。\n\n' "${BASELINE_SHA:-未知}" "$HEAD_SHA"
   printf '%s\n\n' "$REVIEW_SPEC"
   cat "$ARTIFACT_DIR/review-diff.txt"
 } > "$ARTIFACT_DIR/review-prompt.txt"
 
 set +e
-timeout 600 claude -p \
+log ">>> 复核调用（max-turns=$MAX_REVIEW_TURNS, budget=\$$MAX_REVIEW_BUDGET）..."
+timeout 900 claude -p \
   --add-dir "$FENIX_REPO" \
   --dangerously-skip-permissions \
-  --disallowedTools Skill \
+  --disallowedTools Skill Bash Task \
   --strict-mcp-config \
   --setting-sources local \
-  --max-turns 6 \
-  --max-budget-usd 1 \
+  --max-turns "$MAX_REVIEW_TURNS" \
+  --max-budget-usd "$MAX_REVIEW_BUDGET" \
   --output-format json \
   < "$ARTIFACT_DIR/review-prompt.txt" \
   > "$ARTIFACT_DIR/review.json" 2> "$ARTIFACT_DIR/review.stderr.txt"
 REVIEW_EXIT=$?
-if [ "$REVIEW_EXIT" -ne 0 ]; then
-  echo "[sync] 复核执行失败，尾部日志："
-  tail -40 "$ARTIFACT_DIR/review.json" || true
-  if [ "$_re_e" -eq 1 ]; then set -e; fi
-  return 2
-fi
 VERDICT=$(python - "$ARTIFACT_DIR/review.json" "$ARTIFACT_DIR/review-result.txt" <<'PY'
 import json, sys
 r = ''
@@ -513,6 +513,19 @@ parts = r.split()
 print(parts[-1] if parts else '')
 PY
 ) || VERDICT=""
+# 达到轮次/预算上限时只要最后一行已明确 APPROVE/REJECT 就采纳；否则视为执行失败
+case "$VERDICT" in
+  APPROVE*) : ;;
+  REJECT*) : ;;
+  *)
+    if [ "$REVIEW_EXIT" -ne 0 ]; then
+      echo "[sync] 复核执行失败（退出码 $REVIEW_EXIT），尾部日志："
+      tail -40 "$ARTIFACT_DIR/review.json" || true
+      if [ "$_re_e" -eq 1 ]; then set -e; fi
+      return 2
+    fi
+    ;;
+esac
 case "$VERDICT" in
   APPROVE*) log ">>> 复核通过"; _verdict_rc=0 ;;
   *) echo "[sync] 复核未通过: $VERDICT"; _verdict_rc=1 ;;
