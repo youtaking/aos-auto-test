@@ -8,13 +8,13 @@
 #   FENIX_REPO            FenixAgent 源码（默认 /workspace）
 #   ARTIFACT_DIR          产物目录（默认 /artifacts）
 #   DRY_RUN               true/false，仅用于日志，发布在 groovy 侧
-#   MAX_SYNC_TURNS        初始生成最大轮次（默认 40，费用仍由 MAX_SYNC_BUDGET 封顶）
+#   MAX_SYNC_TURNS        初始生成最大轮次（默认 60，费用仍由 MAX_SYNC_BUDGET 封顶）
 #   MAX_SYNC_BUDGET       初始生成美元预算（默认 auto：按目标数 3~8 美元）
 #   MAX_FIX_TURNS         自动修复最大轮次（默认 24）
 #   MAX_FIX_BUDGET        自动修复美元预算（默认 auto：1 或 2 美元）
 #   MAX_REVIEW_TURNS      独立复核最大轮次（默认 12）
 #   MAX_REVIEW_BUDGET     独立复核美元预算（默认 1.5）
-#   SYNC_RETRY_LIMIT      自动修复次数上限（默认 1，即整轮最多 2 次模型调用）
+#   SYNC_RETRY_LIMIT      自动修复次数上限（默认 2，校验失败与复核 REJECT 共用）
 #
 # 退出码：0 有可用补丁 10 影响面为空 11 触碰禁区 12 校验失败 13 AI 失败 14 无改动 15 复核未通过
 set -eu
@@ -22,7 +22,7 @@ set -eu
 TEST_REPO="${TEST_REPO:-/repo}"
 FENIX_REPO="${FENIX_REPO:-/workspace}"
 ARTIFACT_DIR="${ARTIFACT_DIR:-/artifacts}"
-MAX_SYNC_TURNS="${MAX_SYNC_TURNS:-40}"
+MAX_SYNC_TURNS="${MAX_SYNC_TURNS:-60}"
 MAX_SYNC_BUDGET="${MAX_SYNC_BUDGET:-auto}"
 MAX_FIX_TURNS="${MAX_FIX_TURNS:-24}"
 MAX_FIX_BUDGET="${MAX_FIX_BUDGET:-auto}"
@@ -332,9 +332,9 @@ fi
 check_dirty=$(git -C "$FENIX_REPO" status --porcelain || true)
 [ -z "$check_dirty" ] || fail_fenix_dirty
 
-# 4~6. 策略校验 → 校验 → 独立复核；任一失败时带报错自动修复一次（SYNC_RETRY_LIMIT）
+# 4~6. 策略校验 → 校验 → 独立复核；任一失败时带报错自动修复（SYNC_RETRY_LIMIT 次）
 ATTEMPT=0
-RETRY_LIMIT="${SYNC_RETRY_LIMIT:-1}"
+RETRY_LIMIT="${SYNC_RETRY_LIMIT:-2}"
 WS_INSTALLED=0
 UT_INSTALLED=0
 CHECK_LOG=""
@@ -570,6 +570,9 @@ import json, os, sys
 repo, art, kind, detail_path = sys.argv[1:5]
 changed = json.load(open(os.path.join(art, 'changes.json'), encoding='utf-8')).get('files') or []
 detail = open(detail_path, encoding='utf-8', errors='replace').read() if os.path.exists(detail_path) else ''
+unc_path = os.path.join(art, 'uncovered.txt')
+unc = open(unc_path, encoding='utf-8', errors='replace').read().strip() if os.path.exists(unc_path) else ''
+read_cap = 5 if kind == 'checks' else 10
 if kind == 'checks':
     if len(detail) > 14000:
         detail = '... (前部已截断)\n' + detail[-14000:]
@@ -586,6 +589,9 @@ prompt = """# 任务：修复上一轮测试同步补丁
 上一轮你已经修改了下面这些文件（位于 /repo，当前内容已包含你的改动）：
 %s
 
+本轮影响面里还没有任何改动落到文件的目标（能引用现有用例名证明已覆盖的可不动，确实缺覆盖的要补最小用例）：
+%s
+
 被测源码只读挂载在 /workspace，仓库内的 fenix-source 也可见。可用工具：Read / Glob / Grep / Write / Edit（Bash 已禁用）。
 
 ## 失败详情
@@ -594,13 +600,14 @@ prompt = """# 任务：修复上一轮测试同步补丁
 ## 硬约束（违反即整轮作废）
 - 只能写：unit_tests/、tests/api_suites/、tests/api_clients/、tests/api_contracts/、tests/suites/、tests/pages/、tests/fixtures/、docs/手工用例/、sync/baseline.json
 - 只做最小修正：不要重写已通过的部分，不要新增无关文件，不要删除有依据的既有断言
-- 控制探索：按报错里的文件名/行号直接定位，Read 总数控制在 5 次以内，同一类问题一次改完
+- 控制探索：按报错里的文件名/行号直接定位，Read 总数控制在 %d 次以内，同一类问题一次改完
 - 禁止恒真断言；异常用例必须同时断言 status_code 与 error.code；skip 只能放在用例开头
 - 写操作必须自建数据并 try/finally 清理，禁止修改或删除已存在数据
 - 单测断言必须是具体值，内联副本必须与当前源码逐段一致
 - 不要运行 bun/pytest（由流水线执行）；不要 commit/push
 直接修改文件，不要输出计划。
-""" % (header, '\n'.join('- ' + f for f in changed) or '(无)', detail)
+""" % (header, '\n'.join('- ' + f for f in changed) or '(无)',
+       '\n'.join('- ' + u for u in unc.splitlines()) or '(无)', detail, read_cap)
 open(os.path.join(art, 'fix-prompt.txt'), 'w', encoding='utf-8').write(prompt)
 print('[sync] 修复提示词 %d 字节（kind=%s，改动文件 %d）' % (len(prompt), kind, len(changed)))
 PY

@@ -217,11 +217,11 @@ pipeline {
                       -e BASE_SHA="$BASE_SHA" \
                       -e HEAD_SHA="$HEAD_SHA" \
                       -e DRY_RUN="$DRY_FLAG" \
-                      -e MAX_SYNC_TURNS=40 \
+                      -e MAX_SYNC_TURNS=60 \
                       -e MAX_FIX_TURNS=24 \
                       -e MAX_REVIEW_TURNS=12 \
                       -e MAX_REVIEW_BUDGET=1.5 \
-                      -e SYNC_RETRY_LIMIT=1 \
+                      -e SYNC_RETRY_LIMIT=2 \
                       -e IS_SANDBOX=1 \
                       -e ANTHROPIC_BASE_URL="__BASE_URL__" \
                       -e ANTHROPIC_AUTH_TOKEN="$LITELLM_KEY" \
