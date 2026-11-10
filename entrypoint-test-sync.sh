@@ -8,7 +8,7 @@
 #   FENIX_REPO            FenixAgent 源码（默认 /workspace）
 #   ARTIFACT_DIR          产物目录（默认 /artifacts）
 #   DRY_RUN               true/false，仅用于日志，发布在 groovy 侧
-#   MAX_SYNC_TURNS        初始生成最大轮次（默认 30）
+#   MAX_SYNC_TURNS        初始生成最大轮次（默认 40，费用仍由 MAX_SYNC_BUDGET 封顶）
 #   MAX_SYNC_BUDGET       初始生成美元预算（默认 3）
 #   MAX_FIX_TURNS         自动修复最大轮次（默认 16）
 #   MAX_FIX_BUDGET        自动修复美元预算（默认 1）
@@ -22,7 +22,7 @@ set -eu
 TEST_REPO="${TEST_REPO:-/repo}"
 FENIX_REPO="${FENIX_REPO:-/workspace}"
 ARTIFACT_DIR="${ARTIFACT_DIR:-/artifacts}"
-MAX_SYNC_TURNS="${MAX_SYNC_TURNS:-30}"
+MAX_SYNC_TURNS="${MAX_SYNC_TURNS:-40}"
 MAX_SYNC_BUDGET="${MAX_SYNC_BUDGET:-3}"
 MAX_FIX_TURNS="${MAX_FIX_TURNS:-16}"
 MAX_FIX_BUDGET="${MAX_FIX_BUDGET:-1}"
@@ -300,9 +300,15 @@ AI_EXIT=$?
 set -e
 log ">>> Claude Code 退出码: $AI_EXIT"
 if [ "$AI_EXIT" -ne 0 ]; then
-  echo "[sync] Claude Code 执行失败，尾部日志："
-  tail -40 "$ARTIFACT_DIR/claude.jsonl" || true
-  exit 13
+  # 达到轮次/预算上限时改动可能已落盘，交给策略校验、跑测与复核判定成败，不直接丢弃
+  if grep -q '"subtype":"error_max_turns"\|"subtype":"error_max_budget_usd"' "$ARTIFACT_DIR/claude.jsonl" 2>/dev/null; then
+    echo "[sync] 生成达到上限（轮次或预算），先按已落盘的改动继续校验"
+    : > "$ARTIFACT_DIR/incomplete.flag"
+  else
+    echo "[sync] Claude Code 执行失败，尾部日志："
+    tail -40 "$ARTIFACT_DIR/claude.jsonl" || true
+    exit 13
+  fi
 fi
 
 # AI 只允许改 AgentTest 工作副本，不许碰被测源码
@@ -474,6 +480,9 @@ BASELINE_SHA=$(python -X utf8 -c "import json,sys;print(json.load(open(sys.argv[
 {
   printf '你是独立的 sync-reviewer（Checker），与生成补丁的 Maker 分离。严格按下面的检查项审查本轮改动（本次对齐 HEAD_SHA=%s）。改动内容已完整附在最后，只审查这些改动，禁止浏览测试仓库其他文件、禁止执行 git 命令、禁止修改任何文件；仅当核对 E2E 选择器依据时，可 Read fenix-source 中对应的组件源码。全部检查项通过则输出 APPROVE，否则输出 REJECT 并逐条说明。最后一行只输出一个词：APPROVE 或 REJECT。\n\n' "$HEAD_SHA"
   printf '执行约束：只允许 Read fenix-source 下与选择器直接相关的组件文件，累计不超过 5 次；禁止使用 Bash / Task / Write / Edit；不要复述 diff 内容，每条检查项只写 PASS 或 FAIL 加一行理由；确认完检查项后立即给出结论，不要继续探索。\n\n'
+  if [ -f "$ARTIFACT_DIR/incomplete.flag" ]; then
+    printf '注意：本轮生成触发了轮次/预算上限，补丁可能不完整。请额外判断影响面目标是否明显遗漏（该改的产物没改、只改了一部分同类用例）；有明显遗漏就 REJECT 并指明缺什么。\n\n'
+  fi
   printf '基线状态：sync/baseline.json 的 main_sha = %s；本轮 HEAD_SHA = %s。若两者相等，说明基线已对齐，本轮不需要改动 baseline.json，不得以“未改动 baseline”为由 REJECT。\n\n' "${BASELINE_SHA:-未知}" "$HEAD_SHA"
   printf '%s\n\n' "$REVIEW_SPEC"
   cat "$ARTIFACT_DIR/review-diff.txt"
@@ -613,7 +622,7 @@ while :; do
     set -e
     if [ "$FIX_EXIT" -ne 0 ]; then
       # 达到轮次上限时改动可能已部分落盘，先按现状重跑校验，由校验/复核决定成败
-      if grep -q '"subtype":"error_max_turns"' "$ARTIFACT_DIR/claude-fix-$ATTEMPT.jsonl" 2>/dev/null; then
+      if grep -q '"subtype":"error_max_turns"\|"subtype":"error_max_budget_usd"' "$ARTIFACT_DIR/claude-fix-$ATTEMPT.jsonl" 2>/dev/null; then
         echo "[sync] 自动修复达到轮次上限，先按已落盘的改动重跑校验"
       else
         echo "[sync] 自动修复执行失败，尾部日志："
@@ -648,7 +657,7 @@ while :; do
       set -e
       if [ "$FIX_EXIT" -ne 0 ]; then
         # 达到轮次上限时改动可能已部分落盘，先按现状重跑校验，由校验/复核决定成败
-        if grep -q '"subtype":"error_max_turns"' "$ARTIFACT_DIR/claude-fix-$ATTEMPT.jsonl" 2>/dev/null; then
+        if grep -q '"subtype":"error_max_turns"\|"subtype":"error_max_budget_usd"' "$ARTIFACT_DIR/claude-fix-$ATTEMPT.jsonl" 2>/dev/null; then
           echo "[sync] 自动修复达到轮次上限，先按已落盘的改动重跑校验"
         else
           echo "[sync] 自动修复执行失败，尾部日志："

@@ -217,7 +217,7 @@ pipeline {
                       -e BASE_SHA="$BASE_SHA" \
                       -e HEAD_SHA="$HEAD_SHA" \
                       -e DRY_RUN="$DRY_FLAG" \
-                      -e MAX_SYNC_TURNS=30 \
+                      -e MAX_SYNC_TURNS=40 \
                       -e MAX_SYNC_BUDGET=3 \
                       -e MAX_FIX_TURNS=16 \
                       -e MAX_FIX_BUDGET=1 \
