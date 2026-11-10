@@ -1,5 +1,5 @@
 {
-  "main_sha": "325208ebc091a7b906e737a62573fcefeb735354",
+  "main_sha": "f12e40ec7276a68bbb4f0c023f905ded7d41f0a7",
   "synced_at": "2026-11-10",
   "note": "三套用例最近一次人工对齐的 main 提交；main-test-sync 以该 SHA 为 BASE",
   "suites": {
