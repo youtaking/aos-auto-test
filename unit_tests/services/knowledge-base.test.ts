@@ -380,3 +380,83 @@ describe("knowledge-base 知识库服务", () => {
     });
   });
 });
+
+// ── Provider 输入错误与 Facade 映射（2026-11 main）──
+
+/** 复制 packages/resources/knowledge/src/server/services/knowledge-provider/input-error.ts */
+class KnowledgeProviderValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "KnowledgeProviderValidationError";
+  }
+}
+
+/** 复制 RagFlow provider 的嵌入模型三段式校验（未带 @provider 直接拦截）。 */
+function assertEmbeddingModelFormat(model: string): void {
+  if (!model.includes("@")) {
+    throw new KnowledgeProviderValidationError(
+      `嵌入模型格式错误："${model}"，RagFlow v0.26 要求 <模型名>@<实例名>@<厂商名> 三段式格式，` +
+        ` 例如 text-embedding-v3@qwen@Tongyi-Qianwen。请从下拉列表选择。`,
+    );
+  }
+}
+
+/** 复制 knowledge-base-facade 的 catch 分支：输入错误映射为参数校验失败。 */
+function mapKnowledgeFacadeError(err: unknown):
+  | { ok: false; kind: "invalid"; code: "VALIDATION_ERROR"; message: string }
+  | { ok: false; kind: "upstream"; code: "UPSTREAM_ERROR"; message: string } {
+  if (err instanceof KnowledgeProviderValidationError) {
+    return { ok: false, kind: "invalid", code: "VALIDATION_ERROR", message: err.message };
+  }
+  return { ok: false, kind: "upstream", code: "UPSTREAM_ERROR", message: err instanceof Error ? err.message : String(err) };
+}
+
+describe("KnowledgeProviderValidationError 输入错误", () => {
+  test("缺少 @provider 的嵌入模型被拒绝", () => {
+    expect(() => assertEmbeddingModelFormat("bge-m3")).toThrow(KnowledgeProviderValidationError);
+    try {
+      assertEmbeddingModelFormat("bge-m3");
+    } catch (err) {
+      expect(err instanceof Error).toBe(true);
+      expect((err as Error).name).toBe("KnowledgeProviderValidationError");
+      expect((err as Error).message).toContain("bge-m3");
+      expect((err as Error).message).toContain("三段式");
+    }
+  });
+
+  test("两段式模型名通过（只要包含 @）", () => {
+    expect(() => assertEmbeddingModelFormat("bge-m3@local")).not.toThrow();
+  });
+
+  test("三段式模型名通过", () => {
+    expect(() => assertEmbeddingModelFormat("text-embedding-v3@qwen@Tongyi-Qianwen")).not.toThrow();
+  });
+
+  test("输入错误映射为 invalid + VALIDATION_ERROR 并保留原文", () => {
+    const err = new KnowledgeProviderValidationError("嵌入模型格式错误：bad");
+    expect(mapKnowledgeFacadeError(err)).toEqual({
+      ok: false,
+      kind: "invalid",
+      code: "VALIDATION_ERROR",
+      message: "嵌入模型格式错误：bad",
+    });
+  });
+
+  test("其他异常保持上游异常语义", () => {
+    expect(mapKnowledgeFacadeError(new Error("upstream boom"))).toEqual({
+      ok: false,
+      kind: "upstream",
+      code: "UPSTREAM_ERROR",
+      message: "upstream boom",
+    });
+  });
+
+  test("非 Error 值转为字符串说明", () => {
+    expect(mapKnowledgeFacadeError("raw failure")).toEqual({
+      ok: false,
+      kind: "upstream",
+      code: "UPSTREAM_ERROR",
+      message: "raw failure",
+    });
+  });
+});

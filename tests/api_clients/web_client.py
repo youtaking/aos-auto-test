@@ -451,7 +451,8 @@ class WebClient(BaseClient):
 
     def create_api_key(self, data: dict) -> dict:
         """创建 API Key
-        POST /web/api-keys body: {name, ...} → {success, data: {id, key, ...}}
+        POST /web/api-keys body: {name, expiresAt?, ...} → {success, data: {id, key, ...}}
+        expiresAt 提供时必须是晚于当前时间的合法时间，否则返回 400 VALIDATION_ERROR。
         """
         resp = self.post("/web/api-keys", json=data)
         return self._unwrap(resp)
@@ -1094,7 +1095,8 @@ class WebClient(BaseClient):
 
     def update_organization(self, org_id: str, data: dict) -> dict:
         """更新组织
-        PUT /web/organizations/:id body: {name, slug} → {success, data: {org}}
+        PUT /web/organizations/:id body: 顶层 {name, slug} 或透传 {data: {...}}，两者互斥
+        → {success, data: {org}}；空白名称/Slug 或混用格式返回 400。
         """
         resp = self.put(f"/web/organizations/{org_id}", json=data)
         return self._unwrap(resp)

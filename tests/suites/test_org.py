@@ -712,3 +712,56 @@ def test_org_create_all_fields(logged_in_page, base_url):
     # Escape 关闭，不提交
     logged_in_page.keyboard.press("Escape")
     logged_in_page.wait_for_timeout(500)
+
+
+@allure.epic("组织管理")
+@pytest.mark.order(312)
+@pytest.mark.p1
+def test_org_012_duplicate_slug_shows_localized_toast(logged_in_page, base_url):
+    """TC-ORG-012: 创建组织时 Slug 冲突 — 前端显示本地化「Slug 已被使用」提示
+
+    数据安全：自建组织 A（API 创建）作为冲突源，用例结束 API 删除；UI 的第二次创建必然失败，
+    不会产生第二个组织。不触碰环境中已有组织。
+    """
+    org = OrgPage(logged_in_page, base_url)
+    slug = f"test-org-dup-{_PREFIX}-{uuid.uuid4().hex[:4]}"
+    name_a = f"冲突源组织{_PREFIX}"
+    existing_id, _resp = _api_create_org(logged_in_page, base_url, name_a, slug)
+    if not existing_id:
+        pytest.skip(f"无法创建组织（slug={slug}），跳过冲突用例")
+
+    try:
+        org.goto()
+        _wait_until(lambda: org.is_loaded(), timeout=8)
+        if not org.has_create_button():
+            pytest.skip("无创建组织按钮（可能无管理权限）")
+
+        org.click_create_org()
+        assert org.is_dialog_open(), "创建组织弹窗未打开"
+        org.fill_create_name(f"冲突组织二{_PREFIX}")
+        org.fill_create_slug(slug)
+        _wait_until(lambda: org.create_submit_enabled(), timeout=6,
+                    msg="填写名称+Slug 后创建按钮仍禁用")
+        org.click_create_submit()
+
+        # 等待本地化冲突 toast（中/英文任一），其他 toast 不能被误判为本用例结果
+        deadline = time.time() + 10
+        matches: list[str] = []
+        while time.time() < deadline:
+            texts = org.read_toast_texts()
+            matches = [t for t in texts if "该 Slug 已被使用" in t or "slug is already in use" in t.lower()]
+            if matches:
+                break
+            logged_in_page.wait_for_timeout(250)
+        assert matches, f"未出现 Slug 冲突提示，当前 toast: {org.read_toast_texts()!r}"
+        # 冲突不应创建第二个组织
+        same_slug = [o for o in _api_orgs(logged_in_page, base_url) if o.get("slug") == slug]
+        assert len(same_slug) == 1, f"Slug 冲突后出现了多个同 slug 组织: {same_slug!r}"
+        assert same_slug[0]["id"] == existing_id
+    finally:
+        try:
+            if org.is_dialog_open():
+                org.close_dialog()
+        except Exception:
+            pass
+        _api_delete_org(logged_in_page, base_url, existing_id)

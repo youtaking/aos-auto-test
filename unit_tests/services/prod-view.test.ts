@@ -10,7 +10,7 @@
 // @fenix/services/environment。
 
 import { describe, expect, test, mock, beforeEach, afterEach } from "bun:test";
-import { CreateProdViewSchema } from "@src/resource-prod-view/server/schemas/prod-view.schema";
+import { CreateProdViewSchema, IdParamsSchema } from "@src/resource-prod-view/server/schemas/prod-view.schema";
 
 // ── Active stub 注册表 ──
 
@@ -352,5 +352,35 @@ describe("prod-view 服务", () => {
         name: "View", agentId: "01d1ac89-2c49-46ac-8b8c-a8493df4cc97",
       }).success).toBe(true);
     });
+  });
+});
+
+describe("IdParamsSchema 路由 ID 参数", () => {
+  const UUID = "01d1ac89-2c49-46ac-8b8c-a8493df4cc97";
+
+  test("接受合法 UUID", () => {
+    const result = IdParamsSchema.safeParse({ id: UUID });
+    expect(result.success).toBe(true);
+  });
+
+  test("拒绝非 UUID 字符串（如 pv-1）", () => {
+    const result = IdParamsSchema.safeParse({ id: "pv-1" });
+    expect(result.success).toBe(false);
+  });
+
+  test("拒绝空字符串", () => {
+    expect(IdParamsSchema.safeParse({ id: "" }).success).toBe(false);
+  });
+
+  test("拒绝非字符串", () => {
+    expect(IdParamsSchema.safeParse({ id: 123 }).success).toBe(false);
+  });
+
+  test("拒绝缺少分段的类 UUID", () => {
+    expect(IdParamsSchema.safeParse({ id: "01d1ac89-2c49-46ac-8b8c" }).success).toBe(false);
+  });
+
+  test("拒绝缺少 id 字段", () => {
+    expect(IdParamsSchema.safeParse({}).success).toBe(false);
   });
 });
