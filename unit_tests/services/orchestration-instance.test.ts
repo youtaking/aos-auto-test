@@ -32,6 +32,24 @@ interface SpawnedInstance {
   status: string;
 }
 
+/**
+ * 复制 packages/agent-runtime/src/services/orchestration-instance.ts 的启动环境合并语义：
+ * 调用方覆盖其余变量，但运行环境身份（AGENT_CONFIG_ID / ENVIRONMENT_ID）始终取服务端记录。
+ */
+function mergeLaunchEnv(input: {
+  platformEnv: Record<string, string>;
+  extraEnv: Record<string, string>;
+  agentConfigId?: string;
+  environmentId: string;
+}): Record<string, string> {
+  return {
+    ...input.platformEnv,
+    ...input.extraEnv,
+    AGENT_CONFIG_ID: input.agentConfigId ?? "",
+    ENVIRONMENT_ID: input.environmentId,
+  };
+}
+
 // ── tests ──
 
 describe("orchestration-instance 编排域实例管理", () => {
@@ -100,6 +118,86 @@ describe("orchestration-instance 编排域实例管理", () => {
 
     test("undefined status → 不需要清理", () => {
       expect(shouldTerminateDead("local-default", undefined)).toBe(false);
+    });
+  });
+
+  describe("mergeLaunchEnv 启动环境合并", () => {
+    const platformEnv = {
+      USER_META_API_KEY: "platform-key",
+      USER_META_USER_ID: "platform-user",
+      USER_META_ORG_ID: "platform-org",
+      AGENT_CONFIG_ID: "platform-agent",
+      ENVIRONMENT_ID: "platform-env",
+    };
+
+    test("调用方请求者上下文覆盖共享 meta env", () => {
+      const merged = mergeLaunchEnv({
+        platformEnv,
+        extraEnv: {
+          USER_META_API_KEY: "caller-key",
+          USER_META_USER_ID: "caller-user",
+          USER_META_ORG_ID: "caller-org",
+        },
+        agentConfigId: "server-agent",
+        environmentId: "server-env",
+      });
+      expect(merged.USER_META_API_KEY).toBe("caller-key");
+      expect(merged.USER_META_USER_ID).toBe("caller-user");
+      expect(merged.USER_META_ORG_ID).toBe("caller-org");
+    });
+
+    test("调用方无法改写 AGENT_CONFIG_ID，始终取服务端记录", () => {
+      const merged = mergeLaunchEnv({
+        platformEnv,
+        extraEnv: { AGENT_CONFIG_ID: "caller-agent" },
+        agentConfigId: "server-agent",
+        environmentId: "server-env",
+      });
+      expect(merged.AGENT_CONFIG_ID).toBe("server-agent");
+    });
+
+    test("调用方无法改写 ENVIRONMENT_ID，始终取服务端记录", () => {
+      const merged = mergeLaunchEnv({
+        platformEnv,
+        extraEnv: { ENVIRONMENT_ID: "caller-env" },
+        agentConfigId: "server-agent",
+        environmentId: "server-env",
+      });
+      expect(merged.ENVIRONMENT_ID).toBe("server-env");
+    });
+
+    test("服务端 agentConfigId 缺失时身份为空字符串而不是调用方值", () => {
+      const merged = mergeLaunchEnv({
+        platformEnv,
+        extraEnv: { AGENT_CONFIG_ID: "caller-agent" },
+        environmentId: "server-env",
+      });
+      expect(merged.AGENT_CONFIG_ID).toBe("");
+    });
+
+    test("未覆盖的平台变量原样保留", () => {
+      const merged = mergeLaunchEnv({
+        platformEnv: { UNTOUCHED: "keep", ENVIRONMENT_ID: "platform-env" },
+        extraEnv: {},
+        agentConfigId: "server-agent",
+        environmentId: "server-env",
+      });
+      expect(merged.UNTOUCHED).toBe("keep");
+    });
+
+    test("完整合并结果只包含期望键值", () => {
+      const merged = mergeLaunchEnv({
+        platformEnv: { A: "1" },
+        extraEnv: { B: "2", ENVIRONMENT_ID: "caller" },
+        agentConfigId: "agent",
+        environmentId: "env",
+      });
+      expect(merged).toEqual({
+        A: "1",
+        B: "2",
+        AGENT_CONFIG_ID: "agent",
+        ENVIRONMENT_ID: "env",
+      });
     });
   });
 });

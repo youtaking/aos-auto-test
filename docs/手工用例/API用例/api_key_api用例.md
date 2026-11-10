@@ -59,3 +59,48 @@
   2. 第一次 DELETE 成功
   3. 第二次 DELETE，检查抛出异常
 - **预期结果**：第二次删除抛出异常
+
+---
+
+### TC-APIKEY-005：创建 API Key 拒绝无效过期时间（异常）
+
+- **前置条件**：已登录
+- **请求信息**：
+  - 方法：POST
+  - URL：`/web/api-keys`
+  - Body：`{"name": "api-test-exp-invalid-xxxx", "expiresAt": <值>}`
+  - `expiresAt` 取值：`"2020-01-01T00:00:00.000Z"`、`0`、`""`、`"not-a-date"`
+- **步骤**：
+  1. 逐组提交无效过期时间
+  2. 检查 HTTP 状态与错误信封
+- **预期结果**：返回 400，`success: false`，`error.code = VALIDATION_ERROR`，`error.message` 包含 `expiresAt`
+
+---
+
+### TC-APIKEY-006：创建 API Key 接受未来过期时间（正向）
+
+- **前置条件**：已登录
+- **请求信息**：
+  - 方法：POST
+  - URL：`/web/api-keys`
+  - Body：`{"name": "api-test-web-apikey-exp-xxxx", "expiresAt": <当前时间 + 1 天的毫秒时间戳>}`
+- **步骤**：
+  1. POST 创建
+  2. 检查响应 `name` 与 `expiresAt`
+  3. DELETE 清理自建 Key
+- **预期结果**：返回 200，`success: true`，`expiresAt` 非空
+
+---
+
+### TC-APIKEY-007：创建 API Key 省略过期时间（正向）
+
+- **前置条件**：已登录
+- **请求信息**：
+  - 方法：POST
+  - URL：`/web/api-keys`
+  - Body：`{"name": "api-test-web-apikey-noexp-xxxx"}`
+- **步骤**：
+  1. POST 创建
+  2. 检查响应 `expiresAt`
+  3. DELETE 清理自建 Key
+- **预期结果**：返回 200，`success: true`，`expiresAt` 为 `null`
