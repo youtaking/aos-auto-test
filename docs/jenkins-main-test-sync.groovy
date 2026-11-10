@@ -218,9 +218,7 @@ pipeline {
                       -e HEAD_SHA="$HEAD_SHA" \
                       -e DRY_RUN="$DRY_FLAG" \
                       -e MAX_SYNC_TURNS=40 \
-                      -e MAX_SYNC_BUDGET=3 \
-                      -e MAX_FIX_TURNS=16 \
-                      -e MAX_FIX_BUDGET=1 \
+                      -e MAX_FIX_TURNS=24 \
                       -e MAX_REVIEW_TURNS=12 \
                       -e MAX_REVIEW_BUDGET=1.5 \
                       -e SYNC_RETRY_LIMIT=1 \
@@ -313,6 +311,11 @@ pipeline {
                     BASE_SHA=$(cat .base_sha)
                     HEAD_SHA=$(cat .head_sha)
                     DESC=$(printf '自动同步 FenixAgent main `%s` 的测试用例。\\n\\n- BASE: `%s`\\n- 影响面与改动：见构建产物 impact.json / changes.json\\n- Claude Code 生成并复核，人工 Review 后再合并。' "$HEAD_SHA" "$BASE_SHA")
+                    # 未改动的目标意味着复核要靠现有用例判断覆盖，评审时重点看这几项
+                    if [ -s artifacts/uncovered.txt ]; then
+                        UNCOVERED_BLOCK=$(printf '\\n\\n**本轮未改动的影响面目标**（复核已核对现有用例覆盖，请重点确认）：\\n\\n```\\n%s\\n```' "$(cat artifacts/uncovered.txt)")
+                        DESC="$DESC$UNCOVERED_BLOCK"
+                    fi
                     curl -sS -X POST -H "PRIVATE-TOKEN: ${GL_WRITE_TOKEN}" \
                       --data-urlencode "source_branch=$BRANCH" \
                       --data-urlencode "target_branch=main" \

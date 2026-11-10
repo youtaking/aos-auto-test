@@ -9,9 +9,9 @@
 #   ARTIFACT_DIR          产物目录（默认 /artifacts）
 #   DRY_RUN               true/false，仅用于日志，发布在 groovy 侧
 #   MAX_SYNC_TURNS        初始生成最大轮次（默认 40，费用仍由 MAX_SYNC_BUDGET 封顶）
-#   MAX_SYNC_BUDGET       初始生成美元预算（默认 3）
-#   MAX_FIX_TURNS         自动修复最大轮次（默认 16）
-#   MAX_FIX_BUDGET        自动修复美元预算（默认 1）
+#   MAX_SYNC_BUDGET       初始生成美元预算（默认 auto：按目标数 3~8 美元）
+#   MAX_FIX_TURNS         自动修复最大轮次（默认 24）
+#   MAX_FIX_BUDGET        自动修复美元预算（默认 auto：1 或 2 美元）
 #   MAX_REVIEW_TURNS      独立复核最大轮次（默认 12）
 #   MAX_REVIEW_BUDGET     独立复核美元预算（默认 1.5）
 #   SYNC_RETRY_LIMIT      自动修复次数上限（默认 1，即整轮最多 2 次模型调用）
@@ -23,9 +23,9 @@ TEST_REPO="${TEST_REPO:-/repo}"
 FENIX_REPO="${FENIX_REPO:-/workspace}"
 ARTIFACT_DIR="${ARTIFACT_DIR:-/artifacts}"
 MAX_SYNC_TURNS="${MAX_SYNC_TURNS:-40}"
-MAX_SYNC_BUDGET="${MAX_SYNC_BUDGET:-3}"
-MAX_FIX_TURNS="${MAX_FIX_TURNS:-16}"
-MAX_FIX_BUDGET="${MAX_FIX_BUDGET:-1}"
+MAX_SYNC_BUDGET="${MAX_SYNC_BUDGET:-auto}"
+MAX_FIX_TURNS="${MAX_FIX_TURNS:-24}"
+MAX_FIX_BUDGET="${MAX_FIX_BUDGET:-auto}"
 MAX_REVIEW_TURNS="${MAX_REVIEW_TURNS:-12}"
 MAX_REVIEW_BUDGET="${MAX_REVIEW_BUDGET:-1.5}"
 
@@ -75,6 +75,23 @@ if d['unmapped']:
 if d['manual_rules']:
     print('[sync] 人工规则命中：', ', '.join(d['manual_rules']))
 PY
+
+# 预算随影响面规模动态调整：目标越多要改的用例越多，但总量仍封顶
+if [ "$MAX_SYNC_BUDGET" = "auto" ] || [ "$MAX_FIX_BUDGET" = "auto" ]; then
+  BUDGETS=$(python - "$ARTIFACT_DIR/impact.json" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1], encoding='utf-8'))
+n = sum(len((d.get('auto') or {}).get(k) or []) for k in ('unit', 'api', 'e2e'))
+gen = min(8.0, 3.0 + 0.25 * max(0, n - 6))
+fix = 2.0 if n > 6 else 1.0
+print(n, '%.1f' % gen, '%.1f' % fix)
+PY
+)
+  TARGET_COUNT=$(echo "$BUDGETS" | cut -d' ' -f1)
+  if [ "$MAX_SYNC_BUDGET" = "auto" ]; then MAX_SYNC_BUDGET=$(echo "$BUDGETS" | cut -d' ' -f2); fi
+  if [ "$MAX_FIX_BUDGET" = "auto" ]; then MAX_FIX_BUDGET=$(echo "$BUDGETS" | cut -d' ' -f3); fi
+  log "影响面目标 $TARGET_COUNT 个 → 生成预算 \$$MAX_SYNC_BUDGET / 修复预算 \$$MAX_FIX_BUDGET"
+fi
 
 # 2. 准备单测运行布局：unit_tests/tsconfig.json 与 bunfig.toml 依赖 ../fenix-source
 ln -sfn "$FENIX_REPO" "$TEST_REPO/fenix-source"
@@ -478,10 +495,13 @@ PY
 BASELINE_SHA=$(python -X utf8 -c "import json,sys;print(json.load(open(sys.argv[1],encoding='utf-8')).get('main_sha',''))" "$TEST_REPO/sync/baseline.json" 2>/dev/null || echo "")
 
 {
-  printf '你是独立的 sync-reviewer（Checker），与生成补丁的 Maker 分离。严格按下面的检查项审查本轮改动（本次对齐 HEAD_SHA=%s）。改动内容已完整附在最后，只审查这些改动，禁止浏览测试仓库其他文件、禁止执行 git 命令、禁止修改任何文件；仅当核对 E2E 选择器依据时，可 Read fenix-source 中对应的组件源码。全部检查项通过则输出 APPROVE，否则输出 REJECT 并逐条说明。最后一行只输出一个词：APPROVE 或 REJECT。\n\n' "$HEAD_SHA"
+  printf '你是独立的 sync-reviewer（Checker），与生成补丁的 Maker 分离。严格按下面的检查项审查本轮改动（本次对齐 HEAD_SHA=%s）。改动内容已完整附在最后，只审查这些改动，禁止执行 git 命令、禁止修改任何文件；仅当核对 E2E 选择器依据时，可 Read fenix-source 中对应的组件源码；仅当确认“未改动目标”的既有覆盖时，可 Read /repo 下对应目标路径的用例文件。全部检查项通过则输出 APPROVE，否则输出 REJECT 并逐条说明。最后一行只输出一个词：APPROVE 或 REJECT。\n\n' "$HEAD_SHA"
   printf '执行约束：只允许 Read fenix-source 下与选择器直接相关的组件文件，累计不超过 5 次；禁止使用 Bash / Task / Write / Edit；不要复述 diff 内容，每条检查项只写 PASS 或 FAIL 加一行理由；确认完检查项后立即给出结论，不要继续探索。\n\n'
   if [ -f "$ARTIFACT_DIR/incomplete.flag" ]; then
     printf '注意：本轮生成触发了轮次/预算上限，补丁可能不完整。请额外判断影响面目标是否明显遗漏（该改的产物没改、只改了一部分同类用例）；有明显遗漏就 REJECT 并指明缺什么。\n\n'
+  fi
+  if [ -s "$ARTIFACT_DIR/uncovered.txt" ]; then
+    printf '以下影响面目标本轮没有任何改动，必须逐项确认：\n%s\n\n对每一项，Read 该目标路径下的现有用例，能指出具体用例名证明已覆盖对应源码变更的写 PASS（注明依据），否则写 FAIL 并说明缺什么用例。任何一项 FAIL 即 REJECT。\n\n' "$(sed 's/^/- /' "$ARTIFACT_DIR/uncovered.txt")"
   fi
   printf '基线状态：sync/baseline.json 的 main_sha = %s；本轮 HEAD_SHA = %s。若两者相等，说明基线已对齐，本轮不需要改动 baseline.json，不得以“未改动 baseline”为由 REJECT。\n\n' "${BASELINE_SHA:-未知}" "$HEAD_SHA"
   printf '%s\n\n' "$REVIEW_SPEC"
@@ -597,6 +617,35 @@ while :; do
   fi
 
   git -C "$TEST_REPO" status --porcelain > "$ARTIFACT_DIR/status.txt" || true
+
+  # 影响面里每个 auto 目标是否至少有一个文件被改到；没改到的目标交给复核逐项确认覆盖
+  python -X utf8 - "$ARTIFACT_DIR/impact.json" "$TEST_REPO" "$ARTIFACT_DIR/uncovered.txt" <<'PY'
+import json, subprocess, sys
+
+impact_path, repo, dst = sys.argv[1:4]
+impact = json.load(open(impact_path, encoding='utf-8'))
+
+
+def names(args):
+    out = subprocess.run(['git', '-C', repo] + args, capture_output=True).stdout
+    return [p.decode('utf-8', 'replace') for p in out.split(b'\0') if p]
+
+
+changed = set(names(['diff', '--name-only', '-z', 'HEAD']))
+changed |= set(names(['ls-files', '-z', '--others', '--exclude-standard']))
+changed = {c.replace('\\', '/') for c in changed}
+
+uncovered = []
+for kind in ('unit', 'api', 'e2e'):
+    for t in (impact.get('auto') or {}).get(kind) or []:
+        t = t.replace('\\', '/').rstrip('/')
+        if not any(c == t or c.startswith(t + '/') for c in changed):
+            uncovered.append('%s:%s' % (kind, t))
+open(dst, 'w', encoding='utf-8').write('\n'.join(uncovered))
+print('[sync] 未改动的影响面目标 %d 个（需复核确认已覆盖）' % len(uncovered))
+for u in uncovered:
+    print('   -', u)
+PY
 
   FILE_COUNT=$(python -c "import json,sys;print(len(json.load(open(sys.argv[1],encoding='utf-8'))['files']))" "$ARTIFACT_DIR/changes.json")
   log ">>> AI 改动文件数: $FILE_COUNT"
