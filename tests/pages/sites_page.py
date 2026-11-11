@@ -1,6 +1,7 @@
 # tests/pages/sites_page.py
 """Agent Sites 应用部署页 Page Object（新版卡片布局）+ 建站助手对话"""
-from playwright.sync_api import Page
+import re
+from playwright.sync_api import Page, TimeoutError as PlaywrightTimeoutError, expect
 
 
 class SitesListPage:
@@ -346,50 +347,28 @@ class SiteBuilderChatPage:
         self.base_url = base_url
 
     def goto_builder_chat(self) -> bool:
-        """进入建站助手对话页。返回是否找到并点击了建站助手。"""
-        # 先到首页
-        try:
-            self.page.goto(f"{self.base_url}/ctrl/agent/home", wait_until="domcontentloaded")
-        except Exception:
-            pass  # SPA 路由可能中断初始导航
-        self.page.wait_for_load_state("domcontentloaded")
-        try:
-            self.page.locator("div.agent-panel-content").first.wait_for(state="attached", timeout=8000)
-        except Exception:
-            pass
-
-        # 滚动侧边栏找到建站助手（带重试，侧边栏可能懒加载）
-        # 新版 UI 侧边栏卡片类名为 agent-tree-card（旧版 agent-sidebar-agent-card 已不存在）
-        builder_card = self.page.locator("button.agent-tree-card").filter(
-            has_text="建站助手"
+        """点击标题左侧避开悬浮操作栏；进入实例失败时报告真实接口错误。"""
+        self.page.goto(f"{self.base_url}/ctrl/agent/home", wait_until="domcontentloaded")
+        title = self.page.locator(
+            'button.agent-tree-card div[title="Agent Sites 建站助手"]'
         )
-        for _attempt in range(3):
-            if builder_card.count() > 0:
-                builder_card.first.scroll_into_view_if_needed()
-                self.page.wait_for_timeout(300)
-                builder_card.first.click()
-                self.page.wait_for_timeout(1000)
-                # 如果普通点击没导航，用 JS 点击
-                if "/chat/" not in self.page.url:
-                    builder_card.first.evaluate("el => el.click()")
-                # 等待聊天输入框出现（WebSocket 连接需要时间）
-                try:
-                    self.page.locator("textarea").first.wait_for(
-                        state="visible", timeout=20000
-                    )
-                except Exception:
-                    self.page.wait_for_timeout(2000)
-                return True
-            # 侧边栏可能懒加载，滚动触发加载
-            sidebar = self.page.locator("div.agent-tree")
-            if sidebar.count() > 0:
-                sidebar.first.evaluate("el => el.scrollTop = el.scrollHeight")
-                self.page.wait_for_timeout(800)
-                sidebar.first.evaluate("el => el.scrollTop = 0")
-                self.page.wait_for_timeout(500)
-            else:
-                self.page.wait_for_timeout(1000)
-        return False
+        try:
+            title.wait_for(state="visible", timeout=15000)
+        except PlaywrightTimeoutError:
+            return False
+        expect(title).to_have_count(1)
+        with self.page.expect_response(
+            lambda r: r.request.method == "POST"
+            and re.search(r"/web/environments/[^/]+/enter$", r.url),
+            timeout=60000,
+        ) as entering:
+            # 真实 DOM：卡片右侧四个悬浮按钮覆盖标题中心，左侧文字区仍可点击。
+            title.click(position={"x": 5, "y": 5})
+        response = entering.value
+        assert response.ok, f"进入建站助手实例失败: HTTP {response.status}, {response.text()}"
+        assert response.json().get("success") is True, response.text()
+        expect(self.page).to_have_url(re.compile(r"/ctrl/agent/chat/[^/]+/[^/?]+"), timeout=30000)
+        return True
 
     def is_chat_loaded(self) -> bool:
         """对话页是否加载"""
@@ -397,7 +376,13 @@ class SiteBuilderChatPage:
 
     def has_textarea(self) -> bool:
         """是否有消息输入框"""
-        return self.page.locator("textarea").count() > 0
+        try:
+            self.page.locator("textarea").first.wait_for(
+                state="visible", timeout=20000
+            )
+            return True
+        except PlaywrightTimeoutError:
+            return False
 
     def has_artifacts_panel(self) -> bool:
         """是否有 ArtifactsPanel（预览区）"""

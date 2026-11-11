@@ -9,6 +9,7 @@ import uuid
 import random
 import pytest
 import allure
+from playwright.sync_api import expect
 from tests.pages.agent_config_page import AgentConfigPage
 from tests.conftest import register_cleanup
 
@@ -226,28 +227,47 @@ def test_create_new_agent(logged_in_page, base_url, request):
     quick_btn.scroll_into_view_if_needed()
     quick_btn.wait_for(state="visible", timeout=5000)
     quick_btn.click()
-    create_btn = logged_in_page.get_by_role("button", name="创建 Agent")
+    form = logged_in_page.locator(".agent-generation-form")
+    create_btn = form.get_by_role("button", name="创建 Agent", exact=True)
     create_btn.wait_for(state="visible", timeout=90000)
-    logged_in_page.wait_for_timeout(1000)
 
     # 5. 验证 AI 生成了名称和 System Prompt
-    name_input = logged_in_page.locator("input[data-slot='input']").first
+    name_input = form.locator("input[data-slot='input']")
     name_input.wait_for(state="visible", timeout=15000)
     generated_name = name_input.input_value()
     assert generated_name, "AI 应生成 Agent 名称"
 
-    sp_ta = logged_in_page.locator("textarea").first
+    sp_ta = form.locator("textarea")
     generated_sp = sp_ta.input_value()
     assert generated_sp, "AI 应生成 System Prompt"
 
     # 6. 在 AI 生成的名称上追加修改
     name_input.wait_for(state="visible", timeout=5000)
-    name_input.fill(generated_name + "-e2e")
+    unique_name = f"{generated_name}-e2e-{uuid.uuid4().hex[:10]}"
+    name_input.fill(unique_name)
     modified_name = name_input.input_value()
-    assert modified_name == generated_name + "-e2e", "名称应可修改"
+    assert modified_name == unique_name, "名称应可修改"
 
-    # 注册清理（在可能失败的断言之前）
-    register_cleanup(request, lambda: ac.delete_agent_api(modified_name))
+    # 严格清理只匹配本次唯一名称；finalizer 失败会使测试报错，不吞掉清理失败。
+    created = {}
+
+    def cleanup_created_agent():
+        response = logged_in_page.request.get(f"{base_url}/web/config/agents")
+        assert response.ok, f"清理前查询 Agent 失败: {response.status}"
+        matches = [a for a in response.json()["data"]["agents"]
+                   if a.get("name") == modified_name]
+        assert len(matches) <= 1, f"测试名称匹配不唯一: {modified_name}"
+        target_id = created.get("id") or (matches[0]["id"] if matches else None)
+        if target_id:
+            result = logged_in_page.request.delete(f"{base_url}/web/config/agents/{target_id}")
+            assert result.status in (200, 204, 404), f"清理 Agent 失败: {result.status}, {result.text()}"
+        remaining = logged_in_page.request.get(f"{base_url}/web/config/agents")
+        assert remaining.ok, f"清理后查询 Agent 失败: {remaining.status}"
+        assert not any(a.get("name") == modified_name
+                       for a in remaining.json()["data"]["agents"]), f"测试 Agent 未清理: {modified_name}"
+        print(f"清理确认: {modified_name} 不存在")
+
+    request.addfinalizer(cleanup_created_agent)
 
     # 7. 在 AI 生成的 System Prompt 上追加修改
     sp_ta.wait_for(state="visible", timeout=5000)
@@ -259,35 +279,28 @@ def test_create_new_agent(logged_in_page, base_url, request):
     # 8. 滚动到创建 Agent 按钮并点击
     create_btn.scroll_into_view_if_needed()
     create_btn.wait_for(state="visible", timeout=5000)
-    create_btn.click()
+    assert create_btn.count() == 1, "创建按钮必须唯一"
+    with logged_in_page.expect_response(
+        lambda r: r.request.method == "POST" and r.url == f"{base_url}/web/config/agents",
+        timeout=30000,
+    ) as creation:
+        create_btn.click()
+    response = creation.value
+    assert response.ok, f"创建 Agent 接口失败: HTTP {response.status}, {response.text()}"
+    body = response.json()
+    assert body.get("success") is True, f"创建 Agent 失败: {body}"
+    created["id"] = body["data"]["id"]
 
     # 9. 验证跳转到对话页面
-    try:
-        logged_in_page.wait_for_url(
-            lambda url: "/ctrl/agent/chat/" in url, timeout=15000
-        )
-    except Exception:
-        pass
-    assert "/ctrl/agent/chat/" in logged_in_page.url, \
-        f"创建后应跳转到对话页面，当前 URL: {logged_in_page.url}"
+    expect(logged_in_page).to_have_url(
+        re.compile(r"/ctrl/agent/chat/[^/]+/[^/?]+"), timeout=30000
+    )
 
     # 10. 等待左侧列表刷新，验证新建的 Agent 出现（用修改后的名称匹配）
-    logged_in_page.wait_for_timeout(1000)
-    cards = logged_in_page.locator("button.agent-tree-card")
-    found = False
-    for _ in range(10):
-        for i in range(cards.count()):
-            if modified_name in cards.nth(i).text_content():
-                found = True
-                break
-        if found:
-            break
-        logged_in_page.wait_for_timeout(1000)
-    assert found, f"左侧 Agent 列表中应出现 '{modified_name}'"
-
-    # 11. 清理：通过 API 删除刚创建的 Agent
-    status = ac.delete_agent_api(modified_name)
-    assert status in (200, 204, 404), f"删除 Agent 失败: status={status}"
+    card = logged_in_page.locator("button.agent-tree-card").filter(has_text=modified_name)
+    expect(card).to_have_count(1)
+    expect(card).to_be_visible(timeout=15000)
+    # 无论创建、跳转或断言是否成功，都由 finalizer 清理并核验。
 
 
 @allure.epic("智能体配置")
