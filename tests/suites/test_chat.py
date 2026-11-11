@@ -38,19 +38,17 @@ def test_chat_home_loads(logged_in_page, base_url):
     chat.click_sidebar_agent(agent_name)
 
     # 验证聊天界面元素出现（URL 不变，聊天内嵌在首页）
-    # 全量回归时会话连接/面板渲染可能卡死导致 textarea 保持 hidden，禁止裸 count 立即断言
-    ta = logged_in_page.locator("textarea")
-
-    def _textarea_ready():
-        return ta.count() > 0 and ta.first.is_visible()
-
+    # textarea 在 React 重渲染时会短暂闪现后消失，要求连续多次可见才算就绪；
+    # 全量回归时会话连接/面板渲染可能卡死导致 textarea 保持 hidden，禁止裸 count 立即断言。
+    has_textarea = False
     for _attempt in range(4):
-        if _textarea_ready():
+        if chat.wait_textarea_stable():
+            has_textarea = True
             break
         logged_in_page.wait_for_timeout(2000)
-    if not _textarea_ready():
+    if not has_textarea:
         # 二次刷新强制重建 chat 页（与 test_refresh_during_reply 相同的自愈模式）
-        print("  [重连] textarea 8s 内不可见，二次刷新强制重建 chat 页...")
+        print("  [重连] textarea 稳定可见失败，二次刷新强制重建 chat 页...")
         try:
             logged_in_page.reload(wait_until="domcontentloaded")
         except Exception:
@@ -58,10 +56,10 @@ def test_chat_home_loads(logged_in_page, base_url):
         logged_in_page.wait_for_load_state("domcontentloaded")
         logged_in_page.wait_for_timeout(2000)
         for _attempt in range(8):
-            if _textarea_ready():
+            if chat.wait_textarea_stable():
+                has_textarea = True
                 break
             logged_in_page.wait_for_timeout(1500)
-    has_textarea = _textarea_ready()
     assert has_textarea, \
         f"点击 agent '{agent_name}' 后未出现聊天输入框（URL: {logged_in_page.url}）"
 

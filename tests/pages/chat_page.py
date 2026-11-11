@@ -81,6 +81,24 @@ class ChatPage:
         """获取侧边栏智能体数量"""
         return self.page.locator("button.agent-tree-card").count()
 
+    def wait_textarea_stable(self, consecutive: int = 3, interval_ms: int = 300) -> bool:
+        """textarea 连续多次可见才算就绪。
+
+        React 重渲染时输入框可能短暂闪现后消失，单次可见即返回会让调用方紧接着的
+        复查踩空（staging #145：出现后约 2s 再查已不可见）。
+        """
+        streak = 0
+        for _ in range(consecutive * 2):
+            ta = self.page.locator("textarea")
+            if ta.count() > 0 and ta.first.is_visible():
+                streak += 1
+                if streak >= consecutive:
+                    return True
+            else:
+                streak = 0
+            self.page.wait_for_timeout(interval_ms)
+        return False
+
     def click_sidebar_agent(self, name: str):
         """点击侧边栏的某个智能体"""
         card = self.page.locator("button.agent-tree-card").filter(has_text=name)
@@ -95,25 +113,18 @@ class ChatPage:
             self.page.wait_for_timeout(300)
             card.first.click()
             # 等待聊天输入框稳定出现（WebSocket 连接需要时间，轮询最多 30 秒）
-            # 注意：textarea 可能短暂闪现后消失（React 重渲染），需要轮询确认稳定可见
             for _attempt in range(15):
-                ta = self.page.locator("textarea")
-                if ta.count() > 0 and ta.first.is_visible():
-                    return  # textarea 稳定可见
+                if self.wait_textarea_stable():
+                    return  # textarea 连续可见，视为稳定
                 # 检查是否显示"Agent 未连接"（必须可见，DOM 中有 display:none 的同名元素）
                 reconnect_area = self.page.locator("div.agent-welcome-empty")
                 if reconnect_area.count() > 0 and reconnect_area.first.is_visible():
                     reconnect_btn = reconnect_area.locator("button")
                     if reconnect_btn.count() > 0 and reconnect_btn.first.is_visible():
                         reconnect_btn.first.click()
-                        # 条件等待：重连后输入框出现即可提前返回（替代固定 3s 延迟）
-                        try:
-                            self.page.locator("textarea").first.wait_for(
-                                state="visible", timeout=3000
-                            )
+                        # 条件等待：重连后输入框稳定出现即可提前返回（替代固定 3s 延迟）
+                        if self.wait_textarea_stable():
                             return
-                        except Exception:
-                            pass
                         continue
                 self.page.wait_for_timeout(2000)
 
