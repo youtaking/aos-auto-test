@@ -337,7 +337,7 @@ except Exception as e:
                           -e "FENIX_API_BASE_URL=__TARGET_URL__" \\
                           -e "HEADLESS=true" \\
                           -e "PYTHONUNBUFFERED=1" \\
-                          --network host \\
+                          --network bridge \\
                           test-runner:latest \\
                           pytest /app/tests/suites -m smoke -v --tb=short \\
                             --base-url=__TARGET_URL__ \\

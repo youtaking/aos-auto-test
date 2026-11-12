@@ -6,6 +6,7 @@ import allure
 import pytest
 import tempfile
 from pathlib import Path
+from playwright.sync_api import expect
 from tests.pages.chat_test_page import ChatTestPage
 
 # 新版聊天空态占位特征文案（含建议提示），命中视为消息区未渲染真实内容
@@ -241,18 +242,62 @@ def test_xss_protection(logged_in_page, base_url):
 
 # === TC-CHAT-020: 新建对话会话 ===
 
+@pytest.fixture
+def new_session_agent(logged_in_page, base_url):
+    """使用临时 Agent，避免共享 my-auto-test 的已回收实例污染会话创建验证。"""
+    api = logged_in_page.request
+
+    def request(method, path, body=None):
+        response = api.fetch(base_url + path, method=method, data=body, timeout=60000)
+        assert response.ok, f"{method} {path} 返回 {response.status}"
+        return response.json()["data"]
+
+    catalog = request("GET", "/web/config/agents")
+    agents = catalog["agents"] if isinstance(catalog, dict) else catalog
+    template = next(agent for agent in agents if agent["name"] == "my-auto-test")
+    config = request("GET", f"/web/config/agents/{template['id']}")
+    model_id = config.get("modelId")
+    assert model_id, "my-auto-test 未配置模型，无法准备会话创建测试"
+    name = f"e2e-session-{uuid.uuid4().hex[:10]}"
+    agent = request("POST", "/web/config/agents", {
+        "name": name,
+        "data": {"prompt": "简短回答用户问题。", "skillIds": [], "modelId": model_id},
+    })
+    try:
+        env = request("POST", "/web/environments", {
+            "name": name, "agentConfigId": agent["id"], "autoStart": False,
+        })
+        entered = request("POST", f"/web/environments/{env['id']}/enter", {})
+        instance = entered.get("instanceUid") or entered.get("instance", {}).get("instanceUid")
+        assert instance, "enter 未返回运行实例"
+        yield name, f"{base_url}/ctrl/agent/chat/{env['id']}/{instance}"
+    finally:
+        request("DELETE", f"/web/config/agents/{agent['id']}")
+        remaining = api.get(f"{base_url}/web/config/agents/{agent['id']}")
+        assert remaining.status == 404, f"临时 Agent 未清理：{agent['id']}"
+
+
 @pytest.mark.smoke
 @pytest.mark.order(55)
 @pytest.mark.p0
-def test_create_new_session(logged_in_page, base_url):
+def test_create_new_session(logged_in_page, base_url, new_session_agent):
     """✅ 人工评审通过 | 新建对话会话（TC-CHAT-020）"""
     chat = ChatTestPage(logged_in_page, base_url)
-    agent_name = "my-auto-test"
-    chat.goto_agent_chat(agent_name)
-    assert chat.is_chat_loaded()
+    agent_name, chat_url = new_session_agent
+    logged_in_page.goto(chat_url, wait_until="domcontentloaded")
+    sessions = logged_in_page.locator("[data-session-id]")
+    expect(sessions).to_have_count(1, timeout=60000)
+    model_span = logged_in_page.locator("[data-slot='chat-composer-model']")
+    expect(model_span).to_be_visible(timeout=30000)
+    old_session_id = sessions.first.get_attribute("data-session-id")
 
-    # 1. 新建会话
+    # 服务端确认创建且选中新的 sessionId，才能判为成功；空态/textarea 可见不足以证明。
     chat.create_new_session()
+    # 引擎可能从历史列表过滤未聊过天的旧会话，不以列表总数判断创建结果。
+    active = sessions.filter(has=logged_in_page.locator("button[aria-current='page']"))
+    expect(active).to_have_count(1)
+    expect(active).not_to_have_attribute("data-session-id", old_session_id, timeout=15000)
+    expect(active).to_contain_text("新会话")
 
     # 2. URL 仍在聊天页面且包含 /chat/
     assert "/chat/" in logged_in_page.url, f"新建会话后 URL 异常: {logged_in_page.url}"
@@ -280,13 +325,7 @@ def test_create_new_session(logged_in_page, base_url):
     #    模型名在 [data-slot='chat-composer-model']（title 属性承载完整模型名）。
     composer_card = logged_in_page.locator("div.chat-composer-island")
     assert composer_card.count() > 0, "输入框卡片（chat-composer-island）不存在"
-    model_span = logged_in_page.locator("[data-slot='chat-composer-model']")
-    # 模型名异步加载：CI 全量负载下点新会话后 meta 可能短暂空载，轮询等待而非裸 count()
-    for _ in range(15):
-        if model_span.count() > 0:
-            break
-        logged_in_page.wait_for_timeout(1000)
-    assert model_span.count() > 0, "未找到模型名称展示区域（data-slot=chat-composer-model）"
+    expect(model_span).to_be_visible(timeout=15000)
     model_title = model_span.first.get_attribute("title") or model_span.first.inner_text().strip()
     assert model_title.strip(), "模型名称为空"
 
