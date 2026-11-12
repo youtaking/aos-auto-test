@@ -252,6 +252,10 @@ def test_create_new_agent(logged_in_page, base_url, request):
     created = {}
 
     def cleanup_created_agent():
+        # 先卸载会话页面，停止对该实例的后台请求，再通过 API 删除。
+        # 否则会话初始化与删除竞态可能触发 chat-spaces 404；保留错误监控。
+        if not logged_in_page.is_closed():
+            logged_in_page.goto("about:blank", wait_until="load")
         response = logged_in_page.request.get(f"{base_url}/web/config/agents")
         assert response.ok, f"清理前查询 Agent 失败: {response.status}"
         matches = [a for a in response.json()["data"]["agents"]
